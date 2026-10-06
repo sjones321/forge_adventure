@@ -55,4 +55,14 @@ public class ConfigData {
      */
     public String defaultAdventureAiProfile = "Adventure";
 
+    /**
+     * Sealed start: boosters of the chosen set given at new game. The first
+     * sealedStartOpenedPacks are opened to auto-build the starting deck (all of
+     * those cards go to the collection); the rest stay unopened in inventory.
+     */
+    public int sealedStartPacks = 10;
+    public int sealedStartOpenedPacks = 5;
+    /** Extra gold on top of the difficulty's starting money for a sealed start. */
+    public int sealedStartBonusGold = 500;
+
 }

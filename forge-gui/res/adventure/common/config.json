@@ -285,6 +285,8 @@
       "J25",
       "TLA",
       "MSH",
+      "SPM",
+      "TMT",
       "(All)"
   ],
     "starterEditionNames": [
@@ -298,6 +300,8 @@
       "Jumpstart 25",
       "The Last Airbender",
       "Marvel Superheroes",
+      "Marvel's Spider-Man",
+      "Teenage Mutant Ninja Turtles",
       "(All)"
     ]
 }

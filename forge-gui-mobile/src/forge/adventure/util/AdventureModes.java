@@ -4,6 +4,7 @@ import com.badlogic.gdx.utils.Array;
 import forge.Forge;
 
 public enum AdventureModes {
+    Sealed(Forge.getLocalizer().getMessageorUseDefault("lblSealed", "Sealed")),
     Standard(Forge.getLocalizer().getMessage("lblStandard")),
     Constructed(Forge.getLocalizer().getMessage("lblConstructed")),
     Chaos("[GOLD]"+Forge.getLocalizer().getMessage("lblChaos")),
@@ -51,6 +52,6 @@ public enum AdventureModes {
     }
 
     public boolean usesStarterEditionSelector() {
-        return this == Standard || usesFolderDeckPicker();
+        return this == Standard || this == Sealed || usesFolderDeckPicker();
     }
 }

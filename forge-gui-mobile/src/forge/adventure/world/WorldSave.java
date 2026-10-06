@@ -4,6 +4,7 @@ import com.badlogic.gdx.utils.TimeUtils;
 import forge.Forge;
 import com.badlogic.gdx.Gdx;
 import forge.OverlayText;
+import forge.adventure.data.ConfigData;
 import forge.adventure.data.DifficultyData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.pointofintrest.PointOfInterest;
@@ -16,11 +17,17 @@ import forge.adventure.util.*;
 import forge.card.CardEdition;
 import forge.card.ColorSet;
 import forge.deck.Deck;
+import forge.gamemodes.limited.SealedDeckBuilder;
+import forge.item.PaperCard;
 import forge.localinstance.properties.ForgeConstants;
+import forge.model.FModel;
 import forge.player.GamePlayerUtil;
+import forge.util.Aggregates;
 
 import java.io.*;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 
@@ -150,13 +157,65 @@ public class WorldSave {
         boolean chaos = mode == AdventureModes.Chaos;
         boolean custom = mode == AdventureModes.Custom;
 
-        Deck starterDeck = Config.instance().starterDeck(startingColorIdentity, diff, mode, customDeckIndex, starterEdition);
-        currentSave.player.create(name, starterDeck, male, race, avatarIndex, chaos, custom, diff, mode);
+        if (mode == AdventureModes.Sealed) {
+            createSealedStart(name, male, race, avatarIndex, diff, starterEdition);
+        } else {
+            Deck starterDeck = Config.instance().starterDeck(startingColorIdentity, diff, mode, customDeckIndex, starterEdition);
+            currentSave.player.create(name, starterDeck, male, race, avatarIndex, chaos, custom, diff, mode);
+        }
 
         currentSave.player.setWorldPosY((int) (currentSave.world.getData().playerStartPosY * currentSave.world.getData().height * currentSave.world.getTileSize()));
         currentSave.player.setWorldPosX((int) (currentSave.world.getData().playerStartPosX * currentSave.world.getData().width * currentSave.world.getTileSize()));
         currentSave.onLoadList.emit();
         return currentSave;
+    }
+
+    /**
+     * Sealed start: open some boosters of the chosen set into an auto-built deck,
+     * put every opened card in the collection, and keep the rest of the boosters
+     * unopened in the inventory along with some bonus gold.
+     */
+    private static void createSealedStart(String name, boolean male, int race, int avatarIndex, DifficultyData diff, CardEdition starterEdition) {
+        ConfigData config = Config.instance().getConfigData();
+        String setCode = sealedSetCode(starterEdition);
+        int totalPacks = Math.max(1, config.sealedStartPacks);
+        int openedPacks = Math.max(1, Math.min(config.sealedStartOpenedPacks, totalPacks));
+
+        List<PaperCard> pool = new ArrayList<>();
+        List<Deck> unopened = new ArrayList<>();
+        for (int i = 0; i < totalPacks; i++) {
+            Deck booster = AdventureEventController.instance().generateBooster(setCode);
+            if (i < openedPacks)
+                pool.addAll(booster.getMain().toFlatList());
+            else
+                unopened.add(booster);
+        }
+
+        Deck starterDeck = new SealedDeckBuilder(pool).buildDeck(setCode);
+        starterDeck.setName(FModel.getMagicDb().getEditions().get(setCode).getName() + " Sealed");
+        currentSave.player.create(name, starterDeck, male, race, avatarIndex, false, false, diff, AdventureModes.Sealed);
+
+        // create() already put the deck's cards in the collection; add the opened cards that didn't make the deck
+        List<PaperCard> leftovers = new ArrayList<>(pool);
+        for (PaperCard card : starterDeck.getAllCardsInASinglePool(true, true).toFlatList())
+            leftovers.remove(card);
+        for (PaperCard card : leftovers)
+            currentSave.player.addCard(card);
+        for (Deck booster : unopened)
+            currentSave.player.addBooster(booster);
+        currentSave.player.giveGold(config.sealedStartBonusGold);
+    }
+
+    /** The chosen starter set if it has boosters, otherwise a random starter set that does. */
+    private static String sealedSetCode(CardEdition starterEdition) {
+        if (starterEdition != null && AdventureOverrides.instance().getBoosterTemplate(starterEdition.getCode()) != null)
+            return starterEdition.getCode();
+        List<String> candidates = new ArrayList<>();
+        for (String code : Config.instance().starterEditions()) {
+            if (AdventureOverrides.instance().getBoosterTemplate(code) != null)
+                candidates.add(code);
+        }
+        return candidates.isEmpty() ? "JMP" : Aggregates.random(candidates);
     }
 
     public boolean autoSave() {

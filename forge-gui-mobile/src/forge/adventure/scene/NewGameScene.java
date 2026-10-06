@@ -12,6 +12,7 @@ import com.badlogic.gdx.utils.Array;
 
 import com.github.tommyettinger.textra.TextraLabel;
 import forge.Forge;
+import forge.adventure.data.ConfigData;
 import forge.adventure.data.DialogData;
 import forge.adventure.data.DifficultyData;
 import forge.adventure.data.HeroListData;
@@ -84,6 +85,11 @@ public class NewGameScene extends MenuScene {
             colorNames.add(UIActor.localize(idName));
         colorId.setTextList(colorNames);
 
+        modes.add(AdventureModes.Sealed);
+        AdventureModes.Sealed.setSelectionName(deckLabel);
+        AdventureModes.Sealed.setModes(new Array<>(new String[]{
+                Forge.getLocalizer().getMessageorUseDefault("lblSealedAutoDeck", "Built from your packs")}));
+
         for (DifficultyData diff : Config.instance().getConfigData().difficulties)//check first difficulty if exists
         {
             if (diff.starterDecks != null) {
@@ -148,17 +154,18 @@ public class NewGameScene extends MenuScene {
         }
 
         String[] modeNames = new String[modes.size];
-        int constructedIndex = -1;
+        // Default to the Sealed start so new players open packs of a set they picked
+        int defaultIndex = -1;
 
         for (int i = 0; i < modes.size; i++) {
             modeNames[i] = modes.get(i).getName();
-            if (modes.get(i) == AdventureModes.Constructed) {
-                constructedIndex = i;
+            if (modes.get(i) == AdventureModes.Sealed) {
+                defaultIndex = i;
             }
         }
 
         mode.setTextList(modeNames);
-        mode.setCurrentIndex(constructedIndex != -1 ? constructedIndex : 0);
+        mode.setCurrentIndex(defaultIndex != -1 ? defaultIndex : 0);
 
         AdventureModes initialMode = modes.get(mode.getCurrentIndex());
         updateModeSelectionState(initialMode);
@@ -292,7 +299,7 @@ public class NewGameScene extends MenuScene {
             starterEdition.setTextList(Config.instance().getCommanderPreconSetNames());
             starterEditionLabel.setText("[BLACK]" + Forge.getLocalizer().getMessageorUseDefault("lblEdition", "Edition") + ":");
             colorId.setTextList(Config.instance().filterCommanderPreconDecks(starterEdition.getCurrentIndex()));
-        } else if (selectedMode == AdventureModes.Standard) {
+        } else if (selectedMode == AdventureModes.Standard || selectedMode == AdventureModes.Sealed) {
             starterEditionLabel.setText(originalEditionLabelText);
             starterEdition.setTextList(originalEditionNames);
             colorId.setTextList(selectedMode.getModes());
@@ -315,7 +322,7 @@ public class NewGameScene extends MenuScene {
 
     private CardEdition getStartingEdition() {
         AdventureModes currentMode = modes.get(mode.getCurrentIndex());
-        if (currentMode == AdventureModes.Standard && editionIds.length > 0) {
+        if ((currentMode == AdventureModes.Standard || currentMode == AdventureModes.Sealed) && editionIds.length > 0) {
             int idx = starterEdition.getCurrentIndex();
             return editionIds[idx < editionIds.length ? idx : 0];
         }
@@ -470,6 +477,17 @@ public class NewGameScene extends MenuScene {
 
         StringBuilder summaryText = new StringBuilder();
         switch (selectedMode) {
+            case Sealed: {
+                ConfigData config = Config.instance().getConfigData();
+                int opened = Math.max(1, Math.min(config.sealedStartOpenedPacks, config.sealedStartPacks));
+                summaryText.append(localizer.getMessageorUseDefault("advModeSealedSummary",
+                        "Sealed: you get " + config.sealedStartPacks + " boosters of the chosen set. "
+                        + opened + " are opened to build your starting deck, and every card from them goes into your collection. "
+                        + "The other " + (config.sealedStartPacks - opened) + " wait unopened in your inventory, "
+                        + "and you start with " + config.sealedStartBonusGold + " extra gold to fill the gaps. "
+                        + "If the chosen set has no boosters, a random starter set is used."));
+                break;
+            }
             case Standard:
                 summaryText.append(localizer.getMessage("advModeStandardSummary"));
                 switch (selectedDifficulty.name) {

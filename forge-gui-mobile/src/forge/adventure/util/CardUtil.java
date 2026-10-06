@@ -481,6 +481,12 @@ public class CardUtil {
                     if (packContents.stream().filter(x -> x.getName().equals(targetName)).count() >= 3)
                         packCandidates.putIfAbsent(template.getEdition(), packContents);
                 }
+                // Sets without Jumpstart-style themed packs (e.g. MSH, SPM, TMT) build one from the set's own cards
+                if (packCandidates.isEmpty() && starterEdition != null) {
+                    List<PaperCard> setPack = generateSetThemedPack(starterEdition, targetColor, targetName);
+                    if (!setPack.isEmpty())
+                        packCandidates.put(starterEdition.getCode() + " " + targetName + " " + i, setPack);
+                }
                 List<PaperCard> selectedPack;
                 if (discourageDuplicates) {
                     Map<String, List<PaperCard>> filteredPackCandidates = new HashMap<>();
@@ -524,6 +530,67 @@ public class CardUtil {
             deck.getOrCreate(DeckSection.Main).addAllFlat(nonLand);
         }
         return deck;
+    }
+
+    /**
+     * Builds a 20-card Jumpstart-style pack for one color from a set's own cards:
+     * 8 basics plus 12 spells (8 common, 3 uncommon, 1 rare). Mythics, restricted cards
+     * and more than two spells costing 6+ are left out so starter decks stay modest.
+     */
+    private static List<PaperCard> generateSetThemedPack(CardEdition edition, byte color, String basicName) {
+        List<PaperCard> pack = new ArrayList<>();
+        Set<String> restricted = new HashSet<>();
+        String[] restrictedCards = Config.instance().getConfigData().restrictedCards;
+        if (restrictedCards != null)
+            restricted.addAll(Arrays.asList(restrictedCards));
+
+        Map<CardRarity, List<PaperCard>> byRarity = new HashMap<>();
+        Set<String> seen = new HashSet<>();
+        for (PaperCard card : StaticData.instance().getCommonCards().getAllCards(edition)) {
+            CardRules rules = card.getRules();
+            if (rules.getType().isLand() || restricted.contains(card.getName()) || !seen.add(card.getName()))
+                continue;
+            ColorSet cardColor = rules.getColor();
+            boolean onColor = cardColor.isMonoColor() && cardColor.hasAnyColor(color);
+            if (!onColor && !cardColor.isColorless())
+                continue;
+            byRarity.computeIfAbsent(card.getRarity(), r -> new ArrayList<>()).add(card);
+        }
+
+        int[] bigSpells = {0};
+        Random random = Current.world().getRandom();
+        java.util.function.BiConsumer<CardRarity, Integer> pick = (rarity, count) -> {
+            List<PaperCard> pool = new ArrayList<>(byRarity.getOrDefault(rarity, Collections.emptyList()));
+            Collections.shuffle(pool, random);
+            int added = 0;
+            for (PaperCard card : pool) {
+                if (added >= count)
+                    break;
+                if (card.getRules().getManaCost().getCMC() >= 6) {
+                    if (bigSpells[0] >= 2)
+                        continue;
+                    bigSpells[0]++;
+                }
+                pack.add(card);
+                added++;
+            }
+        };
+        pick.accept(CardRarity.Rare, 1);
+        pick.accept(CardRarity.Uncommon, 3);
+        // Commons fill whatever the rarer slots could not
+        pick.accept(CardRarity.Common, 12 - pack.size());
+        if (pack.isEmpty())
+            return pack;
+        // Small sets may run short on one color; repeat cards rather than hand out a thin deck
+        while (pack.size() < 12)
+            pack.add(Aggregates.random(pack));
+
+        PaperCard basic = StaticData.instance().getCommonCards().getCard(basicName, edition.getCode());
+        if (basic == null)
+            basic = StaticData.instance().getCommonCards().getCard(basicName);
+        for (int l = 0; l < 8; l++)
+            pack.add(basic);
+        return pack;
     }
 
     private static List<PaperCard> fillWithLands(List<PaperCard> nonLands, GeneratedDeckTemplateData template) {
