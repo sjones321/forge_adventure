@@ -6,6 +6,7 @@ import forge.adventure.data.ShopData;
 import forge.adventure.pointofintrest.PointOfInterestChanges;
 import forge.adventure.scene.RewardScene;
 import forge.adventure.stage.MapStage;
+import forge.adventure.util.Config;
 import forge.adventure.util.Reward;
 
 
@@ -61,6 +62,9 @@ public class ShopActor extends MapActor {
     }
 
     public boolean canRestock() {
+        if (!Config.instance().getConfigData().enableShopRestock) {
+            return false;
+        }
         return getRestockPrice() > 0;
     }
 

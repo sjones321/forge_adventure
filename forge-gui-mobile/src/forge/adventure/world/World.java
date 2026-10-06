@@ -57,6 +57,10 @@ public class World implements Disposable, SaveFileContent {
         return random;
     }
 
+    public long getSeed() {
+        return seed;
+    }
+
     static public int highestBiome(long biome) {
         return (int) (Math.log(Long.highestOneBit(biome)) / Math.log(2));
     }

@@ -792,18 +792,24 @@ public class DuelScene extends ForgeScene {
     }
 
     private String selectAI(String ai) { //Decide opponent AI.
-        String AI = ""; //Use user settings if it's null.
-        if (ai != null) {
-            AI = switch (ai.toLowerCase()) { //We use this way to ensure capitalization is exact.
-                //We don't want misspellings here.
-                case "default" -> "Default";
-                case "reckless" -> "Reckless";
-                case "cautious" -> "Cautious";
-                case "experimental" -> "Experimental";
-                default -> ""; //User settings.
-            };
+        // Adventure enemies with an empty/null ai field use the Adventure profile so
+        // Constructed Default.ai stays untouched for lobby games.
+        String fallback = Config.instance().getConfigData().defaultAdventureAiProfile;
+        if (fallback == null || fallback.isEmpty()) {
+            fallback = "Adventure";
         }
-        return AI;
+        if (ai == null || ai.isEmpty()) {
+            return fallback;
+        }
+        return switch (ai.toLowerCase()) { //We use this way to ensure capitalization is exact.
+            //We don't want misspellings here.
+            case "default" -> "Default";
+            case "reckless" -> "Reckless";
+            case "cautious" -> "Cautious";
+            case "experimental" -> "Experimental";
+            case "adventure" -> "Adventure";
+            default -> fallback;
+        };
     }
 
     private FBufferedImage getFBEnemyAvatar() {

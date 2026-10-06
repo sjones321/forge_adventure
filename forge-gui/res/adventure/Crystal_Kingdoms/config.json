@@ -84,6 +84,9 @@
   "allowedEditions": [
     "FIN"
   ],
+  "enableShopRestock": false,
+  "enableRotatingShops": false,
+  "defaultAdventureAiProfile": "Adventure",
   "difficulties": [
     {
       "name": "Easy",
@@ -94,7 +97,7 @@
       "spawnRank": 0,          
       "goldLoss": 0.02,          
       "lifeLoss": 0.1,
-      "rewardMaxFactor" : 1.5,
+      "rewardMaxFactor" : 0.85,
       "sellFactor": 0.6,  
       "shardSellRatio": 0.95,
       "starterDecks": {
