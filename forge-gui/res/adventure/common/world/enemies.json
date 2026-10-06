@@ -3735,7 +3735,7 @@
     "ai": "",
     "spawnRate": 0.5,
     "difficulty": 0.2,
-    "speed": 25,
+     "speed": 25,
     "life": 12,
     "rewards": [
       {
@@ -13910,7 +13910,7 @@
     "ai": "",
     "spawnRate": 1,
     "difficulty": 0.2,
-    "speed": 35,
+     "speed": 35,
     "life": 12,
     "rewards": [
       {
@@ -19852,7 +19852,7 @@
       "Lorthos"
     ],
     "gamesPerMatch": 3,
-    "bossInsult": "The deep remembers every failure\u2026 and now it remembers you.",
+    "bossInsult": "The deep remembers every failure… and now it remembers you.",
     "bossIntro": "Struggle if you must. The ocean always claims what enters it."
   },
   {
@@ -26933,7 +26933,7 @@
     "ai": "",
     "spawnRate": 0.5,
     "difficulty": 0.2,
-    "scale": 0.8,
+    "scale":0.8,
     "speed": 25,
     "life": 12,
     "rewards": [

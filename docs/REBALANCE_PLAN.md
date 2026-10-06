@@ -386,13 +386,13 @@ Java heap: prefer launch scripts (`-Xmx` raised); don’t rely on double-click d
 
 | ID | Item | Depends | Type |
 |----|------|---------|------|
-| E1 | Config flag or map pass: disable restock + rotating | — | Data/Java |
+| E1 | Config flag or map pass: disable restock + rotating | — | Data/Java | **DONE (first build)** |
 | E2 | Specialize shops.json + town wiring for one biome | E1 | Data |
-| E3 | Easy `rewardMaxFactor` + low-diff enemy gold nerf | — | Data |
+| E3 | Easy `rewardMaxFactor` + low-diff enemy gold nerf | — | Data | **DONE (first build)** |
 | E4 | Relative gold scaling using `EnemyData.difficulty` | E3 | Java |
 | E5 | NG+ unlock generations + pool filter | E2 | Java/Data |
 | E6 | `ShopData.priceModifier` + 3 bundle shops | E2 | Java/Data |
-| A1 | Default/Adventure.ai profile tweaks | — | Data |
+| A1 | Default/Adventure.ai profile tweaks | — | Data | **DONE (first build)** |
 | A2 | Counterspell mana reservation | A1 | Java |
 | A3 | Stricter bad-attack filter | A1 | Java |
 | A4 | GameStateEvaluator open-mana TODO | A2 | Java |

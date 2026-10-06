@@ -84,7 +84,7 @@
   "allowedEditions": [
     "FIN"
   ],
-    "enableShopRestock": false,
+  "enableShopRestock": false,
   "enableRotatingShops": false,
   "defaultAdventureAiProfile": "Adventure",
   "difficulties": [
