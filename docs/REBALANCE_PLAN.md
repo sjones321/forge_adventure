@@ -1,8 +1,18 @@
 # Forge Adventure / AI Rebalance Plan
 
 **Repo:** `sjones321/forge_adventure` (fork of Card-Forge/forge)  
-**Scope:** Investigation and design only — no game code changes in this PR.  
+**Scope:** First playable rebalance build implements backlog E1, E3, A1 (see “Done in first build” below).  
 **Goals (Stephen):** (1) Adventure economy/shops that reward exploration over grind, with set progression via NG+; (2) less linear match AI; (3) keep a path open for later co-op Adventure as true Two-Headed Giant.
+
+### Done in first build
+
+| ID | What shipped |
+|----|----------------|
+| **E1** | `enableShopRestock` / `enableRotatingShops` default **false** in adventure `config.json`. Restock button hidden; shard restock disabled. Rotating/mystery shops keep a **stable** identity per save (no daily rotate). Existing saves still load. |
+| **E3** | Easy `rewardMaxFactor` **1.5 → 0.85** (all plane configs). Low-difficulty enemy gold/loot nerfed in `common/world/enemies.json` (typical trash gold EV ~10× lower on Easy). Harder/boss gold left alone. Saves rematch `rewardMaxFactor` from config on load. |
+| **A1** | New `forge-gui/res/ai/Adventure.ai` (safer attacks / open-mana / danger jitter / counter CMC discipline). Adventure duels default empty `EnemyData.ai` to this profile via `defaultAdventureAiProfile`. Constructed `Default.ai` unchanged. |
+
+**Not in this build:** E2 shop specialization, E4 relative gold Java scaling, E5 NG+, A2–A4 AI code, C1/C2 co-op.
 
 ---
 

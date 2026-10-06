@@ -662,7 +662,14 @@ public class MapStage extends GameStage {
                         Array<String> possibleShops = new Array<>(rotation.split(","));
 
                         if (possibleShops.size > 0) {
-                            long rotatingRandomSeed = WorldSave.getCurrentSave().getWorld().getRandom().nextLong() + LocalDate.now().toEpochDay();
+                            // When rotating shops are disabled, pick a stable identity for this save
+                            // (world seed + object id) instead of a daily mystery rotation.
+                            long rotatingRandomSeed;
+                            if (Config.instance().getConfigData().enableRotatingShops) {
+                                rotatingRandomSeed = WorldSave.getCurrentSave().getWorld().getRandom().nextLong() + LocalDate.now().toEpochDay();
+                            } else {
+                                rotatingRandomSeed = WorldSave.getCurrentSave().getWorld().getSeed() + id;
+                            }
                             Random rotatingShopRandom = new Random(rotatingRandomSeed);
                             rotatingShop = possibleShops.get(rotatingShopRandom.nextInt(possibleShops.size));
                             changes.setRotatingShopSeed(id, rotatingRandomSeed);
@@ -676,10 +683,11 @@ public class MapStage extends GameStage {
                         String shopList = "";
 
                         boolean isRotatingShop = !rotatingShop.isEmpty();
+                        boolean shopRestockEnabled = Config.instance().getConfigData().enableShopRestock;
 
                         if (isRotatingShop) {
                             shopList = rotatingShop;
-                            restockPrice = 7;
+                            restockPrice = shopRestockEnabled ? 7 : 0;
                         } else {
                             int rarity = WorldSave.getCurrentSave().getWorld().getRandom().nextInt(100);
                             if (rarity > 95 & prop.containsKey("mythicShopList")) {
@@ -705,7 +713,7 @@ public class MapStage extends GameStage {
                             shopList = shopList.replaceAll("\\s", "");
                         }
 
-                        if (prop.containsKey("noRestock") && (boolean) prop.get("noRestock")) {
+                        if (!shopRestockEnabled || (prop.containsKey("noRestock") && (boolean) prop.get("noRestock"))) {
                             restockPrice = 0;
                         }
 

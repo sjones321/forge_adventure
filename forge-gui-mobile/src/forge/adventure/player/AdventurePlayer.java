@@ -437,9 +437,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             this.difficultyData.spawnRank = configuredDifficulty.spawnRank;
         else
             this.difficultyData.spawnRank = data.readInt("spawnRank");
-        if (configuredDifficulty != null && !data.containsKey("rewardMaxFactor"))
+        // Always refresh rewardMaxFactor from plane config so economy rebalance
+        // applies to existing saves without breaking load compatibility.
+        if (configuredDifficulty != null)
             this.difficultyData.rewardMaxFactor = configuredDifficulty.rewardMaxFactor;
-        else
+        else if (data.containsKey("rewardMaxFactor"))
             this.difficultyData.rewardMaxFactor = data.readFloat("rewardMaxFactor");
         // END SPECIAL CASES
 
