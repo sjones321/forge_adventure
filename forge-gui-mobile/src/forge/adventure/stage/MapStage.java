@@ -852,6 +852,7 @@ public class MapStage extends GameStage {
     public void setWinner(boolean playerWins, boolean isArena) {
         isLoadingMatch = false;
         freezeAllEnemyBehaviors = true;
+        Current.player().getSkills().onDuelFinished(playerWins, currentMob);
         if (playerWins) {
             currentMob.clearCollisionHeight();
             Current.player().win();

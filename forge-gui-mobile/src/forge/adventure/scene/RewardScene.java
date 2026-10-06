@@ -652,6 +652,7 @@ public class RewardScene extends UIScene {
             price = CardUtil.getRewardPrice(actor.getReward());
             price *= Current.player().goldModifier();
             price *= shopModifier;
+            price *= Current.player().getSkills().shopPriceFactor(); //Bartering skill discount
             setText("[+GoldCoin] " + price);
             updateOwned();
             addListener(new ClickListener() {
@@ -662,6 +663,7 @@ public class RewardScene extends UIScene {
                             changes.buyCard(objectID, index);
 
                         Current.player().takeGold(price);
+                        Current.player().getSkills().onShopPurchase(price);
                         Current.player().addReward(rewardActor.getReward());
 
                         HapticEngine.vibrate(FPref.UI_VIBRATE_ON_SHOP_ACTION, 5);

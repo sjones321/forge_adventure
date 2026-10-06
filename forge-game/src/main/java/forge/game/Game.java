@@ -351,6 +351,7 @@ public class Game {
             }
             pl.setMaxHandSize(psc.getStartingHand());
             pl.setStartingHandSize(psc.getStartingHand());
+            pl.setFreeMulligans(psc.getFreeMulligans());
 
             if (psc.getManaShards() > 0) {
                 pl.setNumManaShards(psc.getManaShards());

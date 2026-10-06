@@ -12,6 +12,7 @@ import forge.adventure.character.CharacterSprite;
 import forge.adventure.character.EnemySprite;
 import forge.adventure.data.*;
 import forge.adventure.pointofintrest.PointOfInterest;
+import forge.adventure.pointofintrest.PointOfInterestChanges;
 import forge.adventure.scene.DuelScene;
 import forge.adventure.scene.GameScene;
 import forge.adventure.scene.RewardScene;
@@ -169,6 +170,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
     @Override
     public void setWinner(boolean playerIsWinner, boolean isArena) {
+        Current.player().getSkills().onDuelFinished(playerIsWinner, currentMob);
         if (playerIsWinner) {
             currentMob.clearCollisionHeight();
             Current.player().win();
@@ -234,7 +236,10 @@ public class WorldStage extends GameStage implements SaveFileContent {
                         WorldSave.getCurrentSave().autoSave();
                         loadPOI(point.getPointOfInterest());
                         point.getMapSprite().checkOut();
-                        WorldSave.getCurrentSave().getPointOfInterestChanges(point.getPointOfInterest().getID()).visit();
+                        PointOfInterestChanges changes = WorldSave.getCurrentSave().getPointOfInterestChanges(point.getPointOfInterest().getID());
+                        if (!changes.isVisited())
+                            Current.player().getSkills().onPlaceDiscovered(point.getPointOfInterest().getData().type);
+                        changes.visit();
                     });
                     return true;
                 } else {

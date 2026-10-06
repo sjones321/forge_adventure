@@ -127,7 +127,7 @@ public class MatchScreen extends FScreen {
 
         bottomPlayerPrompt = add(new VPrompt("", "",
                 e -> getGameController().selectButtonOk(),
-                e -> getGameController().selectButtonCancel()));
+                e -> getGameController().selectButtonCancel(), true));
 
         if (humanCount < 2 || MatchController.instance.hotSeatMode() || GuiBase.isNetPlay(MatchController.instance))
             topPlayerPrompt = null;
@@ -647,6 +647,9 @@ public class MatchScreen extends FScreen {
                 if (getActivePrompt().getBtnOk().trigger()) { //trigger OK on Enter or Space
                     return true;
                 }
+                //never fall through to Cancel when it would end the turn; too easy to skip a turn by accident
+                if (getActivePrompt().getBtnCancel().getText().equals(Forge.getLocalizer().getMessage("lblEndTurn")))
+                    return true;
                 return getActivePrompt().getBtnCancel().trigger(); //trigger Cancel if can't trigger OK
             case Keys.ESCAPE: {
                 boolean cancelEligible = FModel.getPreferences().getPrefBoolean(FPref.UI_ALLOW_ESC_TO_END_TURN) || Forge.hasGamepad()
@@ -655,20 +658,20 @@ public class MatchScreen extends FScreen {
             }
             case Keys.BACK:
                 return true; //suppress Back button so it's not bumped when trying to press OK or Cancel buttons
-            case Keys.A: //alpha strike on Ctrl+A on Android, A when running on desktop
-                if (KeyInputAdapter.isCtrlKeyDown() || GuiBase.getInterface().isRunningOnDesktop() || Forge.hasGamepad()) {
+            case Keys.A: //alpha strike on Ctrl+A (no bare key: too easy to swing everything by accident)
+                if (KeyInputAdapter.isCtrlKeyDown() || Forge.hasGamepad()) {
                     getGameController().alphaStrike();
                     return true;
                 }
                 break;
-            case Keys.E: //end turn on Ctrl+E on Android, E when running on desktop
-                if (KeyInputAdapter.isCtrlKeyDown() || GuiBase.getInterface().isRunningOnDesktop()) {
+            case Keys.E: //end turn on Ctrl+E (no bare key: too easy to end the turn by accident)
+                if (KeyInputAdapter.isCtrlKeyDown()) {
                     YieldController.endTurn(getGameController(), MatchController.instance.getCurrentPlayer());
                     return true;
                 }
                 break;
-            case Keys.P: //auto-pass toggle on Ctrl+P on Android, P when running on desktop
-                if (KeyInputAdapter.isCtrlKeyDown() || GuiBase.getInterface().isRunningOnDesktop()) {
+            case Keys.P: //auto-pass toggle on Ctrl+P (no bare key: too easy to skip turns by accident)
+                if (KeyInputAdapter.isCtrlKeyDown()) {
                     YieldController.toggleAutoPassOrStopAll(getGameController());
                     return true;
                 }

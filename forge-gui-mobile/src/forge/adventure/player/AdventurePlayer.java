@@ -133,6 +133,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         equippedItems.clear();
         deckLoadouts.clear();
         characterFlags.clear();
+        skills.clear();
         questFlags.clear();
         quests.clear();
         events.clear();
@@ -151,6 +152,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     private final CardPool cards = new CardPool();
+    private final PlayerSkills skills = new PlayerSkills();
+
+    public PlayerSkills getSkills() {
+        return skills;
+    }
 
     public final ItemPool<PaperCard> newCards = new ItemPool<>(PaperCard.class);
     public final ItemPool<PaperCard> autoSellCards = new ItemPool<>(PaperCard.class);
@@ -583,6 +589,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 characterFlags.put(keys[i], values[i]);
             }
         }
+        skills.load(data.containsKey("skillXpKeys") ? (String[]) data.readObject("skillXpKeys") : null,
+                data.containsKey("skillXpValues") ? (Integer[]) data.readObject("skillXpValues") : null);
 
         if (data.containsKey("questFlagsKey") && data.containsKey("questFlagsValue")) {
             String[] keys = (String[]) data.readObject("questFlagsKey");
@@ -858,6 +866,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
         data.storeObject("characterFlagsKey", characterFlagsKey.toArray(new String[0]));
         data.storeObject("characterFlagsValue", characterFlagsValue.toArray(new Byte[0]));
+        data.storeObject("skillXpKeys", skills.saveKeys());
+        data.storeObject("skillXpValues", skills.saveValues());
 
         // Save quest flags.
         ArrayList<String> questFlagsKey = new ArrayList<>();
@@ -965,18 +975,32 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     public void addCard(PaperCard card, int amount) {
+        awardCollectingXp(card, amount);
         cards.add(card, amount);
         newCards.add(card, amount);
     }
 
     public void addCards(ItemPool<PaperCard> cardPool) {
+        for (Map.Entry<PaperCard, Integer> entry : cardPool)
+            awardCollectingXp(entry.getKey(), entry.getValue());
         cards.addAll(cardPool);
         newCards.addAll(cardPool);
+    }
+
+    /** Collecting XP: call before the card is added so the first copy of a card name is detected. */
+    private void awardCollectingXp(PaperCard card, int amount) {
+        if (card == null || amount <= 0)
+            return;
+        boolean firstCopy = cards.countByName(card.getName()) == 0;
+        skills.onCardCollected(card, firstCopy);
+        for (int i = 1; i < amount; i++)
+            skills.onCardCollected(card, false);
     }
 
     public void addReward(Reward reward) {
         switch (reward.getType()) {
             case Card:
+                awardCollectingXp(reward.getCard(), 1);
                 cards.add(reward.getCard());
                 newCards.add(reward.getCard());
                 if (reward.isAutoSell()) {
@@ -1283,7 +1307,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
 
         float townPriceModifier = currentLocationChanges == null ? 1f : currentLocationChanges.getTownPriceModifier();
-        return (int) (basePrice * (2.0f - townPriceModifier));
+        return (int) (basePrice * (2.0f - townPriceModifier) * skills.sellPriceFactor());
     }
 
     /**
@@ -1299,6 +1323,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
         if(earned > 0)
             giveGold(earned);
+        skills.onCardsSold(amountToSell, earned);
         return amountToSell;
     }
 
@@ -1308,11 +1333,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
      */
     public void doBulkSell(ItemPool<PaperCard> cards) {
         int profit = 0;
+        int sold = 0;
         for (PaperCard cardToSell : cards.toFlatList()) {
             profit += AdventurePlayer.current().performSale(cardToSell, 1);
             cards.remove(cardToSell);
+            sold++;
         }
         giveGold(profit); //do this as one transaction so as not to get multiple copies of sound effect
+        skills.onCardsSold(sold, profit);
     }
 
     /**
@@ -1367,7 +1395,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             if (blessing.moveSpeed > 0.0)
                 factor *= blessing.moveSpeed;
         }
-        return factor;
+        return factor * skills.moveSpeedFactor();
+    }
+
+    /** Re-applies stat effects that skills change (e.g. Exploration move speed). */
+    void refreshSkillEffects() {
+        onEquipmentChange.emit();
     }
 
     public float goldModifier(boolean sale) {

@@ -70,6 +70,7 @@ public class PlayerStatisticScene extends UIScene {
         blessingScroll.setWrap(true);
         ui.onButtonPress("return", PlayerStatisticScene.this::back);
         ui.onButtonPress("quests", PlayerStatisticScene.this::quests);
+        ui.onButtonPress("skills", () -> Forge.switchScene(SkillsScene.instance(lastGameScene), true));
         avatar = ui.findActor("avatar");
         avatarBorder = ui.findActor("avatarBorder");
         playerName = ui.findActor("playerName");

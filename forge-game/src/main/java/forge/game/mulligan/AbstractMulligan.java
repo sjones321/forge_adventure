@@ -12,11 +12,14 @@ public abstract class AbstractMulligan {
     Player player;
     int timesMulliganed = 0;
     boolean firstMulliganFree = false;
+    /** How many mulligans cost no card: one if the format grants it, plus the player's own free mulligans. */
+    int freeMulligans = 0;
     boolean kept = false;
 
     public AbstractMulligan(Player p, boolean firstMullFree) {
         player = p;
-        firstMulliganFree = firstMullFree;
+        freeMulligans = (firstMullFree ? 1 : 0) + p.getFreeMulligans();
+        firstMulliganFree = freeMulligans > 0;
     }
 
     public Player getPlayer() { return player; }

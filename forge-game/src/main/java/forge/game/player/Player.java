@@ -89,6 +89,7 @@ public class Player extends GameEntity implements Comparable<Player> {
     private int lifeGainedByTeamThisTurn;
     private int maxHandSize = 7;
     private int startingHandSize = 7;
+    private int freeMulligans = 0;
     private boolean unlimitedHandSize = false;
     private Card lastDrawnCard;
     private int numDrawnThisTurn;
@@ -2229,6 +2230,14 @@ public class Player extends GameEntity implements Comparable<Player> {
     }
     public void setStartingHandSize(int shs) {
         startingHandSize = shs;
+    }
+
+    /** Mulligans that don't cost a card, on top of any the format grants. */
+    public int getFreeMulligans() {
+        return freeMulligans;
+    }
+    public void setFreeMulligans(int n) {
+        freeMulligans = Math.max(0, n);
     }
 
     public final int getLandsPlayedThisTurn() {

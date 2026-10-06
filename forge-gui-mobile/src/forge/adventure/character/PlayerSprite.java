@@ -35,6 +35,7 @@ public class PlayerSprite extends CharacterSprite {
 
     private void updatePlayer() {
         load(AdventurePlayer.current().spriteName());
+        playerSpeedEquipmentModifier = AdventurePlayer.current().equipmentSpeed();
     }
 
     public void LoadPos() {

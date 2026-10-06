@@ -1367,6 +1367,12 @@ public class Forge implements ApplicationListener {
         @Override
         public boolean touchDown(int x, int y, int pointer, int button) {
             lastInputWasController = false;
+            //mouse button 4 (back side button) presses OK during a match
+            if (button == Input.Buttons.BACK && currentScreen instanceof MatchScreen matchScreen
+                    && matchScreen.getActivePrompt() != null) {
+                matchScreen.getActivePrompt().getBtnOk().trigger();
+                return true;
+            }
             if (transitionScreen != null) {
                 boolean isFDialog = FOverlay.getTopOverlay() != null && FOverlay.getTopOverlay() instanceof FDialog;
                 if (!isFDialog)

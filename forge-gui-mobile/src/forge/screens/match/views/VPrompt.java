@@ -46,12 +46,25 @@ public class VPrompt extends FContainer {
         this.card = card;
     }
 
+    // Double-click guard (match prompts only): after a button press, further presses are ignored until
+    // the next prompt has been showing for a moment, so a repeat click can't land on the next prompt
+    // (e.g. "End Turn") while the game is still catching up.
+    private static final long NEW_PROMPT_LOCKOUT_MS = 500;
+    private static final long MAX_PRESS_LOCKOUT_MS = 1500;
+    private final boolean guardDoubleClicks;
+    private long ignorePressesUntil;
+
     public VPrompt(String okText, String cancelText, FEventHandler okCommand, FEventHandler cancelCommand) {
+        this(okText, cancelText, okCommand, cancelCommand, false);
+    }
+
+    public VPrompt(String okText, String cancelText, FEventHandler okCommand, FEventHandler cancelCommand, boolean guardDoubleClicks0) {
+        guardDoubleClicks = guardDoubleClicks0;
         lblMessage = add(new MessageLabel());
         lblMessage.setLeft(BTN_WIDTH);
         lblMessage.setHeight(HEIGHT);
-        btnOk = add(new FButton(okText, okCommand));
-        btnCancel = add(new FButton(cancelText, cancelCommand));
+        btnOk = add(new FButton(okText, guard(okCommand)));
+        btnCancel = add(new FButton(cancelText, guard(cancelCommand)));
         btnOk.setSize(BTN_WIDTH, HEIGHT);
         btnCancel.setSize(BTN_WIDTH, HEIGHT);
         btnOk.setCorner(Corner.BottomLeft);
@@ -72,12 +85,31 @@ public class VPrompt extends FContainer {
         return message;
     }
     public void setMessage(String message0) {
+        onPromptChanged(message0);
         message = message0;
         card = null;
     }
     public void setMessage(String message0, CardView card0) {
+        onPromptChanged(message0);
         message = message0;
         card = card0;
+    }
+
+    private FEventHandler guard(FEventHandler command) {
+        if (!guardDoubleClicks || command == null)
+            return command;
+        return e -> {
+            long now = System.currentTimeMillis();
+            if (now < ignorePressesUntil)
+                return;
+            ignorePressesUntil = now + MAX_PRESS_LOCKOUT_MS;
+            command.handleEvent(e);
+        };
+    }
+
+    private void onPromptChanged(String newMessage) {
+        if (guardDoubleClicks && !StringUtils.equals(message, newMessage))
+            ignorePressesUntil = System.currentTimeMillis() + NEW_PROMPT_LOCKOUT_MS;
     }
 
     /** Flashes animation on input panel if play is currently waiting on input. */

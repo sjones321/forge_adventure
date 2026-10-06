@@ -12,7 +12,7 @@
     {
       "type": "Window",
       "name": "scrollWindow",
-	  "style": "paper",
+      "style": "paper",
       "x": 4,
       "y": 4,
       "width": 262,
@@ -20,22 +20,13 @@
     },
     {
       "type": "Table",
-      "name": "questList",
+      "name": "skillList",
       "x": 8,
       "y": 10,
       "width": 258,
-      "height": 413
+      "height": 413,
+      "fontColor": "black"
     },
-	{
-      "type": "Table",
-      "name": "questDetails",
-      "x": 8,
-      "y": 10,
-      "width": 258,
-      "height": 413
-	  "fontColor":"black"
-    },
-	
     {
       "type": "TextButton",
       "name": "return",
@@ -45,7 +36,7 @@
       "x": 180,
       "y": 440
     },
-	{
+    {
       "type": "TextButton",
       "name": "status",
       "text": "Status",
@@ -56,8 +47,8 @@
     },
     {
       "type": "TextButton",
-      "name": "skills",
-      "text": "Skills",
+      "name": "quests",
+      "text": "Quests",
       "width": 85,
       "height": 30,
       "x": 92,

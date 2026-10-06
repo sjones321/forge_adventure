@@ -28,6 +28,7 @@ public class EffectData implements Serializable {
     public float goldModifier = -1.0f;   //Modifier for shop discounts.
     public int cardRewardBonus = 0;    //Bonus "DeckCard" drops. Max 3.
     public int extraManaShards = 0; //Mana Shard tokens available to spend in battle
+    public int freeMulligans = 0;   //Extra mulligans that cost no card
 
     //Opponent field.
     public EffectData opponent;          //Effects to be applied to the opponent's side.
@@ -41,6 +42,7 @@ public class EffectData implements Serializable {
         colorView=effect.colorView;
         opponent = (effect.opponent == null) ? null : new EffectData(effect.opponent);
         extraManaShards = effect.extraManaShards;
+        freeMulligans = effect.freeMulligans;
     }
 
     public Array<IPaperCard> startBattleWithCards() {
@@ -105,6 +107,8 @@ public class EffectData implements Serializable {
             description+="Command:" + itemize(startBattleWithCardsInCommandZone()) + "\n";
         if(changeStartCards != 0)
             description+="Starting hand: " + changeStartCards + "\n";
+        if(freeMulligans != 0)
+            description+="Free mulligans: +" + freeMulligans + "\n";
         if(moveSpeed!=0 && moveSpeed != 1)
             description+="[+MovementSpeed] " + ((moveSpeed > 0) ? "+" : "") + Math.round((moveSpeed-1.f)*100) + "%\n";
         if(goldModifier > 0.0f)

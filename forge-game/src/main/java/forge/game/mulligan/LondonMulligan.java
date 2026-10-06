@@ -37,7 +37,6 @@ public class LondonMulligan extends AbstractMulligan {
             return 0;
         }
 
-        int extraCard = firstMulliganFree ? 1 : 0;
-        return timesMulliganed - extraCard;
+        return Math.max(0, timesMulliganed - freeMulligans);
     }
 }

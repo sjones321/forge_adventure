@@ -62,6 +62,9 @@ public class ConfigData {
      */
     public int sealedStartPacks = 10;
     public int sealedStartOpenedPacks = 5;
+    /** Adventure house rule: mulligans that cost no card, for both the player and enemies. */
+    public int adventureFreeMulligans = 1;
+
     /** Extra gold on top of the difficulty's starting money for a sealed start. */
     public int sealedStartBonusGold = 500;
 

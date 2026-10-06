@@ -204,6 +204,8 @@ public class WorldSave {
         for (Deck booster : unopened)
             currentSave.player.addBooster(booster);
         currentSave.player.giveGold(config.sealedStartBonusGold);
+        // The starting pool shouldn't count as Collecting XP; every character starts at level 1
+        currentSave.player.getSkills().clear();
     }
 
     /** The chosen starter set if it has boosters, otherwise a random starter set that does. */

@@ -20,6 +20,7 @@ import forge.adventure.stage.IAfterMatch;
 import forge.adventure.util.AdventureEventController;
 import forge.adventure.util.Config;
 import forge.adventure.util.Current;
+import forge.adventure.util.LiveGameLog;
 import forge.assets.FBufferedImage;
 import forge.assets.FSkin;
 import forge.card.ColorSet;
@@ -32,6 +33,8 @@ import forge.game.player.RegisteredPlayer;
 import forge.game.GameOutcome;
 import forge.gamemodes.match.HostedMatch;
 import forge.gamemodes.quest.QuestUtil;
+import forge.ai.llm.LlmOpponent;
+import forge.localinstance.properties.ForgeConstants;
 import forge.localinstance.properties.ForgePreferences;
 import forge.model.FModel;
 import forge.gui.FThreads;
@@ -139,7 +142,17 @@ public class DuelScene extends ForgeScene {
         return callbackExit;
     }
 
+    /** Pop-out hand window lives in the desktop launcher (forge.app.HandWindow); absent on mobile. */
+    private static void callHandWindow(String method) {
+        try {
+            Class.forName("forge.app.HandWindow").getMethod(method).invoke(null);
+        } catch (Throwable ignored) {
+        }
+    }
+
     public void GameEnd() {
+        LlmOpponent.setActive(false);
+        callHandWindow("hide");
         //TODO: Progress towards applicable Adventure quests also needs to be reported here.
         if (eventData != null)
             eventData.nextOpponent = null;
@@ -323,6 +336,7 @@ public class DuelScene extends ForgeScene {
         int lifeMod = 0;
         int changeStartCards = 0;
         int extraManaShards = 0;
+        int freeMulligans = 0;
         Array<IPaperCard> startCards = new Array<>();
         Array<IPaperCard> startCardsInCommandZone = new Array<>();
 
@@ -332,7 +346,9 @@ public class DuelScene extends ForgeScene {
             startCards.addAll(data.startBattleWithCards());
             startCardsInCommandZone.addAll(data.startBattleWithCardsInCommandZone());
             extraManaShards += data.extraManaShards;
+            freeMulligans += data.freeMulligans;
         }
+        player.setFreeMulligans(player.getFreeMulligans() + freeMulligans);
         player.addExtraCardsOnBattlefield(startCards);
         player.addExtraCardsInCommandZone(startCardsInCommandZone);
         if (lifeMod != 0)
@@ -434,6 +450,9 @@ public class DuelScene extends ForgeScene {
                 playerEffects.add(dungeonEffect.opponent);
         }
 
+        // Adventure house rule: everyone gets free mulligans; the player can earn more through Dueling
+        int baseFreeMulligans = Config.instance().getConfigData().adventureFreeMulligans;
+        humanPlayer.setFreeMulligans(baseFreeMulligans + advPlayer.getSkills().bonusFreeMulligans());
         addEffects(humanPlayer, playerEffects);
 
         currentEnemy = enemy.getData();
@@ -481,6 +500,7 @@ public class DuelScene extends ForgeScene {
             enemyPlayer.setAvatarIndex(enemyAvatarKey + i);
             aiPlayer.setPlayer(enemyPlayer);
             aiPlayer.setTeamNumber(currentEnemy.teamNumber);
+            aiPlayer.setFreeMulligans(baseFreeMulligans);
             aiPlayer.setStartingLife(eventData != null ? eventData.eventRules.startingLife : Math.round((float) currentEnemy.life * advPlayer.getDifficulty().enemyLifeFactor));
 
             Array<EffectData> equipmentEffects = new Array<>();
@@ -542,8 +562,13 @@ public class DuelScene extends ForgeScene {
         rules.setWarnAboutAICards(false);
 
         //hostedMatch.setEndGameHook(() -> DuelScene.this.GameEnd());
+        // LLM opponent (optional): settings live in llm_opponent.properties in the Forge user folder
+        System.setProperty("forge.llm.dir", ForgeConstants.USER_DIR);
+        LlmOpponent.setActive(true);
         hostedMatch.startMatch(rules, appliedVariants, players, guiMap, bossBattle ? MusicPlaylist.BOSS : MusicPlaylist.MATCH);
         MatchController.instance.setGameView(hostedMatch.getGameView());
+        LiveGameLog.attach(hostedMatch.getGame(), enemy.getData().getName());
+        callHandWindow("show");
         boolean showMessages = enemy.getData().boss || (enemy.getData().copyPlayerDeck && Current.player().isUsingCustomDeck());
         LoadingOverlay matchOverlay;
         if (chaosBattle || showMessages || isDeckMissing) {

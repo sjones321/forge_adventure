@@ -410,6 +410,7 @@ public class SpellSmithScene extends UIScene {
             }
         }
         if (cost_low > -1) totalCost *= 2.5f; //And CMC cost multiplier.
+        totalCost *= Current.player().getSkills().spellSmithPriceFactor(); //Spellsmithing skill discount
 
         cardPool = StreamUtil.stream(P).collect(Collectors.toList());
         poolSize.setText(((cardPool.size() > 0 ? "[/][FOREST]" : "[/][RED]")) + cardPool.size() + " possible card" + (cardPool.size() > 1 ? "s" : ""));
@@ -452,8 +453,10 @@ public class SpellSmithScene extends UIScene {
     private void acceptSmithing() {
         if (paidInShards) {
             Current.player().takeShards(lockedShardPrice);
+            Current.player().getSkills().onSpellSmithPaid(0, lockedShardPrice);
         } else {
             Current.player().takeGold(lockedPrice);
+            Current.player().getSkills().onSpellSmithPaid(lockedPrice, 0);
         }
 
         Current.player().addReward(currentReward);

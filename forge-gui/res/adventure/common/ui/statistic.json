@@ -122,9 +122,9 @@
       "name": "return",
       "text": "tr(lblBack)",
       "binding": "Back",
-      "width": 80,
+      "width": 50,
       "height": 30,
-      "x": 395,
+      "x": 425,
       "y": 224
     },
     {
@@ -174,7 +174,16 @@
       "name": "quests",
       "text": "Quests",
       "binding": "Status",
-      "width": 80,
+      "width": 53,
+      "height": 30,
+      "x": 370,
+      "y": 224
+    },
+    {
+      "type": "TextButton",
+      "name": "skills",
+      "text": "Skills",
+      "width": 53,
       "height": 30,
       "x": 315,
       "y": 224

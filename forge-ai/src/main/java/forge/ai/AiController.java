@@ -34,6 +34,7 @@ import forge.card.mana.ManaAtom;
 import forge.card.mana.ManaCost;
 import forge.deck.Deck;
 import forge.deck.DeckSection;
+import forge.ai.llm.LlmOpponent;
 import forge.game.*;
 import forge.game.ability.AbilityKey;
 import forge.game.ability.AbilityUtils;
@@ -1304,6 +1305,47 @@ public class AiController {
         AiBlockController block = new AiBlockController(defender, defender != player);
         // When player != defender, AI should declare blockers for its benefit.
         block.assignBlockersForCombat(combat);
+        if (LlmOpponent.isActive() && defender == player) {
+            applyLlmBlocks(defender, combat);
+        }
+    }
+
+    /** LLM mode: replace Forge's blocks with the model's, keeping Forge's if the model's are illegal. */
+    private void applyLlmBlocks(Player defender, Combat combat) {
+        List<Card> attackers = new ArrayList<>(combat.getAttackersOf(defender));
+        if (attackers.isEmpty())
+            return;
+        Map<Card, Card> forgeBlocks = new LinkedHashMap<>();
+        for (Card attacker : attackers)
+            for (Card blocker : combat.getBlockers(attacker))
+                if (blocker.getController() == defender)
+                    forgeBlocks.put(blocker, attacker);
+        List<Card> possible = new ArrayList<>();
+        for (Card c : defender.getCreaturesInPlay())
+            if (forgeBlocks.containsKey(c) || CombatUtil.canBlock(c, combat))
+                possible.add(c);
+        if (possible.isEmpty())
+            return;
+
+        Map<Card, Card> llmBlocks = LlmOpponent.chooseBlocks(defender, attackers, possible, forgeBlocks);
+        if (llmBlocks == null)
+            return;
+
+        for (Map.Entry<Card, Card> e : forgeBlocks.entrySet())
+            combat.removeBlockAssignment(e.getValue(), e.getKey());
+        List<Map.Entry<Card, Card>> applied = new ArrayList<>();
+        for (Map.Entry<Card, Card> e : llmBlocks.entrySet()) {
+            if (CombatUtil.canBlock(e.getValue(), e.getKey(), combat)) {
+                combat.addBlocker(e.getValue(), e.getKey());
+                applied.add(e);
+            }
+        }
+        if (CombatUtil.validateBlocks(combat, defender) != null) {
+            for (Map.Entry<Card, Card> e : applied)
+                combat.removeBlockAssignment(e.getValue(), e.getKey());
+            for (Map.Entry<Card, Card> e : forgeBlocks.entrySet())
+                combat.addBlocker(e.getValue(), e.getKey());
+        }
     }
 
     public void declareAttackers(Player attacker, Combat combat) {
@@ -1317,6 +1359,10 @@ public class AiController {
         // is made at declaration time. Remove attackers the AI can't pay for.
         removeUnpayableAttackers(combat);
 
+        if (LlmOpponent.isActive() && attacker == player) {
+            applyLlmAttack(combat);
+        }
+
         // if invalid: just try an attack declaration that we know to be legal
         if (!CombatUtil.validateAttackers(combat)) {
             combat.clearAttackers();
@@ -1328,6 +1374,37 @@ public class AiController {
             if (!CombatUtil.validateAttackers(combat)) {
                 aiAtk.declareAttackers(combat);
             }
+        }
+    }
+
+    /** LLM mode: replace Forge's attack with the model's, keeping Forge's if the model's is illegal. */
+    private void applyLlmAttack(Combat combat) {
+        GameEntity mainDefender = LlmOpponent.primaryDefender(combat);
+        if (mainDefender == null)
+            return;
+        Map<Card, GameEntity> forgeAttack = new LinkedHashMap<>(combat.getAttackersAndDefenders());
+        List<Card> legal = new ArrayList<>();
+        for (Card c : player.getCreaturesInPlay())
+            if (forgeAttack.containsKey(c) || CombatUtil.canAttack(c, mainDefender))
+                legal.add(c);
+        if (legal.isEmpty())
+            return;
+
+        List<Card> chosen = LlmOpponent.chooseAttackers(player, legal, new ArrayList<>(forgeAttack.keySet()));
+        if (chosen == null)
+            return;
+
+        combat.clearAttackers();
+        for (Card c : chosen) {
+            GameEntity defender = forgeAttack.getOrDefault(c, mainDefender);
+            if (CombatUtil.canAttack(c, defender))
+                combat.addAttacker(c, defender);
+        }
+        removeUnpayableAttackers(combat);
+        if (!CombatUtil.validateAttackers(combat)) {
+            combat.clearAttackers();
+            for (Map.Entry<Card, GameEntity> e : forgeAttack.entrySet())
+                combat.addAttacker(e.getKey(), e.getValue());
         }
     }
 
@@ -1579,13 +1656,57 @@ public class AiController {
         //update LivingEndPlayer
         useLivingEnd = IterableUtil.any(player.getZone(ZoneType.Library), CardPredicates.nameEquals("Living End"));
 
-        SpellAbility chosenSa = chooseSpellAbilityToPlayFromList(saList, true);
+        SpellAbility chosenSa = LlmOpponent.isActive() && !topOwnedByAI
+                ? chooseSpellAbilityWithLlm(saList)
+                : chooseSpellAbilityToPlayFromList(saList, true);
 
         if (topOwnedByAI && !mustRespond && chosenSa != ComputerUtilAbility.getFirstCopySASpell(saList)) {
             return null; // not planning to copy the spell and not marked as something the AI would respond to
         }
 
         return chosenSa;
+    }
+
+    /** When non-null, chooseSpellAbilityToPlayFromList collects every acceptable play here (LLM mode). */
+    private volatile List<SpellAbility> llmCandidates;
+
+    /**
+     * LLM mode: let Forge's AI prepare every play it is willing to make (targets chosen), then let the
+     * language model pick one or pass. The model is called outside the timed evaluation thread.
+     */
+    private SpellAbility chooseSpellAbilityWithLlm(final List<SpellAbility> saList) {
+        List<SpellAbility> accepted = Collections.synchronizedList(new ArrayList<>());
+        llmCandidates = accepted;
+        try {
+            chooseSpellAbilityToPlayFromList(saList, true);
+        } finally {
+            llmCandidates = null;
+        }
+        List<SpellAbility> options;
+        synchronized (accepted) {
+            options = new ArrayList<>(accepted);
+        }
+        if (options.isEmpty())
+            return null;
+
+        SpellAbility pick = LlmOpponent.chooseSpell(player, options);
+        if (pick == null)
+            return null;
+
+        // Re-evaluate the pick on its own so its targets and mana reservations are its own, not
+        // leftovers from evaluating the other candidates.
+        memory.clearMemorySet(AiCardMemory.MemorySet.HELD_MANA_SOURCES_FOR_MAIN2);
+        memory.clearMemorySet(AiCardMemory.MemorySet.HELD_MANA_SOURCES_FOR_DECLBLK);
+        memory.clearMemorySet(AiCardMemory.MemorySet.HELD_MANA_SOURCES_FOR_NEXT_SPELL);
+        pick.setActivatingPlayer(player);
+        SpellAbility root = pick.getRootAbility();
+        if (root.isSpell() || root.isTrigger() || root.isReplacementAbility()) {
+            pick.setLastStateBattlefield(game.getLastStateBattlefield());
+            pick.setLastStateGraveyard(game.getLastStateGraveyard());
+        }
+        AiPlayDecision recheck = canPlayAndPayFor(pick);
+        pick.clearLastState();
+        return recheck == AiPlayDecision.WillPlay ? pick : null;
     }
 
     private SpellAbility chooseSpellAbilityToPlayFromList(final List<SpellAbility> all, boolean skipCounter) {
@@ -1675,6 +1796,12 @@ public class AiController {
                 // System.out.printf("Ai thinks '%s' of %s -> %s @ %s %s >>> \n", opinion, sa.getHostCard(), sa, Lang.getInstance().getPossesive(ph.getPlayerTurn().getName()), ph.getPhase());
 
                 if (opinion != AiPlayDecision.WillPlay) {
+                    continue;
+                }
+
+                List<SpellAbility> collector = llmCandidates;
+                if (collector != null) { // LLM mode: gather every acceptable play instead of taking the first
+                    collector.add(sa);
                     continue;
                 }
 

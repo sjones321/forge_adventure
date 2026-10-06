@@ -443,6 +443,16 @@
     }
   },
   {
+    "name": "Gambler's Charm",
+    "equipmentSlot": "Neck",
+    "iconName": "PipersCharm",
+    "cost": 6000,
+    "description": "A lucky charm. One more mulligan each duel costs no card.",
+    "effect": {
+      "freeMulligans": 1
+    }
+  },
+  {
     "name": "Sleep Wand",
     "equipmentSlot": "Left",
     "cost": 1500,

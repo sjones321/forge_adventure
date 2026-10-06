@@ -36,6 +36,7 @@ public class QuestLogScene extends UIScene {
         backToListButton = Controls.newTextButton("Quest List");
         ui.onButtonPress("return", QuestLogScene.this::back);
         ui.onButtonPress("status", QuestLogScene.this::status);
+        ui.onButtonPress("skills", () -> Forge.switchScene(SkillsScene.instance(lastGameScene), true));
         backToListButton.addListener(new ClickListener() {
             public void clicked(InputEvent event, float x, float y) {
                 buildList();

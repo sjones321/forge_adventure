@@ -101,6 +101,15 @@ public class RegisteredPlayer {
     public int getStartingHand() {
         return startingHand;
     }
+
+    /** Mulligans that don't cost a card (on top of any the format itself grants). */
+    private int freeMulligans = 0;
+    public int getFreeMulligans() {
+        return freeMulligans;
+    }
+    public void setFreeMulligans(int freeMulligans0) {
+        this.freeMulligans = Math.max(0, freeMulligans0);
+    }
     public void setStartingHand(int startingHand0) {
         this.startingHand = startingHand0;
     }
