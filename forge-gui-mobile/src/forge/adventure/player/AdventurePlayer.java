@@ -537,6 +537,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return Arrays.copyOf(dust, dust.length);
     }
 
+    /** Compact dust totals for Ascendant UI headers: {@code C:12 U:5 R:2 M:1}. */
+    public String dustSummary() {
+        return "C:" + dust[DUST_COMMON] + " U:" + dust[DUST_UNCOMMON]
+                + " R:" + dust[DUST_RARE] + " M:" + dust[DUST_MYTHIC];
+    }
+
     public boolean isAutoSalvage() {
         return autoSalvage;
     }

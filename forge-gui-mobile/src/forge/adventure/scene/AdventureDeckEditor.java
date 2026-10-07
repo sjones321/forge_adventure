@@ -18,6 +18,7 @@ import forge.assets.FSkinColor;
 import forge.assets.FSkinFont;
 import forge.assets.FSkinImage;
 import forge.card.CardEdition;
+import forge.card.CardRarity;
 import forge.card.CardRenderer;
 import forge.card.CardZoom;
 import forge.deck.*;
@@ -29,6 +30,7 @@ import forge.item.PaperCard;
 import forge.itemmanager.*;
 import forge.itemmanager.filters.CardColorFilter;
 import forge.itemmanager.filters.CardTypeFilter;
+import forge.menu.FCheckBoxMenuItem;
 import forge.menu.FDropDownMenu;
 import forge.menu.FMenuItem;
 import forge.menu.FPopupMenu;
@@ -323,6 +325,8 @@ public class AdventureDeckEditor extends FDeckEditor {
         protected void initialize() {
             super.initialize();
             Current.player().onGoldChange(() -> ((AdventureDeckEditor) parentScreen).deckHeader.updateGold());
+            if (Config.ascendant())
+                Current.player().onDustChange(() -> ((AdventureDeckEditor) parentScreen).deckHeader.updateDust());
             cardManager.setPool(Current.player().getSellableCards());
             cardManager.setShowPriceInfo(true);
         }
@@ -343,11 +347,13 @@ public class AdventureDeckEditor extends FDeckEditor {
             if (cardIsFavorite(card))
                 sellItem.setTextColor(255, 0, 0);
             menu.addItem(sellItem);
+            addSalvageMenuItem(menu, card, amount -> removeCard(card, amount));
         }
 
         @Override
         public void buildDeckMenu(FPopupMenu menu) {
             super.buildDeckMenu(menu);
+            addAscendantCraftingMenuItems(menu);
             FMenuItem sellCurrentFilters = new FMenuItem(Forge.getLocalizer().getMessage("lblSellCurrentFilters"), FSkinImage.QUEST_COINSTACK, e1 -> sellAllByFilter());
             sellCurrentFilters.setTextColor(255, 0, 0);
             menu.addItem(sellCurrentFilters);
@@ -536,6 +542,8 @@ public class AdventureDeckEditor extends FDeckEditor {
                         new MoveQuantityPrompt(prompt, autoSellCount, amount -> autoSellPage.moveCard(card, this, amount)));
                 menu.addItem(moveToCatalog);
             }
+
+            addSalvageMenuItem(menu, card, amount -> removeCard(card, amount));
         }
 
         @Override
@@ -562,6 +570,7 @@ public class AdventureDeckEditor extends FDeckEditor {
             super.buildDeckMenu(menu);
             if (!(parentScreen instanceof AdventureDeckEditor adventureEditor) || adventureEditor.getAutoSellPage() == null)
                 return;
+            addAscendantCraftingMenuItems(menu);
             menu.addItem(new FMenuItem(Forge.getLocalizer().getMessage("btnCopyCollectionToClipboard"), Forge.hdbuttons ? FSkinImage.HDEXPORT : FSkinImage.BLANK, e1 -> FDeckViewer.copyCollectionToClipboard(AdventurePlayer.current().getCards())));
             FMenuItem sellCurrentFilters = new FMenuItem(Forge.getLocalizer().getMessage("lblAutoSellCurrentFilters"), FSkinImage.QUEST_COINSTACK, e1 -> autoSellAllByFilter(adventureEditor.getAutoSellPage()));
             sellCurrentFilters.setTextColor(255, 0, 0);
@@ -719,6 +728,7 @@ public class AdventureDeckEditor extends FDeckEditor {
                     removeCard(card, sold);
                 })
                 ));
+                addSalvageMenuItem(menu, card, amount -> removeCard(card, amount));
             }
             if (parentScreen instanceof AdventureDeckEditor adventureEditor && adventureEditor.getCatalogPage() != null) {
                 CatalogPage catalogPage = adventureEditor.getCatalogPage();
@@ -884,6 +894,9 @@ public class AdventureDeckEditor extends FDeckEditor {
             }
         }
         deckHeader.updateGold();
+        deckHeader.updateDust();
+        if (Config.ascendant())
+            Current.player().onDustChange(deckHeader::updateDust);
 
 //            if (currentEvent.registeredDeck!=null && !currentEvent.registeredDeck.isEmpty()){
 //                //Use this deck instead of selected deck
@@ -1183,22 +1196,34 @@ public class AdventureDeckEditor extends FDeckEditor {
     protected static class AdventureDeckHeader extends DeckHeader {
         private static final FileHandle sellIconFile = Config.instance().getFile("ui/sell.png");
         public final FLabel lblGold;
+        public final FLabel lblDust;
 
         protected AdventureDeckHeader() {
             super();
             this.lblGold = new FLabel.Builder().text("0").icon(
                     Forge.getAssets().getTexture(sellIconFile) == null ? FSkinImage.QUEST_COINSTACK : fImageSellIcon
             ).font(FSkinFont.get(16)).insets(new Vector2(Utils.scale(5), 0)).build();
+            this.lblDust = new FLabel.Builder().text("").font(FSkinFont.get(12))
+                    .insets(new Vector2(Utils.scale(3), 0)).build();
             this.add(lblGold);
+            this.add(lblDust);
+            lblDust.setVisible(Config.ascendant());
         }
 
         @Override
         protected List<FDisplayObject> layoutHeaderElements(float height, float availableWidth) {
             List<FDisplayObject> out = super.layoutHeaderElements(height, availableWidth);
             float remainingWidth = availableWidth - (float) out.stream().mapToDouble(FDisplayObject::getWidth).sum();
-            float width = Math.max(remainingWidth / 4, Math.min(height * 4, remainingWidth));
-            lblGold.setSize(width, height);
+            boolean showDust = Config.ascendant();
+            lblDust.setVisible(showDust);
+            float goldWidth = Math.max(remainingWidth / (showDust ? 5 : 4), Math.min(height * 3.5f, remainingWidth / (showDust ? 2.5f : 1)));
+            lblGold.setSize(goldWidth, height);
             out.add(lblGold);
+            if (showDust) {
+                float dustWidth = Math.max(remainingWidth / 3, Math.min(height * 6, remainingWidth - goldWidth));
+                lblDust.setSize(dustWidth, height);
+                out.add(lblDust);
+            }
             return out;
         }
 
@@ -1206,10 +1231,74 @@ public class AdventureDeckEditor extends FDeckEditor {
             lblGold.setText(String.valueOf(Current.player().getGold()));
         }
 
+        public void updateDust() {
+            if (!Config.ascendant()) {
+                lblDust.setVisible(false);
+                lblDust.setText("");
+                return;
+            }
+            lblDust.setVisible(true);
+            lblDust.setText(Current.player().dustSummary());
+        }
+
         @Override
         public void drawBackground(Graphics g) {
             g.fillRect(FSkinColor.get(FSkinColor.Colors.ADV_CLR_THEME).alphaColor(0.5f), 0, 0, getWidth(), HEADER_HEIGHT);
         }
+    }
+
+    /** Ascendant-only: Salvage next to Sell / collection actions. Shows yield; refuses vaulted/in-deck with a message. */
+    private static void addSalvageMenuItem(FDropDownMenu menu, PaperCard card, Consumer<Integer> onSalvaged) {
+        if (!Config.ascendant() || card == null)
+            return;
+        if (card.getRarity() == CardRarity.BasicLand
+                || (card.getRules() != null && card.getRules().getType().isBasicLand()))
+            return;
+        if (card.hasNoSellValue() || AdventurePlayer.dustIndex(card.getRarity()) < 0)
+            return;
+
+        AdventurePlayer player = Current.player();
+        int yield = player.salvageYield(card);
+        String label = "Salvage for " + yield + " dust";
+        int available = player.copiesAvailableToSalvage(card);
+        FImage icon = Forge.hdbuttons ? FSkinImage.HDMINUS : FSkinImage.MINUS;
+        if (available > 0) {
+            String prompt = card + " - " + label + " " + Forge.getLocalizer().getMessage("lblHowMany");
+            final int max = available;
+            menu.addItem(new FMenuItem(label, icon, e -> {
+                Consumer<Integer> doSalvage = amount -> {
+                    int salvaged = player.salvageCard(card, amount);
+                    if (salvaged > 0 && onSalvaged != null)
+                        onSalvaged.accept(salvaged);
+                };
+                if (max < 2)
+                    doSalvage.accept(1);
+                else
+                    GuiChoose.getInteger(prompt, 1, max, 20, result -> {
+                        if (result == null || result == 0)
+                            return;
+                        doSalvage.accept(result);
+                    });
+            }));
+        } else {
+            menu.addItem(new FMenuItem(label, icon, e -> {
+                String problem = player.salvageProblem(card);
+                if (problem != null)
+                    FOptionPane.showMessageDialog(problem);
+                else
+                    player.salvageCard(card, 1);
+            }));
+        }
+    }
+
+    /** Crafting screen + auto-salvage toggle in the deck editor ⋮ menu (Ascendant only). */
+    private static void addAscendantCraftingMenuItems(FPopupMenu menu) {
+        if (!Config.ascendant())
+            return;
+        menu.addItem(new FMenuItem("Crafting…", FSkinImage.QUEST_BOOK, e -> Forge.openScreen(new CraftingScreen())));
+        AdventurePlayer player = Current.player();
+        menu.addItem(new FCheckBoxMenuItem("Auto-salvage extras", player.isAutoSalvage(),
+                e -> player.setAutoSalvage(!player.isAutoSalvage())));
     }
 
 
