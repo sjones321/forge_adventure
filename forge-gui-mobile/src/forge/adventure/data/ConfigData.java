@@ -72,6 +72,18 @@ public class ConfigData {
      */
     public boolean ascendantRules = false;
 
+    /**
+     * Ascendant enemy tuning. Enemy starting life is multiplied by a factor that ramps with the player's
+     * Dueling level: enemyLifeEarly at level 1, 1.0 at enemyLifeNormalLevel, enemyLifeLate at enemyLifeLateLevel
+     * (bosses never go below 1.0). Commander duels add commanderEnemyLifeFactor and extra opening cards.
+     */
+    public float enemyLifeEarly = 0.75f;
+    public int enemyLifeNormalLevel = 30;
+    public float enemyLifeLate = 1.25f;
+    public int enemyLifeLateLevel = 60;
+    public float commanderEnemyLifeFactor = 1.5f;
+    public int commanderEnemyExtraCards = 1;
+
     /** Adventure house rule: mulligans that cost no card, for both the player and enemies (Ascendant sets 1). */
     public int adventureFreeMulligans = 0;
 

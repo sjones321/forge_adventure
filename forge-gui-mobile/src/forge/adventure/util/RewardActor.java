@@ -313,6 +313,10 @@ public class RewardActor extends Actor implements Disposable, ImageFetcher.Callb
                 String textContent = this.isNew
                     ? "{WAVE}{STYLE=SHADOW}{COLOR=LIME}[%85]" + Forge.getLocalizer().getMessage("lblNew")
                     : "{COLOR=WHITE}{STYLE=BLACKEN}[%65]" + Forge.getLocalizer().getMessage("lblOwned")  + ": " + ownedCount;
+                // Rotating Standard: flag cards that only count for Historic/Commander right now
+                if (Config.ascendant() && AdventurePlayer.current().getStandardWindow().isActive()
+                        && !AdventurePlayer.current().isStandardLegal(reward.getCard()))
+                    textContent += "{RESET}{COLOR=ORANGE}{STYLE=BLACKEN}[%65] Historic";
                 ownedLabel = Controls.newTypingLabel(textContent);
 
                 hasbackface = reward.getCard().hasBackFace();

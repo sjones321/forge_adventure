@@ -1,5 +1,6 @@
 package forge.adventure.scene;
 
+import forge.adventure.player.PlayerSkills;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.utils.Array;
@@ -140,6 +141,30 @@ public class DuelScene extends ForgeScene {
 
     public boolean hasCallbackExit() {
         return callbackExit;
+    }
+
+    /**
+     * Shandalar Ascendant enemy life scaling: softer early (enemies bring 60-card constructed decks against a
+     * 40-card sealed deck), ramping with the player's Dueling level, plus a boost in Commander duels.
+     */
+    private static float ascendantEnemyLifeFactor(EnemyData enemy) {
+        if (!Config.ascendant())
+            return 1f;
+        ConfigData cfg = Config.instance().getConfigData();
+        int level = Current.player().getSkills().getLevel(PlayerSkills.Skill.DUELING);
+        float factor;
+        if (level <= cfg.enemyLifeNormalLevel) {
+            float t = (level - 1) / (float) Math.max(1, cfg.enemyLifeNormalLevel - 1);
+            factor = cfg.enemyLifeEarly + (1f - cfg.enemyLifeEarly) * t;
+        } else {
+            float t = Math.min(1f, (level - cfg.enemyLifeNormalLevel) / (float) Math.max(1, cfg.enemyLifeLateLevel - cfg.enemyLifeNormalLevel));
+            factor = 1f + (cfg.enemyLifeLate - 1f) * t;
+        }
+        if (enemy != null && enemy.boss)
+            factor = Math.max(1f, factor);
+        if (Current.player().isCommanderDeckSelected())
+            factor *= cfg.commanderEnemyLifeFactor;
+        return factor;
     }
 
     /** Pop-out hand window lives in the desktop launcher (forge.app.HandWindow); absent on mobile. */
@@ -508,7 +533,10 @@ public class DuelScene extends ForgeScene {
             aiPlayer.setPlayer(enemyPlayer);
             aiPlayer.setTeamNumber(currentEnemy.teamNumber);
             aiPlayer.setFreeMulligans(baseFreeMulligans);
-            aiPlayer.setStartingLife(eventData != null ? eventData.eventRules.startingLife : Math.round((float) currentEnemy.life * advPlayer.getDifficulty().enemyLifeFactor));
+            aiPlayer.setStartingLife(eventData != null ? eventData.eventRules.startingLife
+                    : Math.max(1, Math.round((float) currentEnemy.life * advPlayer.getDifficulty().enemyLifeFactor * ascendantEnemyLifeFactor(currentEnemy))));
+            if (eventData == null && Config.ascendant() && advPlayer.isCommanderDeckSelected())
+                aiPlayer.setStartingHand(aiPlayer.getStartingHand() + Config.instance().getConfigData().commanderEnemyExtraCards);
 
             Array<EffectData> equipmentEffects = new Array<>();
             if (eventData != null && eventData.eventRules.allowsItems) {

@@ -1,6 +1,12 @@
 {
   "ascendantRules": true,
   "adventureFreeMulligans": 1,
+  "enemyLifeEarly": 0.75,
+  "enemyLifeNormalLevel": 30,
+  "enemyLifeLate": 1.25,
+  "enemyLifeLateLevel": 60,
+  "commanderEnemyLifeFactor": 1.5,
+  "commanderEnemyExtraCards": 1,
   "screenWidth": 480,
   "screenHeight": 270,
   "skin": "skin/ui_skin.json",
