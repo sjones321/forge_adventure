@@ -190,6 +190,88 @@ perk layer with a tree per skill so more levels matter and builds differ:
   account. Prestige staples still respect ban lists for Commander/Historic.
 - Prestige needs a confirmation screen that lists exactly what will be lost.
 
+## RPG systems
+
+### N. Rifts — roguelite dungeon runs (no hard dependency)
+- A Rift entrance POI per region. The player enters with **no deck from their collection**: they draft or pick cards
+  floor by floor (reuse the inn event draft/Jumpstart code), fight a few encounters per floor, and pick **relics**
+  (run-only effects as `EffectData` or custom command-zone cards) between floors. A boss ends each Rift.
+- Losing ends the run. Rewards earned on cleared floors are kept: gold, dust, materials, and a card or two from the
+  run deck. Rift depth records go to the Hall of Fame.
+- Rift tiers unlock by clearing the previous tier; higher tiers scale enemies and rewards.
+
+### O. World bosses and invasions (no hard dependency)
+- **Invasions**: periodically a region is invaded (e.g. Phyrexian incursion). Themed enemies spawn there until the
+  invasion's world boss is beaten; rewards include unique materials.
+- **World bosses** fight in Forge's **Archenemy** format (`GameType.Archenemy`, scheme deck) with boosted life.
+- Invasions run on in-game days, and missing one costs nothing; another comes.
+
+### P. Companions (depends on nothing; deepens with J)
+- Recruitable NPCs (quests, gyms, factions). A companion joins boss fights as an AI ally on the player's team.
+  Adventure duels already support multiple players with team numbers (`DuelScene` `setTeamNumber`); use team
+  multiplayer, not shared-life 2HG, unless the engine's 2HG is easy to drive.
+- Companions level with use; the player edits their deck from a companion-only card pool and picks their gear.
+- One companion active at a time; companions are skipped in normal overworld fights unless the player opts in.
+
+### Q. Familiars (depends on J for perk slots)
+- A pet that starts every duel as a token (custom card script). It gains XP from duels and **evolves** at set
+  levels (e.g. 1/1 → 2/2 with an ability → 4/4 with a stronger ability). Several familiar lines, one per color.
+- Uses a duel perk slot, so it competes with skill perks.
+
+### R. Ironman and Hardcore Ironman (needs K's New Game screen)
+- Chosen at New Game / New Game+. **Ironman**: shops never sell cards or packs, Spell Smith random pulls are allowed,
+  crafting is allowed; everything else is self-found. **Hardcore**: losing your last life ends the character
+  (save becomes read-only, stats go to the Hall of Fame).
+- Mode tag shown on the status screen and Hall of Fame entries.
+
+### S. Crafted gear quality (depends on F)
+- Each crafted item rolls **Normal / Fine / Masterwork**; odds improve with the crafting skill level above the
+  recipe's requirement. Better quality boosts the item's numbers (e.g. +1 life, an extra token) — no random affix
+  soup. Quality is part of the saved `ItemData`.
+
+### T. Card mastery (no dependency)
+- Cards gain XP when they are in a deck that wins. Mastery levels unlock that card's **foil** and then an
+  **alt-art** printing in the player's collection (cosmetic). Shown in the deck editor and on the Unlocks screen.
+
+### U. Bestiary (no dependency)
+- Records every enemy type beaten (count, first win date). After N wins against an enemy, the Bestiary shows its full
+  decklist. Bestiary completion feeds the Collecting skill and the Hall of Fame.
+
+### V. Planeswalking (depends on C)
+- Each plane is built around **one set**; reaching a plane adds its set to the unlock pool, matching "new sets come
+  from new planes". Endgame travel between planes through planar portals (existing `PortalActor`).
+- Builds on the earlier plane-per-set generator idea: a plane is generated from a template world plus the set's
+  themes (enemy decks from that set, town names, biome mix).
+
+### W. Factions and reputation (depends on H's quest work)
+- One faction per color (e.g. Order of the Plains, Tide Council, Night Court, Forge Clans, Wildwood), plus a
+  colorless guild. Reputation from quests, contracts and duels against rival factions' enemies.
+- Reputation tiers unlock faction shops, faction cards and quest lines. Some factions are rivals: gaining with one
+  lowers the other.
+
+### X. Mounts and boats (depends on C; deepens with F)
+- **Mounts** raise move speed and lower how often enemies notice the player. Bought or crafted (Woodworking carts,
+  tamed beasts via quests).
+- **Boats** cross deep water; some islands and their resources are only reachable by boat. Boats are crafted
+  (Woodworking) and tiered.
+
+### Y. Fishing and Cooking (depends on A and E)
+- Two more skills. **Fishing** at water-edge nodes; **Cooking** turns fish and herbs into food.
+- **Food heals life on the world map** between fights (the player's map life already persists). Higher-tier food
+  heals more and can add a small next-duel buff through the blessing slot.
+
+### Z. Contracts board (depends on A)
+- Town boards offer bounties ("defeat 5 goblins", "deliver 20 iron bars"). Contracts **accumulate instead of
+  expiring**: new ones are added over time up to a cap, and nothing is lost for not playing on a given day.
+- Rewards: gold, XP, reputation, materials.
+
+### AA. Optional story (last; content-heavy)
+- A main questline per plane using the existing quest and dialog systems. **Always skippable**: a "skip story"
+  choice at New Game and a per-chapter skip, so no character is forced through it again.
+
+## Stretch goal: main program UI
+After the systems above, improve Forge's main (non-Adventure) UI. Scope to be decided later.
+
 ## Suggested order
 
 1. A (materials core) alone.
@@ -197,7 +279,10 @@ perk layer with a tree per skill so more levels matter and builds differ:
    J touches `PlayerSkills` and the Skills screen.
 3. D and F after their dependencies; K after G.
 4. L after K, then H.
-5. M (prestige) and I (homestead) last.
+5. RPG systems, in this priority: N (Rifts), R (Ironman), O (world bosses), P (companions), V (Planeswalking),
+   then Q, S, T, U, W, X, Y, Z.
+6. M (prestige) and I (homestead) once the account-level systems exist.
+7. AA (story) last.
 
 ## Art
 
