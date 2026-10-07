@@ -145,9 +145,11 @@ Package A must merge first.
 Today every skill is linear: small per-level bonuses (prices, speed), color perks at 15/40/75, and staples at fixed
 levels (`player/PlayerSkills.java`, `COLOR_PERKS` ~268, staple files `common/staples_<color>.txt`). Replace the
 perk layer with a tree per skill so more levels matter and builds differ:
-- **Talent points**: one point every 5 levels of a skill (19 by level 99), spent only in that skill's tree.
+- **Talent points**: 2 points at every level divisible by 10, 1 point at the other multiples of 5
+  (5, 15, 25 ... 95). That is 28 points by level 99, spent only in that skill's tree.
   Staple unlocks stay on their fixed levels; per-level passive bonuses stay.
-- **Each tree has 3 branches** of ~8 nodes. Some tiers are a choice of one of two nodes, so two players with the same
+- **Each tree has 3 branches** of ~8 nodes, some with multiple ranks, so 28 points fill about two branches and
+  never the whole tree. Some tiers are a choice of one of two nodes, so two players with the same
   levels can play differently. Milestone capstones at levels 50 and 99; 99 also grants a **skill cape**
   (RuneScape-style cosmetic plus a capstone perk).
 - **Perk slots**: duel-affecting perks (life, tokens, cards, opponent effects) must be slotted to be active.
