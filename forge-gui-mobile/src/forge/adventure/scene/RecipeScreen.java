@@ -11,6 +11,7 @@ import com.badlogic.gdx.utils.ObjectMap;
 
 import forge.Forge;
 import forge.Graphics;
+import forge.adventure.data.EffectData;
 import forge.adventure.data.MaterialData;
 import forge.adventure.data.MaterialListData;
 import forge.adventure.data.RecipeData;
@@ -39,6 +40,7 @@ public class RecipeScreen extends FScreen {
     private static final FSkinColor MISSING_COLOR = FSkinColor.getStandardColor(200, 60, 60);
 
     private String station;
+    private boolean listenersRegistered;
     private final FLabel lblHeader = add(new FLabel.Builder().text("").font(FSkinFont.get(14)).align(Align.left).build());
     private final FLabel lblDetail = add(new FLabel.Builder().text("").font(FSkinFont.get(12)).align(Align.left).build());
     private final FButton btnCraft = add(new FButton("Craft"));
@@ -63,9 +65,12 @@ public class RecipeScreen extends FScreen {
                     "Craft", FOptionPane.INFORMATION_ICON, result -> Forge.back());
             return;
         }
+        if (!listenersRegistered) {
+            Current.player().onGoldChange(this::refreshSelection);
+            Current.player().onMaterialChange(this::reload);
+            listenersRegistered = true;
+        }
         reload();
-        Current.player().onGoldChange(this::refreshSelection);
-        Current.player().onMaterialChange(this::reload);
     }
 
     private void reload() {
@@ -103,6 +108,24 @@ public class RecipeScreen extends FScreen {
             FOptionPane.showMessageDialog(String.join("\n", row.blockers), "Cannot craft");
             return;
         }
+        if (row.recipe.isPotion() && Current.player().getBlessing() != null) {
+            EffectData existing = Current.player().getBlessing();
+            String existingName = existing.name != null && !existing.name.isEmpty()
+                    ? existing.name : "your current blessing";
+            FOptionPane.showConfirmDialog(
+                    "You already have " + existingName + ". Brewing "
+                            + row.recipe.getDisplayResult() + " will replace it. Continue?",
+                    "Replace blessing?",
+                    ok -> {
+                        if (Boolean.TRUE.equals(ok))
+                            finishCraft(row);
+                    });
+            return;
+        }
+        finishCraft(row);
+    }
+
+    private void finishCraft(Row row) {
         if (!Current.player().craftRecipe(row.recipe)) {
             FOptionPane.showMessageDialog("Crafting failed.");
             return;

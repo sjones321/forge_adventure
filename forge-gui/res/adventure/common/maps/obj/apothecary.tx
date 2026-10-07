@@ -3,6 +3,10 @@
  <tileset firstgid="1" source="../tileset/buildings.tsx"/>
  <object name="Apothecary" class="apothecary" gid="1418" width="16" height="16">
   <properties>
+   <property name="hasSign" type="bool" value="true"/>
+   <property name="signSprite" value="WizardShop"/>
+   <property name="signXOffset" type="float" value="0"/>
+   <property name="signYOffset" type="float" value="0"/>
    <property name="type" value="apothecary"/>
   </properties>
  </object>
