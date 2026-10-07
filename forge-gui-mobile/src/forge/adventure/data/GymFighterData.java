@@ -12,7 +12,11 @@ public class GymFighterData {
     public String sprite;
     public int life = 20;
     public String colors = "";
-    public int gamesPerMatch = 1;
+    /**
+     * Games per match. {@code 0} (or omitted for bosses) means use ConfigData:
+     * {@code gymLeaderGamesPerMatch} / {@code leagueGamesPerMatch}. Trainers should set 1.
+     */
+    public int gamesPerMatch = 0;
     public boolean boss = false;
     /** Format name → deck path. Missing formats fall back to {@code Standard}. */
     public ObjectMap<String, String> decks;

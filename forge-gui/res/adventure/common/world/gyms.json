@@ -56,7 +56,7 @@
         "sprite": "sprites/enemy/celestial/angel_1.atlas",
         "life": 30,
         "colors": "W",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -166,7 +166,7 @@
         "sprite": "sprites/enemy/humanoid/viashino/lizardwizard.atlas",
         "life": 30,
         "colors": "U",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -278,7 +278,7 @@
         "sprite": "sprites/enemy/fiend/demon_5.atlas",
         "life": 30,
         "colors": "B",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -377,7 +377,7 @@
         "sprite": "sprites/enemy/fey/faerie_dragon.atlas",
         "life": 30,
         "colors": "R",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -474,7 +474,7 @@
         "sprite": "sprites/enemy/beast/horse/horsearabian.atlas",
         "life": 30,
         "colors": "G",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -571,7 +571,7 @@
         "sprite": "sprites/enemy/construct/arcane_golem.atlas",
         "life": 30,
         "colors": "WUBRG",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -681,7 +681,7 @@
         "sprite": "sprites/enemy/humanoid/paladin_2.atlas",
         "life": 30,
         "colors": "WR",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -779,7 +779,7 @@
         "sprite": "sprites/enemy/celestial/angel_1.atlas",
         "life": 30,
         "colors": "WUBRG",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -843,7 +843,7 @@
         "sprite": "sprites/enemy/celestial/angel_1.atlas",
         "life": 28,
         "colors": "W",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -863,7 +863,7 @@
         "sprite": "sprites/enemy/humanoid/merfolk/mermaid.atlas",
         "life": 28,
         "colors": "U",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -883,7 +883,7 @@
         "sprite": "sprites/enemy/fiend/demon_5.atlas",
         "life": 28,
         "colors": "B",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -903,7 +903,7 @@
         "sprite": "sprites/enemy/fey/faerie_dragon.atlas",
         "life": 28,
         "colors": "R",
-        "gamesPerMatch": 3,
+        "gamesPerMatch": 0,
         "boss": true,
         "decks": {
           "Standard": "$generate",
@@ -924,7 +924,7 @@
       "sprite": "sprites/enemy/celestial/akroma.atlas",
       "life": 36,
       "colors": "WUBRG",
-      "gamesPerMatch": 3,
+      "gamesPerMatch": 0,
       "boss": true,
       "decks": {
         "Standard": "$generate",

@@ -284,7 +284,7 @@
   <object id="74" template="../../obj/workshop.tx" x="584" y="160"/>
   <object id="75" template="../../obj/apothecary.tx" x="552" y="176"/>
   <object id="76" template="../../obj/jeweler.tx" x="600" y="144"/>
-  <object id="77" template="../../obj/league.tx" x="600" y="144">
+  <object id="77" template="../../obj/league.tx" x="304" y="208">
    <properties>
     <property name="type" value="league"/>
    </properties>

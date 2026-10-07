@@ -336,9 +336,11 @@ public class ConsoleCommandInterpreter {
                 }
                 return "Granted " + n + " new badges (now " + Current.player().getBadgeCount() + ")";
             }
+            if (!forge.adventure.data.GymListData.isValidBadge(s[0]))
+                return "Unknown badge id '" + s[0] + "' (use a gyms.json badgeId or 'all')";
             if (Current.player().addBadge(s[0]))
                 return "Granted badge " + s[0];
-            return "Already had badge " + s[0] + " (or invalid)";
+            return "Already had badge " + s[0];
         });
         registerCommand(new String[]{"give", "life"}, s -> {
             if (s.length < 1) return "Command needs 1 parameter: Amount.";

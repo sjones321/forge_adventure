@@ -17,6 +17,8 @@ import java.util.Map;
 public final class MaterialListData {
     private static Array<MaterialData> materialList;
     private static final ObjectMap<String, MaterialData> byId = new ObjectMap<>();
+    /** Plane id the cache was loaded for; cleared/reloaded on world switch. */
+    private static String loadedPlane;
 
     /**
      * Package A → color-line id renames. Applied on player load so counts are never lost.
@@ -52,10 +54,11 @@ public final class MaterialListData {
     private MaterialListData() {
     }
 
-    /** Reload from disk (tests / hot-swap). Safe if the file is missing. */
+    /** Reload from disk (tests / hot-swap / world switch). Safe if the file is missing. */
     public static void reload() {
         byId.clear();
         materialList = new Array<>();
+        loadedPlane = Config.instance().getPlane();
         FileHandle handle = Config.instance().getFile(Paths.MATERIALS);
         if (handle == null || !handle.exists())
             return;
@@ -70,13 +73,22 @@ public final class MaterialListData {
         }
     }
 
+    /** Reloads when the adventure plane no longer matches the cached data. */
+    private static void ensureCurrentWorld() {
+        String plane = Config.instance().getPlane();
+        if (loadedPlane == null || !loadedPlane.equals(plane))
+            reload();
+    }
+
     public static MaterialData get(String id) {
+        ensureCurrentWorld();
         if (id == null)
             return null;
         return byId.get(id);
     }
 
     public static Array<MaterialData> getAll() {
+        ensureCurrentWorld();
         return materialList != null ? materialList : new Array<>();
     }
 
@@ -113,6 +125,7 @@ public final class MaterialListData {
 
     /** Gatherable node materials for a materials.json biome key (requires {@link MaterialData#isGatherNode()}). */
     public static Array<MaterialData> getGatherablesForBiome(String materialBiome) {
+        ensureCurrentWorld();
         Array<MaterialData> out = new Array<>();
         if (materialBiome == null || materialBiome.isEmpty() || materialList == null)
             return out;
@@ -185,6 +198,7 @@ public final class MaterialListData {
      * (primary line plus drop alts like feathers/hide/brine). Excludes prismatic.
      */
     public static Array<MaterialData> reagentsForColorTier(String color, int tier) {
+        ensureCurrentWorld();
         Array<MaterialData> out = new Array<>();
         if (color == null || color.isEmpty() || materialList == null)
             return out;
@@ -238,6 +252,7 @@ public final class MaterialListData {
     }
 
     private static MaterialData firstInFamilyTier(String family, int tier) {
+        ensureCurrentWorld();
         if (family == null || materialList == null)
             return null;
         for (MaterialData m : new Array.ArrayIterator<>(materialList)) {
@@ -264,6 +279,7 @@ public final class MaterialListData {
     }
 
     private static Array<MaterialData> byFamily(String family) {
+        ensureCurrentWorld();
         Array<MaterialData> out = new Array<>();
         if (materialList == null || family == null)
             return out;

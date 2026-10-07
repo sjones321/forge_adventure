@@ -111,7 +111,9 @@ public class GymScene extends UIScene implements IAfterMatch {
             addLine(mark + trainers[i].name + "  [%80](life " + trainers[i].life + ")");
         }
         if (gym.leader != null) {
-            addHeader("Leader" + (gym.leader.gamesPerMatch > 1 ? " (best of " + gym.leader.gamesPerMatch + ")" : ""));
+            int leaderBo = gym.leader.gamesPerMatch > 0 ? gym.leader.gamesPerMatch
+                    : Config.instance().getConfigData().gymLeaderGamesPerMatch;
+            addHeader("Leader" + (leaderBo > 1 ? " (best of " + leaderBo + ")" : ""));
             String mark = challengeActive && fightIndex >= trainers.length ? "[GOLD]► " : "[DARK_GRAY]○ ";
             addLine(mark + gym.leader.name + "  [%80](life " + gym.leader.life + ")");
         }
@@ -147,13 +149,27 @@ public class GymScene extends UIScene implements IAfterMatch {
 
     private void onLeave() {
         if (challengeActive) {
-            challengeActive = false;
-            fightIndex = 0;
-            Current.player().defeated();
-            showInfo("Challenge forfeited", "The challenge is over. The normal defeat penalty was applied.");
-            rebuild();
+            applyDefeat("Challenge forfeited", "The challenge is over. The normal defeat penalty was applied.");
             return;
         }
+        leaveGym();
+    }
+
+    /** Applies the normal duel defeat penalty; respawns at Spawn when life drops below 1. */
+    private void applyDefeat(String title, String body) {
+        challengeActive = false;
+        fightIndex = 0;
+        boolean wiped = Current.player().defeated();
+        rebuild();
+        if (wiped) {
+            leaveGym();
+            WorldStage.getInstance().resetPlayerLocation();
+        } else {
+            showInfo(title, body);
+        }
+    }
+
+    private void leaveGym() {
         GameHUD.getInstance().getTouchpad().setVisible(false);
         Forge.switchToLast();
     }
@@ -200,11 +216,7 @@ public class GymScene extends UIScene implements IAfterMatch {
         if (!challengeActive)
             return;
         if (!winner) {
-            challengeActive = false;
-            fightIndex = 0;
-            Current.player().defeated();
-            rebuild();
-            showInfo("Defeated", "The gym challenge is over. Heal up and try again.");
+            applyDefeat("Defeated", "The gym challenge is over. Heal up and try again.");
             return;
         }
         // Trainers/leaders grant the usual Ascendant win dust via a quiet win() call.

@@ -125,7 +125,9 @@ public class LeagueScene extends UIScene implements IAfterMatch {
             String role = isChamp ? "Champion" : "Elite Four";
             String mark = challengeActive && i < fightIndex ? "[FOREST]☑ "
                     : (challengeActive && i == fightIndex ? "[GOLD]► " : "[DARK_GRAY]○ ");
-            addLine(mark + role + ": " + f.name + "  [%80]Bo" + f.gamesPerMatch);
+            int bo = f.gamesPerMatch > 0 ? f.gamesPerMatch
+                    : Config.instance().getConfigData().leagueGamesPerMatch;
+            addLine(mark + role + ": " + f.name + "  [%80]Bo" + Math.max(1, bo));
         }
         if (challengeActive)
             addNote("Life is not restored between matches. Forfeit returns you to town.");
@@ -164,13 +166,27 @@ public class LeagueScene extends UIScene implements IAfterMatch {
 
     private void onLeave() {
         if (challengeActive) {
-            challengeActive = false;
-            fightIndex = 0;
-            Current.player().defeated();
-            showInfo("League forfeited", "The challenge is over. The normal defeat penalty was applied.");
-            rebuild();
+            applyDefeat("League forfeited", "The challenge is over. The normal defeat penalty was applied.");
             return;
         }
+        leaveLeague();
+    }
+
+    /** Applies the normal duel defeat penalty; respawns at Spawn when life drops below 1. */
+    private void applyDefeat(String title, String body) {
+        challengeActive = false;
+        fightIndex = 0;
+        boolean wiped = Current.player().defeated();
+        rebuild();
+        if (wiped) {
+            leaveLeague();
+            WorldStage.getInstance().resetPlayerLocation();
+        } else {
+            showInfo(title, body);
+        }
+    }
+
+    private void leaveLeague() {
         GameHUD.getInstance().getTouchpad().setVisible(false);
         Forge.switchToLast();
     }
@@ -183,7 +199,7 @@ public class LeagueScene extends UIScene implements IAfterMatch {
             return;
         }
         GymFighterData fighter = lineup.get(fightIndex);
-        EnemyData data = GymUtil.toEnemy(fighter, Current.player().getBadgeCount(), rematch);
+        EnemyData data = GymUtil.toEnemy(fighter, Current.player().getBadgeCount(), rematch, true);
         EnemySprite enemy = new EnemySprite(data);
         awaitingDuel = true;
         DuelScene duelScene = DuelScene.instance();
@@ -201,11 +217,7 @@ public class LeagueScene extends UIScene implements IAfterMatch {
         if (!challengeActive)
             return;
         if (!winner) {
-            challengeActive = false;
-            fightIndex = 0;
-            Current.player().defeated();
-            rebuild();
-            showInfo("Defeated", "The League challenge ends here. No healing was granted mid-run.");
+            applyDefeat("Defeated", "The League challenge ends here. No healing was granted mid-run.");
             return;
         }
         boolean isChamp = fightIndex == lineup.size - 1;

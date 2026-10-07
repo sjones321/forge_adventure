@@ -207,7 +207,9 @@ public class DuelScene extends ForgeScene {
                 List<PlayerControllerHuman> humans = hostedMatch.getHumanControllers();
                 if (humans.size() == 1 && humans.get(0).getPlayer() != null) {
                     int remaining = humans.get(0).getPlayer().getLife();
-                    Current.player().setLife(Math.max(1, remaining));
+                    // Clamp to map max life so badge/skill duel bonuses are not written back.
+                    int max = Current.player().getMaxLife();
+                    Current.player().setLife(Math.min(max, Math.max(1, remaining)));
                 }
             }
             persistLifeAfterMatch = false;
