@@ -10,6 +10,8 @@ public class Paths {
     public static final String HEROES = "world/heroes.json";
     public static final String POINTS_OF_INTEREST = "world/points_of_interest.json";
     public static final String ITEMS = "world/items.json";
+    public static final String MATERIALS = "world/materials.json";
+    public static final String ENEMY_MATERIAL_DROPS = "world/enemy_material_drops.json";
     public static final String QUESTS = "world/quests.json";
     public static final String SKIN = "skin/ui_skin.json";
     public static final String ITEMS_EQUIP = "skin/equip.png";

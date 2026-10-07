@@ -562,6 +562,8 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
                 rewardCollectionPool.addAll(rdata.generate(false, (Current.latestDeck() != null ? Current.latestDeck().getMain().toFlatList() : null), true));
             }
         }
+        // Ascendant: color-keyed material drops (bosses always drop their unique material). Table in JSON.
+        forge.adventure.data.EnemyMaterialDropData.appendDrops(data, rewardCollectionPool);
         return rewardCollectionPool;
     }
 

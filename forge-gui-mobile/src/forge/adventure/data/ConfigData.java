@@ -109,4 +109,18 @@ public class ConfigData {
     /** Owned copies kept before auto-salvage destroys the rest (Ascendant toggle; vaulted/deck copies protected). */
     public int autoSalvageKeepCopies = 4;
 
+    // ---- Ascendant materials (Package A): inventory, enemy drops, Spellsmithing refine. ----
+
+    /**
+     * Refine-to-dust yield multiplier at Spellsmithing level 1.
+     * Final dust = materials.json dustRefine.amount × lerp(refineDustBase, refineDustMax, skill).
+     */
+    public float refineDustBase = 1f;
+    /** Refine-to-dust yield multiplier at Spellsmithing level 99. */
+    public float refineDustMax = 2f;
+    /** Chance (0-1) a non-boss enemy drops a color-keyed material on win (Ascendant only). */
+    public float enemyMaterialDropChance = 0.4f;
+    /** Units granted when a non-boss material drop succeeds. */
+    public int enemyMaterialDropCount = 1;
+
 }

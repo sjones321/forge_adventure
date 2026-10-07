@@ -430,6 +430,18 @@ public class RewardActor extends Actor implements Disposable, ImageFetcher.Callb
                 needsToBeDisposed = true;
                 break;
             }
+            case Material: {
+                Sprite backSprite = Config.instance().getItemSprite("CardBack");
+                forge.adventure.data.MaterialData mat = reward.getMaterial();
+                Sprite item = mat != null ? mat.sprite() : Config.instance().getItemSprite("Item");
+                String label = (mat != null ? mat.getDisplayName() : "Material")
+                        + (reward.getCount() > 1 ? " x" + reward.getCount() : "");
+                setItemTooltips(item, backSprite, false);
+                processSprite(backSprite, item, isRewardShop ? null :
+                        Controls.newTextraLabel("[%160]" + label), 0, isRewardShop ? 0 : -10, false);
+                needsToBeDisposed = true;
+                break;
+            }
             case CardPack: {
                 Sprite backSprite = Config.instance().getItemSprite("CardBack");
                 if (reward.getDeck() == null) {
@@ -1173,6 +1185,9 @@ public class RewardActor extends Actor implements Disposable, ImageFetcher.Callb
                 break;
             case Item:
                 display = reward.getItem() != null ? reward.getItem().getDisplayName() : "";
+                break;
+            case Material:
+                display = reward.getMaterial() != null ? reward.getMaterial().getDisplayName() : "Material";
                 break;
             case CardPack:
                 display = reward.getDeck() != null ? "Card Pack (" + reward.getDeck().getComment() + ")" : "";

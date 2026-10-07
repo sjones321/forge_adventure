@@ -243,6 +243,22 @@ public class ConsoleCommandInterpreter {
             Current.player().addShards(amount);
             return "Added " + amount + " shards";
         });
+        registerCommand(new String[]{"give", "material"}, s -> {
+            if (s.length < 1) return "Command needs material id and optional amount.";
+            String id = s[0];
+            if (!forge.adventure.data.MaterialListData.exists(id))
+                return "Unknown material id: " + id;
+            int amount = 1;
+            if (s.length >= 2) {
+                try {
+                    amount = Integer.parseInt(s[1]);
+                } catch (Exception e) {
+                    return "Can not convert " + s[1] + " to number";
+                }
+            }
+            Current.player().addMaterial(id, amount);
+            return "Added " + amount + " " + id + " (now " + Current.player().getMaterial(id) + ")";
+        });
         registerCommand(new String[]{"give", "life"}, s -> {
             if (s.length < 1) return "Command needs 1 parameter: Amount.";
             int amount;

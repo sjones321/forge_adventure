@@ -40,6 +40,9 @@ public class RewardData implements Serializable {
     public String cardName;
     public String itemName;
     public String[] itemNames;
+    /** Ascendant material reward id (type {@code material}). */
+    public String materialName;
+    public String[] materialNames;
     public String[] editions;
     public String[] colors;
     public int startDate;
@@ -73,9 +76,11 @@ public class RewardData implements Serializable {
         addMaxCount      = rewardData.addMaxCount;
         cardName         = rewardData.cardName;
         itemName         = rewardData.itemName;
+        materialName     = rewardData.materialName;
         startDate        = rewardData.startDate;
         endDate          = rewardData.endDate;
         itemNames        = rewardData.itemNames == null ? null : rewardData.itemNames.clone();
+        materialNames    = rewardData.materialNames == null ? null : rewardData.materialNames.clone();
         editions         = rewardData.editions == null ? null : rewardData.editions.clone();
         colors           = rewardData.colors == null ? null : rewardData.colors.clone();
         rarity           = rewardData.rarity == null ? null : rewardData.rarity.clone();
@@ -293,6 +298,21 @@ public class RewardData implements Serializable {
                         }
                     }
                     break;
+                case "material": {
+                    // Ascendant materials: fixed id or random pick from materialNames; count is stack size.
+                    String chosen = null;
+                    if (materialNames != null && materialNames.length > 0)
+                        chosen = materialNames[rewardRandom.nextInt(materialNames.length)];
+                    else if (materialName != null && !materialName.isEmpty())
+                        chosen = materialName;
+                    if (chosen != null) {
+                        if (MaterialListData.exists(chosen))
+                            ret.add(new Reward(chosen, count + addedCount));
+                        else
+                            System.err.println("Missing material: " + chosen);
+                    }
+                    break;
+                }
                 case "cardPackShop": {
                     StandardWindow packWindow = AdventurePlayer.current().getStandardWindow();
                     if (packWindow.isActive()) {

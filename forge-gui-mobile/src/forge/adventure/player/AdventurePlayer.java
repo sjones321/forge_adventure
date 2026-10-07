@@ -75,6 +75,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     private final int[] dust = new int[4];
     /** When true (Ascendant only), copies beyond {@link ConfigData#autoSalvageKeepCopies} are salvaged on gain. */
     private boolean autoSalvage = false;
+    /**
+     * Ascendant materials inventory (Package A). Key = material id from materials.json.
+     * Stable API for gathering, recipes, town requests.
+     */
+    private final LinkedHashMap<String, Integer> materials = new LinkedHashMap<>();
     private EffectData blessing; //Blessing to apply for next battle.
     private final PlayerStatistic statistic = new PlayerStatistic();
     private final Map<String, Byte> questFlags = new HashMap<>();
@@ -101,6 +106,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     final SignalList onLifeTotalChangeList = new SignalList();
     final SignalList onShardsChangeList = new SignalList();
     final SignalList onDustChangeList = new SignalList();
+    final SignalList onMaterialChangeList = new SignalList();
     final SignalList onGoldChangeList = new SignalList();
     final SignalList onPlayerChangeList = new SignalList();
     final SignalList onEquipmentChange = new SignalList();
@@ -141,6 +147,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         shards = 0;
         Arrays.fill(dust, 0);
         autoSalvage = false;
+        materials.clear();
         maxDeckCount = 20;
         clearDecks();
         inventoryItems.clear();
@@ -543,6 +550,49 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 + " R:" + dust[DUST_RARE] + " M:" + dust[DUST_MYTHIC];
     }
 
+    /** Owned count of a material id; unknown/missing → 0. */
+    public int getMaterial(String id) {
+        if (id == null)
+            return 0;
+        Integer n = materials.get(id);
+        return n != null ? Math.max(0, n) : 0;
+    }
+
+    /** Unmodifiable view of material id → count (zeros omitted). */
+    public Map<String, Integer> getMaterials() {
+        return Collections.unmodifiableMap(materials);
+    }
+
+    /**
+     * Adds {@code amount} of a material (no-op if amount ≤ 0 or id empty).
+     * Emits {@link #onMaterialChange}.
+     */
+    public void addMaterial(String id, int amount) {
+        if (id == null || id.isEmpty() || amount <= 0)
+            return;
+        materials.put(id, getMaterial(id) + amount);
+        onMaterialChangeList.emit();
+    }
+
+    /**
+     * Removes {@code amount} of a material. Returns false if there is not enough (nothing taken).
+     * Emits {@link #onMaterialChange} on success.
+     */
+    public boolean takeMaterial(String id, int amount) {
+        if (id == null || amount <= 0)
+            return false;
+        int have = getMaterial(id);
+        if (have < amount)
+            return false;
+        int left = have - amount;
+        if (left <= 0)
+            materials.remove(id);
+        else
+            materials.put(id, left);
+        onMaterialChangeList.emit();
+        return true;
+    }
+
     public boolean isAutoSalvage() {
         return autoSalvage;
     }
@@ -675,6 +725,18 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             }
         }
         autoSalvage = data.containsKey("autoSalvage") && data.readBool("autoSalvage") && Config.ascendant();
+        materials.clear();
+        if (data.containsKey("materialIds") && data.containsKey("materialCounts")) {
+            Object rawIds = data.readObject("materialIds");
+            Object rawCounts = data.readObject("materialCounts");
+            if (rawIds instanceof String[] ids && rawCounts instanceof int[] counts) {
+                int n = Math.min(ids.length, counts.length);
+                for (int i = 0; i < n; i++) {
+                    if (ids[i] != null && !ids[i].isEmpty() && counts[i] > 0)
+                        materials.put(ids[i], counts[i]);
+                }
+            }
+        }
         worldPosX = data.readFloat("worldPosX");
         worldPosY = data.readFloat("worldPosY");
 
@@ -1058,6 +1120,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         data.store("shards", shards);
         data.storeObject("dust", Arrays.copyOf(dust, dust.length));
         data.store("autoSalvage", autoSalvage);
+        {
+            String[] materialIds = materials.keySet().toArray(new String[0]);
+            int[] materialCounts = new int[materialIds.length];
+            for (int i = 0; i < materialIds.length; i++)
+                materialCounts[i] = materials.getOrDefault(materialIds[i], 0);
+            data.storeObject("materialIds", materialIds);
+            data.storeObject("materialCounts", materialCounts);
+        }
         data.store("deckName", deck.getName());
 
         data.storeObject("inventory", inventoryItems.toArray(new ItemData[0]));
@@ -1264,6 +1334,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             case Shards:
                 addShards(reward.getCount());
                 break;
+            case Material:
+                if (reward.getMaterialId() != null)
+                    addMaterial(reward.getMaterialId(), reward.getCount());
+                break;
         }
     }
 
@@ -1285,6 +1359,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     public void onDustChange(Runnable o) {
         onDustChangeList.add(o);
+        o.run();
+    }
+
+    public void onMaterialChange(Runnable o) {
+        onMaterialChangeList.add(o);
         o.run();
     }
 
@@ -1634,6 +1713,98 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             giveGold(earned);
         skills.onCardsSold(amountToSell, earned);
         return amountToSell;
+    }
+
+    /**
+     * Gold paid per unit when selling a material to shops (sellPrice × town/skill modifiers).
+     * Returns 0 if the id is unknown.
+     */
+    public int materialSellPrice(String id) {
+        MaterialData mat = MaterialListData.get(id);
+        if (mat == null)
+            return 0;
+        float townPriceModifier = currentLocationChanges == null ? 1f : currentLocationChanges.getTownPriceModifier();
+        return Math.max(1, Math.round(mat.sellPrice * (2.0f - townPriceModifier) * skills.sellPriceFactor()));
+    }
+
+    /**
+     * Sells up to {@code amount} of a material for gold. Returns units sold.
+     * Shops buy at {@link #materialSellPrice}.
+     */
+    public int sellMaterial(String id, int amount) {
+        if (id == null || amount < 1)
+            return 0;
+        MaterialData mat = MaterialListData.get(id);
+        if (mat == null)
+            return 0;
+        int toSell = Math.min(amount, getMaterial(id));
+        if (toSell <= 0)
+            return 0;
+        int unitPrice = materialSellPrice(id);
+        if (!takeMaterial(id, toSell))
+            return 0;
+        int earned = unitPrice * toSell;
+        if (earned > 0)
+            giveGold(earned);
+        skills.onMaterialsSold(toSell, earned);
+        return toSell;
+    }
+
+    /** Maps materials.json dustRefine.rarity strings to a dust bucket; unknown → -1. */
+    public static int materialDustIndex(String rarity) {
+        if (rarity == null)
+            return -1;
+        return switch (rarity.trim().toLowerCase(Locale.ROOT)) {
+            case "common", "c" -> DUST_COMMON;
+            case "uncommon", "u" -> DUST_UNCOMMON;
+            case "rare", "r", "special" -> DUST_RARE;
+            case "mythic", "mythicrare", "m" -> DUST_MYTHIC;
+            default -> -1;
+        };
+    }
+
+    /**
+     * Dust granted for refining one unit of this material at the player's current Spellsmithing level.
+     * Uses materials.json {@code dustRefine.amount} × Config refineDustBase→refineDustMax lerp.
+     */
+    public int refineDustYield(String id) {
+        MaterialData mat = MaterialListData.get(id);
+        if (mat == null || mat.dustRefine == null || mat.dustRefine.amount <= 0)
+            return 0;
+        if (materialDustIndex(mat.dustRefine.rarity) < 0)
+            return 0;
+        ConfigData config = Config.instance().getConfigData();
+        int level = Math.max(1, skills.getLevel(PlayerSkills.Skill.SPELLSMITHING));
+        float t = (level - 1) / 98f;
+        float mult = config.refineDustBase + (config.refineDustMax - config.refineDustBase) * t;
+        return Math.max(1, Math.round(mat.dustRefine.amount * mult));
+    }
+
+    /**
+     * Spellsmithing: convert materials into dust of the mapped rarity.
+     * Returns dust granted, or 0 on failure.
+     */
+    public int refineMaterial(String id, int amount) {
+        if (!Config.ascendant() || id == null || amount < 1)
+            return 0;
+        MaterialData mat = MaterialListData.get(id);
+        if (mat == null || mat.dustRefine == null)
+            return 0;
+        int dustBucket = materialDustIndex(mat.dustRefine.rarity);
+        if (dustBucket < 0)
+            return 0;
+        int toRefine = Math.min(amount, getMaterial(id));
+        if (toRefine <= 0)
+            return 0;
+        int yieldEach = refineDustYield(id);
+        if (yieldEach <= 0)
+            return 0;
+        if (!takeMaterial(id, toRefine))
+            return 0;
+        int total = yieldEach * toRefine;
+        addDust(dustBucket, total);
+        skills.onMaterialRefined(total);
+        return total;
     }
 
     /**

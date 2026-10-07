@@ -1,6 +1,8 @@
 package forge.adventure.util;
 
 import forge.adventure.data.ItemData;
+import forge.adventure.data.MaterialData;
+import forge.adventure.data.MaterialListData;
 import forge.deck.Deck;
 import forge.item.PaperCard;
 
@@ -14,7 +16,8 @@ public class Reward {
         Item,
         Life,
         Shards,
-        CardPack;
+        CardPack,
+        Material;
         private final String labelKey = "lbl" + this.name();
         /**
          * @return The pre-cached localizer key name (e.g., "lblLife", "lblShards", "lblGold").
@@ -28,6 +31,7 @@ public class Reward {
     PaperCard card;
     ItemData item;
     Deck deck;
+    String materialId;
     boolean isNoSell, isAutoSell;
     private final int count;
 
@@ -60,6 +64,13 @@ public class Reward {
         this.count = count;
     }
 
+    /** Ascendant material reward (id + count). */
+    public Reward(String materialId, int count) {
+        type = Type.Material;
+        this.materialId = materialId;
+        this.count = Math.max(1, count);
+    }
+
     public Reward(Deck deck) {
         this(deck, false);
     }
@@ -85,6 +96,14 @@ public class Reward {
 
     public Deck getDeck() {
         return deck;
+    }
+
+    public String getMaterialId() {
+        return materialId;
+    }
+
+    public MaterialData getMaterial() {
+        return materialId != null ? MaterialListData.get(materialId) : null;
     }
 
     public Type getType() {

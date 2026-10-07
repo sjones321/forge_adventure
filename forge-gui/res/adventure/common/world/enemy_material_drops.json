@@ -1,0 +1,71 @@
+{
+  "byColor": {
+    "W": [
+      "rough_stone",
+      "hide"
+    ],
+    "U": [
+      "quartz",
+      "azure"
+    ],
+    "B": [
+      "bone",
+      "nightshade"
+    ],
+    "R": [
+      "copper",
+      "iron"
+    ],
+    "G": [
+      "oak",
+      "hide"
+    ],
+    "C": [
+      "scrap",
+      "brass_gears"
+    ]
+  },
+  "byBoss": {
+    "Akroma": "boss_akroma",
+    "Ancient Silver Dragon": "boss_ancient_silver_dragon",
+    "Chandra": "boss_chandra",
+    "Conjurer": "boss_conjurer",
+    "Dark Enchanter": "boss_dark_enchanter",
+    "Elesh Norn": "boss_elesh_norn",
+    "Emrakul": "boss_emrakul",
+    "Garruk": "boss_garruk",
+    "Ghalta": "boss_ghalta",
+    "Griselbrand": "boss_griselbrand",
+    "Grolnok": "boss_grolnok",
+    "Guardian Angel": "boss_guardian_angel",
+    "Jace": "boss_jace",
+    "Jin-Gitaxias": "boss_jin_gitaxias",
+    "Kiora": "boss_kiora",
+    "Kozilek": "boss_kozilek",
+    "Lathliss": "boss_lathliss",
+    "Liliana": "boss_liliana",
+    "Lorthos": "boss_lorthos",
+    "Myr Superion": "boss_myr_superion",
+    "Nahiri": "boss_nahiri",
+    "Nissa": "boss_nissa",
+    "Ooze Boss": "boss_ooze_boss",
+    "Scarecrow Captain": "boss_scarecrow_captain",
+    "Slimefoot": "boss_slimefoot",
+    "Sliver Queen": "boss_sliver_queen",
+    "Slobad": "boss_slobad",
+    "Sorin": "boss_sorin",
+    "Teferi": "boss_teferi",
+    "The Cheff": "boss_the_cheff",
+    "The Hydra of Shandalaar": "boss_the_hydra_of_shandalaar",
+    "Tibalt": "boss_tibalt",
+    "Torturer": "boss_torturer",
+    "Urabrask": "boss_urabrask",
+    "Valyx Feaster of Torment": "boss_valyx_feaster_of_torment",
+    "Vorinclex": "boss_vorinclex",
+    "Walter, the Stray Camel": "boss_walter_the_stray_camel",
+    "Wounded Sliver": "boss_wounded_sliver",
+    "Xira": "boss_xira",
+    "Zedruu": "boss_zedruu"
+  },
+  "defaultBossMaterial": "boss_trophy"
+}
