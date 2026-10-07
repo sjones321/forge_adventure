@@ -1,0 +1,9 @@
+# red color staples: unlocked by the red Magic skill. Format: <level> <card name>.
+# Unlocked cards are always Standard-legal for you and appear in shops, loot and Spell Smith.
+10 Burst Lightning
+20 Searing Spear
+30 Abrade
+45 Hellrider
+60 Banefire
+75 Inferno Titan
+90 Glorybringer

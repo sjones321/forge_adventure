@@ -37,6 +37,7 @@ public class SkillsScene extends UIScene {
         ui.onButtonPress("return", SkillsScene.this::back);
         ui.onButtonPress("status", () -> Forge.switchScene(PlayerStatisticScene.instance(lastGameScene), true));
         ui.onButtonPress("quests", () -> Forge.switchScene(QuestLogScene.instance(lastGameScene), true));
+        ui.onButtonPress("unlocks", () -> Forge.switchScene(UnlocksScene.instance(lastGameScene), true));
 
         scrollContainer = new Table(Controls.getSkin());
         ScrollPane scroller = new ScrollPane(scrollContainer);
@@ -80,6 +81,9 @@ public class SkillsScene extends UIScene {
                 progress = String.format("%,d / %,d", xp, next);
             }
             addRow("[BLACK]" + skill.displayName, "[BLACK]" + level, "[DARK_GRAY]" + progress);
+            String[] perks = PlayerSkills.colorPerks(skill);
+            if (perks != null)
+                addPerkLine(perks, level);
         }
         addRow("[BLACK]Total level", "[BLACK]" + skills.getTotalLevel(), "");
 
@@ -145,6 +149,25 @@ public class SkillsScene extends UIScene {
         scrollContainer.add(unlock).padRight(10);
         addToSelectable(box);
         addToSelectable(unlock);
+    }
+
+    /** Under a color skill: unlocked perks, then the next one and the level it unlocks at. */
+    private void addPerkLine(String[] perks, int level) {
+        StringBuilder sb = new StringBuilder();
+        String next = null;
+        for (int i = 0; i < perks.length; i++) {
+            int at = PlayerSkills.COLOR_PERK_LEVELS[i];
+            if (level >= at)
+                sb.append(sb.length() == 0 ? "" : ", ").append(perks[i]);
+            else if (next == null)
+                next = "next at " + at + ": " + perks[i];
+        }
+        String text = (sb.length() == 0 ? "" : "[FOREST]" + sb + "[DARK_GRAY]" + (next == null ? "" : "; "))
+                + (next == null ? "" : next);
+        TypingLabel line = label("[DARK_GRAY][%80]" + text);
+        line.setWrap(true);
+        scrollContainer.add(line).colspan(3).align(Align.left).padLeft(24).growX();
+        scrollContainer.row().padTop(1);
     }
 
     private void addRow(String name, String level, String xp) {

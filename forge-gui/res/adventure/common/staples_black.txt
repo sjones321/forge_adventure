@@ -1,0 +1,9 @@
+# black color staples: unlocked by the black Magic skill. Format: <level> <card name>.
+# Unlocked cards are always Standard-legal for you and appear in shops, loot and Spell Smith.
+10 Disfigure
+20 Sign in Blood
+30 Victim of Night
+45 Gray Merchant of Asphodel
+60 Night's Whisper
+75 Damnation
+90 Grave Titan

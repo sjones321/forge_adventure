@@ -1,0 +1,18 @@
+# Utility land staples: need BOTH an Exploration level AND a color (or Spellsmithing for colorless) level.
+# Format: <exploration level> <W|U|B|R|G|C> <skill level> <card name>.  C = Spellsmithing.
+30 W 30 Castle Ardenvale
+60 W 60 Emeria, the Sky Ruin
+30 U 30 Castle Vantress
+60 U 60 Minamo, School at Water's Edge
+30 B 30 Bojuka Bog
+45 B 45 Castle Locthwain
+70 B 70 Cabal Coffers
+30 R 30 Castle Embereth
+70 R 70 Valakut, the Molten Pinnacle
+30 G 30 Castle Garenbrig
+60 G 60 Yavimaya, Cradle of Growth
+20 C 10 Reliquary Tower
+30 C 20 Ghost Quarter
+40 C 30 Rogue's Passage
+60 C 50 Mutavault
+70 C 60 Inkmoth Nexus

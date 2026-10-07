@@ -1,0 +1,9 @@
+# Colorless staples: unlocked by the Spellsmithing skill. Format: <level> <card name>.
+# Unlocked cards are always Standard-legal for you and appear in shops, loot and Spell Smith.
+10 Prophetic Prism
+20 Pilgrim's Eye
+30 Bonesplitter
+45 Swiftfoot Boots
+60 Coalition Relic
+75 Wurmcoil Engine
+90 Ugin, the Spirit Dragon

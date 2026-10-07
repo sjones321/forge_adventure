@@ -1452,6 +1452,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (blessing != null) {
             if (blessing.cardRewardBonus > 0) result += blessing.cardRewardBonus;
         }
+        result += skills.bonusRewardCards(); // Green 40 perk
         return Math.min(result, 3);
     }
 

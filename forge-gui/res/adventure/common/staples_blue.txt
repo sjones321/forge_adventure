@@ -1,0 +1,9 @@
+# blue color staples: unlocked by the blue Magic skill. Format: <level> <card name>.
+# Unlocked cards are always Standard-legal for you and appear in shops, loot and Spell Smith.
+10 Preordain
+20 Mana Leak
+30 Impulse
+45 Fact or Fiction
+60 Mulldrifter
+75 Control Magic
+90 Cryptic Command

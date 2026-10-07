@@ -1,0 +1,9 @@
+# white color staples: unlocked by the white Magic skill. Format: <level> <card name>.
+# Unlocked cards are always Standard-legal for you and appear in shops, loot and Spell Smith.
+10 Raise the Alarm
+20 Oblivion Ring
+30 Valorous Stance
+45 Ajani's Pridemate
+60 Glorious Anthem
+75 Serra Angel
+90 Elspeth, Sun's Champion

@@ -1,0 +1,54 @@
+# Land staples: unlocked by the Exploration skill. Format: <level> <card name>.
+# Unlocked lands are always Standard-legal for you and appear in shops, loot and Spell Smith.
+10 Ash Barrens
+20 Blossoming Sands
+20 Bloodfell Caves
+20 Dismal Backwater
+20 Jungle Hollow
+20 Rugged Highlands
+20 Scoured Barrens
+20 Swiftwater Cliffs
+20 Thornwood Falls
+20 Tranquil Cove
+20 Wind-Scarred Crag
+35 Temple of Enlightenment
+35 Temple of Deceit
+35 Temple of Malice
+35 Temple of Abandon
+35 Temple of Plenty
+35 Temple of Silence
+35 Temple of Epiphany
+35 Temple of Malady
+35 Temple of Triumph
+35 Temple of Mystery
+50 Glacial Fortress
+50 Drowned Catacomb
+50 Dragonskull Summit
+50 Rootbound Crag
+50 Sunpetal Grove
+50 Isolated Chapel
+50 Sulfur Falls
+50 Woodland Cemetery
+50 Clifftop Retreat
+50 Hinterland Harbor
+60 Fabled Passage
+70 Hallowed Fountain
+70 Watery Grave
+70 Blood Crypt
+70 Stomping Ground
+70 Temple Garden
+70 Godless Shrine
+70 Steam Vents
+70 Overgrown Tomb
+70 Sacred Foundry
+70 Breeding Pool
+85 Flooded Strand
+85 Polluted Delta
+85 Bloodstained Mire
+85 Wooded Foothills
+85 Windswept Heath
+85 Marsh Flats
+85 Scalding Tarn
+85 Verdant Catacombs
+85 Arid Mesa
+85 Misty Rainforest

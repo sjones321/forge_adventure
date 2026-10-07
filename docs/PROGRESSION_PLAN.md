@@ -148,6 +148,15 @@ Each phase is playable on its own; tuning happens from playtest feedback.
 - Ban lists: common/banned_standard.txt, banned_historic.txt, banned_commander.txt.
 - Debug console: "allow unlock" (test a second unlock in one world).
 
+### Color perks and skill staples (built)
+- Color perks at 15/40/75 per color (duel-start life, tokens, mana shards, opening hand, opponent
+  life/hand; Spell Smith discount, walk speed, bonus card rewards). Shown on the Skills screen.
+- Skill staples, always Standard-legal once unlocked and offered in shops/loot/Spell Smith:
+  common/staples_<color>.txt (color skill levels 10-90), staples_colorless.txt (Spellsmithing),
+  staples_multicolor.txt (two cards per color pair at 25/60; both colors must reach the level),
+  staples_lands.txt (Exploration: gain lands 20, temples 35, check lands 50, shocks 70, fetches 85),
+  staples_utility_lands.txt (Exploration + a color or Spellsmithing, e.g. Bojuka Bog at 30/Black 30).
+
 ### Not built yet
 - Blocking duels with a Locked deck (currently only marked); deck slots per format with
   lock/archive; crafting a vaulted card; Commander switch and freebies; ban list files; inn draft set

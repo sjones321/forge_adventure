@@ -11,7 +11,11 @@ import forge.deck.Deck;
 import forge.deck.DeckSection;
 import forge.item.PaperCard;
 
+import forge.adventure.data.EffectData;
+
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -105,6 +109,15 @@ public class PlayerSkills {
     }
 
     private void onLevelUp(Skill skill, int before, int after) {
+        announcePerks(skill, before, after);
+        List<String> staples = StandardWindow.newlyUnlockedStaples(skill, before, after);
+        if (!staples.isEmpty()) {
+            notify("[GOLD]New " + skill.displayName + " staple:[] " + String.join(", ", staples)
+                    + " (now in shops and Spell Smith, always Standard-legal)");
+            forge.adventure.data.RewardData.invalidateCardPool();
+        }
+        if (skill == Skill.RED)
+            AdventurePlayer.current().refreshSkillEffects(); // Red 15 move speed
         if (skill == Skill.EXPLORATION)
             AdventurePlayer.current().refreshSkillEffects(); // move speed changed
         if (skill == Skill.DUELING) {
@@ -237,6 +250,66 @@ public class PlayerSkills {
             addXp(Skill.SALVAGING, cardCount * 3 + goldEarned / 2);
     }
 
+    // ---- color perks: unlocked at levels 15, 40 and 75 of each color skill ----
+
+    public static final int[] COLOR_PERK_LEVELS = {15, 40, 75};
+    private static final Map<Skill, String[]> COLOR_PERKS = new EnumMap<>(Skill.class);
+
+    static {
+        COLOR_PERKS.put(Skill.WHITE, new String[]{"+2 starting life in duels", "Start duels with a Food token", "Start duels with a 1/1 Soldier"});
+        COLOR_PERKS.put(Skill.BLUE, new String[]{"Spell Smith 15% cheaper", "+1 mana shard each duel", "+1 card in your opening hand"});
+        COLOR_PERKS.put(Skill.BLACK, new String[]{"Opponents start with 1 less life", "Start duels with a Clue token", "Opponents start with 1 fewer card"});
+        COLOR_PERKS.put(Skill.RED, new String[]{"Walk 5% faster", "Opponents start with 2 less life", "Start duels with a Treasure token"});
+        COLOR_PERKS.put(Skill.GREEN, new String[]{"+3 starting life in duels", "+1 bonus card reward after wins", "Start duels with an extra Forest in play"});
+    }
+
+    /** Perk descriptions for a color skill, or null for other skills. */
+    public static String[] colorPerks(Skill skill) {
+        return COLOR_PERKS.get(skill);
+    }
+
+    private boolean hasPerk(Skill skill, int tier) {
+        return getLevel(skill) >= COLOR_PERK_LEVELS[tier];
+    }
+
+    /** Duel-start effects from color perks (life, tokens, mana shards, opening hand, opponent effects). */
+    public EffectData duelPerks() {
+        EffectData e = new EffectData();
+        EffectData opp = new EffectData();
+        List<String> start = new ArrayList<>();
+        if (hasPerk(Skill.WHITE, 0)) e.lifeModifier += 2;
+        if (hasPerk(Skill.WHITE, 1)) start.add("c_a_food_sac");
+        if (hasPerk(Skill.WHITE, 2)) start.add("w_1_1_soldier");
+        if (hasPerk(Skill.BLUE, 1)) e.extraManaShards += 1;
+        if (hasPerk(Skill.BLUE, 2)) e.changeStartCards += 1;
+        if (hasPerk(Skill.BLACK, 0)) opp.lifeModifier -= 1;
+        if (hasPerk(Skill.BLACK, 1)) start.add("c_a_clue_draw");
+        if (hasPerk(Skill.BLACK, 2)) opp.changeStartCards -= 1;
+        if (hasPerk(Skill.RED, 1)) opp.lifeModifier -= 2;
+        if (hasPerk(Skill.RED, 2)) start.add("c_a_treasure_sac");
+        if (hasPerk(Skill.GREEN, 0)) e.lifeModifier += 3;
+        if (hasPerk(Skill.GREEN, 2)) start.add("Forest");
+        if (!start.isEmpty())
+            e.startBattleWithCard = start.toArray(new String[0]);
+        if (opp.lifeModifier != 0 || opp.changeStartCards != 0)
+            e.opponent = opp;
+        return e;
+    }
+
+    /** Extra "deck card" rewards after wins from perks (Green 40). */
+    public int bonusRewardCards() {
+        return hasPerk(Skill.GREEN, 1) ? 1 : 0;
+    }
+
+    private void announcePerks(Skill skill, int before, int after) {
+        String[] perks = COLOR_PERKS.get(skill);
+        if (perks == null)
+            return;
+        for (int i = 0; i < COLOR_PERK_LEVELS.length; i++)
+            if (before < COLOR_PERK_LEVELS[i] && after >= COLOR_PERK_LEVELS[i])
+                notify("[GOLD]" + skill.displayName + " perk unlocked:[] " + perks[i]);
+    }
+
     // ---- perks ----
 
     /** Extra free mulligans from Dueling: +1 at level 40, +2 at level 80. */
@@ -247,7 +320,8 @@ public class PlayerSkills {
 
     /** Price multiplier for Spell Smith pulls: 0.4% cheaper per Spellsmithing level above 1 (about 39% off at 99). */
     public float spellSmithPriceFactor() {
-        return 1f - 0.004f * (getLevel(Skill.SPELLSMITHING) - 1);
+        float f = 1f - 0.004f * (getLevel(Skill.SPELLSMITHING) - 1);
+        return hasPerk(Skill.BLUE, 0) ? f * 0.85f : f; // Blue 15
     }
 
     /** Price multiplier for shop purchases: 0.3% cheaper per Bartering level above 1 (about 29% off at 99). */
@@ -262,7 +336,8 @@ public class PlayerSkills {
 
     /** Overworld move speed multiplier: 0.25% faster per Exploration level above 1 (about +25% at 99). */
     public float moveSpeedFactor() {
-        return 1f + 0.0025f * (getLevel(Skill.EXPLORATION) - 1);
+        float f = 1f + 0.0025f * (getLevel(Skill.EXPLORATION) - 1);
+        return hasPerk(Skill.RED, 0) ? f * 1.05f : f; // Red 15
     }
 
     // ---- save/load ----

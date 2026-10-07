@@ -443,6 +443,13 @@ public class DuelScene extends ForgeScene {
                     playerEffects.add(enemy.effect.opponent);
             }
         }
+        //Color skill perks (life, tokens, shards, opening hand, opponent effects)
+        if (eventData == null || eventData.eventRules.allowsItems) {
+            EffectData perks = advPlayer.getSkills().duelPerks();
+            playerEffects.add(perks);
+            if (perks.opponent != null)
+                oppEffects.add(perks.opponent);
+        }
         //Collect and add dungeon-wide effects.
         if (dungeonEffect != null) {
             oppEffects.add(dungeonEffect);

@@ -155,14 +155,170 @@ public final class StandardWindow {
         if (!isActive())
             return true;
         String name = pc.getName();
-        // With a Commander deck in the save, both staples lists are in play
+        // With a Commander deck in the save, both staples lists are in play; color staples are always in
         return legalNames().contains(name) || activeStaples(false).contains(name)
-                || (commander && activeStaples(true).contains(name));
+                || (commander && activeStaples(true).contains(name)) || unlockedColorStaples().contains(name);
     }
 
-    /** Legal in Standard right now: printed in a window set, or one of this rotation's Standard staples. */
+    /** Legal in Standard right now: printed in a window set, one of this rotation's staples, or an unlocked color staple. */
     public boolean isStandardLegal(String name) {
-        return !isActive() || legalNames().contains(name) || activeStaples(false).contains(name);
+        return !isActive() || legalNames().contains(name) || activeStaples(false).contains(name)
+                || unlockedColorStaples().contains(name);
+    }
+
+    // ---------------------------------------------------------------- color staples
+
+    private static final String[] COLORS = {"white", "blue", "black", "red", "green"};
+    private static final PlayerSkills.Skill[] COLOR_SKILLS = {PlayerSkills.Skill.WHITE, PlayerSkills.Skill.BLUE,
+            PlayerSkills.Skill.BLACK, PlayerSkills.Skill.RED, PlayerSkills.Skill.GREEN};
+    private static Map<PlayerSkills.Skill, LinkedHashMap<String, Integer>> colorStapleLists;
+
+    /** Per color skill: card name -> level that unlocks it (from common/staples_<color>.txt). */
+    public static Map<PlayerSkills.Skill, LinkedHashMap<String, Integer>> colorStapleLists() {
+        if (colorStapleLists == null) {
+            Map<PlayerSkills.Skill, LinkedHashMap<String, Integer>> out = new HashMap<>();
+            for (int i = 0; i < COLORS.length; i++) {
+                LinkedHashMap<String, Integer> list = new LinkedHashMap<>();
+                for (String line : loadStaples("staples_" + COLORS[i] + ".txt")) {
+                    String[] parts = line.split(" ", 2);
+                    try {
+                        list.put(parts[1].trim(), Integer.parseInt(parts[0]));
+                    } catch (Exception ignored) {
+                    }
+                }
+                out.put(COLOR_SKILLS[i], list);
+            }
+            // Colorless staples are unlocked by Spellsmithing, land staples by Exploration
+            out.put(PlayerSkills.Skill.SPELLSMITHING, levelList("staples_colorless.txt"));
+            out.put(PlayerSkills.Skill.EXPLORATION, levelList("staples_lands.txt"));
+            colorStapleLists = out;
+        }
+        return colorStapleLists;
+    }
+
+    /** Reads a "<level> <card name>" staples file. */
+    private static LinkedHashMap<String, Integer> levelList(String file) {
+        LinkedHashMap<String, Integer> list = new LinkedHashMap<>();
+        for (String line : loadStaples(file)) {
+            String[] parts = line.split(" ", 2);
+            try {
+                list.put(parts[1].trim(), Integer.parseInt(parts[0]));
+            } catch (Exception ignored) {
+            }
+        }
+        return list;
+    }
+
+    /** A multicolor staple: unlocked when both colors' skills reach the level. */
+    public record PairStaple(int level, PlayerSkills.Skill a, PlayerSkills.Skill b, String name) {
+    }
+
+    private static List<PairStaple> pairStaples;
+
+    private static PlayerSkills.Skill colorSkill(char c) {
+        return switch (c) {
+            case 'W' -> PlayerSkills.Skill.WHITE;
+            case 'U' -> PlayerSkills.Skill.BLUE;
+            case 'B' -> PlayerSkills.Skill.BLACK;
+            case 'R' -> PlayerSkills.Skill.RED;
+            case 'G' -> PlayerSkills.Skill.GREEN;
+            default -> null;
+        };
+    }
+
+    public static List<PairStaple> pairStaples() {
+        if (pairStaples == null) {
+            List<PairStaple> out = new ArrayList<>();
+            for (String line : loadStaples("staples_multicolor.txt")) {
+                String[] parts = line.split(" ", 3);
+                try {
+                    PlayerSkills.Skill a = colorSkill(parts[1].charAt(0)), b = colorSkill(parts[1].charAt(1));
+                    if (a != null && b != null)
+                        out.add(new PairStaple(Integer.parseInt(parts[0]), a, b, parts[2].trim()));
+                } catch (Exception ignored) {
+                }
+            }
+            pairStaples = out;
+        }
+        return pairStaples;
+    }
+
+    /** Color staples the player has unlocked through their color skill levels. */
+    public static Set<String> unlockedColorStaples() {
+        Set<String> out = new HashSet<>();
+        PlayerSkills skills = AdventurePlayer.current().getSkills();
+        for (Map.Entry<PlayerSkills.Skill, LinkedHashMap<String, Integer>> e : colorStapleLists().entrySet()) {
+            int level = skills.getLevel(e.getKey());
+            for (Map.Entry<String, Integer> s : e.getValue().entrySet())
+                if (level >= s.getValue())
+                    out.add(s.getKey());
+        }
+        for (PairStaple p : pairStaples())
+            if (Math.min(skills.getLevel(p.a()), skills.getLevel(p.b())) >= p.level())
+                out.add(p.name());
+        int exploration = skills.getLevel(PlayerSkills.Skill.EXPLORATION);
+        for (ComboLand l : comboLands())
+            if (exploration >= l.explorationLevel() && skills.getLevel(l.skill()) >= l.skillLevel())
+                out.add(l.name());
+        return out;
+    }
+
+    /** A utility land: unlocked when Exploration and a color skill (or Spellsmithing) both reach their levels. */
+    public record ComboLand(int explorationLevel, PlayerSkills.Skill skill, int skillLevel, String name) {
+    }
+
+    private static List<ComboLand> comboLands;
+
+    public static List<ComboLand> comboLands() {
+        if (comboLands == null) {
+            List<ComboLand> out = new ArrayList<>();
+            for (String line : loadStaples("staples_utility_lands.txt")) {
+                String[] parts = line.split(" ", 4);
+                try {
+                    char c = parts[1].charAt(0);
+                    PlayerSkills.Skill skill = c == 'C' ? PlayerSkills.Skill.SPELLSMITHING : colorSkill(c);
+                    if (skill != null)
+                        out.add(new ComboLand(Integer.parseInt(parts[0]), skill, Integer.parseInt(parts[2]), parts[3].trim()));
+                } catch (Exception ignored) {
+                }
+            }
+            comboLands = out;
+        }
+        return comboLands;
+    }
+
+    /** Color staples newly unlocked when a color skill goes from one level to another. */
+    public static List<String> newlyUnlockedStaples(PlayerSkills.Skill skill, int before, int after) {
+        List<String> out = new ArrayList<>();
+        LinkedHashMap<String, Integer> list = colorStapleLists().get(skill);
+        if (list != null)
+            for (Map.Entry<String, Integer> s : list.entrySet())
+                if (before < s.getValue() && after >= s.getValue())
+                    out.add(s.getKey());
+        // Multicolor: the pair's effective level is the lower of the two colors
+        PlayerSkills skills = AdventurePlayer.current().getSkills();
+        for (PairStaple p : pairStaples()) {
+            if (p.a() != skill && p.b() != skill)
+                continue;
+            int other = skills.getLevel(p.a() == skill ? p.b() : p.a());
+            if (Math.min(before, other) < p.level() && Math.min(after, other) >= p.level())
+                out.add(p.name());
+        }
+        // Utility lands: need Exploration and the paired skill; either one leveling can complete it
+        for (ComboLand l : comboLands()) {
+            boolean isExplore = skill == PlayerSkills.Skill.EXPLORATION, isPaired = skill == l.skill();
+            if (!isExplore && !isPaired)
+                continue;
+            int exploreBefore = isExplore ? before : skills.getLevel(PlayerSkills.Skill.EXPLORATION);
+            int exploreAfter = isExplore ? after : exploreBefore;
+            int pairBefore = isPaired ? before : skills.getLevel(l.skill());
+            int pairAfter = isPaired ? after : pairBefore;
+            boolean was = exploreBefore >= l.explorationLevel() && pairBefore >= l.skillLevel();
+            boolean now = exploreAfter >= l.explorationLevel() && pairAfter >= l.skillLevel();
+            if (!was && now)
+                out.add(l.name());
+        }
+        return out;
     }
 
     private Set<String> cachedNames;

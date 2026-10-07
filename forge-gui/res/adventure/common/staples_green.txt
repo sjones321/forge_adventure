@@ -1,0 +1,9 @@
+# green color staples: unlocked by the green Magic skill. Format: <level> <card name>.
+# Unlocked cards are always Standard-legal for you and appear in shops, loot and Spell Smith.
+10 Giant Growth
+20 Elvish Mystic
+30 Kodama's Reach
+45 Thragtusk
+60 Garruk's Uprising
+75 Acidic Slime
+90 Craterhoof Behemoth

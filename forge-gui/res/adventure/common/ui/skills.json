@@ -55,6 +55,15 @@
       "height": 30,
       "x": 420,
       "y": 144
+    },
+    {
+      "type": "TextButton",
+      "name": "unlocks",
+      "text": "Unlocks",
+      "width": 60,
+      "height": 30,
+      "x": 420,
+      "y": 104
     }
   ]
 }

@@ -1,0 +1,22 @@
+# Multicolor staples: unlocked when BOTH colors' skills reach the level. Format: <level> <two colors> <card name>.
+# W=White U=Blue B=Black R=Red G=Green. Unlocked cards are always Standard-legal for you.
+25 WU Absorb
+60 WU Sphinx's Revelation
+25 UB Baleful Strix
+60 UB The Scarab God
+25 BR Terminate
+60 BR Kolaghan's Command
+25 RG Bloodbraid Elf
+60 RG Huntmaster of the Fells
+25 GW Qasali Pridemage
+60 GW Knight of Autumn
+25 WB Vindicate
+60 WB Anguished Unmaking
+25 UR Electrolyze
+60 UR Niv-Mizzet, Parun
+25 BG Putrefy
+60 BG Maelstrom Pulse
+25 RW Lightning Helix
+60 RW Boros Charm
+25 GU Mystic Snake
+60 GU Uro, Titan of Nature's Wrath
