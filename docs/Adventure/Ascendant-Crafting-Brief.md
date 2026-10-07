@@ -4,6 +4,9 @@ This brief is for agents working on the `sjones321/forge_adventure` fork, branch
 It covers three phases: wildcard crafting, overworld gathering, and craftable gear.
 Build them in order. Phase 1 must be merged before Phase 2 or 3 starts.
 
+> **Status:** Phase 1 is merged. Phases 2 and 3 below are superseded by `Ascendant-Roadmap.md`;
+> the ground rules and code pointers in this file still apply.
+
 ## Ground rules (all phases)
 
 - **Everything is gated to the Shandalar Ascendant world.** Check `Config.ascendant()` (backed by `ascendantRules` in
