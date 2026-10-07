@@ -42,7 +42,7 @@ import java.util.Map;
 public class PlayerStatisticScene extends UIScene {
     Image avatar, avatarBorder;
     Image colorFrame;
-    TextraLabel money, life, shards;
+    TextraLabel money, life, shards, dust;
     TextraLabel wins, totalWins, eventWins, eventMatchWins;
     TextraLabel loss, totalLoss, eventLosses, eventMatchLosses;
     TextraLabel winloss, lossWinRatio, eventLossWinRatio, eventMatchLossWinRatio;
@@ -79,6 +79,9 @@ public class PlayerStatisticScene extends UIScene {
         life = ui.findActor("lifePoints");
         money = ui.findActor("money");
         shards = ui.findActor("shards");
+        dust = ui.findActor("dust");
+        if (dust != null)
+            dust.setVisible(false); // shown only for Ascendant in enter()
         wins = ui.findActor("wins");
         colorFrame = ui.findActor("colorFrame");
         totalWins = ui.findActor("totalWins");
@@ -218,6 +221,17 @@ public class PlayerStatisticScene extends UIScene {
         }
         if (shards != null) {
             WorldSave.getCurrentSave().getPlayer().onShardsChange(() -> shards.setText("[+Shards] [BLACK]" + AdventurePlayer.current().getShards()));
+        }
+        if (dust != null) {
+            if (Config.ascendant()) {
+                dust.setVisible(true);
+                Runnable refreshDust = () -> dust.setText("[BLACK]Dust " + AdventurePlayer.current().dustSummary());
+                WorldSave.getCurrentSave().getPlayer().onDustChange(refreshDust);
+                refreshDust.run();
+            } else {
+                dust.setVisible(false);
+                dust.setText("");
+            }
         }
         if (totalWins != null) {
             totalWins.setText(String.valueOf(Current.player().getStatistic().totalWins()));

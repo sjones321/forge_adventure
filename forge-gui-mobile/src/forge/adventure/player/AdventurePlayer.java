@@ -14,10 +14,13 @@ import forge.adventure.pointofintrest.PointOfInterestChanges;
 import forge.adventure.scene.AdventureDeckEditor;
 import forge.adventure.scene.DeckEditScene;
 import forge.adventure.stage.GameStage;
+import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.MapStage;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.*;
 import forge.adventure.world.WorldSave;
+import forge.card.CardEdition;
+import forge.card.CardRarity;
 import forge.card.ColorSet;
 import forge.deck.CardPool;
 import forge.deck.Deck;
@@ -25,6 +28,7 @@ import forge.deck.DeckProxy;
 import forge.deck.DeckSection;
 import forge.item.InventoryItem;
 import forge.item.PaperCard;
+import forge.model.FModel;
 import forge.sound.SoundEffectType;
 import forge.sound.SoundSystem;
 import forge.util.ItemPool;
@@ -63,6 +67,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     private int maxLife = 20;
     private int life = 20;
     private int shards = 0;
+    /** Ascendant dust currencies: Common, Uncommon, Rare, Mythic. Never convert into each other. */
+    public static final int DUST_COMMON = 0;
+    public static final int DUST_UNCOMMON = 1;
+    public static final int DUST_RARE = 2;
+    public static final int DUST_MYTHIC = 3;
+    private final int[] dust = new int[4];
+    /** When true (Ascendant only), copies beyond {@link ConfigData#autoSalvageKeepCopies} are salvaged on gain. */
+    private boolean autoSalvage = false;
     private EffectData blessing; //Blessing to apply for next battle.
     private final PlayerStatistic statistic = new PlayerStatistic();
     private final Map<String, Byte> questFlags = new HashMap<>();
@@ -88,6 +100,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     // Signals
     final SignalList onLifeTotalChangeList = new SignalList();
     final SignalList onShardsChangeList = new SignalList();
+    final SignalList onDustChangeList = new SignalList();
     final SignalList onGoldChangeList = new SignalList();
     final SignalList onPlayerChangeList = new SignalList();
     final SignalList onEquipmentChange = new SignalList();
@@ -126,6 +139,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         maxLife = 20;
         life = 20;
         shards = 0;
+        Arrays.fill(dust, 0);
+        autoSalvage = false;
         maxDeckCount = 20;
         clearDecks();
         inventoryItems.clear();
@@ -509,6 +524,33 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return shards;
     }
 
+    /** Dust of one rarity bucket (0=Common … 3=Mythic). Missing/unknown index → 0. */
+    public int getDust(int index) {
+        return index >= 0 && index < dust.length ? dust[index] : 0;
+    }
+
+    public int getDust(CardRarity rarity) {
+        return getDust(dustIndex(rarity));
+    }
+
+    public int[] getDustAll() {
+        return Arrays.copyOf(dust, dust.length);
+    }
+
+    /** Compact dust totals for Ascendant UI headers: {@code C:12 U:5 R:2 M:1}. */
+    public String dustSummary() {
+        return "C:" + dust[DUST_COMMON] + " U:" + dust[DUST_UNCOMMON]
+                + " R:" + dust[DUST_RARE] + " M:" + dust[DUST_MYTHIC];
+    }
+
+    public boolean isAutoSalvage() {
+        return autoSalvage;
+    }
+
+    public void setAutoSalvage(boolean enabled) {
+        autoSalvage = enabled && Config.ascendant();
+    }
+
     public @Null EffectData getBlessing() {
         return blessing;
     }
@@ -625,6 +667,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         maxLife = data.readInt("maxLife");
         life = data.readInt("life");
         shards = data.containsKey("shards") ? data.readInt("shards") : 0;
+        if (data.containsKey("dust")) {
+            Object raw = data.readObject("dust");
+            if (raw instanceof int[] savedDust) {
+                for (int i = 0; i < Math.min(dust.length, savedDust.length); i++)
+                    dust[i] = Math.max(0, savedDust[i]);
+            }
+        }
+        autoSalvage = data.containsKey("autoSalvage") && data.readBool("autoSalvage") && Config.ascendant();
         worldPosX = data.readFloat("worldPosX");
         worldPosY = data.readFloat("worldPosY");
 
@@ -743,7 +793,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 data.containsKey("skillXpValues") ? (Integer[]) data.readObject("skillXpValues") : null);
         standardWindow.load(data.containsKey("standardSets") ? (String[]) data.readObject("standardSets") : null,
                 data.containsKey("standardSetUnlocked") && data.readBool("standardSetUnlocked"),
-                data.containsKey("standardChoicePending") && data.readBool("standardChoicePending"));
+                data.containsKey("standardChoicePending") && data.readBool("standardChoicePending"),
+                data.containsKey("unlockedHistory") ? (String[]) data.readObject("unlockedHistory") : null);
 
         if (data.containsKey("questFlagsKey") && data.containsKey("questFlagsValue")) {
             String[] keys = (String[]) data.readObject("questFlagsKey");
@@ -964,6 +1015,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         RewardData.invalidateCardPool();
         onLifeTotalChangeList.emit();
         onShardsChangeList.emit();
+        onDustChangeList.emit();
         onGoldChangeList.emit();
         onBlessing.emit();
     }
@@ -1004,6 +1056,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         data.store("life", life);
         data.store("maxLife", maxLife);
         data.store("shards", shards);
+        data.storeObject("dust", Arrays.copyOf(dust, dust.length));
+        data.store("autoSalvage", autoSalvage);
         data.store("deckName", deck.getName());
 
         data.storeObject("inventory", inventoryItems.toArray(new ItemData[0]));
@@ -1035,6 +1089,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         data.storeObject("standardSets", standardWindow.saveSets());
         data.store("standardSetUnlocked", standardWindow.isSetUnlockedThisWorld());
         data.store("standardChoicePending", standardWindow.isChoicePending());
+        data.storeObject("unlockedHistory", standardWindow.saveHistory());
 
         // Save quest flags.
         ArrayList<String> questFlagsKey = new ArrayList<>();
@@ -1149,6 +1204,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         cards.add(card, amount);
         newCards.add(card, amount);
         afterCardsCollected();
+        maybeAutoSalvage(card);
     }
 
     public void addCards(ItemPool<PaperCard> cardPool) {
@@ -1157,6 +1213,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         cards.addAll(cardPool);
         newCards.addAll(cardPool);
         afterCardsCollected();
+        for (Map.Entry<PaperCard, Integer> entry : cardPool)
+            maybeAutoSalvage(entry.getKey());
     }
 
     /** Collecting XP: call before the card is added so the first copy of a card name is detected. */
@@ -1180,6 +1238,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                     autoSellCards.add(reward.getCard());
                     refreshEditor();
                 }
+                maybeAutoSalvage(reward.getCard());
                 break;
             case Gold:
                 addGold(reward.getCount());
@@ -1215,6 +1274,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     public void onShardsChange(Runnable o) {
         onShardsChangeList.add(o);
+        o.run();
+    }
+
+    public void onDustChange(Runnable o) {
+        onDustChangeList.add(o);
         o.run();
     }
 
@@ -1295,7 +1359,19 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     public void win() {
-        Current.player().addShards(1);
+        win(false);
+    }
+
+    /** Duel win: +1 shard always; Ascendant also grants configured dust (bosses add rare dust). */
+    public void win(boolean boss) {
+        addShards(1);
+        if (!Config.ascendant())
+            return;
+        ConfigData config = Config.instance().getConfigData();
+        if (config.duelWinDustCommon > 0)
+            addDust(CardRarity.Common, config.duelWinDustCommon);
+        if (boss && config.duelWinDustBossRare > 0)
+            addDust(CardRarity.Rare, config.duelWinDustBossRare);
     }
 
     public void addMaxLife(int count) {
@@ -1332,6 +1408,59 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             shards = number;
             onShardsChangeList.emit();
         }
+    }
+
+    /**
+     * Maps a card rarity to a dust bucket. Special/bonus sheets count as Rare.
+     * Basics, tokens and unknown return -1 (not salvageable or craftable as dust).
+     */
+    public static int dustIndex(CardRarity rarity) {
+        if (rarity == null)
+            return -1;
+        return switch (rarity) {
+            case Common -> DUST_COMMON;
+            case Uncommon -> DUST_UNCOMMON;
+            case Rare, Special -> DUST_RARE;
+            case MythicRare -> DUST_MYTHIC;
+            default -> -1;
+        };
+    }
+
+    public static CardRarity dustRarity(int index) {
+        return switch (index) {
+            case DUST_COMMON -> CardRarity.Common;
+            case DUST_UNCOMMON -> CardRarity.Uncommon;
+            case DUST_RARE -> CardRarity.Rare;
+            case DUST_MYTHIC -> CardRarity.MythicRare;
+            default -> CardRarity.Unknown;
+        };
+    }
+
+    public void addDust(CardRarity rarity, int amount) {
+        addDust(dustIndex(rarity), amount);
+    }
+
+    public void addDust(int index, int amount) {
+        if (amount == 0 || index < 0 || index >= dust.length)
+            return;
+        takeDust(index, -amount);
+    }
+
+    /** Spends dust; returns false if there is not enough (and nothing is taken). Negative amount adds. */
+    public boolean takeDust(CardRarity rarity, int amount) {
+        return takeDust(dustIndex(rarity), amount);
+    }
+
+    public boolean takeDust(int index, int amount) {
+        if (index < 0 || index >= dust.length)
+            return false;
+        if (amount > 0 && dust[index] < amount)
+            return false;
+        dust[index] -= amount;
+        if (dust[index] < 0)
+            dust[index] = 0;
+        onDustChangeList.emit();
+        return true;
     }
 
     public void addBlessing(EffectData bless) {
@@ -1529,6 +1658,217 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if(!cards.remove(card, amountToSell))
             return 0; //Failed to sell?
         return cardSellPrice(card) * amountToSell;
+    }
+
+    // ---- Ascendant dust salvage / craft -----------------------------------------------------------
+
+    /** Dust yielded for salvaging one copy (Salvaging skill scales from salvageDust to salvageDustMax). */
+    public int salvageYield(PaperCard card) {
+        if (!Config.ascendant() || card == null || dustIndex(card.getRarity()) < 0)
+            return 0;
+        ConfigData config = Config.instance().getConfigData();
+        int level = skills.getLevel(PlayerSkills.Skill.SALVAGING);
+        float t = (Math.max(1, level) - 1) / 98f;
+        return Math.max(1, Math.round(config.salvageDust + (config.salvageDustMax - config.salvageDust) * t));
+    }
+
+    /** Owned copies that can be salvaged: not vaulted, not required by any deck, and have sell value. */
+    public int copiesAvailableToSalvage(PaperCard card) {
+        if (!Config.ascendant() || card == null || card.hasNoSellValue() || dustIndex(card.getRarity()) < 0)
+            return 0;
+        return Math.max(0, cards.count(card) - vaultedCount(card) - getCopiesUsedInDecks(card));
+    }
+
+    /**
+     * Why this card cannot be salvaged right now, or null if it can.
+     * Used by UI (and core notifies via HUD when a salvage attempt is refused).
+     */
+    public String salvageProblem(PaperCard card) {
+        if (!Config.ascendant())
+            return "Salvage is not available in this world.";
+        if (card == null)
+            return "No card.";
+        if (card.getRarity() == CardRarity.BasicLand || (card.getRules() != null && card.getRules().getType().isBasicLand()))
+            return "Basic lands cannot be salvaged.";
+        if (card.hasNoSellValue())
+            return "This card cannot be salvaged.";
+        if (dustIndex(card.getRarity()) < 0)
+            return "This card cannot be salvaged.";
+        int owned = cards.count(card);
+        if (owned <= 0)
+            return "You do not own this card.";
+        int vaulted = vaultedCount(card);
+        int inDecks = getCopiesUsedInDecks(card);
+        int free = owned - vaulted - inDecks;
+        if (free <= 0) {
+            if (vaulted > 0 && vaulted >= owned - inDecks)
+                return "Vaulted copies cannot be salvaged.";
+            if (inDecks > 0)
+                return "Copies used in decks cannot be salvaged.";
+            return "No copies available to salvage.";
+        }
+        return null;
+    }
+
+    /**
+     * Destroys copies for dust of the card's rarity. Mirrors {@link #sellCard}: vaulted and in-deck copies
+     * are protected. Returns how many copies were salvaged.
+     */
+    public int salvageCard(PaperCard card, int amount) {
+        if (amount < 1)
+            return 0;
+        String problem = salvageProblem(card);
+        if (problem != null) {
+            notifyCrafting(problem);
+            return 0;
+        }
+        int toSalvage = Math.min(amount, copiesAvailableToSalvage(card));
+        if (toSalvage <= 0) {
+            notifyCrafting("No copies available to salvage.");
+            return 0;
+        }
+        if (!cards.remove(card, toSalvage))
+            return 0;
+        int autoMarked = Math.min(toSalvage, autoSellCards.count(card));
+        if (autoMarked > 0)
+            autoSellCards.remove(card, autoMarked);
+        int yield = salvageYield(card) * toSalvage;
+        addDust(card.getRarity(), yield);
+        skills.onCardsSalvaged(toSalvage, yield);
+        return toSalvage;
+    }
+
+    /**
+     * Newest printing of this card name among ever-unlocked sets (expanded CORE included).
+     * For staples with no unlocked-set printing, falls back to the unique common-cards entry.
+     */
+    public PaperCard craftPrinting(PaperCard card) {
+        if (card == null)
+            return null;
+        return craftPrinting(card.getName());
+    }
+
+    public PaperCard craftPrinting(String cardName) {
+        if (cardName == null || cardName.isEmpty())
+            return null;
+        List<String> history = standardWindow.expandedHistoryCodes();
+        PaperCard best = null;
+        long bestTime = Long.MIN_VALUE;
+        for (PaperCard pc : FModel.getMagicDb().getCommonCards().getAllCards(cardName)) {
+            if (pc == null || !history.contains(pc.getEdition()))
+                continue;
+            CardEdition ed = FModel.getMagicDb().getEditions().get(pc.getEdition());
+            long time = ed != null && ed.getDate() != null ? ed.getDate().getTime() : 0L;
+            if (best == null || time > bestTime) {
+                best = pc;
+                bestTime = time;
+            }
+        }
+        if (best != null)
+            return best;
+        if (isUnlockedStapleName(cardName))
+            return FModel.getMagicDb().getCommonCards().getUniqueByName(cardName);
+        return null;
+    }
+
+    private boolean isUnlockedStapleName(String name) {
+        if (name == null)
+            return false;
+        if (StandardWindow.unlockedColorStaples().contains(name))
+            return true;
+        if (standardWindow.isActive()) {
+            if (standardWindow.activeStaples(false).contains(name))
+                return true;
+            if (hasCommanderDeck() && standardWindow.activeStaples(true).contains(name))
+                return true;
+        }
+        return false;
+    }
+
+    /** True if the card name is in the Ascendant craftable pool and not banned in every format. */
+    public boolean canCraft(PaperCard card) {
+        return craftProblem(card) == null;
+    }
+
+    public String craftProblem(PaperCard card) {
+        if (!Config.ascendant())
+            return "Crafting is not available in this world.";
+        if (card == null)
+            return "No card.";
+        if (card.getRarity() == CardRarity.BasicLand || (card.getRules() != null && card.getRules().getType().isBasicLand()))
+            return "Basic lands cannot be crafted.";
+        String name = card.getName();
+        if (BanLists.isBanned("standard", name) && BanLists.isBanned("historic", name) && BanLists.isBanned("commander", name))
+            return name + " is banned in all formats.";
+        PaperCard printing = craftPrinting(card);
+        if (printing == null || dustIndex(printing.getRarity()) < 0)
+            return "This card is not in your unlocked craftable pool.";
+        return null;
+    }
+
+    /** Dust cost for one copy after Spellsmithing discount and historic × factor. */
+    public int craftCost(PaperCard card) {
+        if (!Config.ascendant() || card == null)
+            return 0;
+        PaperCard printing = craftPrinting(card);
+        if (printing == null || dustIndex(printing.getRarity()) < 0)
+            return 0;
+        ConfigData config = Config.instance().getConfigData();
+        float base = config.craftCost;
+        if (!isStandardLegal(printing))
+            base *= config.historicCraftFactor;
+        int level = skills.getLevel(PlayerSkills.Skill.SPELLSMITHING);
+        float discount = config.craftDiscountMax * (Math.max(1, level) - 1) / 98f;
+        return Math.max(1, Math.round(base * (1f - discount)));
+    }
+
+    /**
+     * Spends dust of the printing's rarity and adds one copy to the collection.
+     * Returns true on success.
+     */
+    public boolean craftCard(PaperCard card) {
+        String problem = craftProblem(card);
+        if (problem != null) {
+            notifyCrafting(problem);
+            return false;
+        }
+        PaperCard printing = craftPrinting(card);
+        int cost = craftCost(printing);
+        int index = dustIndex(printing.getRarity());
+        if (!takeDust(index, cost)) {
+            notifyCrafting("Not enough " + dustRarity(index).getLongName() + " dust (need " + cost + ").");
+            return false;
+        }
+        addCard(printing, 1);
+        skills.onCardCrafted(cost);
+        return true;
+    }
+
+    /** After a card enters the collection: salvage copies beyond the keep limit when auto-salvage is on. */
+    private void maybeAutoSalvage(PaperCard card) {
+        if (!Config.ascendant() || !autoSalvage || card == null)
+            return;
+        if (card.getRarity() == CardRarity.BasicLand || (card.getRules() != null && card.getRules().getType().isBasicLand()))
+            return;
+        if (dustIndex(card.getRarity()) < 0 || card.hasNoSellValue())
+            return;
+        int keep = Math.max(0, Config.instance().getConfigData().autoSalvageKeepCopies);
+        int nonVaulted = cards.count(card) - vaultedCount(card);
+        int excess = nonVaulted - keep;
+        if (excess <= 0)
+            return;
+        int available = copiesAvailableToSalvage(card);
+        int toSalvage = Math.min(excess, available);
+        if (toSalvage > 0)
+            salvageCard(card, toSalvage);
+    }
+
+    private static void notifyCrafting(String msg) {
+        try {
+            GameHUD.getInstance().addNotification(msg);
+        } catch (Exception ignored) {
+            // HUD may be unavailable during load/tests
+        }
     }
 
     public void removeItem(String name) {

@@ -169,6 +169,14 @@
       "x": 310,
       "y": 60
     },
+    {
+      "type": "Label",
+      "name": "dust",
+      "width": 150,
+      "height": 16,
+      "x": 310,
+      "y": 95
+    },
 	{
       "type": "TextButton",
       "name": "quests",

@@ -250,6 +250,18 @@ public class PlayerSkills {
             addXp(Skill.SALVAGING, cardCount * 3 + goldEarned / 2);
     }
 
+    /** Cards salvaged for dust. Same scale as selling: per card plus a share of the dust earned. */
+    public void onCardsSalvaged(int cardCount, int dustEarned) {
+        if (cardCount > 0)
+            addXp(Skill.SALVAGING, cardCount * 3 + dustEarned / 2);
+    }
+
+    /** A card was crafted from dust; XP follows dust spent (similar to Spell Smith shard/gold spend). */
+    public void onCardCrafted(int dustSpent) {
+        if (dustSpent > 0)
+            addXp(Skill.SPELLSMITHING, Math.max(1, dustSpent));
+    }
+
     // ---- color perks: unlocked at levels 15, 40 and 75 of each color skill ----
 
     public static final int[] COLOR_PERK_LEVELS = {15, 40, 75};

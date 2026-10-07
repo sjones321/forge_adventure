@@ -150,6 +150,14 @@ public class SpellSmithScene extends UIScene {
             reset();
             filterResults();
         });
+
+        // Ascendant-only: open the crafting screen from Spell Smith without changing stock UI JSON.
+        if (Config.ascendant() && exitSmith != null) {
+            TextraButton openCraft = Controls.newTextButton("Craft", () -> Forge.switchScene(CraftingScene.instance()));
+            float craftW = Math.max(55f, exitSmith.getWidth() * 0.9f);
+            openCraft.setBounds(exitSmith.getX() - craftW - 8f, exitSmith.getY(), craftW, exitSmith.getHeight());
+            ui.addActor(openCraft);
+        }
     }
 
     private void reset() {
