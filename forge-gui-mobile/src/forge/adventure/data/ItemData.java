@@ -30,6 +30,15 @@ public class ItemData implements Serializable, Cloneable {
     public int shardsNeeded;
     public DialogData dialogOnUse;
 
+    /**
+     * Ascendant gathering tool family key matching materials.json {@code family}
+     * (logs, ore, stone, herbs, crystal, scrap). Empty/null = not a tool.
+     * Tools live on the toolbelt, not in equipment slots (Package B / E).
+     */
+    public String toolFamily;
+    /** Tool tier 1-4; caps the material tier that can be gathered. */
+    public int toolTier = 0;
+
 
     public ItemData()
     {
@@ -49,6 +58,12 @@ public class ItemData implements Serializable, Cloneable {
         commandOnUse      = cpy.commandOnUse;
         shardsNeeded      = cpy.shardsNeeded;
         dialogOnUse       = cpy.dialogOnUse;
+        toolFamily        = cpy.toolFamily;
+        toolTier          = cpy.toolTier;
+    }
+
+    public boolean isGatheringTool() {
+        return toolFamily != null && !toolFamily.isEmpty() && toolTier > 0;
     }
 
     public Sprite sprite() {
@@ -64,6 +79,8 @@ public class ItemData implements Serializable, Cloneable {
             result += baseDescription + "\n";
         if(this.equipmentSlot != null && !this.equipmentSlot.isEmpty())
             result += "Slot: " + this.equipmentSlot + "\n";
+        if(isGatheringTool())
+            result += "Toolbelt: " + toolFamily + " (tier " + toolTier + ")\n";
         if(effect != null)
             result += effect.getDescription();
         if(shardsNeeded != 0)

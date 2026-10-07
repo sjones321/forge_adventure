@@ -645,6 +645,10 @@
 	{ "type": "item","count":1, "itemName": "Piper's Charm"  },
 	{ "type": "item","count":1, "itemName": "Sleep Wand"  },
 	{ "type": "item","count":1, "itemName": "Hill Giant Club"  },
+	{ "type": "item","count":1, "itemName": "Copper Chisel"  },
+	{ "type": "item","count":1, "itemName": "Iron Chisel"  },
+	{ "type": "item","count":1, "itemName": "Copper Hatchet"  },
+	{ "type": "item","count":1, "itemName": "Iron Hatchet"  },
     { "type": "life","count":1    }
     
     ]
@@ -675,6 +679,10 @@
 	{ "type": "item","count":1, "itemName": "Piper's Charm"  },
 	{ "type": "item","count":1, "itemName": "Sleep Wand"  },
 	{ "type": "item","count":1, "itemName": "Hill Giant Club"  },
+	{ "type": "item","count":1, "itemName": "Copper Pickaxe"  },
+	{ "type": "item","count":1, "itemName": "Iron Pickaxe"  },
+	{ "type": "item","count":1, "itemName": "Copper Spanner"  },
+	{ "type": "item","count":1, "itemName": "Iron Spanner"  },
     { "type": "life","count":1    }
     ]
 
@@ -705,6 +713,10 @@
 	{ "type": "item","count":1, "itemName": "Piper's Charm"  },
 	{ "type": "item","count":1, "itemName": "Sleep Wand"  },
 	{ "type": "item","count":1, "itemName": "Hill Giant Club"  },
+	{ "type": "item","count":1, "itemName": "Copper Probe"  },
+	{ "type": "item","count":1, "itemName": "Iron Probe"  },
+	{ "type": "item","count":1, "itemName": "Copper Sickle"  },
+	{ "type": "item","count":1, "itemName": "Iron Sickle"  },
     { "type": "life","count":1    }
     
     ]
@@ -736,6 +748,10 @@
 	{ "type": "item","count":1, "itemName": "Piper's Charm"  },
 	{ "type": "item","count":1, "itemName": "Sleep Wand"  },
 	{ "type": "item","count":1, "itemName": "Hill Giant Club"  },
+	{ "type": "item","count":1, "itemName": "Copper Sickle"  },
+	{ "type": "item","count":1, "itemName": "Iron Sickle"  },
+	{ "type": "item","count":1, "itemName": "Copper Spanner"  },
+	{ "type": "item","count":1, "itemName": "Iron Spanner"  },
     { "type": "life","count":1    }
     
     ]
@@ -767,6 +783,10 @@
 	{ "type": "item","count":1, "itemName": "Piper's Charm"  },
 	{ "type": "item","count":1, "itemName": "Sleep Wand"  },
 	{ "type": "item","count":1, "itemName": "Hill Giant Club"  },
+	{ "type": "item","count":1, "itemName": "Copper Hatchet"  },
+	{ "type": "item","count":1, "itemName": "Iron Hatchet"  },
+	{ "type": "item","count":1, "itemName": "Copper Sickle"  },
+	{ "type": "item","count":1, "itemName": "Iron Sickle"  },
     { "type": "life","count":1   }
     
     ]

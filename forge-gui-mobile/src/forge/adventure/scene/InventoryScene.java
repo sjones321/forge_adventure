@@ -488,7 +488,17 @@ public class InventoryScene extends UIScene {
             if (Current.player().getShards() < data.shardsNeeded)
                 useButton.setDisabled(true);
 
-            if (data.equipmentSlot == null || data.equipmentSlot.isEmpty() || data.isCracked) {
+            if (data.isGatheringTool()) {
+                equipButton.setDisabled(false);
+                if (equipButton instanceof TextraButton) {
+                    TextraButton button = (TextraButton) equipButton;
+                    if (Current.player().isToolEquipped(data))
+                        button.setText("Unequip");
+                    else
+                        button.setText(Forge.getLocalizer().getMessage("lblEquip"));
+                    button.layout();
+                }
+            } else if (data.equipmentSlot == null || data.equipmentSlot.isEmpty() || data.isCracked) {
                 equipButton.setDisabled(true);
             } else {
                 equipButton.setDisabled(false);
@@ -598,7 +608,8 @@ public class InventoryScene extends UIScene {
             img.setY((newActor.getHeight() - img.getHeight()) / 2);
             newActor.addActor(img);
             itemLocation.put(newActor, Pair.of(item.name, item));
-            if (item.isEquipped && item.longID != null && Current.player().getEquippedItems().contains(item.longID)) {
+            if ((item.isEquipped && item.longID != null && Current.player().getEquippedItems().contains(item.longID))
+                    || Current.player().isToolEquipped(item)) {
                 Image overlay = new Image(equipOverlay);
                 overlay.setX((newActor.getWidth() - img.getWidth()) / 2);
                 overlay.setY((newActor.getHeight() - img.getHeight()) / 2);

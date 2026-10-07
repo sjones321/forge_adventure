@@ -13,7 +13,9 @@
     "dustRefine": {
       "rarity": "common",
       "amount": 1
-    }
+    },
+    "nodeType": "tree",
+    "color": ""
   },
   {
     "id": "willow",
@@ -29,7 +31,9 @@
     "dustRefine": {
       "rarity": "uncommon",
       "amount": 1
-    }
+    },
+    "nodeType": "tree",
+    "color": ""
   },
   {
     "id": "yew",
@@ -41,11 +45,13 @@
     "xp": 100,
     "iconName": "JungleShield",
     "biome": "forest",
-    "sellPrice": 50,
+    "sellPrice": 48,
     "dustRefine": {
       "rarity": "rare",
       "amount": 1
-    }
+    },
+    "nodeType": "tree",
+    "color": ""
   },
   {
     "id": "ironwood",
@@ -61,7 +67,9 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "nodeType": "tree",
+    "color": ""
   },
   {
     "id": "copper",
@@ -77,7 +85,9 @@
     "dustRefine": {
       "rarity": "common",
       "amount": 1
-    }
+    },
+    "nodeType": "vein",
+    "color": "C"
   },
   {
     "id": "iron",
@@ -93,7 +103,9 @@
     "dustRefine": {
       "rarity": "uncommon",
       "amount": 1
-    }
+    },
+    "nodeType": "vein",
+    "color": "C"
   },
   {
     "id": "mithril",
@@ -105,11 +117,13 @@
     "xp": 100,
     "iconName": "MithrilArmor",
     "biome": "mountain",
-    "sellPrice": 50,
+    "sellPrice": 48,
     "dustRefine": {
       "rarity": "rare",
       "amount": 1
-    }
+    },
+    "nodeType": "vein",
+    "color": "C"
   },
   {
     "id": "adamant",
@@ -125,12 +139,86 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "nodeType": "vein",
+    "color": "C"
   },
   {
-    "id": "rough_stone",
-    "name": "Rough Stone",
-    "family": "stone",
+    "id": "ash",
+    "name": "Ash",
+    "family": "ash",
+    "tier": 1,
+    "skill": "Mining",
+    "levelRequired": 1,
+    "xp": 25,
+    "iconName": "FarmersTools",
+    "biome": "mountain",
+    "sellPrice": 7,
+    "dustRefine": {
+      "rarity": "common",
+      "amount": 1
+    },
+    "nodeType": "vent",
+    "color": "R"
+  },
+  {
+    "id": "charcoal",
+    "name": "Charcoal",
+    "family": "ash",
+    "tier": 2,
+    "skill": "Mining",
+    "levelRequired": 15,
+    "xp": 50,
+    "iconName": "StrangeKey",
+    "biome": "mountain",
+    "sellPrice": 18,
+    "dustRefine": {
+      "rarity": "uncommon",
+      "amount": 1
+    },
+    "nodeType": "vent",
+    "color": "R"
+  },
+  {
+    "id": "brimstone",
+    "name": "Brimstone",
+    "family": "ash",
+    "tier": 3,
+    "skill": "Mining",
+    "levelRequired": 40,
+    "xp": 100,
+    "iconName": "FlameSword",
+    "biome": "mountain",
+    "sellPrice": 42,
+    "dustRefine": {
+      "rarity": "rare",
+      "amount": 1
+    },
+    "nodeType": "vent",
+    "color": "R"
+  },
+  {
+    "id": "dragonfire_ash",
+    "name": "Dragonfire Ash",
+    "family": "ash",
+    "tier": 4,
+    "skill": "Mining",
+    "levelRequired": 70,
+    "xp": 200,
+    "iconName": "GarrukAxe",
+    "biome": "mountain",
+    "sellPrice": 105,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    },
+    "nodeType": "vent",
+    "color": "R"
+  },
+  {
+    "id": "limestone",
+    "name": "Limestone",
+    "family": "sacred_stone",
     "tier": 1,
     "skill": "Quarrying",
     "levelRequired": 1,
@@ -141,183 +229,279 @@
     "dustRefine": {
       "rarity": "common",
       "amount": 1
-    }
+    },
+    "nodeType": "stone",
+    "color": "W"
   },
   {
-    "id": "granite",
-    "name": "Granite",
-    "family": "stone",
+    "id": "marble",
+    "name": "Marble",
+    "family": "sacred_stone",
     "tier": 2,
     "skill": "Quarrying",
     "levelRequired": 15,
     "xp": 50,
     "iconName": "SteelShield",
     "biome": "plains",
-    "sellPrice": 18,
+    "sellPrice": 16,
     "dustRefine": {
       "rarity": "uncommon",
       "amount": 1
-    }
+    },
+    "nodeType": "stone",
+    "color": "W"
   },
   {
-    "id": "marble",
-    "name": "Marble",
-    "family": "stone",
+    "id": "sunstone",
+    "name": "Sunstone",
+    "family": "sacred_stone",
     "tier": 3,
     "skill": "Quarrying",
     "levelRequired": 40,
     "xp": 100,
     "iconName": "MirrorShield",
     "biome": "plains",
-    "sellPrice": 45,
+    "sellPrice": 36,
     "dustRefine": {
       "rarity": "rare",
       "amount": 1
-    }
+    },
+    "nodeType": "stone",
+    "color": "W"
   },
   {
     "id": "starstone",
     "name": "Starstone",
-    "family": "stone",
+    "family": "sacred_stone",
     "tier": 4,
     "skill": "Quarrying",
     "levelRequired": 70,
     "xp": 200,
     "iconName": "VeilstoneAmulet",
     "biome": "plains",
-    "sellPrice": 110,
+    "sellPrice": 90,
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "nodeType": "stone",
+    "color": "W"
   },
   {
-    "id": "nightshade",
-    "name": "Nightshade",
-    "family": "herbs",
-    "tier": 1,
-    "skill": "Foraging",
-    "levelRequired": 1,
-    "xp": 25,
-    "iconName": "SleepWand",
-    "biome": "swamp",
-    "sellPrice": 10,
-    "dustRefine": {
-      "rarity": "common",
-      "amount": 1
-    }
-  },
-  {
-    "id": "grave_moss",
-    "name": "Grave Moss",
-    "family": "herbs",
-    "tier": 2,
-    "skill": "Foraging",
-    "levelRequired": 15,
-    "xp": 50,
-    "iconName": "UnderworldCookbook",
-    "biome": "swamp",
-    "sellPrice": 22,
-    "dustRefine": {
-      "rarity": "uncommon",
-      "amount": 1
-    }
-  },
-  {
-    "id": "bone",
-    "name": "Bone",
-    "family": "herbs",
-    "tier": 3,
-    "skill": "Foraging",
-    "levelRequired": 40,
-    "xp": 100,
-    "iconName": "HillGiantClub",
-    "biome": "swamp",
-    "sellPrice": 40,
-    "dustRefine": {
-      "rarity": "rare",
-      "amount": 1
-    }
-  },
-  {
-    "id": "wraithbloom",
-    "name": "Wraithbloom",
-    "family": "herbs",
-    "tier": 4,
-    "skill": "Foraging",
-    "levelRequired": 70,
-    "xp": 200,
-    "iconName": "DarkAmulet",
-    "biome": "swamp",
-    "sellPrice": 100,
-    "dustRefine": {
-      "rarity": "mythic",
-      "amount": 1
-    }
-  },
-  {
-    "id": "quartz",
-    "name": "Quartz Crystal",
-    "family": "crystal",
+    "id": "spring_water",
+    "name": "Spring Water",
+    "family": "waters",
     "tier": 1,
     "skill": "Delving",
     "levelRequired": 1,
     "xp": 25,
+    "iconName": "BlueStaff",
+    "biome": "island",
+    "sellPrice": 7,
+    "dustRefine": {
+      "rarity": "common",
+      "amount": 1
+    },
+    "nodeType": "water",
+    "color": "U"
+  },
+  {
+    "id": "glacier_ice",
+    "name": "Glacier Ice",
+    "family": "waters",
+    "tier": 2,
+    "skill": "Delving",
+    "levelRequired": 15,
+    "xp": 50,
+    "iconName": "VeilstoneAmulet",
+    "biome": "island",
+    "sellPrice": 18,
+    "dustRefine": {
+      "rarity": "uncommon",
+      "amount": 1
+    },
+    "nodeType": "water",
+    "color": "U"
+  },
+  {
+    "id": "purified_water",
+    "name": "Purified Water",
+    "family": "waters",
+    "tier": 3,
+    "skill": "Delving",
+    "levelRequired": 40,
+    "xp": 100,
     "iconName": "PrismRing",
     "biome": "island",
-    "sellPrice": 12,
-    "dustRefine": {
-      "rarity": "common",
-      "amount": 1
-    }
-  },
-  {
-    "id": "azure",
-    "name": "Azure Crystal",
-    "family": "crystal",
-    "tier": 2,
-    "skill": "Delving",
-    "levelRequired": 15,
-    "xp": 50,
-    "iconName": "JeweledAmulet",
-    "biome": "island",
-    "sellPrice": 28,
-    "dustRefine": {
-      "rarity": "uncommon",
-      "amount": 1
-    }
-  },
-  {
-    "id": "prismatic",
-    "name": "Prismatic Crystal",
-    "family": "crystal",
-    "tier": 3,
-    "skill": "Delving",
-    "levelRequired": 40,
-    "xp": 100,
-    "iconName": "AladdinsLamp",
-    "biome": "island",
-    "sellPrice": 60,
+    "sellPrice": 42,
     "dustRefine": {
       "rarity": "rare",
       "amount": 1
-    }
+    },
+    "nodeType": "water",
+    "color": "U"
   },
   {
-    "id": "aether",
-    "name": "Aether Crystal",
-    "family": "crystal",
+    "id": "elemental_water",
+    "name": "Elemental Water",
+    "family": "waters",
     "tier": 4,
     "skill": "Delving",
     "levelRequired": 70,
     "xp": 200,
     "iconName": "RingofThreeWishes",
     "biome": "island",
-    "sellPrice": 140,
+    "sellPrice": 105,
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "nodeType": "water",
+    "color": "U"
+  },
+  {
+    "id": "bone_fragments",
+    "name": "Bone Fragments",
+    "family": "dead",
+    "tier": 1,
+    "skill": "Foraging",
+    "levelRequired": 1,
+    "xp": 25,
+    "iconName": "DarkShield",
+    "biome": "swamp",
+    "sellPrice": 7,
+    "dustRefine": {
+      "rarity": "common",
+      "amount": 1
+    },
+    "nodeType": "remains",
+    "color": "B"
+  },
+  {
+    "id": "grave_moss",
+    "name": "Grave Moss",
+    "family": "dead",
+    "tier": 2,
+    "skill": "Foraging",
+    "levelRequired": 15,
+    "xp": 50,
+    "iconName": "BlackStaff",
+    "biome": "swamp",
+    "sellPrice": 18,
+    "dustRefine": {
+      "rarity": "uncommon",
+      "amount": 1
+    },
+    "nodeType": "remains",
+    "color": "B"
+  },
+  {
+    "id": "ancient_bone",
+    "name": "Ancient Bone",
+    "family": "dead",
+    "tier": 3,
+    "skill": "Foraging",
+    "levelRequired": 40,
+    "xp": 100,
+    "iconName": "DeathRing",
+    "biome": "swamp",
+    "sellPrice": 42,
+    "dustRefine": {
+      "rarity": "rare",
+      "amount": 1
+    },
+    "nodeType": "remains",
+    "color": "B"
+  },
+  {
+    "id": "wraithbloom",
+    "name": "Wraithbloom",
+    "family": "dead",
+    "tier": 4,
+    "skill": "Foraging",
+    "levelRequired": 70,
+    "xp": 200,
+    "iconName": "CursedRing",
+    "biome": "swamp",
+    "sellPrice": 105,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    },
+    "nodeType": "remains",
+    "color": "B"
+  },
+  {
+    "id": "wild_herbs",
+    "name": "Wild Herbs",
+    "family": "plants",
+    "tier": 1,
+    "skill": "Foraging",
+    "levelRequired": 1,
+    "xp": 25,
+    "iconName": "FarmersTools",
+    "biome": "forest",
+    "sellPrice": 7,
+    "dustRefine": {
+      "rarity": "common",
+      "amount": 1
+    },
+    "nodeType": "plant",
+    "color": "G"
+  },
+  {
+    "id": "tree_sap",
+    "name": "Tree Sap",
+    "family": "plants",
+    "tier": 2,
+    "skill": "Foraging",
+    "levelRequired": 15,
+    "xp": 50,
+    "iconName": "GreenStaff",
+    "biome": "forest",
+    "sellPrice": 18,
+    "dustRefine": {
+      "rarity": "uncommon",
+      "amount": 1
+    },
+    "nodeType": "plant",
+    "color": "G"
+  },
+  {
+    "id": "elder_seeds",
+    "name": "Elder Seeds",
+    "family": "plants",
+    "tier": 3,
+    "skill": "Foraging",
+    "levelRequired": 40,
+    "xp": 100,
+    "iconName": "WildMagusStaff",
+    "biome": "forest",
+    "sellPrice": 42,
+    "dustRefine": {
+      "rarity": "rare",
+      "amount": 1
+    },
+    "nodeType": "plant",
+    "color": "G"
+  },
+  {
+    "id": "worldtree_bark",
+    "name": "Worldtree Bark",
+    "family": "plants",
+    "tier": 4,
+    "skill": "Foraging",
+    "levelRequired": 70,
+    "xp": 200,
+    "iconName": "Hivestone",
+    "biome": "forest",
+    "sellPrice": 105,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    },
+    "nodeType": "plant",
+    "color": "G"
   },
   {
     "id": "scrap",
@@ -327,13 +511,15 @@
     "skill": "Salvaging",
     "levelRequired": 1,
     "xp": 25,
-    "iconName": "FarmersTools",
+    "iconName": "SolRing",
     "biome": "wastes",
     "sellPrice": 5,
     "dustRefine": {
       "rarity": "common",
       "amount": 1
-    }
+    },
+    "nodeType": "scrap",
+    "color": "C"
   },
   {
     "id": "brass_gears",
@@ -343,13 +529,15 @@
     "skill": "Salvaging",
     "levelRequired": 15,
     "xp": 50,
-    "iconName": "SolRing",
+    "iconName": "StrangeKey",
     "biome": "wastes",
-    "sellPrice": 18,
+    "sellPrice": 14,
     "dustRefine": {
       "rarity": "uncommon",
       "amount": 1
-    }
+    },
+    "nodeType": "scrap",
+    "color": "C"
   },
   {
     "id": "thran_parts",
@@ -359,13 +547,15 @@
     "skill": "Salvaging",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "Armory",
+    "iconName": "FarmersTools",
     "biome": "wastes",
-    "sellPrice": 45,
+    "sellPrice": 30,
     "dustRefine": {
       "rarity": "rare",
       "amount": 1
-    }
+    },
+    "nodeType": "scrap",
+    "color": "C"
   },
   {
     "id": "thran_relic",
@@ -375,13 +565,15 @@
     "skill": "Salvaging",
     "levelRequired": 70,
     "xp": 200,
-    "iconName": "RelicAmulet",
+    "iconName": "GarrukAxe",
     "biome": "wastes",
-    "sellPrice": 110,
+    "sellPrice": 75,
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "nodeType": "scrap",
+    "color": "C"
   },
   {
     "id": "garnet",
@@ -389,15 +581,16 @@
     "family": "gems",
     "tier": 3,
     "skill": "Mining",
-    "levelRequired": 1,
-    "xp": 80,
-    "iconName": "DeathRing",
-    "biome": "mountain",
+    "levelRequired": 40,
+    "xp": 100,
+    "iconName": "AladdinsRing",
+    "biome": "",
     "sellPrice": 80,
     "dustRefine": {
       "rarity": "rare",
-      "amount": 1
-    }
+      "amount": 2
+    },
+    "color": ""
   },
   {
     "id": "sapphire",
@@ -405,15 +598,16 @@
     "family": "gems",
     "tier": 3,
     "skill": "Mining",
-    "levelRequired": 1,
-    "xp": 80,
-    "iconName": "MoxSapphire",
-    "biome": "mountain",
+    "levelRequired": 40,
+    "xp": 100,
+    "iconName": "PrismRing",
+    "biome": "",
     "sellPrice": 80,
     "dustRefine": {
       "rarity": "rare",
-      "amount": 1
-    }
+      "amount": 2
+    },
+    "color": ""
   },
   {
     "id": "emerald",
@@ -421,15 +615,16 @@
     "family": "gems",
     "tier": 3,
     "skill": "Mining",
-    "levelRequired": 1,
-    "xp": 80,
-    "iconName": "MoxEmerald",
-    "biome": "mountain",
+    "levelRequired": 40,
+    "xp": 100,
+    "iconName": "RingofRenewal",
+    "biome": "",
     "sellPrice": 80,
     "dustRefine": {
       "rarity": "rare",
-      "amount": 1
-    }
+      "amount": 2
+    },
+    "color": ""
   },
   {
     "id": "ruby",
@@ -437,15 +632,16 @@
     "family": "gems",
     "tier": 3,
     "skill": "Mining",
-    "levelRequired": 1,
-    "xp": 80,
-    "iconName": "MoxRuby",
-    "biome": "mountain",
+    "levelRequired": 40,
+    "xp": 100,
+    "iconName": "JandorsRing",
+    "biome": "",
     "sellPrice": 80,
     "dustRefine": {
       "rarity": "rare",
-      "amount": 1
-    }
+      "amount": 2
+    },
+    "color": ""
   },
   {
     "id": "onyx",
@@ -453,15 +649,220 @@
     "family": "gems",
     "tier": 3,
     "skill": "Mining",
-    "levelRequired": 1,
-    "xp": 80,
-    "iconName": "MoxJet",
-    "biome": "mountain",
+    "levelRequired": 40,
+    "xp": 100,
+    "iconName": "DeathRing",
+    "biome": "",
     "sellPrice": 80,
     "dustRefine": {
       "rarity": "rare",
+      "amount": 2
+    },
+    "color": ""
+  },
+  {
+    "id": "quartz",
+    "name": "Quartz",
+    "family": "crystal",
+    "tier": 1,
+    "skill": "Delving",
+    "levelRequired": 1,
+    "xp": 25,
+    "iconName": "PrismRing",
+    "biome": "",
+    "sellPrice": 10,
+    "dustRefine": {
+      "rarity": "common",
       "amount": 1
-    }
+    },
+    "color": ""
+  },
+  {
+    "id": "azure",
+    "name": "Azure Crystal",
+    "family": "crystal",
+    "tier": 2,
+    "skill": "Delving",
+    "levelRequired": 15,
+    "xp": 50,
+    "iconName": "VeilstoneAmulet",
+    "biome": "",
+    "sellPrice": 24,
+    "dustRefine": {
+      "rarity": "uncommon",
+      "amount": 1
+    },
+    "color": ""
+  },
+  {
+    "id": "prismatic_crystal",
+    "name": "Prismatic Crystal",
+    "family": "crystal",
+    "tier": 3,
+    "skill": "Delving",
+    "levelRequired": 40,
+    "xp": 100,
+    "iconName": "RingofThreeWishes",
+    "biome": "",
+    "sellPrice": 60,
+    "dustRefine": {
+      "rarity": "rare",
+      "amount": 1
+    },
+    "color": ""
+  },
+  {
+    "id": "aether",
+    "name": "Aether Crystal",
+    "family": "crystal",
+    "tier": 4,
+    "skill": "Delving",
+    "levelRequired": 70,
+    "xp": 200,
+    "iconName": "AladdinsRing",
+    "biome": "",
+    "sellPrice": 150,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    },
+    "color": ""
+  },
+  {
+    "id": "pearl",
+    "name": "Pearl",
+    "family": "pearls",
+    "tier": 1,
+    "skill": "Delving",
+    "levelRequired": 1,
+    "xp": 25,
+    "iconName": "PrismRing",
+    "biome": "",
+    "sellPrice": 12,
+    "dustRefine": {
+      "rarity": "common",
+      "amount": 1
+    },
+    "color": ""
+  },
+  {
+    "id": "black_pearl",
+    "name": "Black Pearl",
+    "family": "pearls",
+    "tier": 2,
+    "skill": "Delving",
+    "levelRequired": 15,
+    "xp": 50,
+    "iconName": "DeathRing",
+    "biome": "",
+    "sellPrice": 28,
+    "dustRefine": {
+      "rarity": "uncommon",
+      "amount": 1
+    },
+    "color": ""
+  },
+  {
+    "id": "luna_pearl",
+    "name": "Luna Pearl",
+    "family": "pearls",
+    "tier": 3,
+    "skill": "Delving",
+    "levelRequired": 40,
+    "xp": 100,
+    "iconName": "RingofImmortals",
+    "biome": "",
+    "sellPrice": 72,
+    "dustRefine": {
+      "rarity": "rare",
+      "amount": 1
+    },
+    "color": ""
+  },
+  {
+    "id": "aether_pearl",
+    "name": "Aether Pearl",
+    "family": "pearls",
+    "tier": 4,
+    "skill": "Delving",
+    "levelRequired": 70,
+    "xp": 200,
+    "iconName": "AladdinsRing",
+    "biome": "",
+    "sellPrice": 180,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    },
+    "color": ""
+  },
+  {
+    "id": "feathers",
+    "name": "Feathers",
+    "family": "feathers",
+    "tier": 1,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "WhiteStaff",
+    "biome": "",
+    "sellPrice": 6,
+    "dustRefine": {
+      "rarity": "common",
+      "amount": 1
+    },
+    "color": "W"
+  },
+  {
+    "id": "soft_down",
+    "name": "Soft Down",
+    "family": "feathers",
+    "tier": 2,
+    "skill": "",
+    "levelRequired": 15,
+    "xp": 0,
+    "iconName": "WhiteStaff",
+    "biome": "",
+    "sellPrice": 16,
+    "dustRefine": {
+      "rarity": "uncommon",
+      "amount": 1
+    },
+    "color": "W"
+  },
+  {
+    "id": "flight_feathers",
+    "name": "Flight Feathers",
+    "family": "feathers",
+    "tier": 3,
+    "skill": "",
+    "levelRequired": 40,
+    "xp": 0,
+    "iconName": "SunMagusStaff",
+    "biome": "",
+    "sellPrice": 36,
+    "dustRefine": {
+      "rarity": "rare",
+      "amount": 1
+    },
+    "color": "W"
+  },
+  {
+    "id": "seraph_plume",
+    "name": "Seraph Plume",
+    "family": "feathers",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 70,
+    "xp": 0,
+    "iconName": "SunMagusStaff",
+    "biome": "",
+    "sellPrice": 90,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    },
+    "color": "W"
   },
   {
     "id": "hide",
@@ -473,11 +874,12 @@
     "xp": 0,
     "iconName": "LeatherBoots",
     "biome": "",
-    "sellPrice": 10,
+    "sellPrice": 6,
     "dustRefine": {
       "rarity": "common",
       "amount": 1
-    }
+    },
+    "color": "G"
   },
   {
     "id": "thick_hide",
@@ -485,15 +887,186 @@
     "family": "hide",
     "tier": 2,
     "skill": "",
-    "levelRequired": 1,
+    "levelRequired": 15,
     "xp": 0,
-    "iconName": "DarkArmor",
+    "iconName": "LeatherBoots",
     "biome": "",
-    "sellPrice": 25,
+    "sellPrice": 16,
     "dustRefine": {
       "rarity": "uncommon",
       "amount": 1
-    }
+    },
+    "color": "G"
+  },
+  {
+    "id": "hardened_hide",
+    "name": "Hardened Hide",
+    "family": "hide",
+    "tier": 3,
+    "skill": "",
+    "levelRequired": 40,
+    "xp": 0,
+    "iconName": "IronArmor",
+    "biome": "",
+    "sellPrice": 36,
+    "dustRefine": {
+      "rarity": "rare",
+      "amount": 1
+    },
+    "color": "G"
+  },
+  {
+    "id": "prime_hide",
+    "name": "Prime Hide",
+    "family": "hide",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 70,
+    "xp": 0,
+    "iconName": "GoldArmor",
+    "biome": "",
+    "sellPrice": 90,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    },
+    "color": "G"
+  },
+  {
+    "id": "brine",
+    "name": "Brine",
+    "family": "brine",
+    "tier": 1,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "BlueStaff",
+    "biome": "",
+    "sellPrice": 6,
+    "dustRefine": {
+      "rarity": "common",
+      "amount": 1
+    },
+    "color": "U"
+  },
+  {
+    "id": "sea_salt",
+    "name": "Sea Salt",
+    "family": "brine",
+    "tier": 2,
+    "skill": "",
+    "levelRequired": 15,
+    "xp": 0,
+    "iconName": "BlueStaff",
+    "biome": "",
+    "sellPrice": 16,
+    "dustRefine": {
+      "rarity": "uncommon",
+      "amount": 1
+    },
+    "color": "U"
+  },
+  {
+    "id": "pure_brine",
+    "name": "Pure Brine",
+    "family": "brine",
+    "tier": 3,
+    "skill": "",
+    "levelRequired": 40,
+    "xp": 0,
+    "iconName": "MindMagusStaff",
+    "biome": "",
+    "sellPrice": 36,
+    "dustRefine": {
+      "rarity": "rare",
+      "amount": 1
+    },
+    "color": "U"
+  },
+  {
+    "id": "elemental_brine",
+    "name": "Elemental Brine",
+    "family": "brine",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 70,
+    "xp": 0,
+    "iconName": "RingofThreeWishes",
+    "biome": "",
+    "sellPrice": 90,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    },
+    "color": "U"
+  },
+  {
+    "id": "prismatic_t1",
+    "name": "Prismatic Reagent (T1)",
+    "family": "prismatic",
+    "tier": 1,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "PrismRing",
+    "biome": "",
+    "sellPrice": 20,
+    "dustRefine": {
+      "rarity": "common",
+      "amount": 1
+    },
+    "color": ""
+  },
+  {
+    "id": "prismatic_t2",
+    "name": "Prismatic Reagent (T2)",
+    "family": "prismatic",
+    "tier": 2,
+    "skill": "",
+    "levelRequired": 15,
+    "xp": 0,
+    "iconName": "PrismRing",
+    "biome": "",
+    "sellPrice": 44,
+    "dustRefine": {
+      "rarity": "uncommon",
+      "amount": 2
+    },
+    "color": ""
+  },
+  {
+    "id": "prismatic_t3",
+    "name": "Prismatic Reagent (T3)",
+    "family": "prismatic",
+    "tier": 3,
+    "skill": "",
+    "levelRequired": 40,
+    "xp": 0,
+    "iconName": "PrismRing",
+    "biome": "",
+    "sellPrice": 120,
+    "dustRefine": {
+      "rarity": "rare",
+      "amount": 3
+    },
+    "color": ""
+  },
+  {
+    "id": "prismatic_t4",
+    "name": "Prismatic Reagent (T4)",
+    "family": "prismatic",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 70,
+    "xp": 0,
+    "iconName": "PrismRing",
+    "biome": "",
+    "sellPrice": 300,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 4
+    },
+    "color": ""
   },
   {
     "id": "boss_akroma",
@@ -509,7 +1082,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_ancient_silver_dragon",
@@ -525,7 +1099,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_chandra",
@@ -541,7 +1116,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_conjurer",
@@ -557,7 +1133,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_dark_enchanter",
@@ -573,7 +1150,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_elesh_norn",
@@ -589,7 +1167,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_emrakul",
@@ -605,7 +1184,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_garruk",
@@ -621,7 +1201,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_ghalta",
@@ -637,7 +1218,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_griselbrand",
@@ -653,7 +1235,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_grolnok",
@@ -669,7 +1252,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_guardian_angel",
@@ -685,7 +1269,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_jace",
@@ -701,7 +1286,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_jin_gitaxias",
@@ -717,7 +1303,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_kiora",
@@ -733,7 +1320,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_kozilek",
@@ -749,7 +1337,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_lathliss",
@@ -765,7 +1354,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_liliana",
@@ -781,7 +1371,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_lorthos",
@@ -797,7 +1388,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_myr_superion",
@@ -813,7 +1405,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_nahiri",
@@ -829,7 +1422,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_nissa",
@@ -845,7 +1439,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_ooze_boss",
@@ -861,7 +1456,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_scarecrow_captain",
@@ -877,7 +1473,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_slimefoot",
@@ -893,7 +1490,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_sliver_queen",
@@ -909,7 +1507,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_slobad",
@@ -925,7 +1524,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_sorin",
@@ -941,7 +1541,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_teferi",
@@ -957,7 +1558,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_the_cheff",
@@ -973,7 +1575,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_the_hydra_of_shandalaar",
@@ -989,7 +1592,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_tibalt",
@@ -1005,7 +1609,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_torturer",
@@ -1021,7 +1626,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_urabrask",
@@ -1037,7 +1643,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_valyx_feaster_of_torment",
@@ -1053,7 +1660,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_vorinclex",
@@ -1069,7 +1677,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_walter_the_stray_camel",
@@ -1085,7 +1694,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_wounded_sliver",
@@ -1101,7 +1711,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_xira",
@@ -1117,7 +1728,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_zedruu",
@@ -1133,7 +1745,8 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   },
   {
     "id": "boss_trophy",
@@ -1149,6 +1762,7 @@
     "dustRefine": {
       "rarity": "mythic",
       "amount": 1
-    }
+    },
+    "color": ""
   }
 ]

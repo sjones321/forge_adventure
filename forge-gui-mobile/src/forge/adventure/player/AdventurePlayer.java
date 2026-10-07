@@ -80,6 +80,16 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
      * Stable API for gathering, recipes, town requests.
      */
     private final LinkedHashMap<String, Integer> materials = new LinkedHashMap<>();
+    /**
+     * Ascendant toolbelt (Package B): one equipped gathering tool name per material family
+     * (logs, ore, stone, herbs, crystal, scrap). Not an equipment slot.
+     */
+    private final LinkedHashMap<String, String> toolbelt = new LinkedHashMap<>();
+    /** T1 tools granted free at New Game and on old Ascendant saves. Package E crafts higher tiers. */
+    public static final String[] STARTER_GATHERING_TOOLS = {
+            "Copper Hatchet", "Copper Pickaxe", "Copper Chisel",
+            "Copper Sickle", "Copper Probe", "Copper Spanner"
+    };
     private EffectData blessing; //Blessing to apply for next battle.
     private final PlayerStatistic statistic = new PlayerStatistic();
     private final Map<String, Byte> questFlags = new HashMap<>();
@@ -148,6 +158,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         Arrays.fill(dust, 0);
         autoSalvage = false;
         materials.clear();
+        toolbelt.clear();
         maxDeckCount = 20;
         clearDecks();
         inventoryItems.clear();
@@ -379,6 +390,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 continue;
             inventoryItems.add(i);
         }
+        ensureStarterGatheringTools();
 
         onGoldChangeList.emit();
         onLifeTotalChangeList.emit();
@@ -737,6 +749,21 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 }
             }
         }
+        // Package A → color-line renames (rough_stone→limestone, nightshade→bone_fragments, …).
+        MaterialListData.migrateMaterialCounts(materials);
+        toolbelt.clear();
+        if (data.containsKey("toolbeltFamilies") && data.containsKey("toolbeltItems")) {
+            Object rawFam = data.readObject("toolbeltFamilies");
+            Object rawItems = data.readObject("toolbeltItems");
+            if (rawFam instanceof String[] fams && rawItems instanceof String[] tItems) {
+                int n = Math.min(fams.length, tItems.length);
+                for (int i = 0; i < n; i++) {
+                    if (fams[i] != null && !fams[i].isEmpty() && tItems[i] != null && !tItems[i].isEmpty())
+                        toolbelt.put(fams[i], tItems[i]);
+                }
+            }
+        }
+        MaterialListData.migrateToolbeltFamilies(toolbelt);
         worldPosX = data.readFloat("worldPosX");
         worldPosY = data.readFloat("worldPosY");
 
@@ -1074,10 +1101,13 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             getCurrentGameStage().setExtraAnnouncement(Forge.getLocalizer().getMessage("lblDataMigrationMsg"));
         }
 
+        ensureStarterGatheringTools();
+
         RewardData.invalidateCardPool();
         onLifeTotalChangeList.emit();
         onShardsChangeList.emit();
         onDustChangeList.emit();
+        onMaterialChangeList.emit();
         onGoldChangeList.emit();
         onBlessing.emit();
     }
@@ -1127,6 +1157,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 materialCounts[i] = materials.getOrDefault(materialIds[i], 0);
             data.storeObject("materialIds", materialIds);
             data.storeObject("materialCounts", materialCounts);
+        }
+        {
+            String[] fams = toolbelt.keySet().toArray(new String[0]);
+            String[] tItems = new String[fams.length];
+            for (int i = 0; i < fams.length; i++)
+                tItems[i] = toolbelt.get(fams[i]);
+            data.storeObject("toolbeltFamilies", fams);
+            data.storeObject("toolbeltItems", tItems);
         }
         data.store("deckName", deck.getName());
 
@@ -2063,6 +2101,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     public void equip(ItemData item) {
+        if (item != null && item.isGatheringTool()) {
+            equipTool(item);
+            return;
+        }
         Long itemID = equippedItems.get(item.equipmentSlot);
         if (itemID != null && itemID.equals(item.longID)) {
             item.isEquipped = false;
@@ -2072,6 +2114,81 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             equippedItems.put(item.equipmentSlot, item.longID);
         }
         onEquipmentChange.emit();
+    }
+
+    /** Equip or unequip a gathering tool on the toolbelt (one per family). */
+    public void equipTool(ItemData item) {
+        if (item == null || !item.isGatheringTool())
+            return;
+        String family = item.toolFamily;
+        String current = toolbelt.get(family);
+        if (current != null && current.equalsIgnoreCase(item.name))
+            toolbelt.remove(family);
+        else
+            toolbelt.put(family, item.name);
+        onEquipmentChange.emit();
+    }
+
+    /** Tool item name equipped for a material family, or null. */
+    public String getToolbeltTool(String family) {
+        if (family == null)
+            return null;
+        return toolbelt.get(family);
+    }
+
+    /** Unmodifiable family → tool item name. */
+    public Map<String, String> getToolbelt() {
+        return Collections.unmodifiableMap(toolbelt);
+    }
+
+    /** Equipped tool tier for a family (0 if none / not owned). Caps gatherable material tier. */
+    public int getToolTier(String family) {
+        String name = getToolbeltTool(family);
+        if (name == null || !hasItem(name))
+            return 0;
+        ItemData data = ItemListData.getItem(name);
+        return data != null && data.isGatheringTool() ? data.toolTier : 0;
+    }
+
+    public boolean isToolEquipped(ItemData item) {
+        if (item == null || !item.isGatheringTool())
+            return false;
+        String cur = toolbelt.get(item.toolFamily);
+        return cur != null && cur.equalsIgnoreCase(item.name);
+    }
+
+    /**
+     * Ascendant only: grant missing T1 tools and equip the best owned tool per family.
+     * Safe on old saves (missing toolbelt → empty then filled).
+     */
+    public void ensureStarterGatheringTools() {
+        if (!Config.ascendant())
+            return;
+        for (String toolName : STARTER_GATHERING_TOOLS) {
+            if (!hasItem(toolName))
+                addItem(toolName, false);
+        }
+        // Drop toolbelt entries for tools no longer owned.
+        toolbelt.entrySet().removeIf(e -> e.getValue() == null || !hasItem(e.getValue()));
+        // Equip best owned tool per family (inventory may hold higher tiers from shops/crafting).
+        Map<String, ItemData> best = new HashMap<>();
+        for (ItemData item : inventoryItems) {
+            if (item == null || !item.isGatheringTool())
+                continue;
+            ItemData prev = best.get(item.toolFamily);
+            if (prev == null || item.toolTier > prev.toolTier)
+                best.put(item.toolFamily, item);
+        }
+        for (Map.Entry<String, ItemData> e : best.entrySet()) {
+            String equipped = toolbelt.get(e.getKey());
+            int equippedTier = 0;
+            if (equipped != null && hasItem(equipped)) {
+                ItemData equippedData = ItemListData.getItem(equipped);
+                equippedTier = equippedData != null ? equippedData.toolTier : 0;
+            }
+            if (equippedTier < e.getValue().toolTier)
+                toolbelt.put(e.getKey(), e.getValue().name);
+        }
     }
 
     public Long itemInSlot(String key) {
@@ -2132,6 +2249,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (item == null)
             return false;
         inventoryItems.add(item);
+        if (item.isGatheringTool()) {
+            int have = getToolTier(item.toolFamily);
+            if (item.toolTier > have)
+                toolbelt.put(item.toolFamily, item.name);
+        }
         if (updateEvent)
             AdventureQuestController.instance().updateItemReceived(item);
         return true;

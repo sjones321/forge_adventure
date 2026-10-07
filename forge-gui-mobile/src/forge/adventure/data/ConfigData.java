@@ -123,4 +123,36 @@ public class ConfigData {
     /** Units granted when a non-boss material drop succeeds. */
     public int enemyMaterialDropCount = 1;
 
+    // ---- Ascendant gathering (Package B): overworld nodes, channel, tools (color reagent lines). ----
+
+    /** Seconds between resource-node spawn attempts on the overworld. */
+    public float gatherNodeSpawnInterval = 5f;
+    /** Max resource nodes alive near the player at once. */
+    public int gatherNodeMaxAlive = 4;
+    /** Node lifetime in seconds (longer than enemy ~20s). */
+    public float gatherNodeLifetime = 60f;
+    /** Channel duration at gathering skill level 1 (seconds). */
+    public float gatherChannelMax = 3f;
+    /** Channel duration at gathering skill level 99 (seconds). */
+    public float gatherChannelMin = 1f;
+    /** Base units gathered per successful channel at low skill. */
+    public int gatherYieldMin = 1;
+    /** Max units gathered per channel at high skill (levels 40 / 70 add +1 each). */
+    public int gatherYieldMax = 3;
+    /** Skill levels that bump yield by +1 (first / second bump). */
+    public int gatherYieldLevel2 = 40;
+    public int gatherYieldLevel3 = 70;
+    /** Chance (0-1) a Mining node also drops a gem. */
+    public float gatherGemChance = 0.08f;
+    /** Chance (0-1) any gather also drops a little common dust. */
+    public float gatherDustChance = 0.12f;
+    /** Common dust amount on a rare dust roll. */
+    public int gatherDustAmount = 1;
+    /** Chance (0-1) a gather grants a small gold bonus. */
+    public float gatherGoldChance = 0.04f;
+    /** Gold granted on a rare gold roll. */
+    public int gatherGoldAmount = 5;
+    /** Chance (0-1) a gather grants a mana shard. */
+    public float gatherShardChance = 0.015f;
+
 }

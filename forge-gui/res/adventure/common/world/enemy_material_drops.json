@@ -1,27 +1,31 @@
 {
   "byColor": {
     "W": [
-      "rough_stone",
+      "limestone",
+      "feathers",
       "hide"
     ],
     "U": [
-      "quartz",
-      "azure"
+      "spring_water",
+      "brine",
+      "pearl"
     ],
     "B": [
-      "bone",
-      "nightshade"
+      "bone_fragments",
+      "grave_moss"
     ],
     "R": [
-      "copper",
-      "iron"
+      "ash",
+      "charcoal"
     ],
     "G": [
-      "oak",
-      "hide"
+      "wild_herbs",
+      "hide",
+      "oak"
     ],
     "C": [
       "scrap",
+      "copper",
       "brass_gears"
     ]
   },
