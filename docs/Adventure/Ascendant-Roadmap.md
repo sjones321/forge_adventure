@@ -269,6 +269,18 @@ perk layer with a tree per skill so more levels matter and builds differ:
 - A main questline per plane using the existing quest and dialog systems. **Always skippable**: a "skip story"
   choice at New Game and a per-chapter skip, so no character is forced through it again.
 
+### AB. Opening paths: finish the tutorial guide's "Future release" options (depends on G, V)
+The guide's first dialog (quest 28 "Entering Shandalar" in `Shandalar Ascendant/world/quests.json`) offers four
+paths; two are disabled and marked "(Future release)". Turn each into a real starting path. Every path still
+opens the whole game; the path only picks the first quest chain and a small starting bonus.
+- **"Where am I? ..." (Tutorial and main quest)**: unchanged.
+- **"I want to find the planeswalkers"**: a quest chain that tracks down the five color planeswalkers (the
+  existing castle bosses), then leads into Planeswalking (V) and the optional story (AA). Skippable like AA.
+- **"I want to make a name for myself"**: the competitive career. Starts at the nearest gym town with the gym
+  challenge (G), introduces tournaments and the Grand Prix circuit (L), and ends at the League.
+- **"Been here, done that" (New Game+)**: unchanged, plus the run-format choice from K.
+- Remove "(Future release)" and `isDisabled` from the two options once their chains exist.
+
 ## Stretch goal: main program UI
 After the systems above, improve Forge's main (non-Adventure) UI. Scope to be decided later.
 
@@ -280,7 +292,7 @@ After the systems above, improve Forge's main (non-Adventure) UI. Scope to be de
 3. D and F after their dependencies; K after G.
 4. L after K, then H.
 5. RPG systems, in this priority: N (Rifts), R (Ironman), O (world bosses), P (companions), V (Planeswalking),
-   then Q, S, T, U, W, X, Y, Z.
+   then Q, S, T, U, W, X, Y, Z. AB once G and V exist.
 6. M (prestige) and I (homestead) once the account-level systems exist.
 7. AA (story) last.
 

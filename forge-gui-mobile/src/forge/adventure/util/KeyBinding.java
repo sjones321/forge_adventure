@@ -35,6 +35,20 @@ public enum KeyBinding {
         this.bindings = bindings;
     }
 
+    /** Space confirms a dialog the same way Enter does. */
+    public static boolean isDialogConfirm(int keycode) {
+        return Use.isPressed(keycode) || keycode == Input.Keys.SPACE;
+    }
+
+    /** Number row or numpad 1-9 picks a dialog option: returns 0-8, or -1 for any other key. */
+    public static int dialogOptionIndex(int keycode) {
+        if (keycode >= Input.Keys.NUM_1 && keycode <= Input.Keys.NUM_9)
+            return keycode - Input.Keys.NUM_1;
+        if (keycode >= Input.Keys.NUMPAD_1 && keycode <= Input.Keys.NUMPAD_9)
+            return keycode - Input.Keys.NUMPAD_1;
+        return -1;
+    }
+
     public boolean isPressed() {
         for (int key : bindings) {
             if (Gdx.input.isKeyPressed(key)) {

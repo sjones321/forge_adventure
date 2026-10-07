@@ -273,6 +273,8 @@ public class MapDialog {
                     String name; //Get localized label if present.
                     if (option.locname != null && !option.locname.isEmpty()) name = L.getMessageorUseDefault(option.locname, option.name);
                     else name = option.name;
+                    if (dialog.options.length > 1)
+                        name = (i + 1) + ". " + name; // number key picks this option
                     TextraButton B;
                     if (option.isDisabled) {
                         B = Controls.newTextButton(name);

@@ -1299,8 +1299,15 @@ public class MapStage extends GameStage {
             if (KeyBinding.Down.isPressed(keycode)) {
                 selectNextDialogButton();
             }
-            if (KeyBinding.Use.isPressed(keycode)) {
-                performTouch(dialogStage.getKeyboardFocus());
+            if (KeyBinding.isDialogConfirm(keycode)) {
+                Actor focus = dialogStage.getKeyboardFocus();
+                performTouch(focus == null && dialogButtonMap.size == 1 ? dialogButtonMap.first() : focus);
+            }
+            int option = KeyBinding.dialogOptionIndex(keycode);
+            if (option >= 0 && option < dialogButtonMap.size) {
+                TextraButton button = dialogButtonMap.get(option);
+                if (button.isVisible() && !button.isDisabled())
+                    performTouch(button);
             }
         }
         return true;
