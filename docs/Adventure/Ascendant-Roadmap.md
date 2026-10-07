@@ -119,26 +119,19 @@ Package A must merge first.
 - Existing ~200 items stay as loot and shop stock.
 
 ### G. Gyms and the League (no hard dependency; must work on existing saves)
-- **8 gyms**, each in a capital or major town, each testing a different way to play:
-
-  | Gym | Format |
-  |---|---|
-  | White | Standard, best of 3 |
-  | Blue | Sealed: 6 packs of a window set handed out at the door, build on the spot |
-  | Black | Historic |
-  | Red | Commons only, from your collection |
-  | Green | Commander |
-  | Colorless | Gauntlet: 3 duels in a row, life carries over |
-  | Multicolor 1 | Booster draft against an AI pod (reuse the inn event draft code) |
-  | Multicolor 2 | Highlander: 60-card singleton |
-
+- **Gyms play your run's format.** In a Standard run every gym is Standard; in a Pauper, Historic or Commander run
+  (package K) every gym uses that format. Your deck must be legal for the run format to challenge a gym.
+- **8 gyms, each themed by color**: White, Blue, Black, Red, Green, Colorless (artifacts/Eldrazi),
+  Guild (two-color), and Rainbow (three or more colors). Theme decides the leader's and trainers' decks, the town
+  the gym sits in, and the badge perk.
 - Each gym has 2-3 trainer duels before the leader. Gyms can be done **in any order**; leader decks scale with the
-  number of badges held.
+  number of badges held. Leader matches are best of 3.
 - **Badges** give a perk each, unlock higher-tier crafting recipes, and are shown on the Skills/Unlocks screens.
-  Rewards: gold, dust, a unique material, and a format-themed staple.
+  Rewards: gold, dust, a unique material, and a theme staple.
 - **League**: with 8 badges, the Elite Four and the Champion at a central castle, best of 3 each, no healing between
   matches. Beating it unlocks rematches: leaders and the League return with harder decks and a repeatable reward table.
 - Gym buildings are added inside existing town maps, so they work on current saves.
+- Gym decks per format live in data (`world/gyms.json` + deck files), so new formats only need new deck lists.
 
 ### H. Town requests (depends on A)
 - Town boards post material delivery requests through the existing quest system: deliver N of a material for gold,
@@ -148,12 +141,61 @@ Package A must merge first.
 - A player-owned plot with buildings made from bulk logs and stone: stations, a storage chest, the vault, a trophy
   room for badges. RuneScape's Construction, as the main long-term material sink.
 
+### J. Skill trees (depends on nothing; replaces flat perks)
+Today every skill is linear: small per-level bonuses (prices, speed), color perks at 15/40/75, and staples at fixed
+levels (`player/PlayerSkills.java`, `COLOR_PERKS` ~268, staple files `common/staples_<color>.txt`). Replace the
+perk layer with a tree per skill so more levels matter and builds differ:
+- **Talent points**: one point every 5 levels of a skill (19 by level 99), spent only in that skill's tree.
+  Staple unlocks stay on their fixed levels; per-level passive bonuses stay.
+- **Each tree has 3 branches** of ~8 nodes. Some tiers are a choice of one of two nodes, so two players with the same
+  levels can play differently. Milestone capstones at levels 50 and 99; 99 also grants a **skill cape**
+  (RuneScape-style cosmetic plus a capstone perk).
+- **Perk slots**: duel-affecting perks (life, tokens, cards, opponent effects) must be slotted to be active.
+  Slots grow with total level (e.g. 3 at start, up to 10). Non-duel perks (prices, gathering speed, travel) are
+  always on. This keeps 20 skills of perks from stacking into an unwinnable-for-AI pile.
+- Perk effects use `EffectData` fields or custom command-zone cards (`common/custom_cards/`), so any Magic effect
+  is possible.
+- **Respec** for gold, cost rising each time; free respec at New Game+.
+- Trees are data (`world/skill_trees.json`: node id, branch, tier, cost, requires, exclusiveWith, effect), shown on a
+  tree screen reached from the Skills screen. Existing saves: refund color perks into points automatically.
+
+### K. Run formats and New Game+ (depends on G for gym decks)
+- The first run is Standard (sealed start). At **New Game+** the player picks the run format:
+  **Standard, Pauper, Historic or Commander**. The run format sets which decks may enter gyms, the League and
+  tournaments, and which card pool shops and rewards favor.
+- **Pauper**: cards printed at common in any set (use Forge's Pauper format definition under
+  `forge-gui/res/formats/Sanctioned/`). Add `AdventureHistoric`-style deck tag `AdventurePauperDeck` and a
+  Pauper option in the deck format cycle.
+- The chosen format is saved in the world save and shown on the status screen.
+
+### L. Tournaments and lifetime stats (depends on K)
+- **Tournament ring**: inns run small events (the existing inn event code: draft, jumpstart, sealed) plus
+  constructed events in the run format.
+- **Grand Prix** in capitals: scheduled every N in-game days, entry fee, Swiss rounds then a top 8, prizes scale with
+  placement (gold, dust, packs, unique materials, trophies).
+- **Lifetime stats** that survive New Game+ and prestige: tournaments entered, top 8s, GP wins, badges and League
+  titles per run format, total duels, best win streak. Shown on a **Hall of Fame** screen.
+
+### M. Prestige (depends on J and L)
+- Separate from New Game+. **Prestige is a full account reset**: collection, gold, dust, materials, items, skills and
+  decks are wiped. Kept: unlocked staples, lifetime stats / Hall of Fame, prestige level, prestige tree, cosmetics
+  (skill capes, trophies).
+- **Requirements are steep**, e.g. League champion in the current run, total level 1000+, and a Grand Prix win.
+  Exact numbers are tunables.
+- Each prestige grants **prestige points** for a **prestige skill tree** (account-wide perks: faster XP, extra perk
+  slot, better starting sealed pool, etc.) and lets the player choose cards from a **prestige staples list**:
+  powerful cards (format staples above normal staple power) that become permanently Standard-legal staples for that
+  account. Prestige staples still respect ban lists for Commander/Historic.
+- Prestige needs a confirmation screen that lists exactly what will be lost.
+
 ## Suggested order
 
 1. A (materials core) alone.
-2. B, C, E and G in parallel. C touches world generation only; G touches town maps and duel setup.
-3. D and F after their dependencies.
-4. H, then I.
+2. B, C, E, G and J in parallel. C touches world generation only; G touches town maps and duel setup;
+   J touches `PlayerSkills` and the Skills screen.
+3. D and F after their dependencies; K after G.
+4. L after K, then H.
+5. M (prestige) and I (homestead) last.
 
 ## Art
 
