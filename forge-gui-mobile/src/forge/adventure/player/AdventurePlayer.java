@@ -143,6 +143,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         newCards.clear();
         autoSellCards.clear();
         favoriteCards.clear();
+        vaultCards.clear();
         AdventureEventController.clear();
         AdventureQuestController.clear();
         unsupportedCards.clear();
@@ -175,6 +176,141 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     public final ItemPool<PaperCard> newCards = new ItemPool<>(PaperCard.class);
     public final ItemPool<PaperCard> autoSellCards = new ItemPool<>(PaperCard.class);
     public final Set<PaperCard> favoriteCards = new HashSet<>();
+    /**
+     * Commander Vault: copies moved here are permanent and Commander-only. They stay part of
+     * {@link #cards} (so saves and ownership checks keep working) but are hidden from the normal
+     * collection, can't be sold or auto-sold, can't be used in non-Commander decks, and never rotate.
+     */
+    public final ItemPool<PaperCard> vaultCards = new ItemPool<>(PaperCard.class);
+
+    public ItemPool<PaperCard> getVaultCards() {
+        return vaultCards;
+    }
+
+    /** Copies held in the Commander Vault (never sellable, never in non-Commander decks). */
+    public int vaultedCount(PaperCard card) {
+        return vaultCards.count(card);
+    }
+
+    /**
+     * Historic = everything you own (except the Commander Vault); Standard = only what's legal right
+     * now. Nothing moves on rotation: rotated cards just stop being Standard-legal, and become legal
+     * again if their set or a reprint comes back. Basic lands are always legal.
+     */
+    public boolean isStandardLegal(PaperCard pc) {
+        return pc.getRules().getType().isBasicLand() || standardWindow.isStandardLegal(pc.getName());
+    }
+
+    /** Owned copies (outside the Commander Vault) that are not Standard-legal right now. */
+    public int countRotatedOut() {
+        int n = 0;
+        for (Map.Entry<PaperCard, Integer> e : cards)
+            if (!isStandardLegal(e.getKey()))
+                n += Math.max(0, e.getValue() - vaultedCount(e.getKey()));
+        return n;
+    }
+
+    /** Why a Standard deck can't be played right now (rotated or banned cards), or null if it's fine. */
+    public String standardDeckProblem(Deck d) {
+        if (d == null || !standardWindow.isActive() || isCommanderDeck(d) || isHistoricDeck(d))
+            return null;
+        for (Map.Entry<PaperCard, Integer> e : d.getAllCardsInASinglePool()) {
+            PaperCard pc = e.getKey();
+            if (!isStandardLegal(pc))
+                return pc.getName() + " rotated out of Standard";
+            if (BanLists.isBanned("standard", pc.getName()))
+                return pc.getName() + " is banned in Standard";
+        }
+        return null;
+    }
+
+    // ---- per-deck format: Standard (60-card Adventure), Commander, or Historic ----
+
+    public static final String COMMANDER_DECK_TAG = "AdventureCommanderDeck";
+    public static final String HISTORIC_DECK_TAG = "AdventureHistoricDeck";
+
+    public boolean isHistoricDeck(Deck d) {
+        return !isCommanderMode() && d != null && d.getTags().contains(HISTORIC_DECK_TAG);
+    }
+
+    public boolean isHistoricDeckSelected() {
+        return isHistoricDeck(getSelectedDeck());
+    }
+
+    /** Cycles a deck slot's format: Standard -> Commander -> Historic -> Standard. Returns the new format name. */
+    public String cycleDeckFormat(int slot) {
+        if (slot < 0 || slot >= decks.size() || isCommanderMode())
+            return "Commander";
+        Deck d = decks.get(slot);
+        if (isHistoricDeck(d)) {
+            d.getTags().remove(HISTORIC_DECK_TAG);
+            setDeckCommander(slot, false);
+            return "Standard";
+        }
+        if (isCommanderDeck(d)) {
+            setDeckCommander(slot, false);
+            d.getTags().add(HISTORIC_DECK_TAG);
+            RewardData.invalidateCardPool();
+            return "Historic";
+        }
+        setDeckCommander(slot, true);
+        return "Commander";
+    }
+
+    /** A deck is Commander if the whole save is a Commander save, or the deck is tagged Commander. */
+    public boolean isCommanderDeck(Deck d) {
+        return isCommanderMode() || (d != null && d.getTags().contains(COMMANDER_DECK_TAG));
+    }
+
+    /** The selected deck decides the editor rules and the duel format. */
+    public boolean isCommanderDeckSelected() {
+        return isCommanderDeck(getSelectedDeck());
+    }
+
+    public boolean hasCommanderDeck() {
+        if (isCommanderMode())
+            return true;
+        for (Deck d : decks)
+            if (d != null && d.getTags().contains(COMMANDER_DECK_TAG))
+                return true;
+        return false;
+    }
+
+    /** Switches a deck slot's format. The first Commander deck grants Command Tower and Arcane Signet (vaulted). */
+    public void setDeckCommander(int slot, boolean commander) {
+        if (slot < 0 || slot >= decks.size() || isCommanderMode())
+            return;
+        Deck d = decks.get(slot);
+        if (commander)
+            d.getTags().add(COMMANDER_DECK_TAG);
+        else
+            d.getTags().remove(COMMANDER_DECK_TAG);
+        if (commander && !checkCharacterFlag("commanderStarterGiven")) {
+            setCharacterFlag("commanderStarterGiven", 1);
+            for (String name : new String[]{"Command Tower", "Arcane Signet"}) {
+                PaperCard pc = forge.model.FModel.getMagicDb().getCommonCards().getCard(name);
+                if (pc != null) {
+                    cards.add(pc);
+                    vaultCards.add(pc);
+                }
+            }
+        }
+        RewardData.invalidateCardPool();
+    }
+
+    /** Copies of a card that are free to vault: owned, not vaulted, not auto-selling, not used in decks. */
+    public int copiesAvailableToVault(PaperCard card) {
+        return cards.count(card) - vaultCards.count(card) - autoSellCards.count(card) - getCopiesUsedInDecks(card);
+    }
+
+    /** One-way move into the Commander Vault. Returns how many copies were vaulted. */
+    public int moveToVault(PaperCard card, int amount) {
+        int n = Math.min(amount, copiesAvailableToVault(card));
+        if (n <= 0)
+            return 0;
+        vaultCards.add(card, n);
+        return n;
+    }
 
     public void create(String n, Deck startingDeck, boolean male, int race, int avatar, boolean isFantasy,
                        boolean isUsingCustomDeck, DifficultyData difficultyData, AdventureModes adventureMode) {
@@ -677,6 +813,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                     decks.get(i).getOrCreate(DeckSection.Commander).addAll(commanderCards.getFilteredPool(isValid));
                     unsupportedCards.addAll(commanderCards.getFilteredPool(isUnsupported).toFlatList());
                 }
+                if (data.containsKey("deckCommander_" + i) && data.readBool("deckCommander_" + i))
+                    decks.get(i).getTags().add(COMMANDER_DECK_TAG);
+                if (data.containsKey("deckHistoric_" + i) && data.readBool("deckHistoric_" + i))
+                    decks.get(i).getTags().add(HISTORIC_DECK_TAG);
             }
             // In case we allow removing decks from the deck selection GUI, populate up to the minimum
             for (int i = dynamicDeckCount++; i < MIN_DECK_COUNT; i++) {
@@ -794,6 +934,13 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                     unsupportedCards.add(pc);
                 else
                     autoSellCards.add(pc);
+            }
+        }
+        if (data.containsKey("vaultCards")) {
+            PaperCard[] items = (PaperCard[]) data.readObject("vaultCards");
+            for (PaperCard pc : items) {
+                if (!isUnsupported.test(pc))
+                    vaultCards.add(pc);
             }
         }
         if (data.containsKey("favoriteCards")) {
@@ -924,6 +1071,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 data.storeObject("contraptionDeckCards_" + i, decks.get(i).get(DeckSection.Contraptions).toCardList("\n").split("\n"));
             if (decks.get(i).get(DeckSection.Commander) != null)
                 data.storeObject("commanderCards_" + i, decks.get(i).get(DeckSection.Commander).toCardList("\n").split("\n"));
+            data.store("deckCommander_" + i, decks.get(i).getTags().contains(COMMANDER_DECK_TAG));
+            data.store("deckHistoric_" + i, decks.get(i).getTags().contains(HISTORIC_DECK_TAG));
         }
 
         // Save deck loadouts (equipment tied to each deck)
@@ -949,6 +1098,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
         data.storeObject("newCards", newCards.toFlatList().toArray(new PaperCard[0]));
         data.storeObject("autoSellCards", autoSellCards.toFlatList().toArray(new PaperCard[0]));
+        data.storeObject("vaultCards", vaultCards.toFlatList().toArray(new PaperCard[0]));
         data.storeObject("favoriteCards", favoriteCards.toArray(new PaperCard[0]));
 
         return data;
@@ -1341,7 +1491,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (amount == null || amount < 1)
             return 0;
 
-        int amountToSell = Math.min(amount, cards.count(card));
+        int amountToSell = Math.min(amount, cards.count(card) - vaultedCount(card));
         int earned = performSale(card, amountToSell);
 
         if(earned > 0)
@@ -1371,7 +1521,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
      * Does *not* update the player's gold. Can be used as part of bulk-sell operations that update the amount all at once.
      */
     private int performSale(PaperCard card, int amount) {
-        int amountToSell = Math.min(amount, cards.count(card));
+        //Vaulted copies can never be sold
+        int amountToSell = Math.min(amount, cards.count(card) - vaultedCount(card));
+        if (amountToSell <= 0)
+            return 0;
         if(!cards.remove(card, amountToSell))
             return 0; //Failed to sell?
         return cardSellPrice(card) * amountToSell;
@@ -1762,6 +1915,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         collectionCards.addAll(cards);
         if (!allCards) {
             collectionCards.removeAll(autoSellCards);
+            collectionCards.removeAll(vaultCards);
         }
 
         return collectionCards;

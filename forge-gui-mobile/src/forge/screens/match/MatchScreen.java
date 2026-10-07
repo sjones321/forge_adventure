@@ -1,5 +1,8 @@
 package forge.screens.match;
 
+import forge.assets.FSkinFont;
+import com.badlogic.gdx.utils.Align;
+import com.badlogic.gdx.graphics.Color;
 import static forge.Forge.getLocalizer;
 
 import forge.toolbox.FOptionPane;
@@ -362,6 +365,33 @@ public class MatchScreen extends FScreen {
         return new Rectangle(0, VPrompt.HEIGHT, scroller.getWidth(), getHeight() - 2 * VPrompt.HEIGHT);
     }
 
+    private static final FSkinFont ADVICE_TITLE_FONT = FSkinFont.get(24);
+    private static final FSkinFont ADVICE_FONT = FSkinFont.get(18);
+
+    /** While deciding on a mulligan, show the advisor's verdict and reasons large in the middle of the screen. */
+    private void drawMulliganAdvice(Graphics g) {
+        VPrompt prompt = getActivePrompt();
+        String msg = prompt == null ? null : prompt.getMessage();
+        int idx = msg == null ? -1 : msg.indexOf("Advisor:");
+        if (idx < 0)
+            return;
+        String advice = msg.substring(idx + "Advisor:".length()).trim();
+        int nl = advice.indexOf('\n');
+        String verdict = nl < 0 ? advice : advice.substring(0, nl).trim();
+        String reasons = nl < 0 ? "" : advice.substring(nl + 1).trim();
+        Color verdictColor = verdict.startsWith("KEEP") ? new Color(0.35f, 0.95f, 0.45f, 1f)
+                : verdict.startsWith("MULLIGAN") ? new Color(1f, 0.4f, 0.35f, 1f) : new Color(1f, 0.85f, 0.3f, 1f);
+
+        float w = getWidth() * 0.5f, h = getHeight() * 0.42f;
+        float x = (getWidth() - w) / 2f, y = getHeight() * 0.16f;
+        float pad = Utils.scale(10);
+        g.fillRect(new Color(0.08f, 0.08f, 0.1f, 0.88f), x, y, w, h);
+        g.drawRect(Utils.scale(2), verdictColor, x, y, w, h);
+        float titleH = ADVICE_TITLE_FONT.getLineHeight() + pad;
+        g.drawText("Mulligan advice: " + verdict, ADVICE_TITLE_FONT, verdictColor, x + pad, y + pad, w - 2 * pad, titleH, false, Align.left, false);
+        g.drawText(reasons, ADVICE_FONT, Color.WHITE, x + pad, y + pad + titleH, w - 2 * pad, h - titleH - 2 * pad, true, Align.left, false);
+    }
+
     @Override
     protected void drawOverlay(Graphics g) {
         final GameView game = MatchController.instance.getGameView();
@@ -401,6 +431,8 @@ public class MatchScreen extends FScreen {
 
         drawArcs(g);
         CardFlightOverlay.draw(g, bottomPlayerPanel.getPlayer(), getHeight());
+        PlayableTracker.refreshIfStale();
+        drawMulliganAdvice(g);
         if (FModel.getPreferences().getPrefBoolean(ForgePreferences.FPref.UI_ENABLE_MAGNIFIER) && Forge.magnify && Forge.magnifyToggle) {
             if (Forge.isLandscapeMode() && (!GuiBase.isMobile() || Forge.hasGamepad()) && !CardZoom.isOpen() && potentialListener != null) {
                 for (FDisplayObject object : potentialListener) {

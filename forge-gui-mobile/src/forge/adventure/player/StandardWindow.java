@@ -154,7 +154,15 @@ public final class StandardWindow {
     public boolean allows(PaperCard pc, boolean commander) {
         if (!isActive())
             return true;
-        return legalNames().contains(pc.getName()) || activeStaples(commander).contains(pc.getName());
+        String name = pc.getName();
+        // With a Commander deck in the save, both staples lists are in play
+        return legalNames().contains(name) || activeStaples(false).contains(name)
+                || (commander && activeStaples(true).contains(name));
+    }
+
+    /** Legal in Standard right now: printed in a window set, or one of this rotation's Standard staples. */
+    public boolean isStandardLegal(String name) {
+        return !isActive() || legalNames().contains(name) || activeStaples(false).contains(name);
     }
 
     private Set<String> cachedNames;

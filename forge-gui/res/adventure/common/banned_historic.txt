@@ -1,0 +1,2 @@
+# Adventure historic ban list: one card name per line. Banned cards can't be added to historic decks.
+# Edit freely; changes apply the next time Forge starts.

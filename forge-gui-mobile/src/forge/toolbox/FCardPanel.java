@@ -13,11 +13,13 @@ import forge.game.card.CardView;
 import forge.game.zone.ZoneType;
 import forge.gui.control.PlaybackSpeed;
 import forge.screens.match.MatchController;
+import forge.screens.match.PlayableTracker;
 import forge.util.Utils;
 
 import static forge.assets.FSkin.getDefaultSkinFile;
 
 public class FCardPanel extends FDisplayObject {
+    private static final Color PLAYABLE_GLOW = new Color(0.24f, 0.9f, 0.35f, 1f);
     public static final float ASPECT_RATIO = 3.5f / 2.5f;
     public static final float PADDING = Utils.scale(2);
     public static final float TARGET_ORIGIN_FACTOR_X = 0.15f;
@@ -118,6 +120,9 @@ public class FCardPanel extends FDisplayObject {
 
         if (!ZoneType.Battlefield.equals(card.getZone())) {
             rotateTransform(g, x, y, w, h, edgeOffset, false);
+            //Arena-style glow on hand cards you can cast right now
+            if (ZoneType.Hand.equals(card.getZone()) && PlayableTracker.isPlayable(card.getId()))
+                g.drawRect(Math.max(3f, w / 28f), PLAYABLE_GLOW, x, y, w, h);
             return;
         }
 

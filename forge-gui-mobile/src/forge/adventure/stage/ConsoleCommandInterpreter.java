@@ -207,6 +207,11 @@ public class ConsoleCommandInterpreter {
             return "Added " + missing.countAll() + " cards for mastery of " + StandardWindow.setName(code)
                     + ". Standard is now: " + String.join(", ", window.getSets());
         });
+        registerCommand(new String[]{"allow", "unlock"}, s -> {
+            // Debug: act as if this were a new world, so one more set can be unlocked (to test rotation)
+            Current.player().getStandardWindow().startNewWorld();
+            return "One more set unlock allowed in this world. Use 'give mastery', then choose a set on the Skills screen.";
+        });
         registerCommand(new String[]{"undo", "unlock"}, s -> {
             // Debug: take back the last set unlock so the next set can be chosen again
             StandardWindow window = Current.player().getStandardWindow();

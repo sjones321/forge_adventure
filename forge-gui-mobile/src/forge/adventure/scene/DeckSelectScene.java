@@ -14,6 +14,7 @@ import forge.adventure.player.AdventurePlayer;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.util.Controls;
 import forge.adventure.util.Current;
+import forge.deck.Deck;
 
 public class DeckSelectScene extends UIScene {
     private final IntMap<TextraButton> buttons = new IntMap<>();
@@ -200,13 +201,53 @@ public class DeckSelectScene extends UIScene {
         layout.add(label).pad(2);
         layout.add(button).fill(true, false).expand(true, false).align(Align.left).expandX().pad(2);
 
+        // Per-deck format switch: Standard (60-card Adventure) or Commander
+        if (!Current.player().isCommanderMode()) {
+            TextraButton format = Controls.newTextButton(formatText(i));
+            format.addListener(new ClickListener() {
+                @Override
+                public void clicked(InputEvent event, float x, float y) {
+                    boolean firstCommander = !Current.player().checkCharacterFlag("commanderStarterGiven");
+                    String now = Current.player().cycleDeckFormat(i);
+                    firstCommander &= now.equals("Commander");
+                    format.setText(formatText(i));
+                    format.layout();
+                    updateLockLabel(i);
+                    if (firstCommander)
+                        showDialog(createGenericDialog("Commander", "Your first Commander deck! Command Tower and Arcane Signet "
+                                + "were added to your Commander Vault.", Forge.getLocalizer().getMessage("lblOK"), null, DeckSelectScene.this::removeDialog, null));
+                }
+            });
+            layout.add(format).pad(2).width(70);
+            addToSelectable(new Selectable(format));
+        }
+
         buttons.put(i, button);
         labels.put(i, label);
+        updateLockLabel(i);
         addToSelectable(new Selectable(button));
         layout.row();
         return button;
     }
 
+
+    private static String formatText(int slot) {
+        Deck d = Current.player().getDeck(slot);
+        if (Current.player().isCommanderDeck(d))
+            return "[GOLD]Cmdr";
+        return Current.player().isHistoricDeck(d) ? "[CYAN]Hist" : "Std";
+    }
+
+    /** Deck number label, marked Locked when a Standard deck has rotated-out or banned cards. */
+    private void updateLockLabel(int slot) {
+        Label label = labels.get(slot);
+        if (label == null)
+            return;
+        String problem = Current.player().standardDeckProblem(Current.player().getDeck(slot));
+        String base = Forge.getLocalizer().getMessage("lblDeck") + ": " + (slot + 1);
+        label.setText(problem == null ? base : base + " (Locked)");
+        label.setColor(problem == null ? Color.WHITE : Color.SALMON);
+    }
 
     public boolean select(int slot) {
         currentSlot = slot;

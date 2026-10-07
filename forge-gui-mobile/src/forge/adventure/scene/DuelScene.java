@@ -372,7 +372,7 @@ public class DuelScene extends ForgeScene {
         String isDeckMissingMsg = "";
         if (eventData != null && eventData.eventRules != null) {
             mainGameType = eventData.eventRules.gameType;
-        } else if (AdventurePlayer.current().isCommanderMode()){
+        } else if (AdventurePlayer.current().isCommanderDeckSelected()){
             mainGameType = GameType.Commander;
         } else {
             mainGameType = GameType.Adventure;

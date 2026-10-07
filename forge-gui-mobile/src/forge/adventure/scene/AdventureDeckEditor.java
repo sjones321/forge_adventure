@@ -1,5 +1,6 @@
 package forge.adventure.scene;
 
+import forge.adventure.player.BanLists;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.math.Vector2;
@@ -60,7 +61,7 @@ public class AdventureDeckEditor extends FDeckEditor {
 
         @Override
         public DeckFormat getDeckFormat() {
-            return AdventurePlayer.current().isCommanderMode() ? DeckFormat.Commander : DeckFormat.Adventure;
+            return AdventurePlayer.current().isCommanderDeckSelected() ? DeckFormat.Commander : DeckFormat.Adventure;
         }
 
         @Override
@@ -75,20 +76,22 @@ public class AdventureDeckEditor extends FDeckEditor {
 
         @Override
         protected DeckEditorPage[] getInitialPages() {
-            if (AdventurePlayer.current().isCommanderMode())
+            if (AdventurePlayer.current().isCommanderDeckSelected())
                 return new DeckEditorPage[]{
                         new CollectionCatalogPage(),
                         new AdventureDeckSectionPage(DeckSection.Commander, ItemManagerConfig.ADVENTURE_EDITOR_POOL),
                         new AdventureDeckSectionPage(DeckSection.Main, ItemManagerConfig.ADVENTURE_EDITOR_POOL),
                         new AdventureDeckSectionPage(DeckSection.Sideboard, ItemManagerConfig.ADVENTURE_SIDEBOARD),
-                        new CollectionAutoSellPage()
+                        new CollectionAutoSellPage(),
+                        new CommanderVaultPage()
                 };
             else {
                 return new DeckEditorPage[]{
                         new CollectionCatalogPage(),
                         new AdventureDeckSectionPage(DeckSection.Main, ItemManagerConfig.ADVENTURE_EDITOR_POOL),
                         new AdventureDeckSectionPage(DeckSection.Sideboard, ItemManagerConfig.ADVENTURE_SIDEBOARD),
-                        new CollectionAutoSellPage()
+                        new CollectionAutoSellPage(),
+                        new CommanderVaultPage()
                 };
             }
         }
@@ -438,7 +441,32 @@ public class AdventureDeckEditor extends FDeckEditor {
         @Override
         public ItemPool<PaperCard> getCardPool() {
             ItemPool<PaperCard> pool = super.getCardPool();
-            pool.removeAll(Current.player().autoSellCards);
+            AdventurePlayer player = Current.player();
+            pool.removeAll(player.autoSellCards);
+            //By format: Commander decks see everything (including the Commander Vault); Historic decks see
+            //everything except the Commander Vault; Standard decks only see currently legal cards.
+            //Banned cards for the format are hidden.
+            String format;
+            boolean standard = false;
+            if (player.isCommanderDeckSelected()) {
+                format = "commander";
+            } else {
+                format = player.isHistoricDeckSelected() ? "historic" : "standard";
+                standard = !player.isHistoricDeckSelected();
+                pool.removeAll(player.getVaultCards());
+            }
+            java.util.Set<String> banned = BanLists.get(format);
+            if (!banned.isEmpty() || standard) {
+                ItemPool<PaperCard> filtered = new ItemPool<>(PaperCard.class);
+                for (Map.Entry<PaperCard, Integer> e : pool) {
+                    if (banned.contains(e.getKey().getName()))
+                        continue;
+                    if (standard && !player.isStandardLegal(e.getKey()))
+                        continue;
+                    filtered.add(e.getKey(), e.getValue());
+                }
+                return filtered;
+            }
             return pool;
         }
 
@@ -455,7 +483,21 @@ public class AdventureDeckEditor extends FDeckEditor {
             CollectionAutoSellPage autoSellPage = adventureEditor.getAutoSellPage();
             int amountInCollection = Current.player().getCards().count(card); //Number we have, including ones in auto-sell and ones used in decks
             int copiesUsedInDecks = Current.player().getCopiesUsedInDecks(card); //Number currently in use by this or any other deck.
-            int safeToSellCount = amountInCollection - copiesUsedInDecks; //Number we can sell without losing cards from a deck.
+            int vaulted = Current.player().getVaultCards().count(card); //Vaulted copies can never be sold
+            int safeToSellCount = amountInCollection - copiesUsedInDecks - vaulted; //Number we can sell without losing cards from a deck.
+
+            int canVault = Current.player().copiesAvailableToVault(card);
+            if (canVault > 0 && !card.hasNoSellValue()) {
+                String prompt = String.format("%s - move to Commander Vault (permanent, Commander-only) %s", card, lblHowMany);
+                menu.addItem(new FMenuItem("Move to Commander Vault", FSkinImage.PADLOCK, new MoveQuantityPrompt(prompt, canVault, amount -> {
+                    int moved = Current.player().moveToVault(card, amount);
+                    if (moved > 0) {
+                        removeCard(card, moved);
+                        if (adventureEditor.getVaultPage() != null)
+                            adventureEditor.getVaultPage().refresh();
+                    }
+                })));
+            }
             int autoSellCount = Current.player().autoSellCards.count(card); //Number currently in auto-sell.
             int canMoveToAutoSell = safeToSellCount - autoSellCount; //Number that can be moved to auto-sell from here.
 
@@ -550,6 +592,77 @@ public class AdventureDeckEditor extends FDeckEditor {
                     moveCards(toMove, autoSellPage);
                 }
             });
+        }
+
+        @Override
+        public void drawBackground(Graphics g) {
+            g.fillRect(FSkinColor.get(FSkinColor.Colors.ADV_CLR_THEME).alphaColor(0.5f), 0, 0, getWidth(), getHeight());
+        }
+    }
+
+    /**
+     * Read-only view of the Commander Vault. Cards are moved in from the collection (one way);
+     * they can't be sold or taken back out, and only Commander decks can use them.
+     */
+    protected static class CommanderVaultPage extends CatalogPage {
+        protected final String title;
+
+        protected CommanderVaultPage() {
+            this("Commander Vault", FSkinImage.PADLOCK);
+        }
+
+        protected CommanderVaultPage(String title0, FImage icon) {
+            super(new AdventureCardManager(), ItemManagerConfig.ADVENTURE_EDITOR_POOL, title0, icon);
+            title = title0;
+        }
+
+        protected ItemPool<PaperCard> vault() {
+            return Current.player().getVaultCards();
+        }
+
+        protected String usage() {
+            return "Vaulted: Commander decks only, permanent";
+        }
+
+        @Override
+        protected void updateCaption() {
+            caption = title + " (" + vault().countAll() + ")";
+        }
+
+        @Override
+        protected void initialize() {
+            super.initialize();
+            cardManager.setBtnAdvancedSearchOptions(true);
+            cardManager.setPool(getCardPool(), false);
+            updateCaption();
+        }
+
+        @Override
+        public ItemPool<PaperCard> getCardPool() {
+            ItemPool<PaperCard> pool = new ItemPool<>(PaperCard.class);
+            pool.addAll(vault());
+            return pool;
+        }
+
+        @Override
+        public void refresh() {
+            cardManager.setPool(getCardPool(), false);
+            super.refresh();
+            updateCaption();
+        }
+
+        @Override
+        protected void buildMenu(FDropDownMenu menu, PaperCard card) {
+            menu.clearItems();
+            FMenuItem info = new FMenuItem(usage(), FSkinImage.PADLOCK, e -> {
+            });
+            info.setEnabled(false);
+            menu.addItem(info);
+        }
+
+        @Override
+        protected void onCardActivated(PaperCard card) {
+            //read-only: vaulted cards are added to Commander decks from the collection page
         }
 
         @Override
@@ -889,7 +1002,15 @@ public class AdventureDeckEditor extends FDeckEditor {
         for (TabPage<FDeckEditor> page : tabPages) {
             if (page instanceof CollectionAutoSellPage)
                 this.autoSellPage = (CollectionAutoSellPage) page;
+            if (page instanceof CommanderVaultPage)
+                this.vaultPage = (CommanderVaultPage) page;
         }
+    }
+
+    protected CommanderVaultPage vaultPage;
+
+    private CommanderVaultPage getVaultPage() {
+        return vaultPage;
     }
 
     @Override

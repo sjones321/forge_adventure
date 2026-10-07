@@ -1089,7 +1089,7 @@ public class RewardActor extends Actor implements Disposable, ImageFetcher.Callb
                 PaperCard pc = reward.getCard();
 
                 if (pc != null) {
-                    DeckFormat deckFormat = AdventurePlayer.current().isCommanderMode() 
+                    DeckFormat deckFormat = AdventurePlayer.current().isCommanderDeckSelected() 
                         ? DeckFormat.Commander
                         : DeckFormat.Adventure;
                     int maxCopies = deckFormat.getMaxCardCopies(pc);

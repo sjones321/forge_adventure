@@ -131,8 +131,25 @@ Each phase is playable on its own; tuning happens from playtest feedback.
   rotation of the window, shop/loot/Spell Smith filtering to window + staples, sealed start with core
   set picker and Core Set Collection packs.
 
+### Commander Vault (built)
+- Deck editor: "Move to Commander Vault" on collection cards (only copies not in decks/auto-sell);
+  read-only "Commander Vault" tab. Vaulted copies are hidden from non-Commander deck building, can't
+  be sold or auto-sold, and are saved with the character. Usable once Commander decks exist in a save.
+
+### Per-deck formats, Historic Vault, rotation, ban lists (built)
+- Each deck slot is Standard, Commander or Historic (Std/Cmdr/Hist button on the deck screen); the
+  selected deck sets editor rules and duel format. First Commander deck grants Command Tower and
+  Arcane Signet into the Commander Vault.
+- No Historic Vault (Steve's call): **Historic = every card you own except the Commander Vault**;
+  **Standard = only currently legal cards** (window sets + this rotation's staples + basic lands).
+  Nothing moves on rotation; rotated cards simply stop being Standard-legal and become legal again if
+  their set or a reprint returns. Standard decks with rotated cards show "Locked".
+- The Commander Vault remains the one one-way move.
+- Ban lists: common/banned_standard.txt, banned_historic.txt, banned_commander.txt.
+- Debug console: "allow unlock" (test a second unlock in one world).
+
 ### Not built yet
-- Removing rotated cards from the collection; Commander and Historic vaults; deck slots per format with
+- Blocking duels with a Locked deck (currently only marked); deck slots per format with
   lock/archive; crafting a vaulted card; Commander switch and freebies; ban list files; inn draft set
   choice; choosing the next set instead of random.
 

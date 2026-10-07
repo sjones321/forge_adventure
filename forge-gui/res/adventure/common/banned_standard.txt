@@ -1,0 +1,2 @@
+# Adventure standard ban list: one card name per line. Banned cards can't be added to standard decks.
+# Edit freely; changes apply the next time Forge starts.

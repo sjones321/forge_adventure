@@ -122,7 +122,7 @@ public class RewardData implements Serializable {
         if (!FModel.getPreferences().getPrefBoolean(FPref.UI_ANTE))
             filters.add(pc -> !pc.getRules().hasKeyword("Remove CARDNAME from your deck before playing if you're not playing for ante."));
 
-        if (!AdventurePlayer.current().isCommanderMode())
+        if (!AdventurePlayer.current().hasCommanderDeck())
             filters.add(pc -> !pc.getRules().getAiHints().getRemNonCommanderDecks());
 
         filters.add(pc -> !(pc.getRules().isCustom() && pc.getImageKey(false).startsWith(ImageKeys.ADVENTURECARD_PREFIX)));
@@ -139,7 +139,7 @@ public class RewardData implements Serializable {
         // rotation's curated staples. Enemy decks keep the full pool so they stay themed.
         StandardWindow window = AdventurePlayer.current().getStandardWindow();
         if (window.isActive()) {
-            boolean commander = AdventurePlayer.current().isCommanderMode();
+            boolean commander = AdventurePlayer.current().hasCommanderDeck();
             allCards = basePool.stream().filter(pc -> window.allows(pc, commander)).collect(Collectors.toList());
         } else {
             allCards = basePool;

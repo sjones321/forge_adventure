@@ -2,18 +2,12 @@ package forge.app;
 
 import com.badlogic.gdx.Gdx;
 import forge.ImageKeys;
-import forge.ai.ComputerUtilMana;
-import forge.game.Game;
-import forge.game.card.Card;
 import forge.game.card.CardView;
-import forge.game.player.Player;
 import forge.game.player.PlayerView;
-import forge.game.spellability.SpellAbility;
-import forge.game.zone.ZoneType;
-import forge.gamemodes.match.HostedMatch;
 import forge.item.PaperCard;
 import forge.localinstance.properties.ForgeConstants;
 import forge.screens.match.MatchController;
+import forge.screens.match.PlayableTracker;
 import forge.screens.match.views.VPrompt;
 import forge.toolbox.FButton;
 import forge.util.ImageUtil;
@@ -360,34 +354,15 @@ public final class HandWindow {
                 PlayerView me = MatchController.instance.getCurrentPlayer();
                 if (me != null && me.getHand() != null)
                     newHand.addAll(me.getHand());
-                HostedMatch match = MatchController.getHostedMatch();
-                Game game = match == null ? null : match.getGame();
-                Player player = null;
-                if (game != null && me != null)
-                    for (Player p : game.getPlayers())
-                        if (p.getId() == me.getId())
-                            player = p;
-                if (player != null && game.getPhaseHandler().getPriorityPlayer() == player) {
-                    for (Card c : player.getCardsIn(ZoneType.Hand))
-                        if (canCastNow(c, player))
-                            newPlayable.add(c.getId());
-                }
+                // same "castable now" answer as the main window's hand glow
+                PlayableTracker.refreshIfStale();
+                newPlayable.addAll(PlayableTracker.playableIds());
             } catch (Exception ignored) {
                 // game state changing under us; try again next tick
             }
             hand = newHand;
             playable = newPlayable;
             repaint();
-        }
-
-        private static boolean canCastNow(Card c, Player player) {
-            for (SpellAbility sa : c.getAllPossibleAbilities(player, true)) {
-                if (sa.isLandAbility())
-                    return true;
-                if (sa.isSpell() && ComputerUtilMana.canPayManaCost(sa, player, 0, false))
-                    return true;
-            }
-            return false;
         }
 
         @Override

@@ -123,7 +123,17 @@ public class SkillsScene extends UIScene {
                 int i = box.getSelectedIndex();
                 if (i < 0 || i >= choices.size())
                     return;
-                window.chooseNextSet(choices.get(i).getCode());
+                String rotated = window.chooseNextSet(choices.get(i).getCode());
+                if (rotated != null) {
+                    // Rotation: nothing moves; rotated cards stay yours and remain playable in Historic
+                    int out = Current.player().countRotatedOut();
+                    if (out > 0)
+                        showDialog(createGenericDialog("Rotation", StandardWindow.setName(rotated) + " rotated out of Standard. "
+                                + out + " of your cards are no longer Standard-legal, but you keep them all and they're still "
+                                + "playable in Historic decks. Standard decks that use them are now Locked; switch them to "
+                                + "Historic on the deck screen to keep playing them.",
+                                Forge.getLocalizer().getMessage("lblOK"), null, SkillsScene.this::removeDialog, null));
+                }
                 RewardData.invalidateCardPool();
                 buildList();
             }
