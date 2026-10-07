@@ -19,32 +19,42 @@ with a second progression track of **gym badges and a League**.
 - Map rework and new world locations only affect **new games** (the world is generated at New Game). Gyms and
   everything else must work on existing saves.
 
-## Skills
+## Skills and materials
+
+**One material set serves both card crafting and gear crafting.** Every color has a gathered material line that
+is used as that color's **mana reagent** when crafting cards (package A2) and as a gear ingredient (E, F).
 
 | Kind | Skill | Source / output |
 |---|---|---|
-| Gathering | Woodcutting | Forest nodes → logs |
-| Gathering | Mining | Mountain nodes → ore, gems |
-| Gathering | Quarrying | Plains nodes → stone, marble |
-| Gathering | Foraging | Swamp nodes → herbs, bone |
-| Gathering | Delving | Island nodes → crystal, pearls |
-| Gathering | Salvaging (existing) | Wastes nodes → scrap, relic parts (in addition to its card role) |
+| Gathering | Quarrying | Plains nodes → sacred stone (white) |
+| Gathering | Delving | Island nodes → waters and ice (blue); crystal and pearls on rare rolls |
+| Gathering | Foraging | Swamp nodes → bones and dead things (black); forest plant nodes → plants (green) |
+| Gathering | Mining | Mountain nodes → ash and fire minerals (red) from vents; ore (colorless) from veins; gems on rare rolls |
+| Gathering | Woodcutting | Forest trees → logs (gear, and burned into charcoal) |
+| Gathering | Salvaging (existing) | Wastes nodes → scrap (colorless, alternative to ore) |
 | Crafting | Smithing | Ore → bars → weapons, armor |
-| Crafting | Woodworking | Logs → bows, shields, staves |
-| Crafting | Alchemy | Herbs → potions (one-duel boosts) |
+| Crafting | Woodworking | Logs → bows, shields, staves, charcoal |
+| Crafting | Alchemy | Plants, bones, waters → potions (one-duel boosts) |
 | Crafting | Jewelcrafting | Gems, crystal, pearls → rings, amulets |
-| Crafting | Spellsmithing (existing) | Cards, and **refining any material into dust** |
+| Crafting | Spellsmithing (existing) | Cards (dust + reagents), and refining surplus materials into dust |
 
-Each family has four tiers, needing levels 1 / 15 / 40 / 70 to gather and to use in recipes:
+Each line has four tiers, needing levels 1 / 15 / 40 / 70 to gather. **Card rarity picks the reagent tier**:
+common → T1, uncommon → T2, rare → T3, mythic → T4.
 
-| Family | T1 | T2 | T3 | T4 |
+| Line (color) | T1 | T2 | T3 | T4 |
 |---|---|---|---|---|
-| Logs | Oak | Willow | Yew | Ironwood |
-| Ore | Copper | Iron | Mithril | Adamant |
-| Stone | Rough stone | Granite | Marble | Starstone |
-| Herbs/bone | Nightshade | Grave moss | Bone | Wraithbloom |
-| Crystal | Quartz | Azure | Prismatic | Aether |
-| Scrap | Scrap | Brass gears | Thran parts | Thran relic |
+| Sacred stone (W) | Limestone | Marble | Sunstone | Starstone |
+| Waters (U) | Spring water | Glacier ice | Purified water | Elemental water |
+| Dead things (B) | Bone fragments | Grave moss | Ancient bone | Wraithbloom |
+| Ash (R) | Ash | Charcoal | Brimstone | Dragonfire ash |
+| Plants (G) | Wild herbs | Tree sap | Elder seeds | Worldtree bark |
+| Ore (C) | Copper | Iron | Mithril | Adamant |
+| Logs (gear) | Oak | Willow | Yew | Ironwood |
+| Scrap (C alt.) | Scrap | Brass gears | Thran parts | Thran relic |
+
+Enemy drops add alternates by color: **feathers** (white), **hide** (green/white), **bone** (black), **ash** (red),
+**brine** (blue). Feathers and hide count as their color's reagent of the same tier.
+**Prismatic** reagents (T1-T4) are crafted from one reagent of each color; see A2.
 
 Gems (Mining, any tier, rare roll): Garnet, Sapphire, Emerald, Ruby, Onyx. Boss materials: one unique per boss.
 
@@ -68,7 +78,30 @@ Package A must merge first.
   T1 → common, T2 → uncommon, T3 → rare, T4 and boss materials → mythic. Amounts are tunable and should make one
   hour of gathering worth roughly one hour of dueling in dust. Spellsmithing level raises the yield.
 
+### A2. Reagent card crafting (depends on A; data from B)
+Crafting a card costs **dust by rarity (Phase 1, unchanged, ×2 when not Standard-legal)** plus **mana reagents**:
+- One reagent per **colored mana symbol** in the card's cost, of that color's line, at the tier set by rarity.
+  Example: a common {1}{G}{G} costs common dust + 2 Wild herbs; a mythic {5}{G}{G}{G} costs mythic dust +
+  3 Worldtree bark.
+- **Multicolor** cards pay each symbol in its own color ({W}{U} = 1 white + 1 blue reagent).
+- **Hybrid** symbols accept either color; **Phyrexian** symbols need their color.
+- **Colorless cards** (artifacts, Eldrazi, {C}) pay **ore equal to mana value, capped at 4**, minimum 1. Scrap of the
+  same tier can replace ore.
+- **Lands** and cards without a mana cost pay one reagent per color in their color identity, or 1 ore if colorless.
+- **"Any color" producers** (lands or other cards with a mana ability that adds mana of any color, e.g. City of
+  Brass, Mana Confluence, Command Tower, Exotic Orchard; detect via the card's mana abilities producing `Any`)
+  pay **1 Prismatic reagent** of the card's tier instead of the identity rule.
+- **Prismatic reagents** are made at Spell Smith from **one reagent of each of the five colors** of the same tier
+  (5 → 1), so they need all five gathering lines. Rare Delving crystal rolls can also drop one.
+- The craft screen shows the reagent cost next to the dust cost, and what is missing in red.
+- Refining surplus materials into dust (package A) stays as an alternative.
+
 ### B. Gathering on the overworld (depends on A)
+- **Material lines changed after A merged**: update `common/world/materials.json` to the color lines in
+  "Skills and materials" (sacred stone, waters, dead things, ash, plants, ore, logs, scrap, plus feathers and
+  brine as drops) and update `enemy_material_drops.json` to match. Keep ids stable where a line kept its item
+  (ore, logs, scrap, stone tiers can be renamed in `name` only). Saves holding retired ids must still load;
+  unknown ids are ignored by the UI.
 - Add the 5 gathering skills to `PlayerSkills.Skill`.
 - **Tools**: toolbelt in `AdventurePlayer` (one tool per family, saved). Tool tier caps the node tier you can gather.
   Tools are crafted (package E) or bought from general stores; T1 tools are given free at New Game and on old saves.
@@ -78,6 +111,22 @@ Package A must merge first.
 - **Channel**: touching a node starts a 1-3 s channel with a progress bar; moving or an enemy collision cancels it.
   Yield 1-3 units by level; rare roll for gems or a little dust.
 - Reuse existing sprites (biome decoration, `sprites/treasure.atlas`) with a tint per family. No new art required.
+
+### B2. Upgradeable gathering methods (depends on B; deepens with D, E)
+Gathering gets better through four layers:
+1. **Tool tiers** (B): each tool tier gathers one more node tier.
+2. **Method upgrades per skill**, crafted with materials, each changing how gathering works, not just numbers.
+   Examples: Woodcutting hatchet → felling axe (fells adjacent trees too) → lumber crew; Mining pick → drill
+   (shorter channel) → blasting charge (whole vein at once); Delving bucket → still (purifies water to the next
+   tier) → elemental condenser; Foraging sickle → herb pouch (double plant yield) → grave lantern (finds rare
+   dead things); Quarrying chisel → stonecutter's saw → consecrated quarry tools.
+3. **Tool enchantments**: sockets on tools filled with gems or crystal for perks (faster channel, double-yield
+   chance, rare-find chance, auto-refine to dust).
+4. **Outposts**: claim a resource location (D) and build a camp (mine shaft, logging camp, well, bone pit,
+   herb garden, shrine quarry) with materials. Camps produce materials over in-game time into storage capped at
+   a few days' output; collect on visit. Camp levels raise output and tier. Nothing is lost for not visiting
+   except output while full.
+Upgrades and camps are data (`world/gathering_methods.json`).
 
 ### C. World generation rework (no dependency; new games only)
 - Give Shandalar Ascendant its own copies of `world/biomes/*.json` and `world/points_of_interest.json` so stock worlds
@@ -286,7 +335,7 @@ After the systems above, improve Forge's main (non-Adventure) UI. Scope to be de
 
 ## Suggested order
 
-1. A (materials core) alone.
+1. A (materials core) alone. A2 and B2 after B lands the new material lines.
 2. B, C, E, G and J in parallel. C touches world generation only; G touches town maps and duel setup;
    J touches `PlayerSkills` and the Skills screen.
 3. D and F after their dependencies; K after G.
