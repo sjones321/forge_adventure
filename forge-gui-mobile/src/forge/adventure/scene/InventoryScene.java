@@ -14,9 +14,12 @@ import com.badlogic.gdx.utils.Array;
 import com.github.tommyettinger.textra.TextraButton;
 import com.github.tommyettinger.textra.TextraLabel;
 import forge.Forge;
+import forge.adventure.data.GatheringMethodData;
+import forge.adventure.data.GatheringMethodListData;
 import forge.adventure.data.ItemData;
 import forge.adventure.data.MaterialData;
 import forge.adventure.data.MaterialListData;
+import forge.adventure.player.AdventurePlayer;
 import forge.adventure.stage.ConsoleCommandInterpreter;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.MapStage;
@@ -515,7 +518,10 @@ public class InventoryScene extends UIScene {
             }
             repairButton.setVisible(data.isCracked);
             String status = data.isCracked ? " (" + Forge.getLocalizer().getMessage("lblCracked") + ")" : "";
-            itemDescription.setText(data.getDisplayName() + status + "\n[%98]" + data.getDescription());
+            String desc = data.getDescription();
+            if (Config.ascendant() && data.isGatheringTool())
+                desc += toolSocketSummary(data);
+            itemDescription.setText(data.getDisplayName() + status + "\n[%98]" + desc);
         }
         else if (deckLocation.containsKey(actor)){
             Deck data = (deckLocation.get(actor));
@@ -770,6 +776,27 @@ public class InventoryScene extends UIScene {
         updateInventory();
         //inventory.add().expand();
         super.enter();
+    }
+
+    /** Package B2: socket fill / capacity for an equipped gathering tool. */
+    private static String toolSocketSummary(ItemData data) {
+        if (data == null || !data.isGatheringTool())
+            return "";
+        AdventurePlayer ap = Current.player();
+        if (!ap.isToolEquipped(data))
+            return "\nSockets: equip on toolbelt to enchant.";
+        int slots = ap.toolEnchantSlots(data.toolFamily);
+        List<String> enchants = ap.getToolEnchantments(data.toolFamily);
+        if (slots <= 0)
+            return "\nSockets: none (need tier "
+                    + Config.instance().getConfigData().toolEnchantSocketMinTier + "+).";
+        StringBuilder sb = new StringBuilder("\nSockets: ").append(enchants.size())
+                .append("/").append(slots);
+        for (String id : enchants) {
+            GatheringMethodData.ToolEnchantment e = GatheringMethodListData.getEnchantment(id);
+            sb.append("\n  · ").append(e != null ? e.getDisplayName() : id);
+        }
+        return sb.toString();
     }
 
     public Button createInventorySlot() {

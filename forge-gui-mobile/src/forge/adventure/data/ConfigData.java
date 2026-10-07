@@ -167,6 +167,19 @@ public class ConfigData {
     /** Spellsmithing XP granted when crafting one Prismatic reagent (any tier). */
     public int prismaticCraftXp = 40;
 
+    // ---- Ascendant gathering methods (Package B2): method upgrades, tool sockets, outposts. ----
+
+    /** Tool tier at which the first enchantment socket unlocks. */
+    public int toolEnchantSocketMinTier = 2;
+    /** Tool tier at which a second enchantment socket unlocks. */
+    public int toolEnchantSocketTier2 = 4;
+    /** Max enchantment sockets on any gathering tool. */
+    public int toolEnchantSocketMax = 2;
+    /** In-game seconds treated as one camp production hour. */
+    public float outpostSecondsPerHour = 60f;
+    /** Default storage cap in production-hours when an outpost omits storageCapHours. */
+    public float outpostDefaultStorageHours = 72f;
+
     // ---- Ascendant stations (Package E): recipe crafting at Forge / Workshop / Apothecary / Jeweler. ----
 
     /**

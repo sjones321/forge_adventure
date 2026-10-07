@@ -263,6 +263,47 @@ public class ConsoleCommandInterpreter {
             Current.player().ensureStarterGatheringTools();
             return "Ensured T1 gathering tools on toolbelt";
         });
+        registerCommand(new String[]{"give", "method"}, s -> {
+            if (s.length < 1)
+                return "Command needs method id from gathering_methods.json";
+            if (!Config.ascendant())
+                return "Gathering methods are Ascendant-only";
+            String id = s[0];
+            if (GatheringMethodListData.getMethod(id) == null)
+                return "Unknown method id: " + id;
+            // Unlock through ranks in order when skipping ahead.
+            GatheringMethodData.MethodUpgrade m = GatheringMethodListData.getMethod(id);
+            for (int r = 1; r <= m.rank; r++) {
+                GatheringMethodData.MethodUpgrade step = GatheringMethodListData.methodForSkillRank(m.skill, r);
+                if (step != null && Current.player().getGatherMethodRank(m.skill) < step.rank)
+                    Current.player().unlockGatherMethod(step.id);
+            }
+            return "Method rank for " + m.skill + " is now "
+                    + Current.player().getGatherMethodRank(m.skill);
+        });
+        registerCommand(new String[]{"give", "camp"}, s -> {
+            if (s.length < 1)
+                return "Command needs outpost id (e.g. logging_camp)";
+            if (!Config.ascendant())
+                return "Outposts are Ascendant-only";
+            String id = s[0];
+            if (GatheringMethodListData.getOutpost(id) == null)
+                return "Unknown outpost id: " + id;
+            if (Current.player().getCamp(id) != null)
+                return "Camp already claimed: " + id;
+            // Grant build costs then build.
+            GatheringMethodData.OutpostLevel lvl = GatheringMethodListData.getOutpost(id).levelData(1);
+            if (lvl != null) {
+                Current.player().giveGold(lvl.gold);
+                for (com.badlogic.gdx.utils.ObjectMap.Entry<String, Integer> e : lvl.getMaterials()) {
+                    if (e.key != null && e.value != null && e.value > 0)
+                        Current.player().addMaterial(e.key, e.value);
+                }
+            }
+            if (!Current.player().buildCamp(id))
+                return "Failed to build camp " + id;
+            return "Built camp " + id;
+        });
         registerCommand(new String[]{"spawn", "node"}, s -> {
             if (!Config.ascendant())
                 return "Gathering nodes are Ascendant-only";

@@ -274,6 +274,31 @@ public final class MaterialListData {
         return out;
     }
 
+    /** Material of the given family and tier, or null. Prefers gatherable nodes. */
+    public static MaterialData getFamilyTier(String family, int tier) {
+        if (family == null || materialList == null)
+            return null;
+        MaterialData fallback = null;
+        for (MaterialData m : new Array.ArrayIterator<>(materialList)) {
+            if (m == null || m.family == null || m.tier != tier)
+                continue;
+            if (!family.equalsIgnoreCase(m.family))
+                continue;
+            if (m.isGatherNode())
+                return m;
+            if (fallback == null)
+                fallback = m;
+        }
+        return fallback;
+    }
+
+    /** Next higher-tier material in the same family, or null at the top. */
+    public static MaterialData nextTierInFamily(MaterialData mat) {
+        if (mat == null || mat.family == null)
+            return null;
+        return getFamilyTier(mat.family, mat.tier + 1);
+    }
+
     /**
      * Rewrites material id→count map in place for Package A → color-line renames.
      * Applies {@link #ID_MIGRATIONS} as sequential whole-map passes so

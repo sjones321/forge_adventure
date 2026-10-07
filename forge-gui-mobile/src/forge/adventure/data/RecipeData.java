@@ -24,9 +24,12 @@ import java.io.Serializable;
  * </pre>
  *
  * {@code station}: forge | workshop | apothecary | jeweler<br>
- * {@code resultType}: item (default) | tool | potion<br>
- * {@code result}: item display name for item/tool; display label for potion<br>
- * {@code blessing}: optional EffectData when resultType is potion (next-duel blessing)
+ * {@code resultType}: item (default) | tool | potion | method | tool_enchant<br>
+ * {@code result}: item display name for item/tool; display label for potion/method/enchant<br>
+ * {@code blessing}: optional EffectData when resultType is potion (next-duel blessing)<br>
+ * {@code methodId}: gathering_methods.json method upgrade id when resultType is method<br>
+ * {@code enchantmentId}: enchantment id when resultType is tool_enchant<br>
+ * {@code toolFamily}: toolbelt family to socket when resultType is tool_enchant
  */
 public class RecipeData implements Serializable {
     @Serial
@@ -35,9 +38,12 @@ public class RecipeData implements Serializable {
     public String id;
     /** Station key: forge, workshop, apothecary, jeweler. */
     public String station;
-    /** Item name (ItemData.name) for item/tool, or display label for potion. */
+    /** Item name (ItemData.name) for item/tool, or display label for potion/method/enchant. */
     public String result;
-    /** item (default), tool, or potion. Tools need Package B's toolbelt; potions use {@link #blessing}. */
+    /**
+     * item (default), tool, potion, method (B2 gathering method), or tool_enchant (B2 socket).
+     * Tools use Package B's toolbelt; potions use {@link #blessing}.
+     */
     public String resultType = "item";
     /** Material id → count required. */
     public ObjectMap<String, Integer> materials = new ObjectMap<>();
@@ -49,6 +55,12 @@ public class RecipeData implements Serializable {
     public int xp = 0;
     /** Next-duel blessing when {@code resultType} is {@code potion}; ignored otherwise. */
     public EffectData blessing;
+    /** gathering_methods.json method upgrade id when {@code resultType} is {@code method}. */
+    public String methodId;
+    /** Enchantment id when {@code resultType} is {@code tool_enchant}. */
+    public String enchantmentId;
+    /** Toolbelt family to socket when {@code resultType} is {@code tool_enchant}. */
+    public String toolFamily;
 
     public ObjectMap<String, Integer> getMaterials() {
         return materials != null ? materials : new ObjectMap<>();
@@ -64,6 +76,14 @@ public class RecipeData implements Serializable {
 
     public boolean isTool() {
         return "tool".equalsIgnoreCase(resultType);
+    }
+
+    public boolean isMethod() {
+        return "method".equalsIgnoreCase(resultType);
+    }
+
+    public boolean isToolEnchant() {
+        return "tool_enchant".equalsIgnoreCase(resultType);
     }
 
     /** Normalized station key, or empty. */
