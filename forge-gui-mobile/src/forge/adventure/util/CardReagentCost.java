@@ -222,7 +222,18 @@ public final class CardReagentCost {
                 continue;
             // Ability scripts look like: "AB$ Mana | Cost$ T | Produced$ Any | …"
             String compact = ab.replace(" ", "");
-            if (compact.contains("AB$Mana") && compact.contains("Produced$Any"))
+            // Exotic Orchard style: mana of any color an opponent's/your lands could produce.
+            if (compact.contains("AB$ManaReflected") && compact.contains("ColorOrType$Color"))
+                return true;
+            if (!compact.contains("AB$Mana|") && !compact.endsWith("AB$Mana"))
+                continue;
+            int at = compact.indexOf("Produced$");
+            if (at < 0)
+                continue;
+            int end = compact.indexOf('|', at);
+            String produced = compact.substring(at + "Produced$".length(), end < 0 ? compact.length() : end);
+            // "Any", "Combo Any" (Axebane Guardian) and "Combo ColorIdentity" (Command Tower, Arcane Signet).
+            if (produced.equals("Any") || produced.equals("ComboAny") || produced.equals("ComboColorIdentity"))
                 return true;
         }
         return false;
