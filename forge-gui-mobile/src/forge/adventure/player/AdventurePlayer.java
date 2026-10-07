@@ -81,6 +81,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
      * Stable API for gathering, recipes, town requests.
      */
     private final LinkedHashMap<String, Integer> materials = new LinkedHashMap<>();
+    /** Starter T1 gathering tools are given once per character, not on every load. */
+    private boolean starterToolsGranted = false;
     /**
      * Ascendant toolbelt (Package B): one equipped gathering tool name per material family
      * (logs, ore, stone, herbs, crystal, scrap). Not an equipment slot.
@@ -159,6 +161,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         Arrays.fill(dust, 0);
         autoSalvage = false;
         materials.clear();
+        starterToolsGranted = false;
         toolbelt.clear();
         maxDeckCount = 20;
         clearDecks();
@@ -751,7 +754,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             }
         }
         // Package A → color-line renames (rough_stone→limestone, nightshade→bone_fragments, …).
-        MaterialListData.migrateMaterialCounts(materials);
+        // Only once: some old ids (marble) are also new ids, so re-running would shift tiers every load.
+        if (!data.containsKey("materialSchema"))
+            MaterialListData.migrateMaterialCounts(materials);
+        starterToolsGranted = data.containsKey("starterToolsGranted") && data.readBool("starterToolsGranted");
         toolbelt.clear();
         if (data.containsKey("toolbeltFamilies") && data.containsKey("toolbeltItems")) {
             Object rawFam = data.readObject("toolbeltFamilies");
@@ -1168,6 +1174,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             for (int i = 0; i < materialIds.length; i++)
                 materialCounts[i] = materials.getOrDefault(materialIds[i], 0);
             data.storeObject("materialIds", materialIds);
+            data.store("materialSchema", 2);
+            data.store("starterToolsGranted", starterToolsGranted);
             data.storeObject("materialCounts", materialCounts);
         }
         {
@@ -2301,9 +2309,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     public void ensureStarterGatheringTools() {
         if (!Config.ascendant())
             return;
-        for (String toolName : STARTER_GATHERING_TOOLS) {
-            if (!hasItem(toolName))
-                addItem(toolName, false);
+        if (!starterToolsGranted) {
+            for (String toolName : STARTER_GATHERING_TOOLS) {
+                if (!hasItem(toolName))
+                    addItem(toolName, false);
+            }
+            starterToolsGranted = true;
         }
         // Drop toolbelt entries for tools no longer owned.
         toolbelt.entrySet().removeIf(e -> e.getValue() == null || !hasItem(e.getValue()));

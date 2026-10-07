@@ -30,7 +30,14 @@ public final class SkillTreeListData {
         if (handle == null || !handle.exists())
             return;
         Json json = new Json();
-        Array<SkillTreeData> loaded = json.fromJson(Array.class, SkillTreeData.class, handle);
+        Array<SkillTreeData> loaded;
+        try {
+            loaded = json.fromJson(Array.class, SkillTreeData.class, handle);
+        } catch (Exception e) {
+            // A bad skill_trees.json must not break save loading; fall back to empty trees.
+            System.err.println("Could not read " + Paths.SKILL_TREES + ": " + e.getMessage());
+            return;
+        }
         if (loaded == null)
             return;
         for (SkillTreeData tree : new Array.ArrayIterator<>(loaded)) {

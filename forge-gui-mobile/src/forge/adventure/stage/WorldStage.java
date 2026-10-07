@@ -59,6 +59,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
     // Gathering channel state (Ascendant only).
     private ResourceNodeSprite channelNode;
+    /** Node the player walked off mid-channel; not restarted until the player stops touching it. */
+    private ResourceNodeSprite walkedOffNode;
     private float channelElapsed;
     private float channelDuration;
     private float gatherFailNotifyCooldown;
@@ -120,6 +122,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
         if (channeling) {
             if (moving) {
+                walkedOffNode = channelNode;
                 cancelGatherChannel(null);
             } else {
                 tickGatherChannel(delta);
@@ -479,9 +482,12 @@ public class WorldStage extends GameStage implements SaveFileContent {
     private void tryStartGatherFromCollision() {
         if (!Config.ascendant() || channelNode != null || Forge.advFreezePlayerControls)
             return;
+        if (walkedOffNode != null && (!nodes.stream().anyMatch(p -> p.getValue() == walkedOffNode)
+                || !player.collideWith(walkedOffNode)))
+            walkedOffNode = null;
         for (int i = 0; i < nodes.size(); i++) {
             ResourceNodeSprite node = nodes.get(i).getValue();
-            if (player.collideWith(node)) {
+            if (node != walkedOffNode && player.collideWith(node)) {
                 beginGatherChannel(node);
                 return;
             }
@@ -851,7 +857,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 if (nTimeouts != null && nMats != null && nX != null && nY != null) {
                     int n = Math.min(Math.min(nTimeouts.size(), nMats.size()), Math.min(nX.size(), nY.size()));
                     for (int i = 0; i < n; i++) {
-                        String matId = MaterialListData.migrateMaterialId(nMats.get(i));
+                        String matId = nMats.get(i); // nodes only exist in saves made after the color-line rename
                         MaterialData mat = MaterialListData.get(matId);
                         if (mat == null)
                             continue;

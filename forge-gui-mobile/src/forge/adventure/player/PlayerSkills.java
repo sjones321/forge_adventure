@@ -827,7 +827,8 @@ public class PlayerSkills {
         if (slotted != null) {
             Set<String> seen = new LinkedHashSet<>();
             for (String id : slotted) {
-                if (id != null && getNodeRanks(id) > 0 && seen.add(id))
+                // Drop perks whose node was removed from the data, so they can't hold a slot forever.
+                if (id != null && getNodeRanks(id) > 0 && SkillTreeListData.findNode(id) != null && seen.add(id))
                     slottedPerks.add(id);
             }
         }
