@@ -120,9 +120,13 @@ public class World implements Disposable, SaveFileContent {
 
         width = saveFileData.readInt("width");
         height = saveFileData.readInt("height");
-        mapObjectIds = new SpritesDataMap(getChunkSize(), this.data.tileSize, this.data.width / getChunkSize());
+        // Size chunk maps from the *saved* world dimensions, not current world.json
+        // (Ascendant grew from 700→1000; old saves must keep their 700-wide grids).
+        int savedChunksX = Math.max(1, width / getChunkSize());
+        int savedChunksY = Math.max(1, height / getChunkSize());
+        mapObjectIds = new SpritesDataMap(getChunkSize(), this.data.tileSize, savedChunksX);
         mapObjectIds.load(saveFileData.readSubData("mapObjectIds"));
-        mapPoiIds = new PointOfInterestMap(getChunkSize(), this.data.tileSize, this.data.width / getChunkSize(), this.data.height / getChunkSize());
+        mapPoiIds = new PointOfInterestMap(getChunkSize(), this.data.tileSize, savedChunksX, savedChunksY);
         mapPoiIds.load(saveFileData.readSubData("mapPoiIds"));
         seed = saveFileData.readLong("seed");
     }
@@ -303,6 +307,14 @@ public class World implements Disposable, SaveFileContent {
         return currentTime;
     }
 
+    private static boolean pointBlocked(float x, float y, List<Rectangle> boxes) {
+        for (Rectangle rect : boxes) {
+            if (rect.contains(x, y))
+                return true;
+        }
+        return false;
+    }
+
     public boolean generateNew(long seed) {
         try {
             if (GuiBase.isMobile())
@@ -456,7 +468,10 @@ public class World implements Disposable, SaveFileContent {
 //////////////////
             List<PointOfInterest> towns = new ArrayList<>();
             List<PointOfInterest> notTowns = new ArrayList<>();
+            // Legacy 8×8 exclusion shared by every POI type (centers ≥~4 tiles apart).
             List<Rectangle> otherPoints = new ArrayList<>();
+            // Town/capital-only spacing; never added to otherPoints so caves/dungeons stay dense.
+            List<Rectangle> townSpacingPoints = new ArrayList<>();
 
             TextureAtlas mapMarker = Config.instance().getAtlas(Paths.MAP_MARKER);
             TextureData texture = mapMarker.getTextures().first().getTextureData();
@@ -464,134 +479,147 @@ public class World implements Disposable, SaveFileContent {
                 texture.prepare();
             Pixmap mapMarkerPixmap = texture.consumePixmap();
             clearTerrain((int) (data.width * data.playerStartPosX), (int) (data.height * data.playerStartPosY), 10);
-            //otherPoints.add(new Rectangle(((float) data.width * data.playerStartPosX * (float) data.tileSize) - data.tileSize * 3, ((float) data.height * data.playerStartPosY * data.tileSize) - data.tileSize * 3, data.tileSize * 6, data.tileSize * 6));
+
+            // Capitals first, then towns, then everything else — capitals are never skipped.
+            List<BiomeData> biomes = data.GetBiomes();
+            List<int[]> placeOrder = new ArrayList<>(); // [biomeIndex, poiIndexInBiomeList]
+            for (int phase = 0; phase < 3; phase++) {
+                for (int bi = 0; bi < biomes.size(); bi++) {
+                    ArrayList<PointOfInterestData> pois = biomes.get(bi).getPointsOfInterest();
+                    for (int pi = 0; pi < pois.size(); pi++) {
+                        PointOfInterestData poi = pois.get(pi);
+                        String type = poi.type;
+                        boolean isCapital = type != null && type.equals("capital");
+                        boolean isTown = type != null && type.equals("town");
+                        if (phase == 0 && isCapital)
+                            placeOrder.add(new int[]{bi, pi});
+                        else if (phase == 1 && isTown)
+                            placeOrder.add(new int[]{bi, pi});
+                        else if (phase == 2 && !isCapital && !isTown)
+                            placeOrder.add(new int[]{bi, pi});
+                    }
+                }
+            }
+
             boolean running = true;
             here:
             while (running) {
                 mapPoiIds = new PointOfInterestMap(getChunkSize(), data.tileSize, data.width / getChunkSize(), data.height / getChunkSize());
-                int biomeIndex2 = -1;
                 running = false;
-                for (BiomeData biome : data.GetBiomes()) {
-                    biomeIndex2++;
-                    for (PointOfInterestData poi : biome.getPointsOfInterest()) {
-                        for (int i = 0; i < poi.count; i++) {
-                            for (int counter = 0; counter < 500; counter++)//tries 500 times to find a free point
-                            {
-                                float radius = (float) Math.sqrt(((random.nextDouble()) / 2 * poi.radiusFactor));
-                                float theta = (float) (random.nextDouble() * 2 * Math.PI);
-                                float x = (float) (radius * Math.cos(theta));
-                                x *= (biome.width * width / 2);
-                                x += (biome.startPointX * width);
-                                float y = (float) (radius * Math.sin(theta));
-                                y *= (biome.height * height / 2);
-                                y += (height - (biome.startPointY * height));
+                for (int[] job : placeOrder) {
+                    int biomeIndex2 = job[0];
+                    BiomeData biome = biomes.get(biomeIndex2);
+                    PointOfInterestData poi = biome.getPointsOfInterest().get(job[1]);
+                    boolean isCapital = poi.type != null && poi.type.equals("capital");
+                    boolean isTown = poi.type != null && poi.type.equals("town");
+                    boolean isTownOrCapital = isCapital || isTown;
+                    for (int i = 0; i < poi.count; i++) {
+                        for (int counter = 0; counter < 500; counter++)//tries 500 times to find a free point
+                        {
+                            float radius = (float) Math.sqrt(((random.nextDouble()) / 2 * poi.radiusFactor));
+                            float theta = (float) (random.nextDouble() * 2 * Math.PI);
+                            float x = (float) (radius * Math.cos(theta));
+                            x *= (biome.width * width / 2);
+                            x += (biome.startPointX * width);
+                            float y = (float) (radius * Math.sin(theta));
+                            y *= (biome.height * height / 2);
+                            y += (height - (biome.startPointY * height));
 
-                                y += (poi.offsetY * (biome.height * height));
-                                x += (poi.offsetX * (biome.width * width));
+                            y += (poi.offsetY * (biome.height * height));
+                            x += (poi.offsetX * (biome.width * width));
 
-                                if ((int) x < 0 || (int) y <= 0 || (int) y >= height || (int) x >= width || biomeIndex2 != highestBiome(getBiome((int) x, (int) y))) {
+                            if ((int) x < 0 || (int) y <= 0 || (int) y >= height || (int) x >= width || biomeIndex2 != highestBiome(getBiome((int) x, (int) y))) {
+                                continue;
+                            }
+
+                            x *= data.tileSize;
+                            y *= data.tileSize;
+
+                            boolean blocked = pointBlocked(x, y, otherPoints)
+                                    || (isTownOrCapital && data.minTownSpacing > 0
+                                    && pointBlocked(x, y, townSpacingPoints));
+                            if (blocked) {
+                                boolean foundSolution = false;
+                                for (int xi = -1; xi < 2 && !foundSolution; xi++) {
+                                    for (int yi = -1; yi < 2 && !foundSolution; yi++) {
+                                        float nx = x + xi * data.tileSize;
+                                        float ny = y + yi * data.tileSize;
+                                        if (pointBlocked(nx, ny, otherPoints))
+                                            continue;
+                                        if (isTownOrCapital && data.minTownSpacing > 0
+                                                && pointBlocked(nx, ny, townSpacingPoints))
+                                            continue;
+                                        foundSolution = true;
+                                        x = nx;
+                                        y = ny;
+                                    }
+                                }
+                                if (!foundSolution) {
+                                    if (counter == 499) {
+                                        // Skip only regular towns under minTownSpacing — never capitals.
+                                        if (isTown && !isCapital && data.minTownSpacing > 0) {
+                                            System.err.print("Can not place town POI " + poi.name
+                                                    + " with minTownSpacing=" + data.minTownSpacing
+                                                    + "...Skipping instance.\n");
+                                            break;
+                                        }
+                                        System.err.print("Can not place POI " + poi.name + "...Rerunning..\n");
+                                        running = true;
+                                        towns.clear();
+                                        notTowns.clear();
+                                        otherPoints.clear();
+                                        townSpacingPoints.clear();
+                                        clearTerrain((int) (data.width * data.playerStartPosX), (int) (data.height * data.playerStartPosY), 10);
+                                        storedInfo.clear();
+                                        continue here;
+                                    }
                                     continue;
                                 }
-
-                                x *= data.tileSize;
-                                y *= data.tileSize;
-
-                                boolean breakNextLoop = false;
-                                for (Rectangle rect : otherPoints) {
-                                    if (rect.contains(x, y)) {
-                                        breakNextLoop = true;
-                                        break;
-                                    }
-                                }
-                                if (breakNextLoop) {
-                                    boolean foundSolution = false;
-                                    boolean noSolution = false;
-                                    breakNextLoop = false;
-                                    for (int xi = -1; xi < 2 && !foundSolution; xi++) {
-                                        for (int yi = -1; yi < 2 && !foundSolution; yi++) {
-                                            for (Rectangle rect : otherPoints) {
-                                                if (rect.contains(x + xi * data.tileSize, y + yi * data.tileSize)) {
-                                                    noSolution = true;
-                                                    break;
-                                                }
-                                            }
-                                            if (!noSolution) {
-                                                foundSolution = true;
-                                                x = x + xi * data.tileSize;
-                                                y = y + yi * data.tileSize;
-
-
-                                            }
-                                        }
-                                    }
-                                    if (!foundSolution) {
-                                        if (counter == 499) {
-                                            boolean isTownPoi = poi.type != null
-                                                    && (poi.type.equals("town") || poi.type.equals("capital"));
-                                            // With minTownSpacing, skip unplaceable town instances rather than
-                                            // rerunning the whole map (counts are tuned for ~120-150 towns).
-                                            if (isTownPoi && data.minTownSpacing > 0) {
-                                                System.err.print("Can not place town POI " + poi.name
-                                                        + " with minTownSpacing=" + data.minTownSpacing
-                                                        + "...Skipping instance.\n");
-                                                break;
-                                            }
-                                            System.err.print("Can not place POI " + poi.name + "...Rerunning..\n");
-                                            running = true;
-                                            towns.clear();
-                                            notTowns.clear();
-                                            otherPoints.clear();
-                                            clearTerrain((int) (data.width * data.playerStartPosX), (int) (data.height * data.playerStartPosY), 10);
-                                            storedInfo.clear();
-                                            continue here;
-                                        }
-                                        continue;
-                                    }
-                                }
-                                boolean isTownOrCapital = poi.type != null
-                                        && (poi.type.equals("town") || poi.type.equals("capital"));
-                                // Legacy exclusion is an 8×8-tile box (half-extent 4 → centers ≥~4 tiles apart).
-                                // minTownSpacing is the minimum center-to-center distance in tiles, so the
-                                // exclusion half-extent equals that spacing.
-                                float halfTiles = 4f;
-                                if (isTownOrCapital && data.minTownSpacing > 0) {
-                                    halfTiles = Math.max(4f, (float) data.minTownSpacing);
-                                }
-                                otherPoints.add(new Rectangle(
-                                        x - data.tileSize * halfTiles,
-                                        y - data.tileSize * halfTiles,
-                                        data.tileSize * halfTiles * 2f,
-                                        data.tileSize * halfTiles * 2f));
-                                PointOfInterest newPoint = new PointOfInterest(poi, new Vector2(x, y), random);
-                                clearTerrain((int) (x / data.tileSize), (int) (y / data.tileSize), 3);
-                                mapPoiIds.add(newPoint);
-
-                                TextureAtlas.AtlasRegion marker = mapMarker.findRegion(poi.type);
-
-                                if (marker != null) {
-                                    int xInPixels = (int) ((x / data.tileSize) * data.miniMapTileSize);
-                                    int yInPixels = (int) ((height - (y / data.tileSize)) * data.miniMapTileSize);
-                                    xInPixels -= (marker.getRegionWidth() / 2);
-                                    yInPixels -= (marker.getRegionHeight() / 2);
-                                    drawPixmapLater(mapMarkerPixmap, marker.getRegionX(), marker.getRegionY(),
-                                            marker.getRegionWidth(), marker.getRegionHeight(), xInPixels, yInPixels, marker.getRegionWidth(), marker.getRegionHeight());
-                                }
-
-
-                                if (isTownOrCapital) {
-                                    if (!newPoint.hasDisplayName()) {
-                                        if (poi.displayName == null || poi.displayName.isEmpty()) {
-                                            newPoint.setDisplayName(biome.getNewTownName());
-                                        } else {
-                                            newPoint.setDisplayName(poi.getDisplayName());
-                                        }
-                                    }
-                                    towns.add(newPoint);
-                                } else {
-                                    notTowns.add(newPoint);
-                                }
-                                break;
                             }
+                            // Always the legacy 8×8 box for every POI.
+                            otherPoints.add(new Rectangle(
+                                    x - data.tileSize * 4,
+                                    y - data.tileSize * 4,
+                                    data.tileSize * 8,
+                                    data.tileSize * 8));
+                            // Town/capital spacing lives in its own list so non-towns stay dense.
+                            if (isTownOrCapital && data.minTownSpacing > 0) {
+                                float half = Math.max(4f, (float) data.minTownSpacing);
+                                townSpacingPoints.add(new Rectangle(
+                                        x - data.tileSize * half,
+                                        y - data.tileSize * half,
+                                        data.tileSize * half * 2f,
+                                        data.tileSize * half * 2f));
+                            }
+                            PointOfInterest newPoint = new PointOfInterest(poi, new Vector2(x, y), random);
+                            clearTerrain((int) (x / data.tileSize), (int) (y / data.tileSize), 3);
+                            mapPoiIds.add(newPoint);
+
+                            TextureAtlas.AtlasRegion marker = mapMarker.findRegion(poi.type);
+
+                            if (marker != null) {
+                                int xInPixels = (int) ((x / data.tileSize) * data.miniMapTileSize);
+                                int yInPixels = (int) ((height - (y / data.tileSize)) * data.miniMapTileSize);
+                                xInPixels -= (marker.getRegionWidth() / 2);
+                                yInPixels -= (marker.getRegionHeight() / 2);
+                                drawPixmapLater(mapMarkerPixmap, marker.getRegionX(), marker.getRegionY(),
+                                        marker.getRegionWidth(), marker.getRegionHeight(), xInPixels, yInPixels, marker.getRegionWidth(), marker.getRegionHeight());
+                            }
+
+
+                            if (isTownOrCapital) {
+                                if (!newPoint.hasDisplayName()) {
+                                    if (poi.displayName == null || poi.displayName.isEmpty()) {
+                                        newPoint.setDisplayName(biome.getNewTownName());
+                                    } else {
+                                        newPoint.setDisplayName(poi.getDisplayName());
+                                    }
+                                }
+                                towns.add(newPoint);
+                            } else {
+                                notTowns.add(newPoint);
+                            }
+                            break;
                         }
                     }
                 }
@@ -850,7 +878,12 @@ public class World implements Disposable, SaveFileContent {
                     + " | towns=" + towns.size()
                     + " | minTownSpacing=" + data.minTownSpacing
                     + " | heap used~" + usedMb + "MB / total~" + totalMb + "MB");
-            WorldStage.getInstance().clearCache();
+            try {
+                WorldStage.getInstance().clearCache();
+            } catch (Throwable t) {
+                // Headless / early-init benches may not have a fully built stage.
+                System.out.println("WorldStage.clearCache skipped: " + t.getMessage());
+            }
 
             if (GuiBase.isMobile())
                 GuiBase.getInterface().preventSystemSleep(false);

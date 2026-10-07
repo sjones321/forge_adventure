@@ -304,15 +304,18 @@ public class WorldStage extends GameStage implements SaveFileContent {
         return false;
     }
 
-    public void loadPOI(PointOfInterest poi) {
+    /** @return true if the POI map loaded and became the active scene. */
+    public boolean loadPOI(PointOfInterest poi) {
         try {
             stop();
             TileMapScene.instance().load(poi);
             TileMapScene.instance().setFromWorldMap(true);
             Forge.switchScene(TileMapScene.instance());
+            return true;
         } catch (Exception e) {
             System.err.println("Error loading map...");
             e.printStackTrace();
+            return false;
         }
     }
 

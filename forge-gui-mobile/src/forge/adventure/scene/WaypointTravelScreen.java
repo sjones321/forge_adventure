@@ -157,14 +157,15 @@ public class WaypointTravelScreen extends FScreen {
                         FOptionPane.showMessageDialog("Not enough gold.");
                         return;
                     }
-                    player.takeGold(cost);
-                    performTravel(dest);
+                    // Charge only after the trip succeeds — see performTravel.
+                    performTravel(dest, cost);
                 });
     }
 
-    private void performTravel(PointOfInterest dest) {
+    private void performTravel(PointOfInterest dest, int cost) {
         Forge.advFreezePlayerControls = true;
         FThreads.invokeInEdtNowOrLater(() -> Forge.setTransitionScreen(new CoverScreen(() -> {
+            boolean success = false;
             try {
                 if (MapStage.getInstance().isInMap()) {
                     MapStage.getInstance().exitDungeon(false, false);
@@ -172,8 +173,17 @@ public class WaypointTravelScreen extends FScreen {
                 WorldStage.getInstance().setPosition(
                         new Vector2(dest.getPosition().x - 16f, dest.getPosition().y + 16f));
                 WorldStage.getInstance().getPlayerSprite().playEffect(Paths.EFFECT_TELEPORT, 10);
-                WorldStage.getInstance().loadPOI(dest);
+                success = WorldStage.getInstance().loadPOI(dest);
+            } catch (Exception e) {
+                System.err.println("Waypoint travel failed: " + e.getMessage());
+                e.printStackTrace();
+                success = false;
             } finally {
+                if (success && cost > 0 && Current.player().getGold() >= cost) {
+                    Current.player().takeGold(cost);
+                } else if (!success) {
+                    FOptionPane.showMessageDialog("Travel failed. No gold was charged.");
+                }
                 Forge.advFreezePlayerControls = false;
                 Forge.clearTransitionScreen();
             }

@@ -4,7 +4,7 @@
 "playerStartPosX": 0.5,
 "playerStartPosY": 0.5,
 "noiseZoomBiome": 30,
-"miniMapTileSize": 4,
+"miniMapTileSize": 3,
 "tileSize": 16,
 "minTownSpacing": 40,
 "maxRoadDistance": 1400,
