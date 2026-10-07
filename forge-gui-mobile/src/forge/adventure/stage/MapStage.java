@@ -611,8 +611,26 @@ public class MapStage extends GameStage {
                         // objects inert so existing saves and other planes are unchanged.
                         if (Config.ascendant()) {
                             final String station = type;
-                            addMapActor(obj, new OnCollide(() ->
-                                    Forge.switchScene(RecipeScene.instance().open(station))));
+                            MapActor stationActor = new OnCollide(() ->
+                                    Forge.switchScene(RecipeScene.instance().open(station)));
+                            addMapActor(obj, stationActor);
+                            // Signs mirror shops/shardtrader: stations have no painted tile art.
+                            if (prop.containsKey("hasSign") && Boolean.parseBoolean(prop.get("hasSign").toString())
+                                    && prop.containsKey("signYOffset") && prop.containsKey("signXOffset")) {
+                                try {
+                                    String signSprite = prop.containsKey("signSprite")
+                                            ? prop.get("signSprite").toString() : "ItemShop";
+                                    if (signSprite == null || signSprite.isEmpty())
+                                        signSprite = "ItemShop";
+                                    TextureSprite sprite = new TextureSprite(Config.instance().getAtlasSprite(
+                                            "maps/tileset/buildings.atlas", signSprite));
+                                    sprite.setX(stationActor.getX() + Float.parseFloat(prop.get("signXOffset").toString()));
+                                    sprite.setY(stationActor.getY() + Float.parseFloat(prop.get("signYOffset").toString()));
+                                    addMapActor(sprite);
+                                } catch (Exception e) {
+                                    System.err.print("Can not create Texture for crafting station " + station);
+                                }
+                            }
                         }
                         break;
                     case "shardtrader":

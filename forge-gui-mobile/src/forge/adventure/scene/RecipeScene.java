@@ -30,7 +30,8 @@ public class RecipeScene extends ForgeScene {
 
     @Override
     public void enter() {
-        screen = null;
+        // Keep one RecipeScreen instance so gold/material listeners are not re-registered
+        // (and leaked) on every station visit.
         getScreen();
         if (screen != null)
             screen.setStation(pendingStation);

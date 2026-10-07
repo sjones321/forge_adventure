@@ -3,6 +3,10 @@
  <tileset firstgid="1" source="../tileset/buildings.tsx"/>
  <object name="Jeweler" class="jeweler" gid="1430" width="16" height="16">
   <properties>
+   <property name="hasSign" type="bool" value="true"/>
+   <property name="signSprite" value="LegendShop"/>
+   <property name="signXOffset" type="float" value="0"/>
+   <property name="signYOffset" type="float" value="0"/>
    <property name="type" value="jeweler"/>
   </properties>
  </object>
