@@ -95,6 +95,9 @@ public class SkillsScene extends UIScene {
             slots.setWrap(true);
             scrollContainer.add(slots).colspan(3).align(Align.left).padLeft(10).growX();
             scrollContainer.row().padTop(4);
+            String league = Current.player().isLeagueCleared() ? " · League ✓" : "";
+            addRow("[BLACK]Gym badges", "[BLACK]" + Current.player().getBadgeCount() + "/8",
+                    "[DARK_GRAY]" + Current.player().getRunFormat() + league);
         }
 
         StandardWindow window = Current.player().getStandardWindow();

@@ -472,6 +472,11 @@ public class DuelScene extends ForgeScene {
         if (eventData == null || eventData.eventRules.allowsItems) {
             EffectData perks = advPlayer.getSkills().duelPerks();
             playerEffects.add(perks);
+            // Ascendant gym badge perks (Package G); empty EffectData when none.
+            EffectData badgePerks = advPlayer.badgePerks();
+            playerEffects.add(badgePerks);
+            if (badgePerks.opponent != null)
+                oppEffects.add(badgePerks.opponent);
             if (perks.opponent != null)
                 oppEffects.add(perks.opponent);
         }

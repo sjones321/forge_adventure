@@ -1,0 +1,962 @@
+{
+  "gyms": [
+    {
+      "id": "white",
+      "name": "Plains Gym",
+      "theme": "W",
+      "badgeId": "badge_white",
+      "badgeName": "Plains Badge",
+      "badgePerk": "+2 starting life",
+      "badgeEffect": {
+        "lifeModifier": 2
+      },
+      "trainers": [
+        {
+          "name": "Plains Gym Adept",
+          "sprite": "sprites/enemy/humanoid/conjurer.atlas",
+          "life": 18,
+          "colors": "W",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/white/trainer1_standard.dck",
+            "Pauper": "decks/gym/white/trainer1_standard.dck",
+            "Historic": "decks/gym/white/trainer1_standard.dck",
+            "Commander": "decks/gym/white/trainer1_standard.dck"
+          }
+        },
+        {
+          "name": "Plains Gym Veteran",
+          "sprite": "sprites/enemy/humanoid/conjurer.atlas",
+          "life": 22,
+          "colors": "W",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/white/trainer2_standard.dck",
+            "Pauper": "decks/gym/white/trainer2_standard.dck",
+            "Historic": "decks/gym/white/trainer2_standard.dck",
+            "Commander": "decks/gym/white/trainer2_standard.dck"
+          }
+        },
+        {
+          "name": "Plains Gym Elite",
+          "sprite": "sprites/enemy/humanoid/conjurer.atlas",
+          "life": 24,
+          "colors": "W",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/white/trainer3_standard.dck",
+            "Pauper": "decks/gym/white/trainer3_standard.dck",
+            "Historic": "decks/gym/white/trainer3_standard.dck",
+            "Commander": "decks/gym/white/trainer3_standard.dck"
+          }
+        }
+      ],
+      "leader": {
+        "name": "Plains Gym Leader",
+        "sprite": "sprites/enemy/celestial/angel_1.atlas",
+        "life": 30,
+        "colors": "W",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/white/leader_b0_standard.dck",
+          "Pauper": "decks/gym/white/leader_b0_standard.dck",
+          "Historic": "decks/gym/white/leader_b0_standard.dck",
+          "Commander": "decks/gym/white/leader_b0_standard.dck"
+        },
+        "decksByBadges": {
+          "0": {
+            "Standard": "decks/gym/white/leader_b0_standard.dck",
+            "Pauper": "decks/gym/white/leader_b0_standard.dck",
+            "Historic": "decks/gym/white/leader_b0_standard.dck",
+            "Commander": "decks/gym/white/leader_b0_standard.dck"
+          },
+          "3": {
+            "Standard": "decks/gym/white/leader_b3_standard.dck",
+            "Pauper": "decks/gym/white/leader_b3_standard.dck",
+            "Historic": "decks/gym/white/leader_b3_standard.dck",
+            "Commander": "decks/gym/white/leader_b3_standard.dck"
+          },
+          "6": {
+            "Standard": "decks/gym/white/leader_b6_standard.dck",
+            "Pauper": "decks/gym/white/leader_b6_standard.dck",
+            "Historic": "decks/gym/white/leader_b6_standard.dck",
+            "Commander": "decks/gym/white/leader_b6_standard.dck"
+          }
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/white/leader_rematch_standard.dck",
+          "Pauper": "decks/gym/white/leader_rematch_standard.dck",
+          "Historic": "decks/gym/white/leader_rematch_standard.dck",
+          "Commander": "decks/gym/white/leader_rematch_standard.dck"
+        }
+      },
+      "rewards": {
+        "gold": 400,
+        "dustCommon": 20,
+        "dustUncommon": 8,
+        "dustRare": 3,
+        "dustMythic": 0,
+        "material": "gym_white_essence",
+        "materialCount": 1,
+        "stapleCard": "Swords to Plowshares"
+      },
+      "rematchRewards": {
+        "gold": 200,
+        "dustCommon": 10,
+        "dustUncommon": 4,
+        "dustRare": 1,
+        "material": "gym_white_essence",
+        "materialCount": 1
+      }
+    },
+    {
+      "id": "blue",
+      "name": "Tide Gym",
+      "theme": "U",
+      "badgeId": "badge_blue",
+      "badgeName": "Tide Badge",
+      "badgePerk": "+1 free mulligan",
+      "badgeEffect": {
+        "freeMulligans": 1
+      },
+      "trainers": [
+        {
+          "name": "Tide Gym Adept",
+          "sprite": "sprites/enemy/humanoid/merfolk/mermaid.atlas",
+          "life": 18,
+          "colors": "U",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/blue/trainer1_standard.dck",
+            "Pauper": "decks/gym/blue/trainer1_standard.dck",
+            "Historic": "decks/gym/blue/trainer1_standard.dck",
+            "Commander": "decks/gym/blue/trainer1_standard.dck"
+          }
+        },
+        {
+          "name": "Tide Gym Veteran",
+          "sprite": "sprites/enemy/humanoid/merfolk/mermaid.atlas",
+          "life": 22,
+          "colors": "U",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/blue/trainer2_standard.dck",
+            "Pauper": "decks/gym/blue/trainer2_standard.dck",
+            "Historic": "decks/gym/blue/trainer2_standard.dck",
+            "Commander": "decks/gym/blue/trainer2_standard.dck"
+          }
+        },
+        {
+          "name": "Tide Gym Elite",
+          "sprite": "sprites/enemy/humanoid/merfolk/mermaid.atlas",
+          "life": 24,
+          "colors": "U",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/blue/trainer3_standard.dck",
+            "Pauper": "decks/gym/blue/trainer3_standard.dck",
+            "Historic": "decks/gym/blue/trainer3_standard.dck",
+            "Commander": "decks/gym/blue/trainer3_standard.dck"
+          }
+        }
+      ],
+      "leader": {
+        "name": "Tide Gym Leader",
+        "sprite": "sprites/enemy/humanoid/viashino/lizardwizard.atlas",
+        "life": 30,
+        "colors": "U",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/blue/leader_b0_standard.dck",
+          "Pauper": "decks/gym/blue/leader_b0_standard.dck",
+          "Historic": "decks/gym/blue/leader_b0_standard.dck",
+          "Commander": "decks/gym/blue/leader_b0_standard.dck"
+        },
+        "decksByBadges": {
+          "0": {
+            "Standard": "decks/gym/blue/leader_b0_standard.dck",
+            "Pauper": "decks/gym/blue/leader_b0_standard.dck",
+            "Historic": "decks/gym/blue/leader_b0_standard.dck",
+            "Commander": "decks/gym/blue/leader_b0_standard.dck"
+          },
+          "3": {
+            "Standard": "decks/gym/blue/leader_b3_standard.dck",
+            "Pauper": "decks/gym/blue/leader_b3_standard.dck",
+            "Historic": "decks/gym/blue/leader_b3_standard.dck",
+            "Commander": "decks/gym/blue/leader_b3_standard.dck"
+          },
+          "6": {
+            "Standard": "decks/gym/blue/leader_b6_standard.dck",
+            "Pauper": "decks/gym/blue/leader_b6_standard.dck",
+            "Historic": "decks/gym/blue/leader_b6_standard.dck",
+            "Commander": "decks/gym/blue/leader_b6_standard.dck"
+          }
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/blue/leader_rematch_standard.dck",
+          "Pauper": "decks/gym/blue/leader_rematch_standard.dck",
+          "Historic": "decks/gym/blue/leader_rematch_standard.dck",
+          "Commander": "decks/gym/blue/leader_rematch_standard.dck"
+        }
+      },
+      "rewards": {
+        "gold": 400,
+        "dustCommon": 20,
+        "dustUncommon": 8,
+        "dustRare": 3,
+        "dustMythic": 0,
+        "material": "gym_blue_essence",
+        "materialCount": 1,
+        "stapleCard": "Counterspell"
+      },
+      "rematchRewards": {
+        "gold": 200,
+        "dustCommon": 10,
+        "dustUncommon": 4,
+        "dustRare": 1,
+        "material": "gym_blue_essence",
+        "materialCount": 1
+      }
+    },
+    {
+      "id": "black",
+      "name": "Night Gym",
+      "theme": "B",
+      "badgeId": "badge_black",
+      "badgeName": "Night Badge",
+      "badgePerk": "Opponent starts at -1 life",
+      "badgeEffect": {
+        "opponent": {
+          "lifeModifier": -1
+        }
+      },
+      "trainers": [
+        {
+          "name": "Night Gym Adept",
+          "sprite": "sprites/enemy/undead/zombie_2.atlas",
+          "life": 18,
+          "colors": "B",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/black/trainer1_standard.dck",
+            "Pauper": "decks/gym/black/trainer1_standard.dck",
+            "Historic": "decks/gym/black/trainer1_standard.dck",
+            "Commander": "decks/gym/black/trainer1_standard.dck"
+          }
+        },
+        {
+          "name": "Night Gym Veteran",
+          "sprite": "sprites/enemy/undead/zombie_2.atlas",
+          "life": 22,
+          "colors": "B",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/black/trainer2_standard.dck",
+            "Pauper": "decks/gym/black/trainer2_standard.dck",
+            "Historic": "decks/gym/black/trainer2_standard.dck",
+            "Commander": "decks/gym/black/trainer2_standard.dck"
+          }
+        },
+        {
+          "name": "Night Gym Elite",
+          "sprite": "sprites/enemy/undead/zombie_2.atlas",
+          "life": 24,
+          "colors": "B",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/black/trainer3_standard.dck",
+            "Pauper": "decks/gym/black/trainer3_standard.dck",
+            "Historic": "decks/gym/black/trainer3_standard.dck",
+            "Commander": "decks/gym/black/trainer3_standard.dck"
+          }
+        }
+      ],
+      "leader": {
+        "name": "Night Gym Leader",
+        "sprite": "sprites/enemy/fiend/demon_5.atlas",
+        "life": 30,
+        "colors": "B",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/black/leader_b0_standard.dck",
+          "Pauper": "decks/gym/black/leader_b0_standard.dck",
+          "Historic": "decks/gym/black/leader_b0_standard.dck",
+          "Commander": "decks/gym/black/leader_b0_standard.dck"
+        },
+        "decksByBadges": {
+          "0": {
+            "Standard": "decks/gym/black/leader_b0_standard.dck",
+            "Pauper": "decks/gym/black/leader_b0_standard.dck",
+            "Historic": "decks/gym/black/leader_b0_standard.dck",
+            "Commander": "decks/gym/black/leader_b0_standard.dck"
+          },
+          "3": {
+            "Standard": "decks/gym/black/leader_b3_standard.dck",
+            "Pauper": "decks/gym/black/leader_b3_standard.dck",
+            "Historic": "decks/gym/black/leader_b3_standard.dck",
+            "Commander": "decks/gym/black/leader_b3_standard.dck"
+          },
+          "6": {
+            "Standard": "decks/gym/black/leader_b6_standard.dck",
+            "Pauper": "decks/gym/black/leader_b6_standard.dck",
+            "Historic": "decks/gym/black/leader_b6_standard.dck",
+            "Commander": "decks/gym/black/leader_b6_standard.dck"
+          }
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/black/leader_rematch_standard.dck",
+          "Pauper": "decks/gym/black/leader_rematch_standard.dck",
+          "Historic": "decks/gym/black/leader_rematch_standard.dck",
+          "Commander": "decks/gym/black/leader_rematch_standard.dck"
+        }
+      },
+      "rewards": {
+        "gold": 400,
+        "dustCommon": 20,
+        "dustUncommon": 8,
+        "dustRare": 3,
+        "dustMythic": 0,
+        "material": "gym_black_essence",
+        "materialCount": 1,
+        "stapleCard": "Doom Blade"
+      },
+      "rematchRewards": {
+        "gold": 200,
+        "dustCommon": 10,
+        "dustUncommon": 4,
+        "dustRare": 1,
+        "material": "gym_black_essence",
+        "materialCount": 1
+      }
+    },
+    {
+      "id": "red",
+      "name": "Forge Gym",
+      "theme": "R",
+      "badgeId": "badge_red",
+      "badgeName": "Forge Badge",
+      "badgePerk": "Opponent starts at -2 life",
+      "badgeEffect": {
+        "opponent": {
+          "lifeModifier": -2
+        }
+      },
+      "trainers": [
+        {
+          "name": "Forge Gym Adept",
+          "sprite": "sprites/enemy/undead/goblinzombie.atlas",
+          "life": 18,
+          "colors": "R",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/red/trainer1_standard.dck",
+            "Pauper": "decks/gym/red/trainer1_standard.dck",
+            "Historic": "decks/gym/red/trainer1_standard.dck",
+            "Commander": "decks/gym/red/trainer1_standard.dck"
+          }
+        },
+        {
+          "name": "Forge Gym Veteran",
+          "sprite": "sprites/enemy/undead/goblinzombie.atlas",
+          "life": 22,
+          "colors": "R",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/red/trainer2_standard.dck",
+            "Pauper": "decks/gym/red/trainer2_standard.dck",
+            "Historic": "decks/gym/red/trainer2_standard.dck",
+            "Commander": "decks/gym/red/trainer2_standard.dck"
+          }
+        }
+      ],
+      "leader": {
+        "name": "Forge Gym Leader",
+        "sprite": "sprites/enemy/fey/faerie_dragon.atlas",
+        "life": 30,
+        "colors": "R",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/red/leader_b0_standard.dck",
+          "Pauper": "decks/gym/red/leader_b0_standard.dck",
+          "Historic": "decks/gym/red/leader_b0_standard.dck",
+          "Commander": "decks/gym/red/leader_b0_standard.dck"
+        },
+        "decksByBadges": {
+          "0": {
+            "Standard": "decks/gym/red/leader_b0_standard.dck",
+            "Pauper": "decks/gym/red/leader_b0_standard.dck",
+            "Historic": "decks/gym/red/leader_b0_standard.dck",
+            "Commander": "decks/gym/red/leader_b0_standard.dck"
+          },
+          "3": {
+            "Standard": "decks/gym/red/leader_b3_standard.dck",
+            "Pauper": "decks/gym/red/leader_b3_standard.dck",
+            "Historic": "decks/gym/red/leader_b3_standard.dck",
+            "Commander": "decks/gym/red/leader_b3_standard.dck"
+          },
+          "6": {
+            "Standard": "decks/gym/red/leader_b6_standard.dck",
+            "Pauper": "decks/gym/red/leader_b6_standard.dck",
+            "Historic": "decks/gym/red/leader_b6_standard.dck",
+            "Commander": "decks/gym/red/leader_b6_standard.dck"
+          }
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/red/leader_rematch_standard.dck",
+          "Pauper": "decks/gym/red/leader_rematch_standard.dck",
+          "Historic": "decks/gym/red/leader_rematch_standard.dck",
+          "Commander": "decks/gym/red/leader_rematch_standard.dck"
+        }
+      },
+      "rewards": {
+        "gold": 400,
+        "dustCommon": 20,
+        "dustUncommon": 8,
+        "dustRare": 3,
+        "dustMythic": 0,
+        "material": "gym_red_essence",
+        "materialCount": 1,
+        "stapleCard": "Lightning Bolt"
+      },
+      "rematchRewards": {
+        "gold": 200,
+        "dustCommon": 10,
+        "dustUncommon": 4,
+        "dustRare": 1,
+        "material": "gym_red_essence",
+        "materialCount": 1
+      }
+    },
+    {
+      "id": "green",
+      "name": "Wildwood Gym",
+      "theme": "G",
+      "badgeId": "badge_green",
+      "badgeName": "Wildwood Badge",
+      "badgePerk": "+3 starting life",
+      "badgeEffect": {
+        "lifeModifier": 3
+      },
+      "trainers": [
+        {
+          "name": "Wildwood Gym Adept",
+          "sprite": "sprites/enemy/humanoid/elf/nissa.atlas",
+          "life": 18,
+          "colors": "G",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/green/trainer1_standard.dck",
+            "Pauper": "decks/gym/green/trainer1_standard.dck",
+            "Historic": "decks/gym/green/trainer1_standard.dck",
+            "Commander": "decks/gym/green/trainer1_standard.dck"
+          }
+        },
+        {
+          "name": "Wildwood Gym Veteran",
+          "sprite": "sprites/enemy/humanoid/elf/nissa.atlas",
+          "life": 22,
+          "colors": "G",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/green/trainer2_standard.dck",
+            "Pauper": "decks/gym/green/trainer2_standard.dck",
+            "Historic": "decks/gym/green/trainer2_standard.dck",
+            "Commander": "decks/gym/green/trainer2_standard.dck"
+          }
+        }
+      ],
+      "leader": {
+        "name": "Wildwood Gym Leader",
+        "sprite": "sprites/enemy/beast/horse/horsearabian.atlas",
+        "life": 30,
+        "colors": "G",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/green/leader_b0_standard.dck",
+          "Pauper": "decks/gym/green/leader_b0_standard.dck",
+          "Historic": "decks/gym/green/leader_b0_standard.dck",
+          "Commander": "decks/gym/green/leader_b0_standard.dck"
+        },
+        "decksByBadges": {
+          "0": {
+            "Standard": "decks/gym/green/leader_b0_standard.dck",
+            "Pauper": "decks/gym/green/leader_b0_standard.dck",
+            "Historic": "decks/gym/green/leader_b0_standard.dck",
+            "Commander": "decks/gym/green/leader_b0_standard.dck"
+          },
+          "3": {
+            "Standard": "decks/gym/green/leader_b3_standard.dck",
+            "Pauper": "decks/gym/green/leader_b3_standard.dck",
+            "Historic": "decks/gym/green/leader_b3_standard.dck",
+            "Commander": "decks/gym/green/leader_b3_standard.dck"
+          },
+          "6": {
+            "Standard": "decks/gym/green/leader_b6_standard.dck",
+            "Pauper": "decks/gym/green/leader_b6_standard.dck",
+            "Historic": "decks/gym/green/leader_b6_standard.dck",
+            "Commander": "decks/gym/green/leader_b6_standard.dck"
+          }
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/green/leader_rematch_standard.dck",
+          "Pauper": "decks/gym/green/leader_rematch_standard.dck",
+          "Historic": "decks/gym/green/leader_rematch_standard.dck",
+          "Commander": "decks/gym/green/leader_rematch_standard.dck"
+        }
+      },
+      "rewards": {
+        "gold": 400,
+        "dustCommon": 20,
+        "dustUncommon": 8,
+        "dustRare": 3,
+        "dustMythic": 0,
+        "material": "gym_green_essence",
+        "materialCount": 1,
+        "stapleCard": "Llanowar Elves"
+      },
+      "rematchRewards": {
+        "gold": 200,
+        "dustCommon": 10,
+        "dustUncommon": 4,
+        "dustRare": 1,
+        "material": "gym_green_essence",
+        "materialCount": 1
+      }
+    },
+    {
+      "id": "colorless",
+      "name": "Void Gym",
+      "theme": "C",
+      "badgeId": "badge_colorless",
+      "badgeName": "Void Badge",
+      "badgePerk": "+1 mana shard in battle",
+      "badgeEffect": {
+        "extraManaShards": 1
+      },
+      "trainers": [
+        {
+          "name": "Void Gym Adept",
+          "sprite": "sprites/enemy/construct/golem_3.atlas",
+          "life": 18,
+          "colors": "WUBRG",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/colorless/trainer1_standard.dck",
+            "Pauper": "decks/gym/colorless/trainer1_standard.dck",
+            "Historic": "decks/gym/colorless/trainer1_standard.dck",
+            "Commander": "decks/gym/colorless/trainer1_standard.dck"
+          }
+        },
+        {
+          "name": "Void Gym Veteran",
+          "sprite": "sprites/enemy/construct/golem_3.atlas",
+          "life": 22,
+          "colors": "WUBRG",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/colorless/trainer2_standard.dck",
+            "Pauper": "decks/gym/colorless/trainer2_standard.dck",
+            "Historic": "decks/gym/colorless/trainer2_standard.dck",
+            "Commander": "decks/gym/colorless/trainer2_standard.dck"
+          }
+        }
+      ],
+      "leader": {
+        "name": "Void Gym Leader",
+        "sprite": "sprites/enemy/construct/arcane_golem.atlas",
+        "life": 30,
+        "colors": "WUBRG",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/colorless/leader_b0_standard.dck",
+          "Pauper": "decks/gym/colorless/leader_b0_standard.dck",
+          "Historic": "decks/gym/colorless/leader_b0_standard.dck",
+          "Commander": "decks/gym/colorless/leader_b0_standard.dck"
+        },
+        "decksByBadges": {
+          "0": {
+            "Standard": "decks/gym/colorless/leader_b0_standard.dck",
+            "Pauper": "decks/gym/colorless/leader_b0_standard.dck",
+            "Historic": "decks/gym/colorless/leader_b0_standard.dck",
+            "Commander": "decks/gym/colorless/leader_b0_standard.dck"
+          },
+          "3": {
+            "Standard": "decks/gym/colorless/leader_b3_standard.dck",
+            "Pauper": "decks/gym/colorless/leader_b3_standard.dck",
+            "Historic": "decks/gym/colorless/leader_b3_standard.dck",
+            "Commander": "decks/gym/colorless/leader_b3_standard.dck"
+          },
+          "6": {
+            "Standard": "decks/gym/colorless/leader_b6_standard.dck",
+            "Pauper": "decks/gym/colorless/leader_b6_standard.dck",
+            "Historic": "decks/gym/colorless/leader_b6_standard.dck",
+            "Commander": "decks/gym/colorless/leader_b6_standard.dck"
+          }
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/colorless/leader_rematch_standard.dck",
+          "Pauper": "decks/gym/colorless/leader_rematch_standard.dck",
+          "Historic": "decks/gym/colorless/leader_rematch_standard.dck",
+          "Commander": "decks/gym/colorless/leader_rematch_standard.dck"
+        }
+      },
+      "rewards": {
+        "gold": 400,
+        "dustCommon": 20,
+        "dustUncommon": 8,
+        "dustRare": 3,
+        "dustMythic": 0,
+        "material": "gym_colorless_essence",
+        "materialCount": 1,
+        "stapleCard": "Sol Ring"
+      },
+      "rematchRewards": {
+        "gold": 200,
+        "dustCommon": 10,
+        "dustUncommon": 4,
+        "dustRare": 1,
+        "material": "gym_colorless_essence",
+        "materialCount": 1
+      }
+    },
+    {
+      "id": "guild",
+      "name": "Guild Gym",
+      "theme": "Guild",
+      "badgeId": "badge_guild",
+      "badgeName": "Guild Badge",
+      "badgePerk": "+1 card in opening hand",
+      "badgeEffect": {
+        "changeStartCards": 1
+      },
+      "trainers": [
+        {
+          "name": "Guild Gym Adept",
+          "sprite": "sprites/enemy/humanoid/knight.atlas",
+          "life": 18,
+          "colors": "WR",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/guild/trainer1_standard.dck",
+            "Pauper": "decks/gym/guild/trainer1_standard.dck",
+            "Historic": "decks/gym/guild/trainer1_standard.dck",
+            "Commander": "decks/gym/guild/trainer1_standard.dck"
+          }
+        },
+        {
+          "name": "Guild Gym Veteran",
+          "sprite": "sprites/enemy/humanoid/knight.atlas",
+          "life": 22,
+          "colors": "WR",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/guild/trainer2_standard.dck",
+            "Pauper": "decks/gym/guild/trainer2_standard.dck",
+            "Historic": "decks/gym/guild/trainer2_standard.dck",
+            "Commander": "decks/gym/guild/trainer2_standard.dck"
+          }
+        },
+        {
+          "name": "Guild Gym Elite",
+          "sprite": "sprites/enemy/humanoid/knight.atlas",
+          "life": 24,
+          "colors": "WR",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/guild/trainer3_standard.dck",
+            "Pauper": "decks/gym/guild/trainer3_standard.dck",
+            "Historic": "decks/gym/guild/trainer3_standard.dck",
+            "Commander": "decks/gym/guild/trainer3_standard.dck"
+          }
+        }
+      ],
+      "leader": {
+        "name": "Guild Gym Leader",
+        "sprite": "sprites/enemy/humanoid/paladin_2.atlas",
+        "life": 30,
+        "colors": "WR",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/guild/leader_b0_standard.dck",
+          "Pauper": "decks/gym/guild/leader_b0_standard.dck",
+          "Historic": "decks/gym/guild/leader_b0_standard.dck",
+          "Commander": "decks/gym/guild/leader_b0_standard.dck"
+        },
+        "decksByBadges": {
+          "0": {
+            "Standard": "decks/gym/guild/leader_b0_standard.dck",
+            "Pauper": "decks/gym/guild/leader_b0_standard.dck",
+            "Historic": "decks/gym/guild/leader_b0_standard.dck",
+            "Commander": "decks/gym/guild/leader_b0_standard.dck"
+          },
+          "3": {
+            "Standard": "decks/gym/guild/leader_b3_standard.dck",
+            "Pauper": "decks/gym/guild/leader_b3_standard.dck",
+            "Historic": "decks/gym/guild/leader_b3_standard.dck",
+            "Commander": "decks/gym/guild/leader_b3_standard.dck"
+          },
+          "6": {
+            "Standard": "decks/gym/guild/leader_b6_standard.dck",
+            "Pauper": "decks/gym/guild/leader_b6_standard.dck",
+            "Historic": "decks/gym/guild/leader_b6_standard.dck",
+            "Commander": "decks/gym/guild/leader_b6_standard.dck"
+          }
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/guild/leader_rematch_standard.dck",
+          "Pauper": "decks/gym/guild/leader_rematch_standard.dck",
+          "Historic": "decks/gym/guild/leader_rematch_standard.dck",
+          "Commander": "decks/gym/guild/leader_rematch_standard.dck"
+        }
+      },
+      "rewards": {
+        "gold": 400,
+        "dustCommon": 20,
+        "dustUncommon": 8,
+        "dustRare": 3,
+        "dustMythic": 0,
+        "material": "gym_guild_essence",
+        "materialCount": 1,
+        "stapleCard": "Lightning Helix"
+      },
+      "rematchRewards": {
+        "gold": 200,
+        "dustCommon": 10,
+        "dustUncommon": 4,
+        "dustRare": 1,
+        "material": "gym_guild_essence",
+        "materialCount": 1
+      }
+    },
+    {
+      "id": "rainbow",
+      "name": "Prism Gym",
+      "theme": "Rainbow",
+      "badgeId": "badge_rainbow",
+      "badgeName": "Prism Badge",
+      "badgePerk": "+1 starting life and +1 shard",
+      "badgeEffect": {
+        "lifeModifier": 1,
+        "extraManaShards": 1
+      },
+      "trainers": [
+        {
+          "name": "Prism Gym Adept",
+          "sprite": "sprites/enemy/celestial/cromat_angel.atlas",
+          "life": 20,
+          "colors": "WUBRG",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/rainbow/trainer1_standard.dck",
+            "Pauper": "decks/gym/rainbow/trainer1_standard.dck",
+            "Historic": "decks/gym/rainbow/trainer1_standard.dck",
+            "Commander": "decks/gym/rainbow/trainer1_standard.dck"
+          }
+        },
+        {
+          "name": "Prism Gym Veteran",
+          "sprite": "sprites/enemy/celestial/cromat_angel.atlas",
+          "life": 22,
+          "colors": "WUBRG",
+          "gamesPerMatch": 1,
+          "decks": {
+            "Standard": "decks/gym/rainbow/trainer2_standard.dck",
+            "Pauper": "decks/gym/rainbow/trainer2_standard.dck",
+            "Historic": "decks/gym/rainbow/trainer2_standard.dck",
+            "Commander": "decks/gym/rainbow/trainer2_standard.dck"
+          }
+        }
+      ],
+      "leader": {
+        "name": "Prism Gym Leader",
+        "sprite": "sprites/enemy/celestial/angel_1.atlas",
+        "life": 30,
+        "colors": "WUBRG",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/rainbow/leader_b0_standard.dck",
+          "Pauper": "decks/gym/rainbow/leader_b0_standard.dck",
+          "Historic": "decks/gym/rainbow/leader_b0_standard.dck",
+          "Commander": "decks/gym/rainbow/leader_b0_standard.dck"
+        },
+        "decksByBadges": {
+          "0": {
+            "Standard": "decks/gym/rainbow/leader_b0_standard.dck",
+            "Pauper": "decks/gym/rainbow/leader_b0_standard.dck",
+            "Historic": "decks/gym/rainbow/leader_b0_standard.dck",
+            "Commander": "decks/gym/rainbow/leader_b0_standard.dck"
+          },
+          "3": {
+            "Standard": "decks/gym/rainbow/leader_b3_standard.dck",
+            "Pauper": "decks/gym/rainbow/leader_b3_standard.dck",
+            "Historic": "decks/gym/rainbow/leader_b3_standard.dck",
+            "Commander": "decks/gym/rainbow/leader_b3_standard.dck"
+          },
+          "6": {
+            "Standard": "decks/gym/rainbow/leader_b6_standard.dck",
+            "Pauper": "decks/gym/rainbow/leader_b6_standard.dck",
+            "Historic": "decks/gym/rainbow/leader_b6_standard.dck",
+            "Commander": "decks/gym/rainbow/leader_b6_standard.dck"
+          }
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/rainbow/leader_rematch_standard.dck",
+          "Pauper": "decks/gym/rainbow/leader_rematch_standard.dck",
+          "Historic": "decks/gym/rainbow/leader_rematch_standard.dck",
+          "Commander": "decks/gym/rainbow/leader_rematch_standard.dck"
+        }
+      },
+      "rewards": {
+        "gold": 400,
+        "dustCommon": 20,
+        "dustUncommon": 8,
+        "dustRare": 3,
+        "dustMythic": 0,
+        "material": "gym_rainbow_essence",
+        "materialCount": 1,
+        "stapleCard": "Chromatic Lantern"
+      },
+      "rematchRewards": {
+        "gold": 200,
+        "dustCommon": 10,
+        "dustUncommon": 4,
+        "dustRare": 1,
+        "material": "gym_rainbow_essence",
+        "materialCount": 1
+      }
+    }
+  ],
+  "league": {
+    "id": "league",
+    "name": "Shandalar League",
+    "eliteFour": [
+      {
+        "name": "Elite Valen of the Plains",
+        "sprite": "sprites/enemy/celestial/angel_1.atlas",
+        "life": 28,
+        "colors": "W",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/league/e4_0_standard.dck",
+          "Pauper": "decks/gym/league/e4_0_standard.dck",
+          "Historic": "decks/gym/league/e4_0_standard.dck",
+          "Commander": "decks/gym/league/e4_0_standard.dck"
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/league/e4_0_rematch_standard.dck",
+          "Pauper": "decks/gym/league/e4_0_rematch_standard.dck",
+          "Historic": "decks/gym/league/e4_0_rematch_standard.dck",
+          "Commander": "decks/gym/league/e4_0_rematch_standard.dck"
+        }
+      },
+      {
+        "name": "Elite Mira of the Tides",
+        "sprite": "sprites/enemy/humanoid/merfolk/mermaid.atlas",
+        "life": 28,
+        "colors": "U",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/league/e4_1_standard.dck",
+          "Pauper": "decks/gym/league/e4_1_standard.dck",
+          "Historic": "decks/gym/league/e4_1_standard.dck",
+          "Commander": "decks/gym/league/e4_1_standard.dck"
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/league/e4_1_rematch_standard.dck",
+          "Pauper": "decks/gym/league/e4_1_rematch_standard.dck",
+          "Historic": "decks/gym/league/e4_1_rematch_standard.dck",
+          "Commander": "decks/gym/league/e4_1_rematch_standard.dck"
+        }
+      },
+      {
+        "name": "Elite Corvin of Night",
+        "sprite": "sprites/enemy/fiend/demon_5.atlas",
+        "life": 28,
+        "colors": "B",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/league/e4_2_standard.dck",
+          "Pauper": "decks/gym/league/e4_2_standard.dck",
+          "Historic": "decks/gym/league/e4_2_standard.dck",
+          "Commander": "decks/gym/league/e4_2_standard.dck"
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/league/e4_2_rematch_standard.dck",
+          "Pauper": "decks/gym/league/e4_2_rematch_standard.dck",
+          "Historic": "decks/gym/league/e4_2_rematch_standard.dck",
+          "Commander": "decks/gym/league/e4_2_rematch_standard.dck"
+        }
+      },
+      {
+        "name": "Elite Rixa of the Forge",
+        "sprite": "sprites/enemy/fey/faerie_dragon.atlas",
+        "life": 28,
+        "colors": "R",
+        "gamesPerMatch": 3,
+        "boss": true,
+        "decks": {
+          "Standard": "decks/gym/league/e4_3_standard.dck",
+          "Pauper": "decks/gym/league/e4_3_standard.dck",
+          "Historic": "decks/gym/league/e4_3_standard.dck",
+          "Commander": "decks/gym/league/e4_3_standard.dck"
+        },
+        "rematchDecks": {
+          "Standard": "decks/gym/league/e4_3_rematch_standard.dck",
+          "Pauper": "decks/gym/league/e4_3_rematch_standard.dck",
+          "Historic": "decks/gym/league/e4_3_rematch_standard.dck",
+          "Commander": "decks/gym/league/e4_3_rematch_standard.dck"
+        }
+      }
+    ],
+    "champion": {
+      "name": "Champion of Shandalar",
+      "sprite": "sprites/enemy/celestial/akroma.atlas",
+      "life": 36,
+      "colors": "WUBRG",
+      "gamesPerMatch": 3,
+      "boss": true,
+      "decks": {
+        "Standard": "decks/gym/league/champion_standard.dck",
+        "Pauper": "decks/gym/league/champion_standard.dck",
+        "Historic": "decks/gym/league/champion_standard.dck",
+        "Commander": "decks/gym/league/champion_standard.dck"
+      },
+      "rematchDecks": {
+        "Standard": "decks/gym/league/champion_rematch_standard.dck",
+        "Pauper": "decks/gym/league/champion_rematch_standard.dck",
+        "Historic": "decks/gym/league/champion_rematch_standard.dck",
+        "Commander": "decks/gym/league/champion_rematch_standard.dck"
+      }
+    },
+    "rewards": {
+      "gold": 2000,
+      "dustCommon": 40,
+      "dustUncommon": 20,
+      "dustRare": 10,
+      "dustMythic": 3,
+      "material": "league_champion_trophy",
+      "materialCount": 1,
+      "stapleCard": "Chromatic Lantern"
+    },
+    "rematchRewards": {
+      "gold": 800,
+      "dustCommon": 20,
+      "dustUncommon": 10,
+      "dustRare": 4,
+      "dustMythic": 1,
+      "material": "league_champion_trophy",
+      "materialCount": 1
+    }
+  }
+}

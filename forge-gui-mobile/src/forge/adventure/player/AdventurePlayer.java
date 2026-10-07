@@ -93,6 +93,19 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             "Copper Hatchet", "Copper Pickaxe", "Copper Chisel",
             "Copper Sickle", "Copper Probe", "Copper Spanner"
     };
+    /**
+     * Ascendant gym badges (Package G). Badge ids from gyms.json. Order of earning is preserved.
+     * Packages E (recipes) and J (skill trees) should call {@link #hasBadge(String)} / {@link #getBadgeCount()}.
+     */
+    private final LinkedHashSet<String> badges = new LinkedHashSet<>();
+    /** True after beating the League Champion at least once (unlocks rematches). */
+    private boolean leagueCleared = false;
+    /**
+     * Run format for gyms / League / tournaments (Package K). Until K lands every run is Standard.
+     * Saved optionally; missing → {@link forge.adventure.util.GymUtil#FORMAT_STANDARD}.
+     * Commander-mode saves always report Commander regardless of this field.
+     */
+    private String runFormat = forge.adventure.util.GymUtil.FORMAT_STANDARD;
     private EffectData blessing; //Blessing to apply for next battle.
     private final PlayerStatistic statistic = new PlayerStatistic();
     private final Map<String, Byte> questFlags = new HashMap<>();
@@ -163,6 +176,9 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         materials.clear();
         starterToolsGranted = false;
         toolbelt.clear();
+        badges.clear();
+        leagueCleared = false;
+        runFormat = GymUtil.FORMAT_STANDARD;
         maxDeckCount = 20;
         clearDecks();
         inventoryItems.clear();
@@ -771,6 +787,23 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             }
         }
         MaterialListData.migrateToolbeltFamilies(toolbelt);
+        badges.clear();
+        if (data.containsKey("badgeIds")) {
+            Object rawBadges = data.readObject("badgeIds");
+            if (rawBadges instanceof String[] ids) {
+                for (String id : ids) {
+                    if (id != null && !id.isEmpty())
+                        badges.add(id);
+                }
+            }
+        }
+        leagueCleared = data.containsKey("leagueCleared") && data.readBool("leagueCleared");
+        if (data.containsKey("runFormat")) {
+            String savedFormat = data.readString("runFormat");
+            runFormat = (savedFormat != null && !savedFormat.isEmpty()) ? savedFormat : GymUtil.FORMAT_STANDARD;
+        } else {
+            runFormat = GymUtil.FORMAT_STANDARD;
+        }
         worldPosX = data.readFloat("worldPosX");
         worldPosY = data.readFloat("worldPosY");
 
@@ -1186,6 +1219,9 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             data.storeObject("toolbeltFamilies", fams);
             data.storeObject("toolbeltItems", tItems);
         }
+        data.storeObject("badgeIds", badges.toArray(new String[0]));
+        data.store("leagueCleared", leagueCleared);
+        data.store("runFormat", runFormat != null ? runFormat : GymUtil.FORMAT_STANDARD);
         data.store("deckName", deck.getName());
 
         data.storeObject("inventory", inventoryItems.toArray(new ItemData[0]));
@@ -1430,6 +1466,115 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     public void onMaterialChange(Runnable o) {
         onMaterialChangeList.add(o);
         o.run();
+    }
+
+    // ---- Ascendant gym badges / League / run format (Package G) ----
+
+    /**
+     * Simple badge-check API for packages E (recipe gating) and J (skill trees).
+     * Stock worlds and missing badges return false.
+     */
+    public boolean hasBadge(String badgeId) {
+        return badgeId != null && badges.contains(badgeId);
+    }
+
+    /** Number of gym badges earned (0-8). */
+    public int getBadgeCount() {
+        return badges.size();
+    }
+
+    /** Unmodifiable view of earned badge ids in earn order. */
+    public Set<String> getBadges() {
+        return Collections.unmodifiableSet(badges);
+    }
+
+    /** True when all eight gym badges from gyms.json are held. */
+    public boolean hasAllGymBadges() {
+        if (!Config.ascendant())
+            return false;
+        Array<GymData> all = GymListData.getAll();
+        if (all == null || all.size == 0)
+            return false;
+        for (GymData g : all) {
+            if (g.badgeId != null && !hasBadge(g.badgeId))
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * Awards a gym badge. No-op if already held or Ascendant rules are off.
+     * @return true if this was a newly earned badge
+     */
+    public boolean addBadge(String badgeId) {
+        if (!Config.ascendant() || badgeId == null || badgeId.isEmpty())
+            return false;
+        return badges.add(badgeId);
+    }
+
+    public boolean isLeagueCleared() {
+        return leagueCleared;
+    }
+
+    public void setLeagueCleared(boolean cleared) {
+        leagueCleared = cleared;
+    }
+
+    /**
+     * Run format for gyms, League and (later) tournaments.
+     * Package K persists the New Game+ choice; until then this is always Standard.
+     */
+    public String getRunFormat() {
+        return runFormat != null && !runFormat.isEmpty() ? runFormat : GymUtil.FORMAT_STANDARD;
+    }
+
+    /** Package K sets this at New Game+. Missing on old saves → Standard. */
+    public void setRunFormat(String format) {
+        if (format == null || format.isEmpty())
+            runFormat = GymUtil.FORMAT_STANDARD;
+        else
+            runFormat = format;
+    }
+
+    /**
+     * Combined EffectData from all earned gym badges. Applied in DuelScene alongside skill perks.
+     * Empty when Ascendant is off or no badges are held.
+     */
+    public EffectData badgePerks() {
+        EffectData combined = new EffectData();
+        if (!Config.ascendant() || badges.isEmpty())
+            return combined;
+        EffectData opp = new EffectData();
+        List<String> start = new ArrayList<>();
+        List<String> startCz = new ArrayList<>();
+        for (String id : badges) {
+            GymData gym = GymListData.getByBadge(id);
+            if (gym == null || gym.badgeEffect == null)
+                continue;
+            EffectData e = gym.badgeEffect;
+            combined.lifeModifier += e.lifeModifier;
+            combined.changeStartCards += e.changeStartCards;
+            combined.extraManaShards += e.extraManaShards;
+            combined.freeMulligans += e.freeMulligans;
+            combined.cardRewardBonus += e.cardRewardBonus;
+            if (e.moveSpeed > 0 && e.moveSpeed != 1f)
+                combined.moveSpeed = (combined.moveSpeed <= 0 ? 1f : combined.moveSpeed) * e.moveSpeed;
+            if (e.startBattleWithCard != null)
+                Collections.addAll(start, e.startBattleWithCard);
+            if (e.startBattleWithCardInCommandZone != null)
+                Collections.addAll(startCz, e.startBattleWithCardInCommandZone);
+            if (e.opponent != null) {
+                opp.lifeModifier += e.opponent.lifeModifier;
+                opp.changeStartCards += e.opponent.changeStartCards;
+            }
+        }
+        if (!start.isEmpty())
+            combined.startBattleWithCard = start.toArray(new String[0]);
+        if (!startCz.isEmpty())
+            combined.startBattleWithCardInCommandZone = startCz.toArray(new String[0]);
+        if (opp.lifeModifier != 0 || opp.changeStartCards != 0)
+            combined.opponent = opp;
+        return combined;
     }
 
     public void onLifeChange(Runnable o) {

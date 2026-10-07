@@ -1764,5 +1764,149 @@
       "amount": 1
     },
     "color": ""
+  },
+  {
+    "id": "gym_white_essence",
+    "name": "Plains Essence",
+    "family": "gym",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "AWARD",
+    "biome": "white",
+    "sellPrice": 300,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    }
+  },
+  {
+    "id": "gym_blue_essence",
+    "name": "Tide Essence",
+    "family": "gym",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "AWARD",
+    "biome": "blue",
+    "sellPrice": 300,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    }
+  },
+  {
+    "id": "gym_black_essence",
+    "name": "Night Essence",
+    "family": "gym",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "AWARD",
+    "biome": "black",
+    "sellPrice": 300,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    }
+  },
+  {
+    "id": "gym_red_essence",
+    "name": "Forge Essence",
+    "family": "gym",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "AWARD",
+    "biome": "red",
+    "sellPrice": 300,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    }
+  },
+  {
+    "id": "gym_green_essence",
+    "name": "Wildwood Essence",
+    "family": "gym",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "AWARD",
+    "biome": "green",
+    "sellPrice": 300,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    }
+  },
+  {
+    "id": "gym_colorless_essence",
+    "name": "Void Essence",
+    "family": "gym",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "AWARD",
+    "biome": "waste",
+    "sellPrice": 300,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    }
+  },
+  {
+    "id": "gym_guild_essence",
+    "name": "Guild Essence",
+    "family": "gym",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "AWARD",
+    "biome": "",
+    "sellPrice": 300,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    }
+  },
+  {
+    "id": "gym_rainbow_essence",
+    "name": "Prism Essence",
+    "family": "gym",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "AWARD",
+    "biome": "",
+    "sellPrice": 300,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    }
+  },
+  {
+    "id": "league_champion_trophy",
+    "name": "League Champion Trophy",
+    "family": "gym",
+    "tier": 4,
+    "skill": "",
+    "levelRequired": 1,
+    "xp": 0,
+    "iconName": "AWARD",
+    "biome": "",
+    "sellPrice": 300,
+    "dustRefine": {
+      "rarity": "mythic",
+      "amount": 1
+    }
   }
 ]

@@ -615,6 +615,22 @@ public class MapStage extends GameStage {
                                     Forge.switchScene(RecipeScene.instance().open(station))));
                         }
                         break;
+                    case "gym":
+                        // Ascendant only — stock worlds ignore the object (no actor, no interaction).
+                        if (Config.ascendant()) {
+                            String gymId = prop.containsKey("gymId") ? prop.get("gymId").toString() : "";
+                            addMapActor(obj, new OnCollide(() -> {
+                                if (gymId == null || gymId.isEmpty())
+                                    return;
+                                forge.adventure.scene.GymScene.instance().open(gymId);
+                            }));
+                        }
+                        break;
+                    case "league":
+                        if (Config.ascendant()) {
+                            addMapActor(obj, new OnCollide(() -> forge.adventure.scene.LeagueScene.instance().open()));
+                        }
+                        break;
                     case "shardtrader":
                         MapActor shardTraderActor = new OnCollide(() -> Forge.switchScene(ShardTraderScene.instance()));
                         addMapActor(obj, shardTraderActor);

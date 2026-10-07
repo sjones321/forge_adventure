@@ -174,4 +174,13 @@ public class ConfigData {
     /** Extra gold added to the respec cost for each prior respec. */
     public int respecGoldIncrement = 500;
 
+    // ---- Ascendant gyms and League (Package G). ----
+
+    /** Best-of for gym leaders when a fighter omits gamesPerMatch (data usually sets 3). */
+    public int gymLeaderGamesPerMatch = 3;
+    /** Best-of for Elite Four and Champion when omitted in gyms.json. */
+    public int leagueGamesPerMatch = 3;
+    /** Badges required to open the League (normally equals the gym count). */
+    public int leagueBadgeRequirement = 8;
+
 }

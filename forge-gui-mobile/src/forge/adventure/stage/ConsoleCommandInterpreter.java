@@ -282,6 +282,23 @@ public class ConsoleCommandInterpreter {
             ws.debugSpawnNode(sprite);
             return "Spawned node " + id;
         });
+        registerCommand(new String[]{"give", "badge"}, s -> {
+            if (!Config.ascendant())
+                return "Badges are Ascendant-only";
+            if (s.length < 1)
+                return "Command needs 1 parameter: badge id (or 'all').";
+            if ("all".equalsIgnoreCase(s[0])) {
+                int n = 0;
+                for (forge.adventure.data.GymData g : forge.adventure.data.GymListData.getAll()) {
+                    if (g.badgeId != null && Current.player().addBadge(g.badgeId))
+                        n++;
+                }
+                return "Granted " + n + " new badges (now " + Current.player().getBadgeCount() + ")";
+            }
+            if (Current.player().addBadge(s[0]))
+                return "Granted badge " + s[0];
+            return "Already had badge " + s[0] + " (or invalid)";
+        });
         registerCommand(new String[]{"give", "life"}, s -> {
             if (s.length < 1) return "Command needs 1 parameter: Amount.";
             int amount;
