@@ -173,7 +173,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
         Current.player().getSkills().onDuelFinished(playerIsWinner, currentMob);
         if (playerIsWinner) {
             currentMob.clearCollisionHeight();
-            Current.player().win();
+            boolean boss = currentMob.getData() != null && currentMob.getData().boss;
+            Current.player().win(boss);
             player.setAnimation(CharacterSprite.AnimationTypes.Attack);
             float attackDuration = Math.max(1f,
                     player.getActionAnimationDuration(CharacterSprite.AnimationTypes.Attack, 1f));

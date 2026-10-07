@@ -855,7 +855,8 @@ public class MapStage extends GameStage {
         Current.player().getSkills().onDuelFinished(playerWins, currentMob);
         if (playerWins) {
             currentMob.clearCollisionHeight();
-            Current.player().win();
+            boolean boss = currentMob.getData() != null && currentMob.getData().boss;
+            Current.player().win(boss);
             player.setAnimation(CharacterSprite.AnimationTypes.Attack);
             float attackDuration = Math.max(1f,
                     player.getActionAnimationDuration(CharacterSprite.AnimationTypes.Attack, 1f));

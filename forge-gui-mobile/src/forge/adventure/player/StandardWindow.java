@@ -58,10 +58,16 @@ public final class StandardWindow {
     }
 
     private final List<String> sets = new ArrayList<>();
+    /** Every set code ever added to the window (including rotated-out and CORE). Used for the craftable pool. */
+    private final List<String> unlockedHistory = new ArrayList<>();
     private boolean setUnlockedThisWorld;
 
     public List<String> getSets() {
         return Collections.unmodifiableList(sets);
+    }
+
+    public List<String> getUnlockedHistory() {
+        return Collections.unmodifiableList(unlockedHistory);
     }
 
     public boolean isActive() {
@@ -79,6 +85,7 @@ public final class StandardWindow {
 
     public void clear() {
         sets.clear();
+        unlockedHistory.clear();
         setUnlockedThisWorld = false;
         choicePending = false;
     }
@@ -86,8 +93,10 @@ public final class StandardWindow {
     public void init(List<String> startingSets) {
         clear();
         for (String s : startingSets)
-            if (s != null && !sets.contains(s))
+            if (s != null && !sets.contains(s)) {
                 sets.add(s);
+                recordUnlock(s);
+            }
     }
 
     public String newestSet() {
@@ -99,8 +108,44 @@ public final class StandardWindow {
         if (code == null || sets.contains(code))
             return null;
         sets.add(code);
+        recordUnlock(code);
         setUnlockedThisWorld = true;
         return sets.size() > WINDOW_SIZE ? sets.remove(0) : null;
+    }
+
+    private void recordUnlock(String code) {
+        if (code != null && !unlockedHistory.contains(code))
+            unlockedHistory.add(code);
+    }
+
+    /**
+     * True if this set code was ever unlocked, or is one of the real sets inside an unlocked
+     * {@link #CORE_COLLECTION} entry.
+     */
+    public boolean isEverUnlocked(String code) {
+        if (code == null)
+            return false;
+        if (unlockedHistory.contains(code))
+            return true;
+        if (unlockedHistory.contains(CORE_COLLECTION)) {
+            for (String core : coreCollectionSets()) {
+                if (code.equals(core))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /** History set codes with CORE expanded to its real sets (for craftable-pool checks). */
+    public List<String> expandedHistoryCodes() {
+        List<String> codes = new ArrayList<>();
+        for (String code : unlockedHistory) {
+            if (CORE_COLLECTION.equals(code))
+                Collections.addAll(codes, coreCollectionSets());
+            else if (!codes.contains(code))
+                codes.add(code);
+        }
+        return codes;
     }
 
     // ---------------------------------------------------------------- packs for shops
@@ -508,11 +553,30 @@ public final class StandardWindow {
         return sets.toArray(new String[0]);
     }
 
+    public String[] saveHistory() {
+        return unlockedHistory.toArray(new String[0]);
+    }
+
     public void load(String[] savedSets, boolean unlocked, boolean pending) {
+        load(savedSets, unlocked, pending, null);
+    }
+
+    /**
+     * @param savedHistory every set ever unlocked; when null/empty (old saves), seeded from the current window.
+     */
+    public void load(String[] savedSets, boolean unlocked, boolean pending, String[] savedHistory) {
         clear();
         if (savedSets != null)
             Collections.addAll(sets, savedSets);
         setUnlockedThisWorld = unlocked;
         choicePending = pending;
+        if (savedHistory != null && savedHistory.length > 0) {
+            for (String code : savedHistory)
+                recordUnlock(code);
+        } else {
+            // Old save: history was not stored; treat the current window as everything ever unlocked.
+            for (String code : sets)
+                recordUnlock(code);
+        }
     }
 }

@@ -78,4 +78,23 @@ public class ConfigData {
     /** Extra gold on top of the difficulty's starting money for a sealed start. */
     public int sealedStartBonusGold = 500;
 
+    // ---- Ascendant crafting (Phase 1): dust salvage / craft. Tunables only; stock worlds leave defaults unused. ----
+
+    /** Dust granted per salvaged copy at Salvaging level 1. */
+    public int salvageDust = 10;
+    /** Dust granted per salvaged copy at Salvaging level 99 (linear between). */
+    public int salvageDustMax = 20;
+    /** Base dust cost to craft one copy at Spellsmithing level 1 (Standard-legal). */
+    public int craftCost = 50;
+    /** Multiplier on craft cost when the card is not Standard-legal right now (rotated / historic). */
+    public float historicCraftFactor = 2f;
+    /** Max Spellsmithing craft-cost discount at level 99 (0.25 = 25% off). */
+    public float craftDiscountMax = 0.25f;
+    /** Common dust granted on each duel win (Ascendant only). */
+    public int duelWinDustCommon = 2;
+    /** Rare dust granted on boss duel wins in addition to common dust (Ascendant only). */
+    public int duelWinDustBossRare = 1;
+    /** Owned copies kept before auto-salvage destroys the rest (Ascendant toggle; vaulted/deck copies protected). */
+    public int autoSalvageKeepCopies = 4;
+
 }
