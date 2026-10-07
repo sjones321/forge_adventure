@@ -66,5 +66,6 @@
     <property name="shopList" value="Island"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="49" template="../../obj/jeweler.tx" x="279" y="82"/>
+</objectgroup>
 </map>

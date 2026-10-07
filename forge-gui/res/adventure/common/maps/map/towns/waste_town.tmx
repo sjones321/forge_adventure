@@ -83,5 +83,6 @@
     <property name="shopList" value="BoosterPackShop,AlphaBoosterPackShop,BetaBoosterPackShop,GammaBoosterPackShop,DeltaBoosterPackShop,Instant,Creature,Land,Colorless,Artifact,Multicolor,Azorius,Dimir,Rakdos,Gruul,Selesnya,Orzhov,Izzet,Golgari,Boros,Simic,Golem,Sliver"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="59" template="../../obj/forge.tx" x="182" y="273"/>
+</objectgroup>
 </map>

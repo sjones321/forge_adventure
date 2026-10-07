@@ -5,6 +5,7 @@ import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.scenes.scene2d.actions.Actions;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Null;
+import com.badlogic.gdx.utils.ObjectMap;
 import com.github.tommyettinger.textra.TextraLabel;
 import com.google.common.collect.Lists;
 
@@ -1805,6 +1806,124 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         addDust(dustBucket, total);
         skills.onMaterialRefined(total);
         return total;
+    }
+
+    // ---- Ascendant stations (Package E): craft recipes at Forge / Workshop / Apothecary / Jeweler. ----
+
+    /** Gold cost after skill-level discount (Config {@code stationCraftGoldDiscountMax}). */
+    public int recipeGoldCost(RecipeData recipe) {
+        if (recipe == null)
+            return 0;
+        int base = Math.max(0, recipe.gold);
+        if (base == 0 || !Config.ascendant())
+            return base;
+        PlayerSkills.Skill skill = PlayerSkills.Skill.fromName(recipe.skill);
+        if (skill == null)
+            return base;
+        float max = Config.instance().getConfigData().stationCraftGoldDiscountMax;
+        float t = (skills.getLevel(skill) - 1) / 98f;
+        float discount = Math.max(0f, Math.min(1f, max)) * Math.max(0f, Math.min(1f, t));
+        return Math.max(0, Math.round(base * (1f - discount)));
+    }
+
+    /** True when level, gold, materials, and result are all satisfiable. */
+    public boolean canCraftRecipe(RecipeData recipe) {
+        return craftRecipeBlockers(recipe).isEmpty();
+    }
+
+    /**
+     * Human-readable blockers for the UI (empty if craftable).
+     * Missing materials are listed; under-level and gold shortfalls too.
+     */
+    public List<String> craftRecipeBlockers(RecipeData recipe) {
+        List<String> blockers = new ArrayList<>();
+        if (!Config.ascendant() || recipe == null) {
+            blockers.add("Unavailable");
+            return blockers;
+        }
+        PlayerSkills.Skill skill = PlayerSkills.Skill.fromName(recipe.skill);
+        if (skill == null)
+            blockers.add("Unknown skill");
+        else if (skills.getLevel(skill) < recipe.levelRequired)
+            blockers.add(skill.displayName + " " + recipe.levelRequired + " required (have "
+                    + skills.getLevel(skill) + ")");
+        int goldCost = recipeGoldCost(recipe);
+        if (goldCost > 0 && getGold() < goldCost)
+            blockers.add("Need " + goldCost + " gold (have " + getGold() + ")");
+        for (ObjectMap.Entry<String, Integer> e : recipe.getMaterials()) {
+            if (e.key == null || e.value == null || e.value <= 0)
+                continue;
+            int have = getMaterial(e.key);
+            if (have < e.value) {
+                MaterialData mat = MaterialListData.get(e.key);
+                String label = mat != null ? mat.getDisplayName() : e.key;
+                blockers.add("Need " + e.value + "× " + label + " (have " + have + ")");
+            }
+        }
+        if (recipe.isPotion()) {
+            if (recipe.blessing == null)
+                blockers.add("Potion has no blessing effect");
+        } else if (recipe.isTool()) {
+            // Package B owns the toolbelt; until then tools craft as inventory items when defined.
+            if (recipe.result == null || recipe.result.isEmpty() || ItemListData.getItem(recipe.result) == null)
+                blockers.add("Tool item not defined yet");
+        } else {
+            if (recipe.result == null || recipe.result.isEmpty() || ItemListData.getItem(recipe.result) == null)
+                blockers.add("Result item missing: " + recipe.result);
+        }
+        return blockers;
+    }
+
+    /**
+     * Spend gold and materials, grant the recipe result, and award skill XP.
+     * Returns false if any requirement fails (nothing spent).
+     */
+    public boolean craftRecipe(RecipeData recipe) {
+        if (!canCraftRecipe(recipe))
+            return false;
+        int goldCost = recipeGoldCost(recipe);
+        // Snapshot materials first so a mid-loop failure cannot partial-spend.
+        List<String> matIds = new ArrayList<>();
+        List<Integer> matCounts = new ArrayList<>();
+        for (ObjectMap.Entry<String, Integer> e : recipe.getMaterials()) {
+            if (e.key != null && e.value != null && e.value > 0) {
+                matIds.add(e.key);
+                matCounts.add(e.value);
+            }
+        }
+        for (int i = 0; i < matIds.size(); i++) {
+            if (getMaterial(matIds.get(i)) < matCounts.get(i))
+                return false;
+        }
+        if (goldCost > 0 && getGold() < goldCost)
+            return false;
+
+        for (int i = 0; i < matIds.size(); i++) {
+            if (!takeMaterial(matIds.get(i), matCounts.get(i)))
+                return false; // should not happen after checks
+        }
+        if (goldCost > 0)
+            takeGold(goldCost);
+
+        boolean granted;
+        if (recipe.isPotion()) {
+            addBlessing(new EffectData(recipe.blessing));
+            granted = true;
+        } else {
+            granted = addItem(recipe.result);
+        }
+        if (!granted) {
+            // Refund on grant failure (should be rare — blockers already checked).
+            if (goldCost > 0)
+                giveGold(goldCost);
+            for (int i = 0; i < matIds.size(); i++)
+                addMaterial(matIds.get(i), matCounts.get(i));
+            return false;
+        }
+
+        PlayerSkills.Skill skill = PlayerSkills.Skill.fromName(recipe.skill);
+        skills.onRecipeCrafted(skill, Math.max(0, recipe.xp));
+        return true;
     }
 
     /**

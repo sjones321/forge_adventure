@@ -37,12 +37,33 @@ public class PlayerSkills {
         EXPLORATION("Exploration"),
         SALVAGING("Salvaging"),
         SPELLSMITHING("Spellsmithing"),
-        BARTERING("Bartering");
+        BARTERING("Bartering"),
+        // Package E crafting skills (gathering skills from Package B land separately).
+        SMITHING("Smithing"),
+        WOODWORKING("Woodworking"),
+        ALCHEMY("Alchemy"),
+        JEWELCRAFTING("Jewelcrafting");
 
         public final String displayName;
 
         Skill(String displayName) {
             this.displayName = displayName;
+        }
+
+        /** Resolve by enum name or display name; unknown → null. */
+        public static Skill fromName(String name) {
+            if (name == null || name.isEmpty())
+                return null;
+            try {
+                return Skill.valueOf(name.trim().toUpperCase().replace(' ', '_'));
+            } catch (IllegalArgumentException ignored) {
+                // fall through to display-name match
+            }
+            for (Skill s : values()) {
+                if (s.displayName.equalsIgnoreCase(name.trim()))
+                    return s;
+            }
+            return null;
         }
     }
 
@@ -272,6 +293,12 @@ public class PlayerSkills {
     public void onMaterialsSold(int unitCount, int goldEarned) {
         if (unitCount > 0)
             addXp(Skill.BARTERING, unitCount * 2 + Math.max(0, goldEarned) / 4);
+    }
+
+    /** A station recipe was crafted; XP comes from the recipe's {@code xp} field. */
+    public void onRecipeCrafted(Skill skill, int xp) {
+        if (skill != null && xp > 0)
+            addXp(skill, xp);
     }
 
     // ---- color perks: unlocked at levels 15, 40 and 75 of each color skill ----

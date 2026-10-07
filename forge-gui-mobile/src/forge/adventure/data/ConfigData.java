@@ -123,4 +123,12 @@ public class ConfigData {
     /** Units granted when a non-boss material drop succeeds. */
     public int enemyMaterialDropCount = 1;
 
+    // ---- Ascendant stations (Package E): recipe crafting at Forge / Workshop / Apothecary / Jeweler. ----
+
+    /**
+     * Max gold-cost discount for station recipes at crafting-skill level 99
+     * (0.25 = 25% off). Linear from 0 at level 1.
+     */
+    public float stationCraftGoldDiscountMax = 0.25f;
+
 }

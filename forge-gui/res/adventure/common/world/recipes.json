@@ -1,0 +1,122 @@
+[
+  {
+    "id": "sample_bronze_sword",
+    "station": "forge",
+    "result": "Bronze Sword",
+    "resultType": "item",
+    "materials": {
+      "copper": 3,
+      "rough_stone": 1
+    },
+    "gold": 25,
+    "skill": "Smithing",
+    "levelRequired": 1,
+    "xp": 40
+  },
+  {
+    "id": "sample_iron_boots",
+    "station": "forge",
+    "result": "Iron Boots",
+    "resultType": "item",
+    "materials": {
+      "iron": 4,
+      "rough_stone": 2
+    },
+    "gold": 60,
+    "skill": "Smithing",
+    "levelRequired": 15,
+    "xp": 90
+  },
+  {
+    "id": "sample_oak_shield",
+    "station": "workshop",
+    "result": "Jungle Shield",
+    "resultType": "item",
+    "materials": {
+      "oak": 5
+    },
+    "gold": 30,
+    "skill": "Woodworking",
+    "levelRequired": 1,
+    "xp": 40
+  },
+  {
+    "id": "sample_willow_axe",
+    "station": "workshop",
+    "result": "Axt",
+    "resultType": "item",
+    "materials": {
+      "willow": 4,
+      "iron": 1
+    },
+    "gold": 55,
+    "skill": "Woodworking",
+    "levelRequired": 15,
+    "xp": 85
+  },
+  {
+    "id": "sample_vigor_draught",
+    "station": "apothecary",
+    "result": "Vigor Draught",
+    "resultType": "potion",
+    "materials": {
+      "nightshade": 2,
+      "quartz": 1
+    },
+    "gold": 20,
+    "skill": "Alchemy",
+    "levelRequired": 1,
+    "xp": 35,
+    "blessing": {
+      "name": "Vigor Draught",
+      "lifeModifier": 2
+    }
+  },
+  {
+    "id": "sample_grave_elixir",
+    "station": "apothecary",
+    "result": "Grave Elixir",
+    "resultType": "potion",
+    "materials": {
+      "grave_moss": 3,
+      "bone": 1
+    },
+    "gold": 45,
+    "skill": "Alchemy",
+    "levelRequired": 15,
+    "xp": 80,
+    "blessing": {
+      "name": "Grave Elixir",
+      "lifeModifier": 3,
+      "changeStartCards": 1
+    }
+  },
+  {
+    "id": "sample_life_amulet",
+    "station": "jeweler",
+    "result": "Life Amulet",
+    "resultType": "item",
+    "materials": {
+      "quartz": 2,
+      "garnet": 1
+    },
+    "gold": 50,
+    "skill": "Jewelcrafting",
+    "levelRequired": 1,
+    "xp": 45
+  },
+  {
+    "id": "sample_prism_ring",
+    "station": "jeweler",
+    "result": "Prism Ring",
+    "resultType": "item",
+    "materials": {
+      "azure": 2,
+      "sapphire": 1
+    },
+    "gold": 80,
+    "skill": "Jewelcrafting",
+    "levelRequired": 15,
+    "xp": 95
+  }
+]

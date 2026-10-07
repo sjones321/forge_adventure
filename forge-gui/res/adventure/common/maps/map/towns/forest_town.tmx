@@ -66,5 +66,6 @@
     <property name="shopList" value="Forest"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="49" template="../../obj/workshop.tx" x="185" y="178"/>
+</objectgroup>
 </map>

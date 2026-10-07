@@ -108,5 +108,6 @@
     <property name="uncommonShopList" value="Artifact,Elf,Wolf4Green,Druid,Squirrel,Sliver2Green,Wand,Equip,Multicolor"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="53" template="../../obj/workshop.tx" x="185" y="178"/>
+</objectgroup>
 </map>

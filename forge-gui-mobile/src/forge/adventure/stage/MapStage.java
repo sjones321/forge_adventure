@@ -603,6 +603,18 @@ public class MapStage extends GameStage {
                     case "spellsmith":
                         addMapActor(obj, new OnCollide(() -> Forge.switchScene(SpellSmithScene.instance())));
                         break;
+                    case "forge":
+                    case "workshop":
+                    case "apothecary":
+                    case "jeweler":
+                        // Ascendant crafting stations (Package E). Stock worlds keep the map
+                        // objects inert so existing saves and other planes are unchanged.
+                        if (Config.ascendant()) {
+                            final String station = type;
+                            addMapActor(obj, new OnCollide(() ->
+                                    Forge.switchScene(RecipeScene.instance().open(station))));
+                        }
+                        break;
                     case "shardtrader":
                         MapActor shardTraderActor = new OnCollide(() -> Forge.switchScene(ShardTraderScene.instance()));
                         addMapActor(obj, shardTraderActor);

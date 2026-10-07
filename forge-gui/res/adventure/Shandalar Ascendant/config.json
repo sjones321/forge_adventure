@@ -19,6 +19,7 @@
   "refineDustMax": 2,
   "enemyMaterialDropChance": 0.4,
   "enemyMaterialDropCount": 1,
+  "stationCraftGoldDiscountMax": 0.25,
   "screenWidth": 480,
   "screenHeight": 270,
   "skin": "skin/ui_skin.json",

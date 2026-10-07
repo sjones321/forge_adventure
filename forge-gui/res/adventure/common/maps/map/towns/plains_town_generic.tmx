@@ -110,5 +110,7 @@
    </properties>
   </object>
   <object id="59" template="../../obj/shardtrader.tx" x="128" y="130"/>
- </objectgroup>
+   <object id="60" template="../../obj/forge.tx" x="256" y="211"/>
+  <object id="61" template="../../obj/workshop.tx" x="272" y="227"/>
+</objectgroup>
 </map>
