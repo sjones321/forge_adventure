@@ -480,10 +480,17 @@ public class World implements Disposable, SaveFileContent {
             Pixmap mapMarkerPixmap = texture.consumePixmap();
             clearTerrain((int) (data.width * data.playerStartPosX), (int) (data.height * data.playerStartPosY), 10);
 
-            // Capitals first, then towns, then everything else — capitals are never skipped.
+            // Town spacing on (Ascendant): capitals first, then towns, then everything else, so capitals are
+            // never skipped. Off (stock worlds): the original biome-by-biome order, so seeds give the same maps.
             List<BiomeData> biomes = data.GetBiomes();
+            boolean legacyPlacement = data.minTownSpacing <= 0;
             List<int[]> placeOrder = new ArrayList<>(); // [biomeIndex, poiIndexInBiomeList]
-            for (int phase = 0; phase < 3; phase++) {
+            if (legacyPlacement) {
+                for (int bi = 0; bi < biomes.size(); bi++)
+                    for (int pi = 0; pi < biomes.get(bi).getPointsOfInterest().size(); pi++)
+                        placeOrder.add(new int[]{bi, pi});
+            }
+            for (int phase = 0; phase < 3 && !legacyPlacement; phase++) {
                 for (int bi = 0; bi < biomes.size(); bi++) {
                     ArrayList<PointOfInterestData> pois = biomes.get(bi).getPointsOfInterest();
                     for (int pi = 0; pi < pois.size(); pi++) {
@@ -540,12 +547,17 @@ public class World implements Disposable, SaveFileContent {
                                     && pointBlocked(x, y, townSpacingPoints));
                             if (blocked) {
                                 boolean foundSolution = false;
-                                for (int xi = -1; xi < 2 && !foundSolution; xi++) {
-                                    for (int yi = -1; yi < 2 && !foundSolution; yi++) {
+                                boolean legacyGaveUp = false;
+                                for (int xi = -1; xi < 2 && !foundSolution && !legacyGaveUp; xi++) {
+                                    for (int yi = -1; yi < 2 && !foundSolution && !legacyGaveUp; yi++) {
                                         float nx = x + xi * data.tileSize;
                                         float ny = y + yi * data.tileSize;
-                                        if (pointBlocked(nx, ny, otherPoints))
+                                        if (pointBlocked(nx, ny, otherPoints)) {
+                                            // Stock worlds keep the original search, which stopped at the first
+                                            // blocked neighbour and retried at random instead.
+                                            legacyGaveUp = legacyPlacement;
                                             continue;
+                                        }
                                         if (isTownOrCapital && data.minTownSpacing > 0
                                                 && pointBlocked(nx, ny, townSpacingPoints))
                                             continue;
