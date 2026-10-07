@@ -7,6 +7,7 @@ import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.utils.Array;
 import com.github.tommyettinger.textra.TextraButton;
 import forge.adventure.data.RewardData;
+import forge.adventure.data.SkillTreeListData;
 import forge.card.CardEdition;
 import java.util.List;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
@@ -18,12 +19,13 @@ import forge.Adventure;
 import forge.Forge;
 import forge.adventure.player.PlayerSkills;
 import forge.adventure.player.StandardWindow;
+import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 import forge.adventure.util.Current;
 
 /**
  * Lists every skill with its level, XP and progress to the next level.
- * Reached from the Status and Quests screens.
+ * Reached from the Status and Quests screens. Ascendant skills open a talent tree.
  */
 public class SkillsScene extends UIScene {
     private final Table scrollContainer;
@@ -80,12 +82,20 @@ public class SkillsScene extends UIScene {
                 int next = PlayerSkills.xpForLevel(level + 1);
                 progress = String.format("%,d / %,d", xp, next);
             }
-            addRow("[BLACK]" + skill.displayName, "[BLACK]" + level, "[DARK_GRAY]" + progress);
-            String[] perks = PlayerSkills.colorPerks(skill);
-            if (perks != null)
-                addPerkLine(perks, level);
+            if (Config.ascendant()) {
+                addSkillRow(skill, level, progress, skills);
+            } else {
+                addRow("[BLACK]" + skill.displayName, "[BLACK]" + level, "[DARK_GRAY]" + progress);
+            }
         }
         addRow("[BLACK]Total level", "[BLACK]" + skills.getTotalLevel(), "");
+        if (Config.ascendant()) {
+            TypingLabel slots = label("[DARK_GRAY]Perk slots: " + skills.getSlottedPerks().size()
+                    + " / " + skills.perkSlotCount() + "  (open a skill tree to manage)");
+            slots.setWrap(true);
+            scrollContainer.add(slots).colspan(3).align(Align.left).padLeft(10).growX();
+            scrollContainer.row().padTop(4);
+        }
 
         StandardWindow window = Current.player().getStandardWindow();
         if (window.isActive()) {
@@ -102,6 +112,33 @@ public class SkillsScene extends UIScene {
                 addSetChoice(window);
         }
         performTouch(scrollPaneOfActor(scrollContainer)); //mouse wheel scrolling
+    }
+
+    private void addSkillRow(PlayerSkills.Skill skill, int level, String progress, PlayerSkills skills) {
+        TextraButton nameBtn = Controls.newTextButton(skill.displayName);
+        nameBtn.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                Forge.switchScene(SkillTreeScene.instance(lastGameScene, skill), true);
+            }
+        });
+        scrollContainer.add(nameBtn).align(Align.left).expandX().padLeft(10);
+        scrollContainer.add(label("[BLACK]" + level)).align(Align.center).padRight(15);
+        scrollContainer.add(label("[DARK_GRAY]" + progress)).align(Align.right).padRight(10);
+        scrollContainer.row().padTop(1);
+        addToSelectable(nameBtn);
+
+        int avail = skills.talentPointsAvailable(skill);
+        int earned = skills.talentPointsEarned(skill);
+        boolean hasTree = !SkillTreeListData.get(skill).isEmpty();
+        String treeLine = hasTree
+                ? "Tree · " + avail + " / " + earned + " points"
+                + (skills.hasSkillCape(skill) ? " · cape" : "")
+                : "No tree data yet · " + avail + " / " + earned + " points stored";
+        TypingLabel line = label("[DARK_GRAY][%80]" + treeLine);
+        line.setWrap(true);
+        scrollContainer.add(line).colspan(3).align(Align.left).padLeft(24).growX();
+        scrollContainer.row().padTop(3);
     }
 
     /** After mastering a set: pick the next Standard set from every set with packs. */
@@ -149,25 +186,6 @@ public class SkillsScene extends UIScene {
         scrollContainer.add(unlock).padRight(10);
         addToSelectable(box);
         addToSelectable(unlock);
-    }
-
-    /** Under a color skill: unlocked perks, then the next one and the level it unlocks at. */
-    private void addPerkLine(String[] perks, int level) {
-        StringBuilder sb = new StringBuilder();
-        String next = null;
-        for (int i = 0; i < perks.length; i++) {
-            int at = PlayerSkills.COLOR_PERK_LEVELS[i];
-            if (level >= at)
-                sb.append(sb.length() == 0 ? "" : ", ").append(perks[i]);
-            else if (next == null)
-                next = "next at " + at + ": " + perks[i];
-        }
-        String text = (sb.length() == 0 ? "" : "[FOREST]" + sb + "[DARK_GRAY]" + (next == null ? "" : "; "))
-                + (next == null ? "" : next);
-        TypingLabel line = label("[DARK_GRAY][%80]" + text);
-        line.setWrap(true);
-        scrollContainer.add(line).colspan(3).align(Align.left).padLeft(24).growX();
-        scrollContainer.row().padTop(1);
     }
 
     private void addRow(String name, String level, String xp) {

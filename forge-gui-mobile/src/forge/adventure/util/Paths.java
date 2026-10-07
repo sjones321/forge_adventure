@@ -14,6 +14,7 @@ public class Paths {
     public static final String ENEMY_MATERIAL_DROPS = "world/enemy_material_drops.json";
     public static final String RECIPES = "world/recipes.json";
 
+    public static final String SKILL_TREES = "world/skill_trees.json";
     public static final String QUESTS = "world/quests.json";
     public static final String SKIN = "skin/ui_skin.json";
     public static final String ITEMS_EQUIP = "skin/equip.png";

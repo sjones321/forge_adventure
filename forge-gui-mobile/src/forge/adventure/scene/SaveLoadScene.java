@@ -321,6 +321,7 @@ public class SaveLoadScene extends UIScene {
                                 Current.player().getQuests().clear();
                                 Current.player().resetQuestFlags();
                                 Current.player().setCharacterFlag("newGamePlus", 1);
+                                Current.player().getSkills().grantFreeRespec();
                                 Current.player().getStandardWindow().startNewWorld(); // one more set unlock in the new world
                                 Current.player().removeAllQuestItems();
                                 AdventurePlayer.current().addQuest("28", true);

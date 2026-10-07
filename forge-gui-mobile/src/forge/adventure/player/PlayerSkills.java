@@ -2,8 +2,14 @@ package forge.adventure.player;
 
 import forge.adventure.character.EnemySprite;
 import forge.adventure.character.PlayerSprite;
+import forge.adventure.data.ConfigData;
+import forge.adventure.data.EffectData;
 import forge.adventure.data.EnemyData;
+import forge.adventure.data.SkillTreeData;
+import forge.adventure.data.SkillTreeListData;
+import forge.adventure.data.SkillTreeNodeData;
 import forge.adventure.stage.GameHUD;
+import forge.adventure.util.Config;
 import forge.card.CardRarity;
 import forge.card.ColorSet;
 import forge.card.MagicColor;
@@ -11,20 +17,25 @@ import forge.deck.Deck;
 import forge.deck.DeckSection;
 import forge.item.PaperCard;
 
-import forge.adventure.data.EffectData;
-
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * RuneScape-style skills: XP per skill, levels 1-99 on the RuneScape XP curve.
- * XP is earned from normal play (duels, new cards, exploring, Spell Smith) and is
- * saved with the character, so it carries over into New Game+.
+ * Ascendant adds talent points and data-driven skill trees (package J).
  */
 public class PlayerSkills {
     public static final int MAX_LEVEL = 99;
+
+    /** Legacy color-perk unlock levels (pre-tree). Kept for migration messaging and Unlocks history. */
+    public static final int[] COLOR_PERK_LEVELS = {15, 40, 75};
 
     public enum Skill {
         DUELING("Dueling"),
@@ -93,7 +104,26 @@ public class PlayerSkills {
     private static final Skill[] COLOR_SKILLS = {Skill.WHITE, Skill.BLUE, Skill.BLACK, Skill.RED, Skill.GREEN};
     private static final byte[] COLORS = {MagicColor.WHITE, MagicColor.BLUE, MagicColor.BLACK, MagicColor.RED, MagicColor.GREEN};
 
+    /** Descriptions of the retired flat color perks (for Unlocks / migration copy). */
+    private static final Map<Skill, String[]> LEGACY_COLOR_PERKS = new EnumMap<>(Skill.class);
+
+    static {
+        LEGACY_COLOR_PERKS.put(Skill.WHITE, new String[]{"+2 starting life in duels", "Start duels with a Food token", "Start duels with a 1/1 Soldier"});
+        LEGACY_COLOR_PERKS.put(Skill.BLUE, new String[]{"Spell Smith 15% cheaper", "+1 mana shard each duel", "+1 card in your opening hand"});
+        LEGACY_COLOR_PERKS.put(Skill.BLACK, new String[]{"Opponents start with 1 less life", "Start duels with a Clue token", "Opponents start with 1 fewer card"});
+        LEGACY_COLOR_PERKS.put(Skill.RED, new String[]{"Walk 5% faster", "Opponents start with 2 less life", "Start duels with a Treasure token"});
+        LEGACY_COLOR_PERKS.put(Skill.GREEN, new String[]{"+3 starting life in duels", "+1 bonus card reward after wins", "Start duels with an extra Forest in play"});
+    }
+
     private final Map<Skill, Integer> xp = new EnumMap<>(Skill.class);
+    /** Purchased talent ranks: node id → ranks. */
+    private final Map<String, Integer> nodeRanks = new HashMap<>();
+    /** Slotted duel-perk node ids (order preserved). */
+    private final List<String> slottedPerks = new ArrayList<>();
+    private final Set<Skill> skillCapes = new HashSet<>();
+    private int respecCount;
+    private boolean freeRespecPending;
+    private boolean colorPerksRefunded;
 
     public static int xpForLevel(int level) {
         return XP_FOR_LEVEL[Math.max(1, Math.min(level, MAX_LEVEL))];
@@ -104,6 +134,27 @@ public class PlayerSkills {
         while (level < MAX_LEVEL && totalXp >= XP_FOR_LEVEL[level + 1])
             level++;
         return level;
+    }
+
+    /**
+     * Talent points earned from reaching {@code level}.
+     * 2 points at every multiple of 10; 1 point at other multiples of 5. 28 by level 99.
+     */
+    public static int talentPointsForLevel(int level) {
+        int points = 0;
+        int capped = Math.max(1, Math.min(level, MAX_LEVEL));
+        for (int lv = 5; lv <= capped; lv += 5) {
+            if (lv % 10 == 0)
+                points += 2;
+            else
+                points += 1;
+        }
+        return points;
+    }
+
+    /** Legacy flat color perk lines, or null for non-color skills. */
+    public static String[] colorPerks(Skill skill) {
+        return LEGACY_COLOR_PERKS.get(skill);
     }
 
     public int getXp(Skill skill) {
@@ -123,11 +174,17 @@ public class PlayerSkills {
 
     public void clear() {
         xp.clear();
+        nodeRanks.clear();
+        slottedPerks.clear();
+        skillCapes.clear();
+        respecCount = 0;
+        freeRespecPending = false;
+        colorPerksRefunded = false;
     }
 
     /** Adds XP and announces it; returns the number of levels gained. */
     public int addXp(Skill skill, int amount) {
-        if (amount <= 0 || !forge.adventure.util.Config.ascendant())
+        if (amount <= 0 || !Config.ascendant())
             return 0;
         int before = getLevel(skill);
         xp.put(skill, Math.min(getXp(skill) + amount, 200_000_000));
@@ -141,19 +198,19 @@ public class PlayerSkills {
     }
 
     private void onLevelUp(Skill skill, int before, int after) {
-        announcePerks(skill, before, after);
+        int gained = talentPointsForLevel(after) - talentPointsForLevel(before);
+        if (gained > 0)
+            notify("[GOLD]" + skill.displayName + ":[] +" + gained + " talent point" + (gained > 1 ? "s" : "")
+                    + " (Skills → Tree)");
         List<String> staples = StandardWindow.newlyUnlockedStaples(skill, before, after);
         if (!staples.isEmpty()) {
             notify("[GOLD]New " + skill.displayName + " staple:[] " + String.join(", ", staples)
                     + " (now in shops and Spell Smith, always Standard-legal)");
             forge.adventure.data.RewardData.invalidateCardPool();
         }
-        if (skill == Skill.RED)
-            AdventurePlayer.current().refreshSkillEffects(); // Red 15 move speed
-        if (skill == Skill.EXPLORATION)
-            AdventurePlayer.current().refreshSkillEffects(); // move speed changed
+        if (skill == Skill.EXPLORATION || skill == Skill.RED)
+            AdventurePlayer.current().refreshSkillEffects();
         if (skill == Skill.DUELING) {
-            // +1 max life at every 10th Dueling level
             int lifeGained = after / 10 - before / 10;
             if (lifeGained > 0) {
                 AdventurePlayer.current().addMaxLife(lifeGained);
@@ -162,7 +219,6 @@ public class PlayerSkills {
         }
     }
 
-    /** Floating "+N Skill XP" above the player, stacked by skill so simultaneous drops don't overlap. */
     private static void showXpDrop(Skill skill, int amount) {
         try {
             AdventurePlayer player = AdventurePlayer.current();
@@ -186,7 +242,6 @@ public class PlayerSkills {
 
     // ---- XP sources ----
 
-    /** Duel against a map enemy finished (overworld or dungeon). */
     public void onDuelFinished(boolean won, EnemySprite enemy) {
         if (enemy == null || enemy.getData() == null)
             return;
@@ -194,7 +249,6 @@ public class PlayerSkills {
         onDuelFinished(won, data.difficulty, data.life, data.boss, AdventurePlayer.current().getSelectedDeck());
     }
 
-    /** Win XP scales with the enemy's difficulty and life; losses earn a quarter. */
     public void onDuelFinished(boolean won, float enemyDifficulty, int enemyLife, boolean boss, Deck playerDeck) {
         float base = 60 + 40 * Math.max(0f, enemyDifficulty) + 3 * Math.max(0, enemyLife);
         if (boss)
@@ -204,7 +258,6 @@ public class PlayerSkills {
         awardColorXp(playerDeck, amount);
     }
 
-    /** Splits XP across the color skills by how much of the deck's nonland cards are each color. */
     private void awardColorXp(Deck deck, int amount) {
         if (deck == null)
             return;
@@ -229,7 +282,6 @@ public class PlayerSkills {
         }
     }
 
-    /** A card entered the collection. First copies of a card name pay by rarity; repeats pay a little. */
     public void onCardCollected(PaperCard card, boolean firstCopy) {
         int amount;
         if (!firstCopy) {
@@ -250,7 +302,6 @@ public class PlayerSkills {
         addXp(Skill.COLLECTING, amount);
     }
 
-    /** First visit to a point of interest; type comes from its data (town, capital, castle, cave, dungeon...). */
     public void onPlaceDiscovered(String type) {
         int amount;
         if (type == null)
@@ -266,41 +317,34 @@ public class PlayerSkills {
         addXp(Skill.EXPLORATION, amount);
     }
 
-    /** A Spell Smith pull was accepted; XP follows what was paid. */
     public void onSpellSmithPaid(int gold, int shards) {
         addXp(Skill.SPELLSMITHING, gold / 5 + shards * 25);
     }
 
-    /** Shop purchase; XP follows gold spent. */
     public void onShopPurchase(int goldSpent) {
         addXp(Skill.BARTERING, Math.max(1, goldSpent / 4));
     }
 
-    /** Cards sold for gold (single or bulk). XP per card plus a share of the gold, so selling chaff still counts. */
     public void onCardsSold(int cardCount, int goldEarned) {
         if (cardCount > 0)
             addXp(Skill.SALVAGING, cardCount * 3 + goldEarned / 2);
     }
 
-    /** Cards salvaged for dust. Same scale as selling: per card plus a share of the dust earned. */
     public void onCardsSalvaged(int cardCount, int dustEarned) {
         if (cardCount > 0)
             addXp(Skill.SALVAGING, cardCount * 3 + dustEarned / 2);
     }
 
-    /** A card was crafted from dust; XP follows dust spent (similar to Spell Smith shard/gold spend). */
     public void onCardCrafted(int dustSpent) {
         if (dustSpent > 0)
             addXp(Skill.SPELLSMITHING, Math.max(1, dustSpent));
     }
 
-    /** Materials refined into dust at Spell Smith; XP follows dust granted. */
     public void onMaterialRefined(int dustGranted) {
         if (dustGranted > 0)
             addXp(Skill.SPELLSMITHING, Math.max(1, dustGranted));
     }
 
-    /** Materials sold for gold (inventory Materials tab). XP shares Bartering with shop sales. */
     public void onMaterialsSold(int unitCount, int goldEarned) {
         if (unitCount > 0)
             addXp(Skill.BARTERING, unitCount * 2 + Math.max(0, goldEarned) / 4);
@@ -321,112 +365,401 @@ public class PlayerSkills {
             return 1f;
         float t = (getLevel(skill) - 1) / (float) (MAX_LEVEL - 1);
         return 1f - (1f - minFactor) * Math.max(0f, Math.min(1f, t));
+    }
+
     /** A station recipe was crafted; XP comes from the recipe's {@code xp} field. */
     public void onRecipeCrafted(Skill skill, int xp) {
         if (skill != null && xp > 0)
             addXp(skill, xp);
     }
 
-    // ---- color perks: unlocked at levels 15, 40 and 75 of each color skill ----
+    // ---- talent points / trees ----
 
-    public static final int[] COLOR_PERK_LEVELS = {15, 40, 75};
-    private static final Map<Skill, String[]> COLOR_PERKS = new EnumMap<>(Skill.class);
-
-    static {
-        COLOR_PERKS.put(Skill.WHITE, new String[]{"+2 starting life in duels", "Start duels with a Food token", "Start duels with a 1/1 Soldier"});
-        COLOR_PERKS.put(Skill.BLUE, new String[]{"Spell Smith 15% cheaper", "+1 mana shard each duel", "+1 card in your opening hand"});
-        COLOR_PERKS.put(Skill.BLACK, new String[]{"Opponents start with 1 less life", "Start duels with a Clue token", "Opponents start with 1 fewer card"});
-        COLOR_PERKS.put(Skill.RED, new String[]{"Walk 5% faster", "Opponents start with 2 less life", "Start duels with a Treasure token"});
-        COLOR_PERKS.put(Skill.GREEN, new String[]{"+3 starting life in duels", "+1 bonus card reward after wins", "Start duels with an extra Forest in play"});
-    }
-
-    /** Perk descriptions for a color skill, or null for other skills. */
-    public static String[] colorPerks(Skill skill) {
-        return COLOR_PERKS.get(skill);
-    }
-
-    private boolean hasPerk(Skill skill, int tier) {
-        return forge.adventure.util.Config.ascendant() && getLevel(skill) >= COLOR_PERK_LEVELS[tier];
-    }
-
-    /** Skill-based perks only exist in the Shandalar Ascendant rules. */
     private boolean rulesOn() {
-        return forge.adventure.util.Config.ascendant();
+        return Config.ascendant();
     }
 
-    /** Duel-start effects from color perks (life, tokens, mana shards, opening hand, opponent effects). */
+    public int talentPointsEarned(Skill skill) {
+        return talentPointsForLevel(getLevel(skill));
+    }
+
+    public int talentPointsSpent(Skill skill) {
+        if (!rulesOn())
+            return 0;
+        SkillTreeData tree = SkillTreeListData.get(skill);
+        if (tree.isEmpty())
+            return 0;
+        int spent = 0;
+        for (SkillTreeNodeData n : tree.nodes) {
+            if (n == null || n.id == null)
+                continue;
+            int ranks = nodeRanks.getOrDefault(n.id, 0);
+            if (ranks > 0)
+                spent += ranks * Math.max(1, n.cost);
+        }
+        return spent;
+    }
+
+    public int talentPointsAvailable(Skill skill) {
+        return Math.max(0, talentPointsEarned(skill) - talentPointsSpent(skill));
+    }
+
+    public int getNodeRanks(String nodeId) {
+        return nodeRanks.getOrDefault(nodeId, 0);
+    }
+
+    public boolean hasSkillCape(Skill skill) {
+        return skillCapes.contains(skill);
+    }
+
+    public List<String> getSlottedPerks() {
+        return new ArrayList<>(slottedPerks);
+    }
+
+    public int perkSlotCount() {
+        if (!rulesOn())
+            return 0;
+        ConfigData cfg = Config.instance().getConfigData();
+        int base = Math.max(0, cfg.perkSlotsBase);
+        int max = Math.max(base, cfg.perkSlotsMax);
+        int step = Math.max(1, cfg.perkSlotTotalLevelsPerSlot);
+        return Math.min(max, base + getTotalLevel() / step);
+    }
+
+    public int respecCostGold() {
+        if (!rulesOn())
+            return 0;
+        if (freeRespecPending)
+            return 0;
+        ConfigData cfg = Config.instance().getConfigData();
+        return Math.max(0, cfg.respecBaseGold + respecCount * cfg.respecGoldIncrement);
+    }
+
+    public int getRespecCount() {
+        return respecCount;
+    }
+
+    public boolean isFreeRespecPending() {
+        return freeRespecPending;
+    }
+
+    public boolean isColorPerksRefunded() {
+        return colorPerksRefunded;
+    }
+
+    /** Called when New Game+ starts so the next respec is free. */
+    public void grantFreeRespec() {
+        freeRespecPending = true;
+    }
+
+    /**
+     * Old saves used automatic color perks at 15/40/75. Those no longer apply; talent points from
+     * level are available unspent. Returns true the first time migration runs for this character.
+     */
+    public boolean migrateLegacyColorPerksIfNeeded(boolean hadLegacySkillXp) {
+        if (!rulesOn() || colorPerksRefunded)
+            return false;
+        colorPerksRefunded = true;
+        // Old flat color perks no longer auto-apply; talent points from level are unspent.
+        if (!hadLegacySkillXp)
+            return false;
+        int refundHint = 0;
+        for (Skill color : COLOR_SKILLS) {
+            int level = getLevel(color);
+            for (int perkLevel : COLOR_PERK_LEVELS) {
+                if (level >= perkLevel)
+                    refundHint++;
+            }
+        }
+        notify("[GOLD]Color perks refunded[] as talent points"
+                + (refundHint > 0 ? " (" + refundHint + " former perk" + (refundHint > 1 ? "s" : "") + ")" : "")
+                + ". Open Skills → click a skill to spend them.");
+        return true;
+    }
+
+    public String canBuyRank(Skill skill, String nodeId) {
+        if (!rulesOn())
+            return "Skill trees are Ascendant-only.";
+        SkillTreeData tree = SkillTreeListData.get(skill);
+        SkillTreeNodeData node = tree.findNode(nodeId);
+        if (node == null)
+            return "Unknown talent.";
+        if (getLevel(skill) < node.levelRequired)
+            return "Requires " + skill.displayName + " level " + node.levelRequired + ".";
+        int ranks = getNodeRanks(nodeId);
+        if (ranks >= Math.max(1, node.maxRanks))
+            return "Already at max ranks.";
+        if (talentPointsAvailable(skill) < Math.max(1, node.cost))
+            return "Not enough talent points.";
+        if (node.requires != null) {
+            for (String req : node.requires) {
+                if (getNodeRanks(req) < 1)
+                    return "Requires another talent first.";
+            }
+        }
+        if (node.exclusiveWith != null) {
+            for (String ex : node.exclusiveWith) {
+                if (getNodeRanks(ex) > 0)
+                    return "Conflicts with another choice talent.";
+            }
+        }
+        return null;
+    }
+
+    public boolean buyRank(Skill skill, String nodeId) {
+        String err = canBuyRank(skill, nodeId);
+        if (err != null)
+            return false;
+        SkillTreeNodeData node = SkillTreeListData.get(skill).findNode(nodeId);
+        nodeRanks.put(nodeId, getNodeRanks(nodeId) + 1);
+        if (node.skillCape)
+            skillCapes.add(skill);
+        if (node.duelPerk && !slottedPerks.contains(nodeId) && slottedPerks.size() < perkSlotCount())
+            slottedPerks.add(nodeId);
+        AdventurePlayer.current().refreshSkillEffects();
+        notify("[GOLD]" + skill.displayName + " talent:[] " + node.displayDescription());
+        return true;
+    }
+
+    public boolean isPerkSlotted(String nodeId) {
+        return slottedPerks.contains(nodeId);
+    }
+
+    public String canSlotPerk(String nodeId) {
+        if (!rulesOn())
+            return "Skill trees are Ascendant-only.";
+        SkillTreeNodeData node = SkillTreeListData.findNode(nodeId);
+        if (node == null || !node.duelPerk)
+            return "Not a duel perk.";
+        if (getNodeRanks(nodeId) < 1)
+            return "Talent not purchased.";
+        if (slottedPerks.contains(nodeId))
+            return "Already slotted.";
+        if (slottedPerks.size() >= perkSlotCount())
+            return "No free perk slots.";
+        return null;
+    }
+
+    public boolean slotPerk(String nodeId) {
+        if (canSlotPerk(nodeId) != null)
+            return false;
+        slottedPerks.add(nodeId);
+        return true;
+    }
+
+    public boolean unslotPerk(String nodeId) {
+        return slottedPerks.remove(nodeId);
+    }
+
+    /**
+     * Refunds all spent points in {@code skill}'s tree and clears its slotted duel perks.
+     * Charges gold unless a free New Game+ respec is pending.
+     */
+    public String respec(Skill skill) {
+        if (!rulesOn())
+            return "Skill trees are Ascendant-only.";
+        int spent = talentPointsSpent(skill);
+        if (spent <= 0 && !hasSkillCape(skill))
+            return "Nothing to respec.";
+        int cost = respecCostGold();
+        AdventurePlayer player = AdventurePlayer.current();
+        if (cost > 0 && player.getGold() < cost)
+            return "Need " + cost + " gold.";
+        SkillTreeData tree = SkillTreeListData.get(skill);
+        Set<String> ids = new HashSet<>();
+        if (!tree.isEmpty()) {
+            for (SkillTreeNodeData n : tree.nodes) {
+                if (n != null && n.id != null)
+                    ids.add(n.id);
+            }
+        }
+        nodeRanks.keySet().removeAll(ids);
+        slottedPerks.removeIf(ids::contains);
+        skillCapes.remove(skill);
+        if (freeRespecPending) {
+            freeRespecPending = false;
+        } else {
+            if (cost > 0)
+                player.takeGold(cost);
+            respecCount++;
+        }
+        player.refreshSkillEffects();
+        notify("[GOLD]" + skill.displayName + " talents reset.[]"
+                + (cost > 0 ? " (-" + cost + " gold)" : " (free)"));
+        return null;
+    }
+
+    // ---- aggregated effects from trees ----
+
+    private void forEachActiveRank(boolean duelOnly, RankConsumer consumer) {
+        if (!rulesOn())
+            return;
+        for (Map.Entry<String, Integer> e : nodeRanks.entrySet()) {
+            if (e.getValue() == null || e.getValue() < 1)
+                continue;
+            SkillTreeNodeData node = SkillTreeListData.findNode(e.getKey());
+            if (node == null)
+                continue;
+            if (node.duelPerk) {
+                if (!duelOnly)
+                    continue;
+                if (!slottedPerks.contains(node.id))
+                    continue;
+            } else if (duelOnly) {
+                continue;
+            }
+            consumer.accept(node, e.getValue());
+        }
+    }
+
+    @FunctionalInterface
+    private interface RankConsumer {
+        void accept(SkillTreeNodeData node, int ranks);
+    }
+
+    private static void applyEffectScaled(EffectData dest, EffectData src, int ranks) {
+        if (src == null || ranks < 1)
+            return;
+        dest.lifeModifier += src.lifeModifier * ranks;
+        dest.changeStartCards += src.changeStartCards * ranks;
+        dest.extraManaShards += src.extraManaShards * ranks;
+        dest.freeMulligans += src.freeMulligans * ranks;
+        dest.cardRewardBonus += src.cardRewardBonus * ranks;
+        if (src.colorView)
+            dest.colorView = true;
+        if (src.moveSpeed != 0 && src.moveSpeed != 1f) {
+            float factor = 1f;
+            for (int i = 0; i < ranks; i++)
+                factor *= src.moveSpeed;
+            dest.moveSpeed = (dest.moveSpeed == 0f ? 1f : dest.moveSpeed) * factor;
+        }
+        if (src.goldModifier > 0f) {
+            float factor = 1f;
+            for (int i = 0; i < ranks; i++)
+                factor *= src.goldModifier;
+            if (dest.goldModifier <= 0f)
+                dest.goldModifier = factor;
+            else
+                dest.goldModifier *= factor;
+        }
+        if (src.startBattleWithCard != null) {
+            List<String> cards = new ArrayList<>();
+            if (dest.startBattleWithCard != null)
+                cards.addAll(Arrays.asList(dest.startBattleWithCard));
+            for (int i = 0; i < ranks; i++)
+                cards.addAll(Arrays.asList(src.startBattleWithCard));
+            dest.startBattleWithCard = cards.toArray(new String[0]);
+        }
+        if (src.startBattleWithCardInCommandZone != null) {
+            List<String> cards = new ArrayList<>();
+            if (dest.startBattleWithCardInCommandZone != null)
+                cards.addAll(Arrays.asList(dest.startBattleWithCardInCommandZone));
+            for (int i = 0; i < ranks; i++)
+                cards.addAll(Arrays.asList(src.startBattleWithCardInCommandZone));
+            dest.startBattleWithCardInCommandZone = cards.toArray(new String[0]);
+        }
+        if (src.opponent != null) {
+            if (dest.opponent == null)
+                dest.opponent = new EffectData();
+            applyEffectScaled(dest.opponent, src.opponent, ranks);
+        }
+    }
+
+    /** Duel-start effects from slotted duel perks. */
     public EffectData duelPerks() {
-        if (!rulesOn()) return new EffectData();
         EffectData e = new EffectData();
-        EffectData opp = new EffectData();
-        List<String> start = new ArrayList<>();
-        if (hasPerk(Skill.WHITE, 0)) e.lifeModifier += 2;
-        if (hasPerk(Skill.WHITE, 1)) start.add("c_a_food_sac");
-        if (hasPerk(Skill.WHITE, 2)) start.add("w_1_1_soldier");
-        if (hasPerk(Skill.BLUE, 1)) e.extraManaShards += 1;
-        if (hasPerk(Skill.BLUE, 2)) e.changeStartCards += 1;
-        if (hasPerk(Skill.BLACK, 0)) opp.lifeModifier -= 1;
-        if (hasPerk(Skill.BLACK, 1)) start.add("c_a_clue_draw");
-        if (hasPerk(Skill.BLACK, 2)) opp.changeStartCards -= 1;
-        if (hasPerk(Skill.RED, 1)) opp.lifeModifier -= 2;
-        if (hasPerk(Skill.RED, 2)) start.add("c_a_treasure_sac");
-        if (hasPerk(Skill.GREEN, 0)) e.lifeModifier += 3;
-        if (hasPerk(Skill.GREEN, 2)) start.add("Forest");
-        if (!start.isEmpty())
-            e.startBattleWithCard = start.toArray(new String[0]);
-        if (opp.lifeModifier != 0 || opp.changeStartCards != 0)
-            e.opponent = opp;
+        e.moveSpeed = 1f;
+        e.goldModifier = -1f;
+        if (!rulesOn())
+            return e;
+        forEachActiveRank(true, (node, ranks) -> applyEffectScaled(e, node.effect, ranks));
+        if (e.goldModifier <= 0f)
+            e.goldModifier = -1f;
         return e;
     }
 
-    /** Extra "deck card" rewards after wins from perks (Green 40). */
+    /** Non-duel passives always on (move speed, shop discounts, card rewards, Spell Smith). */
+    private EffectData passiveTreeEffects() {
+        EffectData e = new EffectData();
+        e.moveSpeed = 1f;
+        e.goldModifier = 1f;
+        if (!rulesOn())
+            return e;
+        forEachActiveRank(false, (node, ranks) -> applyEffectScaled(e, node.effect, ranks));
+        return e;
+    }
+
     public int bonusRewardCards() {
-        if (!rulesOn()) return 0;
-        return hasPerk(Skill.GREEN, 1) ? 1 : 0;
+        if (!rulesOn())
+            return 0;
+        int bonus = 0;
+        EffectData passive = passiveTreeEffects();
+        bonus += Math.max(0, passive.cardRewardBonus);
+        // Slotted duel perks can also grant cardRewardBonus
+        EffectData duel = duelPerks();
+        bonus += Math.max(0, duel.cardRewardBonus);
+        return bonus;
     }
 
-    private void announcePerks(Skill skill, int before, int after) {
-        String[] perks = COLOR_PERKS.get(skill);
-        if (perks == null)
-            return;
-        for (int i = 0; i < COLOR_PERK_LEVELS.length; i++)
-            if (before < COLOR_PERK_LEVELS[i] && after >= COLOR_PERK_LEVELS[i])
-                notify("[GOLD]" + skill.displayName + " perk unlocked:[] " + perks[i]);
-    }
-
-    // ---- perks ----
-
-    /** Extra free mulligans from Dueling: +1 at level 40, +2 at level 80. */
     public int bonusFreeMulligans() {
-        if (!rulesOn()) return 0;
+        if (!rulesOn())
+            return 0;
+        // Base Dueling milestones retained; tree mulligans come through duelPerks().freeMulligans in DuelScene.
         int level = getLevel(Skill.DUELING);
         return level >= 80 ? 2 : level >= 40 ? 1 : 0;
     }
 
-    /** Price multiplier for Spell Smith pulls: 0.4% cheaper per Spellsmithing level above 1 (about 39% off at 99). */
     public float spellSmithPriceFactor() {
-        if (!rulesOn()) return 1f;
+        if (!rulesOn())
+            return 1f;
         float f = 1f - 0.004f * (getLevel(Skill.SPELLSMITHING) - 1);
-        return hasPerk(Skill.BLUE, 0) ? f * 0.85f : f; // Blue 15
+        final float[] tree = {1f};
+        forEachActiveRank(false, (node, ranks) -> {
+            if (node.spellSmithPriceFactor != 0f && node.spellSmithPriceFactor != 1f) {
+                for (int i = 0; i < ranks; i++)
+                    tree[0] *= node.spellSmithPriceFactor;
+            }
+        });
+        return f * tree[0];
     }
 
-    /** Price multiplier for shop purchases: 0.3% cheaper per Bartering level above 1 (about 29% off at 99). */
     public float shopPriceFactor() {
-        if (!rulesOn()) return 1f;
-        return 1f - 0.003f * (getLevel(Skill.BARTERING) - 1);
+        if (!rulesOn())
+            return 1f;
+        float f = 1f - 0.003f * (getLevel(Skill.BARTERING) - 1);
+        EffectData passive = passiveTreeEffects();
+        if (passive.goldModifier > 0f)
+            f *= passive.goldModifier;
+        return f;
     }
 
-    /** Multiplier for card sell prices: 0.5% more per Salvaging level above 1 (about +49% at 99). */
     public float sellPriceFactor() {
-        if (!rulesOn()) return 1f;
+        if (!rulesOn())
+            return 1f;
         return 1f + 0.005f * (getLevel(Skill.SALVAGING) - 1);
     }
 
-    /** Overworld move speed multiplier: 0.25% faster per Exploration level above 1 (about +25% at 99). */
     public float moveSpeedFactor() {
-        if (!rulesOn()) return 1f;
+        if (!rulesOn())
+            return 1f;
         float f = 1f + 0.0025f * (getLevel(Skill.EXPLORATION) - 1);
-        return hasPerk(Skill.RED, 0) ? f * 1.05f : f; // Red 15
+        EffectData passive = passiveTreeEffects();
+        if (passive.moveSpeed > 0f)
+            f *= passive.moveSpeed;
+        return f;
+    }
+
+    /** Purchased duel-perk nodes for a skill (for the tree UI). */
+    public List<SkillTreeNodeData> purchasedDuelPerks(Skill skill) {
+        List<SkillTreeNodeData> out = new ArrayList<>();
+        SkillTreeData tree = SkillTreeListData.get(skill);
+        if (tree.isEmpty())
+            return out;
+        for (SkillTreeNodeData n : tree.nodes) {
+            if (n != null && n.duelPerk && getNodeRanks(n.id) > 0)
+                out.add(n);
+        }
+        return out;
     }
 
     // ---- save/load ----
@@ -454,5 +787,61 @@ public class PlayerSkills {
                 // skill from a newer/older version; skip
             }
         }
+    }
+
+    public String[] saveTreeNodeIds() {
+        return nodeRanks.keySet().toArray(new String[0]);
+    }
+
+    public Integer[] saveTreeNodeRanks() {
+        String[] ids = saveTreeNodeIds();
+        Integer[] ranks = new Integer[ids.length];
+        for (int i = 0; i < ids.length; i++)
+            ranks[i] = nodeRanks.get(ids[i]);
+        return ranks;
+    }
+
+    public String[] saveSlottedPerks() {
+        return slottedPerks.toArray(new String[0]);
+    }
+
+    public String[] saveSkillCapes() {
+        String[] out = new String[skillCapes.size()];
+        int i = 0;
+        for (Skill s : skillCapes)
+            out[i++] = s.name();
+        return out;
+    }
+
+    public void loadTree(String[] nodeIds, Integer[] ranks, String[] slotted, String[] capes,
+                         Integer respec, Boolean freeRespec, Boolean refunded) {
+        nodeRanks.clear();
+        slottedPerks.clear();
+        skillCapes.clear();
+        if (nodeIds != null && ranks != null) {
+            for (int i = 0; i < nodeIds.length && i < ranks.length; i++) {
+                if (nodeIds[i] != null && ranks[i] != null && ranks[i] > 0)
+                    nodeRanks.put(nodeIds[i], ranks[i]);
+            }
+        }
+        if (slotted != null) {
+            Set<String> seen = new LinkedHashSet<>();
+            for (String id : slotted) {
+                if (id != null && getNodeRanks(id) > 0 && seen.add(id))
+                    slottedPerks.add(id);
+            }
+        }
+        if (capes != null) {
+            for (String name : capes) {
+                try {
+                    skillCapes.add(Skill.valueOf(name));
+                } catch (Exception ignored) {
+                    // unknown skill from future save
+                }
+            }
+        }
+        respecCount = respec != null ? Math.max(0, respec) : 0;
+        freeRespecPending = freeRespec != null && freeRespec;
+        colorPerksRefunded = refunded != null && refunded;
     }
 }
