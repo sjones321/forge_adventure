@@ -144,6 +144,11 @@ public class Config {
         return configData;
     }
 
+    /** True when the current world uses the Shandalar Ascendant rules (skills, rotation, vaults, sealed start...). */
+    public static boolean ascendant() {
+        return instance().configData != null && instance().configData.ascendantRules;
+    }
+
     // Push the plane's allowed/restricted editions and restricted token pairs into TokenDb.
     private void applyTokenEditionFilter() {
         if (configData == null) return;

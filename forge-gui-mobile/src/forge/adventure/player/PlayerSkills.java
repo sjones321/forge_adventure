@@ -95,7 +95,7 @@ public class PlayerSkills {
 
     /** Adds XP and announces it; returns the number of levels gained. */
     public int addXp(Skill skill, int amount) {
-        if (amount <= 0)
+        if (amount <= 0 || !forge.adventure.util.Config.ascendant())
             return 0;
         int before = getLevel(skill);
         xp.put(skill, Math.min(getXp(skill) + amount, 200_000_000));
@@ -269,11 +269,17 @@ public class PlayerSkills {
     }
 
     private boolean hasPerk(Skill skill, int tier) {
-        return getLevel(skill) >= COLOR_PERK_LEVELS[tier];
+        return forge.adventure.util.Config.ascendant() && getLevel(skill) >= COLOR_PERK_LEVELS[tier];
+    }
+
+    /** Skill-based perks only exist in the Shandalar Ascendant rules. */
+    private boolean rulesOn() {
+        return forge.adventure.util.Config.ascendant();
     }
 
     /** Duel-start effects from color perks (life, tokens, mana shards, opening hand, opponent effects). */
     public EffectData duelPerks() {
+        if (!rulesOn()) return new EffectData();
         EffectData e = new EffectData();
         EffectData opp = new EffectData();
         List<String> start = new ArrayList<>();
@@ -298,6 +304,7 @@ public class PlayerSkills {
 
     /** Extra "deck card" rewards after wins from perks (Green 40). */
     public int bonusRewardCards() {
+        if (!rulesOn()) return 0;
         return hasPerk(Skill.GREEN, 1) ? 1 : 0;
     }
 
@@ -314,28 +321,33 @@ public class PlayerSkills {
 
     /** Extra free mulligans from Dueling: +1 at level 40, +2 at level 80. */
     public int bonusFreeMulligans() {
+        if (!rulesOn()) return 0;
         int level = getLevel(Skill.DUELING);
         return level >= 80 ? 2 : level >= 40 ? 1 : 0;
     }
 
     /** Price multiplier for Spell Smith pulls: 0.4% cheaper per Spellsmithing level above 1 (about 39% off at 99). */
     public float spellSmithPriceFactor() {
+        if (!rulesOn()) return 1f;
         float f = 1f - 0.004f * (getLevel(Skill.SPELLSMITHING) - 1);
         return hasPerk(Skill.BLUE, 0) ? f * 0.85f : f; // Blue 15
     }
 
     /** Price multiplier for shop purchases: 0.3% cheaper per Bartering level above 1 (about 29% off at 99). */
     public float shopPriceFactor() {
+        if (!rulesOn()) return 1f;
         return 1f - 0.003f * (getLevel(Skill.BARTERING) - 1);
     }
 
     /** Multiplier for card sell prices: 0.5% more per Salvaging level above 1 (about +49% at 99). */
     public float sellPriceFactor() {
+        if (!rulesOn()) return 1f;
         return 1f + 0.005f * (getLevel(Skill.SALVAGING) - 1);
     }
 
     /** Overworld move speed multiplier: 0.25% faster per Exploration level above 1 (about +25% at 99). */
     public float moveSpeedFactor() {
+        if (!rulesOn()) return 1f;
         float f = 1f + 0.0025f * (getLevel(Skill.EXPLORATION) - 1);
         return hasPerk(Skill.RED, 0) ? f * 1.05f : f; // Red 15
     }

@@ -541,6 +541,15 @@ public class RewardScene extends UIScene {
         }
         cardWidth = (cardHeight / CARD_WIDTH_TO_HEIGHT) * mul;
 
+        // The multiplier above (aspect correction and the "reward card size" setting) is applied after the
+        // fit was computed, so a large setting could make rows wider than the area and push cards off the
+        // left edge. Shrink just enough to fit, keeping the larger size whenever it does fit.
+        if (numberOfColumns > 0 && cardWidth * numberOfColumns > targetWidth) {
+            float fit = targetWidth / (cardWidth * numberOfColumns);
+            cardWidth *= fit;
+            cardHeight *= fit;
+        }
+
         yOff += (targetHeight - (cardHeight * numberOfRows)) / 2f;
         xOff += (targetWidth - (cardWidth * numberOfColumns)) / 2f;
 

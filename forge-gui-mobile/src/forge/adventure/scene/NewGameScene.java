@@ -90,8 +90,9 @@ public class NewGameScene extends MenuScene {
             colorNames.add(UIActor.localize(idName));
         colorId.setTextList(colorNames);
 
-        // Sealed: the second selector picks the core set opened alongside the starter set
-        modes.add(AdventureModes.Sealed);
+        // Sealed (Shandalar Ascendant only): the second selector picks the core set opened alongside the starter set
+        if (Config.ascendant())
+            modes.add(AdventureModes.Sealed);
         AdventureModes.Sealed.setSelectionName("[BLACK]Core set:");
         Array<String> coreNames = new Array<>();
         for (String code : Config.instance().getConfigData().coreSets)
@@ -179,12 +180,13 @@ public class NewGameScene extends MenuScene {
         }
 
         String[] modeNames = new String[modes.size];
-        // Default to the Sealed start so new players open packs of a set they picked
+        // Default: Sealed in Shandalar Ascendant, the stock Constructed start everywhere else
+        AdventureModes defaultMode = Config.ascendant() ? AdventureModes.Sealed : AdventureModes.Constructed;
         int defaultIndex = -1;
 
         for (int i = 0; i < modes.size; i++) {
             modeNames[i] = modes.get(i).getName();
-            if (modes.get(i) == AdventureModes.Sealed) {
+            if (modes.get(i) == defaultMode) {
                 defaultIndex = i;
             }
         }

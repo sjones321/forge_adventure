@@ -12,6 +12,7 @@ import com.github.tommyettinger.textra.TextraLabel;
 import forge.Forge;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.stage.GameHUD;
+import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 import forge.adventure.util.Current;
 import forge.deck.Deck;
@@ -202,7 +203,7 @@ public class DeckSelectScene extends UIScene {
         layout.add(button).fill(true, false).expand(true, false).align(Align.left).expandX().pad(2);
 
         // Per-deck format switch: Standard (60-card Adventure) or Commander
-        if (!Current.player().isCommanderMode()) {
+        if (!Current.player().isCommanderMode() && Config.ascendant()) {
             TextraButton format = Controls.newTextButton(formatText(i));
             format.addListener(new ClickListener() {
                 @Override

@@ -66,8 +66,14 @@ public class ConfigData {
     public String[] coreSets = {"CORE", "FDN", "M21", "M20", "M19", "ORI", "M15", "M14", "M13", "M12", "M11", "M10"};
     /** "CORE" = Core Set Collection: custom packs drawing from all of these core sets. */
     public String[] coreCollectionSets = {"FDN", "M21", "M20", "M19", "ORI", "M15", "M14", "M13", "M12", "M11", "M10"};
-    /** Adventure house rule: mulligans that cost no card, for both the player and enemies. */
-    public int adventureFreeMulligans = 1;
+    /**
+     * Shandalar Ascendant rules: sealed start, skills and perks, rotating Standard and staples, vaults
+     * and per-deck formats. Off for the stock worlds; turned on in the plane's own config.json.
+     */
+    public boolean ascendantRules = false;
+
+    /** Adventure house rule: mulligans that cost no card, for both the player and enemies (Ascendant sets 1). */
+    public int adventureFreeMulligans = 0;
 
     /** Extra gold on top of the difficulty's starting money for a sealed start. */
     public int sealedStartBonusGold = 500;

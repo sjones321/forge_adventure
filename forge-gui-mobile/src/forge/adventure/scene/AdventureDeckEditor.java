@@ -76,24 +76,16 @@ public class AdventureDeckEditor extends FDeckEditor {
 
         @Override
         protected DeckEditorPage[] getInitialPages() {
+            java.util.List<DeckEditorPage> pages = new java.util.ArrayList<>();
+            pages.add(new CollectionCatalogPage());
             if (AdventurePlayer.current().isCommanderDeckSelected())
-                return new DeckEditorPage[]{
-                        new CollectionCatalogPage(),
-                        new AdventureDeckSectionPage(DeckSection.Commander, ItemManagerConfig.ADVENTURE_EDITOR_POOL),
-                        new AdventureDeckSectionPage(DeckSection.Main, ItemManagerConfig.ADVENTURE_EDITOR_POOL),
-                        new AdventureDeckSectionPage(DeckSection.Sideboard, ItemManagerConfig.ADVENTURE_SIDEBOARD),
-                        new CollectionAutoSellPage(),
-                        new CommanderVaultPage()
-                };
-            else {
-                return new DeckEditorPage[]{
-                        new CollectionCatalogPage(),
-                        new AdventureDeckSectionPage(DeckSection.Main, ItemManagerConfig.ADVENTURE_EDITOR_POOL),
-                        new AdventureDeckSectionPage(DeckSection.Sideboard, ItemManagerConfig.ADVENTURE_SIDEBOARD),
-                        new CollectionAutoSellPage(),
-                        new CommanderVaultPage()
-                };
-            }
+                pages.add(new AdventureDeckSectionPage(DeckSection.Commander, ItemManagerConfig.ADVENTURE_EDITOR_POOL));
+            pages.add(new AdventureDeckSectionPage(DeckSection.Main, ItemManagerConfig.ADVENTURE_EDITOR_POOL));
+            pages.add(new AdventureDeckSectionPage(DeckSection.Sideboard, ItemManagerConfig.ADVENTURE_SIDEBOARD));
+            pages.add(new CollectionAutoSellPage());
+            if (Config.ascendant()) //the Commander Vault is a Shandalar Ascendant feature
+                pages.add(new CommanderVaultPage());
+            return pages.toArray(new DeckEditorPage[0]);
         }
 
         @Override
@@ -487,7 +479,7 @@ public class AdventureDeckEditor extends FDeckEditor {
             int safeToSellCount = amountInCollection - copiesUsedInDecks - vaulted; //Number we can sell without losing cards from a deck.
 
             int canVault = Current.player().copiesAvailableToVault(card);
-            if (canVault > 0 && !card.hasNoSellValue()) {
+            if (canVault > 0 && !card.hasNoSellValue() && Config.ascendant()) {
                 String prompt = String.format("%s - move to Commander Vault (permanent, Commander-only) %s", card, lblHowMany);
                 menu.addItem(new FMenuItem("Move to Commander Vault", FSkinImage.PADLOCK, new MoveQuantityPrompt(prompt, canVault, amount -> {
                     int moved = Current.player().moveToVault(card, amount);
