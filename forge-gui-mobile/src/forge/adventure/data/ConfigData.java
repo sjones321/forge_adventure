@@ -123,7 +123,7 @@ public class ConfigData {
     /** Units granted when a non-boss material drop succeeds. */
     public int enemyMaterialDropCount = 1;
 
-    // ---- Ascendant gathering (Package B): overworld nodes, channel, tools. ----
+    // ---- Ascendant gathering (Package B): overworld nodes, channel, tools (color reagent lines). ----
 
     /** Seconds between resource-node spawn attempts on the overworld. */
     public float gatherNodeSpawnInterval = 5f;

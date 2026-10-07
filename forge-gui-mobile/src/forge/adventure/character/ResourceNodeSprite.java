@@ -50,17 +50,24 @@ public class ResourceNodeSprite extends CharacterSprite {
             return Color.WHITE;
         switch (family.toLowerCase()) {
             case "logs":
-                return new Color(0.45f, 0.85f, 0.35f, 1f);
+                return new Color(0.55f, 0.38f, 0.18f, 1f); // brown wood
+            case "plants":
+                return new Color(0.35f, 0.8f, 0.35f, 1f); // green
             case "ore":
-                return new Color(0.95f, 0.45f, 0.3f, 1f);
+                return new Color(0.75f, 0.75f, 0.8f, 1f); // metal grey
+            case "ash":
+                return new Color(0.95f, 0.4f, 0.2f, 1f); // fire red
+            case "sacred_stone":
             case "stone":
-                return new Color(0.9f, 0.9f, 0.75f, 1f);
+                return new Color(0.95f, 0.92f, 0.7f, 1f); // pale gold / white
+            case "dead":
             case "herbs":
-                return new Color(0.55f, 0.35f, 0.75f, 1f);
+                return new Color(0.45f, 0.25f, 0.55f, 1f); // black-purple
+            case "waters":
             case "crystal":
-                return new Color(0.35f, 0.65f, 1f, 1f);
+                return new Color(0.3f, 0.6f, 1f, 1f); // blue
             case "scrap":
-                return new Color(0.7f, 0.7f, 0.75f, 1f);
+                return new Color(0.65f, 0.65f, 0.7f, 1f);
             default:
                 return Color.WHITE;
         }

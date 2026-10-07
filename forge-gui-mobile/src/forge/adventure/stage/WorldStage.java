@@ -393,8 +393,17 @@ public class WorldStage extends GameStage implements SaveFileContent {
         spawnNode(mat);
     }
 
+    /**
+     * Chooses a gather line for biomes that host more than one (forest: logs|plants,
+     * mountain: ore veins|ash vents), then a tier weighted toward the player's skill level.
+     */
     private MaterialData pickNodeMaterial(String materialBiome) {
-        com.badlogic.gdx.utils.Array<MaterialData> candidates = MaterialListData.getGatherablesForBiome(materialBiome);
+        String familyFilter = pickBiomeFamily(materialBiome);
+        com.badlogic.gdx.utils.Array<MaterialData> candidates = familyFilter != null
+                ? MaterialListData.getGatherablesForBiomeFamily(materialBiome, familyFilter)
+                : MaterialListData.getGatherablesForBiome(materialBiome);
+        if (candidates.size == 0)
+            candidates = MaterialListData.getGatherablesForBiome(materialBiome);
         if (candidates.size == 0)
             return null;
         AdventurePlayer ap = Current.player();
@@ -424,6 +433,15 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 return candidates.get(i);
         }
         return candidates.get(candidates.size - 1);
+    }
+
+    /** Family split for dual-line biomes; null = use every gatherable in the biome. */
+    private String pickBiomeFamily(String materialBiome) {
+        if ("forest".equalsIgnoreCase(materialBiome))
+            return rand.nextBoolean() ? "logs" : "plants";
+        if ("mountain".equalsIgnoreCase(materialBiome))
+            return rand.nextBoolean() ? "ore" : "ash";
+        return null;
     }
 
     private boolean spawnNode(MaterialData mat) {
@@ -482,9 +500,10 @@ public class WorldStage extends GameStage implements SaveFileContent {
                     + " (have " + skillLevel + ").");
             return;
         }
-        int toolTier = ap.getToolTier(mat.family);
+        String toolFamily = mat.toolFamily();
+        int toolTier = ap.getToolTier(toolFamily);
         if (toolTier < mat.tier) {
-            notifyGatherFail("Need a tier " + mat.tier + " " + mat.family
+            notifyGatherFail("Need a tier " + mat.tier + " " + toolFamily
                     + " tool (have tier " + toolTier + ").");
             return;
         }
@@ -562,14 +581,25 @@ public class WorldStage extends GameStage implements SaveFileContent {
         StringBuilder msg = new StringBuilder();
         msg.append("Gathered ").append(amount).append("× ").append(mat.getDisplayName());
 
-        // Rare gem (Mining nodes).
+        // Rare extras: gems on ore veins; crystal / pearls on water nodes (Delving).
         float gemChance = cfg != null ? cfg.gatherGemChance : 0.08f;
-        if ("ore".equalsIgnoreCase(mat.family) && rand.nextFloat() < gemChance) {
+        if (("ore".equalsIgnoreCase(mat.family) || "vein".equalsIgnoreCase(mat.nodeType))
+                && rand.nextFloat() < gemChance) {
             com.badlogic.gdx.utils.Array<MaterialData> gems = MaterialListData.getGems();
             if (gems.size > 0) {
                 MaterialData gem = gems.get(rand.nextInt(gems.size));
                 ap.addMaterial(gem.id, 1);
                 msg.append(", ").append(gem.getDisplayName());
+            }
+        }
+        if (("waters".equalsIgnoreCase(mat.family) || "water".equalsIgnoreCase(mat.nodeType))
+                && rand.nextFloat() < gemChance) {
+            com.badlogic.gdx.utils.Array<MaterialData> rare = rand.nextBoolean()
+                    ? MaterialListData.getCrystals() : MaterialListData.getPearls();
+            if (rare.size > 0) {
+                MaterialData bonus = rare.get(rand.nextInt(rare.size));
+                ap.addMaterial(bonus.id, 1);
+                msg.append(", ").append(bonus.getDisplayName());
             }
         }
         float dustChance = cfg != null ? cfg.gatherDustChance : 0.12f;
@@ -821,7 +851,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 if (nTimeouts != null && nMats != null && nX != null && nY != null) {
                     int n = Math.min(Math.min(nTimeouts.size(), nMats.size()), Math.min(nX.size(), nY.size()));
                     for (int i = 0; i < n; i++) {
-                        MaterialData mat = MaterialListData.get(nMats.get(i));
+                        String matId = MaterialListData.migrateMaterialId(nMats.get(i));
+                        MaterialData mat = MaterialListData.get(matId);
                         if (mat == null)
                             continue;
                         ResourceNodeSprite sprite = new ResourceNodeSprite(mat);

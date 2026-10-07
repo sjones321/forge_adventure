@@ -749,6 +749,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 }
             }
         }
+        // Package A → color-line renames (rough_stone→limestone, nightshade→bone_fragments, …).
+        MaterialListData.migrateMaterialCounts(materials);
         toolbelt.clear();
         if (data.containsKey("toolbeltFamilies") && data.containsKey("toolbeltItems")) {
             Object rawFam = data.readObject("toolbeltFamilies");
@@ -761,6 +763,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 }
             }
         }
+        MaterialListData.migrateToolbeltFamilies(toolbelt);
         worldPosX = data.readFloat("worldPosX");
         worldPosY = data.readFloat("worldPosY");
 

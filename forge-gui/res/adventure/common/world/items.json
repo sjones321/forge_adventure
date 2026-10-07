@@ -2053,7 +2053,7 @@
   },
   {
     "name": "Copper Pickaxe",
-    "description": "Tier 1 ore gathering tool. Mine ore and gems. Caps gather tier at 1.",
+    "description": "Tier 1 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 1.",
     "iconName": "BronzeSword",
     "cost": 40,
     "toolFamily": "ore",
@@ -2061,7 +2061,7 @@
   },
   {
     "name": "Iron Pickaxe",
-    "description": "Tier 2 ore gathering tool. Mine ore and gems. Caps gather tier at 2.",
+    "description": "Tier 2 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 2.",
     "iconName": "SteelSword",
     "cost": 120,
     "toolFamily": "ore",
@@ -2069,7 +2069,7 @@
   },
   {
     "name": "Mithril Pickaxe",
-    "description": "Tier 3 ore gathering tool. Mine ore and gems. Caps gather tier at 3.",
+    "description": "Tier 3 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 3.",
     "iconName": "FlameSword",
     "cost": 350,
     "toolFamily": "ore",
@@ -2077,7 +2077,7 @@
   },
   {
     "name": "Adamant Pickaxe",
-    "description": "Tier 4 ore gathering tool. Mine ore and gems. Caps gather tier at 4.",
+    "description": "Tier 4 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 4.",
     "iconName": "GarrukAxe",
     "cost": 900,
     "toolFamily": "ore",
@@ -2085,98 +2085,98 @@
   },
   {
     "name": "Copper Chisel",
-    "description": "Tier 1 stone gathering tool. Quarry stone and marble. Caps gather tier at 1.",
+    "description": "Tier 1 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 1.",
     "iconName": "SteelShield",
     "cost": 40,
-    "toolFamily": "stone",
+    "toolFamily": "sacred_stone",
     "toolTier": 1
   },
   {
     "name": "Iron Chisel",
-    "description": "Tier 2 stone gathering tool. Quarry stone and marble. Caps gather tier at 2.",
+    "description": "Tier 2 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 2.",
     "iconName": "IronShield",
     "cost": 120,
-    "toolFamily": "stone",
+    "toolFamily": "sacred_stone",
     "toolTier": 2
   },
   {
     "name": "Mithril Chisel",
-    "description": "Tier 3 stone gathering tool. Quarry stone and marble. Caps gather tier at 3.",
+    "description": "Tier 3 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 3.",
     "iconName": "MithrilShield",
     "cost": 350,
-    "toolFamily": "stone",
+    "toolFamily": "sacred_stone",
     "toolTier": 3
   },
   {
     "name": "Adamant Chisel",
-    "description": "Tier 4 stone gathering tool. Quarry stone and marble. Caps gather tier at 4.",
+    "description": "Tier 4 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 4.",
     "iconName": "KiteShield",
     "cost": 900,
-    "toolFamily": "stone",
+    "toolFamily": "sacred_stone",
     "toolTier": 4
   },
   {
     "name": "Copper Sickle",
-    "description": "Tier 1 herbs gathering tool. Forage herbs and bone. Caps gather tier at 1.",
+    "description": "Tier 1 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 1.",
     "iconName": "FarmersTools",
     "cost": 40,
-    "toolFamily": "herbs",
+    "toolFamily": "plants",
     "toolTier": 1
   },
   {
     "name": "Iron Sickle",
-    "description": "Tier 2 herbs gathering tool. Forage herbs and bone. Caps gather tier at 2.",
+    "description": "Tier 2 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 2.",
     "iconName": "GreenStaff",
     "cost": 120,
-    "toolFamily": "herbs",
+    "toolFamily": "plants",
     "toolTier": 2
   },
   {
     "name": "Mithril Sickle",
-    "description": "Tier 3 herbs gathering tool. Forage herbs and bone. Caps gather tier at 3.",
+    "description": "Tier 3 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 3.",
     "iconName": "WildMagusStaff",
     "cost": 350,
-    "toolFamily": "herbs",
+    "toolFamily": "plants",
     "toolTier": 3
   },
   {
     "name": "Adamant Sickle",
-    "description": "Tier 4 herbs gathering tool. Forage herbs and bone. Caps gather tier at 4.",
+    "description": "Tier 4 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 4.",
     "iconName": "Hivestone",
     "cost": 900,
-    "toolFamily": "herbs",
+    "toolFamily": "plants",
     "toolTier": 4
   },
   {
     "name": "Copper Probe",
-    "description": "Tier 1 crystal gathering tool. Delve for crystal and pearls. Caps gather tier at 1.",
+    "description": "Tier 1 waters gathering tool. Delve island waters; crystal and pearls on rare finds. Caps gather tier at 1.",
     "iconName": "PrismRing",
     "cost": 40,
-    "toolFamily": "crystal",
+    "toolFamily": "waters",
     "toolTier": 1
   },
   {
     "name": "Iron Probe",
-    "description": "Tier 2 crystal gathering tool. Delve for crystal and pearls. Caps gather tier at 2.",
+    "description": "Tier 2 waters gathering tool. Delve island waters; crystal and pearls on rare finds. Caps gather tier at 2.",
     "iconName": "VeilstoneAmulet",
     "cost": 120,
-    "toolFamily": "crystal",
+    "toolFamily": "waters",
     "toolTier": 2
   },
   {
     "name": "Mithril Probe",
-    "description": "Tier 3 crystal gathering tool. Delve for crystal and pearls. Caps gather tier at 3.",
+    "description": "Tier 3 waters gathering tool. Delve island waters; crystal and pearls on rare finds. Caps gather tier at 3.",
     "iconName": "RingofThreeWishes",
     "cost": 350,
-    "toolFamily": "crystal",
+    "toolFamily": "waters",
     "toolTier": 3
   },
   {
     "name": "Adamant Probe",
-    "description": "Tier 4 crystal gathering tool. Delve for crystal and pearls. Caps gather tier at 4.",
+    "description": "Tier 4 waters gathering tool. Delve island waters; crystal and pearls on rare finds. Caps gather tier at 4.",
     "iconName": "AladdinsRing",
     "cost": 900,
-    "toolFamily": "crystal",
+    "toolFamily": "waters",
     "toolTier": 4
   },
   {
