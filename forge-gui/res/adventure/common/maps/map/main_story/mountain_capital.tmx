@@ -278,7 +278,7 @@
   <object id="74" template="../../obj/workshop.tx" x="424" y="386"/>
   <object id="75" template="../../obj/apothecary.tx" x="392" y="402"/>
   <object id="76" template="../../obj/jeweler.tx" x="440" y="370"/>
-  <object id="77" template="../../obj/gym.tx" x="328" y="370">
+  <object id="77" template="../../obj/gym.tx" x="288" y="256">
    <properties>
     <property name="gymId" value="rainbow"/>
     <property name="type" value="gym"/>

@@ -25,6 +25,11 @@ public final class BanLists {
         return get(format).contains(cardName);
     }
 
+    /** Drop cached lists so a world/plane switch reloads ban files from the new prefix. */
+    public static void clear() {
+        LISTS.clear();
+    }
+
     public static Set<String> get(String format) {
         return LISTS.computeIfAbsent(format, f -> {
             Set<String> names = new HashSet<>();

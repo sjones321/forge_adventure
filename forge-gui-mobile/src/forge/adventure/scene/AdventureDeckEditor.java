@@ -1295,7 +1295,9 @@ public class AdventureDeckEditor extends FDeckEditor {
     private static void addAscendantCraftingMenuItems(FPopupMenu menu) {
         if (!Config.ascendant())
             return;
-        menu.addItem(new FMenuItem("Crafting…", FSkinImage.QUEST_BOOK, e -> Forge.openScreen(new CraftingScreen())));
+        // Reuse the singleton CraftingScreen (listeners register once) — do not new each open.
+        menu.addItem(new FMenuItem("Crafting…", FSkinImage.QUEST_BOOK,
+                e -> Forge.openScreen(CraftingScene.instance().getScreen())));
         AdventurePlayer player = Current.player();
         menu.addItem(new FCheckBoxMenuItem("Auto-salvage extras", player.isAutoSalvage(),
                 e -> player.setAutoSalvage(!player.isAutoSalvage())));

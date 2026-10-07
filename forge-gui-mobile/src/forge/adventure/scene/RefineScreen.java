@@ -37,6 +37,7 @@ public class RefineScreen extends FScreen {
     private final FButton btnRefineOne = add(new FButton("Refine 1"));
     private final FButton btnRefineAll = add(new FButton("Refine All"));
     private final MaterialLister list = add(new MaterialLister());
+    private boolean listenersRegistered;
 
     public RefineScreen() {
         super("Refine to Dust");
@@ -51,9 +52,12 @@ public class RefineScreen extends FScreen {
                     "Refine", FOptionPane.INFORMATION_ICON, result -> Forge.back());
             return;
         }
+        if (!listenersRegistered) {
+            Current.player().onDustChange(this::updateDust);
+            Current.player().onMaterialChange(this::reload);
+            listenersRegistered = true;
+        }
         reload();
-        Current.player().onDustChange(this::updateDust);
-        Current.player().onMaterialChange(this::reload);
     }
 
     private void reload() {

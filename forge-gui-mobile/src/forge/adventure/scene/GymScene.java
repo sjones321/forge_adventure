@@ -18,6 +18,7 @@ import forge.adventure.data.GymListData;
 import forge.adventure.data.GymRewardData;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.IAfterMatch;
+import forge.adventure.stage.MapStage;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
@@ -111,7 +112,9 @@ public class GymScene extends UIScene implements IAfterMatch {
             addLine(mark + trainers[i].name + "  [%80](life " + trainers[i].life + ")");
         }
         if (gym.leader != null) {
-            addHeader("Leader" + (gym.leader.gamesPerMatch > 1 ? " (best of " + gym.leader.gamesPerMatch + ")" : ""));
+            int leaderBo = gym.leader.gamesPerMatch > 0 ? gym.leader.gamesPerMatch
+                    : Config.instance().getConfigData().gymLeaderGamesPerMatch;
+            addHeader("Leader" + (leaderBo > 1 ? " (best of " + leaderBo + ")" : ""));
             String mark = challengeActive && fightIndex >= trainers.length ? "[GOLD]► " : "[DARK_GRAY]○ ";
             addLine(mark + gym.leader.name + "  [%80](life " + gym.leader.life + ")");
         }
@@ -147,13 +150,33 @@ public class GymScene extends UIScene implements IAfterMatch {
 
     private void onLeave() {
         if (challengeActive) {
-            challengeActive = false;
-            fightIndex = 0;
-            Current.player().defeated();
-            showInfo("Challenge forfeited", "The challenge is over. The normal defeat penalty was applied.");
-            rebuild();
+            boolean onLeader = fightIndex >= (gym.trainers != null ? gym.trainers.length : 0);
+            applyDefeat(onLeader, "Challenge forfeited",
+                    "The challenge is over. The normal defeat penalty was applied.");
             return;
         }
+        leaveGym();
+    }
+
+    /**
+     * Same path as a normal town loss: {@link MapStage#exitDungeon} when life hits ≤0,
+     * and {@code defeatedFromBoss} for gym-leader losses when life remains.
+     */
+    private void applyDefeat(boolean wasBoss, String title, String body) {
+        challengeActive = false;
+        fightIndex = 0;
+        boolean wiped = Current.player().defeated();
+        if (wiped) {
+            MapStage.getInstance().exitDungeon(true, wasBoss);
+            return;
+        }
+        if (wasBoss)
+            WorldStage.getInstance().defeatedFromBoss();
+        rebuild();
+        showInfo(title, body);
+    }
+
+    private void leaveGym() {
         GameHUD.getInstance().getTouchpad().setVisible(false);
         Forge.switchToLast();
     }
@@ -200,11 +223,8 @@ public class GymScene extends UIScene implements IAfterMatch {
         if (!challengeActive)
             return;
         if (!winner) {
-            challengeActive = false;
-            fightIndex = 0;
-            Current.player().defeated();
-            rebuild();
-            showInfo("Defeated", "The gym challenge is over. Heal up and try again.");
+            boolean boss = fightIndex >= (gym.trainers != null ? gym.trainers.length : 0);
+            applyDefeat(boss, "Defeated", "The gym challenge is over. Heal up and try again.");
             return;
         }
         // Trainers/leaders grant the usual Ascendant win dust via a quiet win() call.

@@ -335,6 +335,53 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return null;
     }
 
+    /**
+     * Why a Historic-tagged deck can't challenge a Historic run, or null if fine.
+     * Requires the Historic tag and per-card Adventure historic ban-list legality
+     * (same gate the deck editor uses when hiding banned cards).
+     */
+    public String historicDeckProblem(Deck d) {
+        if (d == null)
+            return "No deck selected";
+        if (!isHistoricDeck(d))
+            return "Select a Historic-tagged deck for this run";
+        if (isCommanderDeck(d))
+            return "Commander decks can't be used in a Historic run";
+        for (Map.Entry<PaperCard, Integer> e : d.getAllCardsInASinglePool()) {
+            PaperCard pc = e.getKey();
+            if (BanLists.isBanned("historic", pc.getName()))
+                return pc.getName() + " is banned in Historic";
+        }
+        return null;
+    }
+
+    /**
+     * Why a deck can't challenge a Pauper run, or null if fine.
+     * Every non-basic card must be Common (or legal under Forge's Pauper format filter),
+     * and not on the Adventure pauper ban list.
+     */
+    public String pauperDeckProblem(Deck d) {
+        if (d == null)
+            return "No deck selected";
+        if (isCommanderDeck(d))
+            return "Commander decks can't be used in a Pauper run";
+        forge.game.GameFormat pauper = FModel.getFormats().getPauper();
+        for (Map.Entry<PaperCard, Integer> e : d.getAllCardsInASinglePool()) {
+            PaperCard pc = e.getKey();
+            if (pc.getRules().getType().isBasicLand())
+                continue;
+            if (BanLists.isBanned("pauper", pc.getName()))
+                return pc.getName() + " is banned in Pauper";
+            if (pauper != null && pauper.getFilterRules() != null) {
+                if (!pauper.getFilterRules().test(pc))
+                    return pc.getName() + " is not Pauper-legal";
+            } else if (pc.getRarity() != CardRarity.Common) {
+                return pc.getName() + " is not Pauper-legal (commons only)";
+            }
+        }
+        return null;
+    }
+
     // ---- per-deck format: Standard (60-card Adventure), Commander, or Historic ----
 
     public static final String COMMANDER_DECK_TAG = "AdventureCommanderDeck";
@@ -605,7 +652,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return life;
     }
 
-    /** Sets current map life (clamped to ≥ 0). Used by League attrition between matches. */
+    /**
+     * Sets current map life (clamped to ≥ 0). May exceed {@link #getMaxLife()} when the player
+     * has false-life potions. League attrition uses damage-based write-back in DuelScene so
+     * badge/skill bonuses never absorb map damage and potions above max are not cut off.
+     */
     public void setLife(int amount) {
         life = Math.max(0, amount);
         onLifeTotalChangeList.emit();
@@ -1689,6 +1740,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
      */
     public boolean addBadge(String badgeId) {
         if (!Config.ascendant() || badgeId == null || badgeId.isEmpty())
+            return false;
+        if (GymListData.getByBadge(badgeId) == null)
             return false;
         return badges.add(badgeId);
     }

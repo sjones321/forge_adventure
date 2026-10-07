@@ -86,10 +86,14 @@ public class DuelScene extends ForgeScene {
     boolean arenaBattleChallenge = false;
     boolean isArena = false;
     /**
-     * When true (League challenge series), remaining duel life is written back to
-     * {@link AdventurePlayer} after the match so the next opponent starts at that life.
+     * When true (League challenge series), damage taken in the duel is applied to
+     * {@link AdventurePlayer} map life after the match so the next opponent starts there.
      */
     boolean persistLifeAfterMatch = false;
+    /** Map life before this League match (may be &gt; maxLife from false-life potions). */
+    int mapLifeBeforeMatch = 0;
+    /** Duel starting life after badge/skill bonuses were applied. */
+    int matchStartLife = 0;
     AdventureEventData eventData;
     final int enemyAvatarKey = 90001;
     final int playerAvatarKey = 90000;
@@ -201,13 +205,19 @@ public class DuelScene extends ForgeScene {
                     }
                 }
             }
-            // League attrition: after a win, carry remaining life into the next match.
+            // League attrition: apply damage taken to map life (not end life), so badge/skill
+            // bonuses cannot absorb damage and false-life potions above max aren't cut off.
             // Losses use the normal defeated() penalty from the challenge scene instead.
             if (persistLifeAfterMatch && winner) {
                 List<PlayerControllerHuman> humans = hostedMatch.getHumanControllers();
                 if (humans.size() == 1 && humans.get(0).getPlayer() != null) {
-                    int remaining = humans.get(0).getPlayer().getLife();
-                    Current.player().setLife(Math.max(1, remaining));
+                    int endLife = humans.get(0).getPlayer().getLife();
+                    int damage = Math.max(0, matchStartLife - endLife);
+                    int max = Current.player().getMaxLife();
+                    int next = mapLifeBeforeMatch - damage;
+                    // Floor at 0; cap at maxLife unless map life was already above max (potions).
+                    int upper = Math.max(max, mapLifeBeforeMatch);
+                    Current.player().setLife(Math.max(0, Math.min(upper, next)));
                 }
             }
             persistLifeAfterMatch = false;
@@ -437,6 +447,8 @@ public class DuelScene extends ForgeScene {
         playerObject.setAvatarIndex(playerAvatarKey);
         humanPlayer.setPlayer(playerObject);
         humanPlayer.setTeamNumber(0);
+        if (persistLifeAfterMatch)
+            mapLifeBeforeMatch = advPlayer.getLife();
         humanPlayer.setStartingLife(eventData != null ? eventData.eventRules.startingLife : advPlayer.getLife());
         if (eventData == null || eventData.eventRules.allowsShards)
             humanPlayer.setManaShards(advPlayer.getShards());
@@ -506,6 +518,8 @@ public class DuelScene extends ForgeScene {
         int baseFreeMulligans = Config.instance().getConfigData().adventureFreeMulligans;
         humanPlayer.setFreeMulligans(baseFreeMulligans + advPlayer.getSkills().bonusFreeMulligans());
         addEffects(humanPlayer, playerEffects);
+        if (persistLifeAfterMatch)
+            matchStartLife = humanPlayer.getStartingLife();
 
         currentEnemy = enemy.getData();
         boolean bossBattle = currentEnemy.boss;
