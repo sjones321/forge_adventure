@@ -2183,8 +2183,21 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     /**
-     * Spends dust of the printing's rarity and adds one copy to the collection.
-     * Returns true on success.
+     * Mana-reagent cost for crafting this card (Package A2). Empty when Ascendant is off
+     * or the card has no reagent requirement.
+     */
+    public CardReagentCost craftReagentCost(PaperCard card) {
+        if (!Config.ascendant() || card == null)
+            return CardReagentCost.forCard(null);
+        PaperCard printing = craftPrinting(card);
+        if (printing == null)
+            return CardReagentCost.forCard(null);
+        return CardReagentCost.forCard(printing);
+    }
+
+    /**
+     * Spends dust of the printing's rarity plus mana reagents (A2), then adds one copy.
+     * Returns true on success. Dust is not spent if reagents are missing.
      */
     public boolean craftCard(PaperCard card) {
         String problem = craftProblem(card);
@@ -2195,13 +2208,122 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         PaperCard printing = craftPrinting(card);
         int cost = craftCost(printing);
         int index = dustIndex(printing.getRarity());
+        CardReagentCost reagents = CardReagentCost.forCard(printing);
+        if (!reagents.canAfford(this)) {
+            List<String> missing = reagents.missing(this);
+            notifyCrafting(missing.isEmpty() ? "Missing reagents." : missing.get(0));
+            return false;
+        }
+        Map<String, Integer> payment = reagents.resolvePayment(this);
+        if (!reagents.isEmpty() && payment.isEmpty()) {
+            notifyCrafting("Missing reagents.");
+            return false;
+        }
+        if (getDust(index) < cost) {
+            notifyCrafting("Not enough " + dustRarity(index).getLongName() + " dust (need " + cost + ").");
+            return false;
+        }
+        // Snapshot reagent spends first so a mid-loop failure can refund.
+        List<String> matIds = new ArrayList<>();
+        List<Integer> matCounts = new ArrayList<>();
+        for (Map.Entry<String, Integer> e : payment.entrySet()) {
+            if (e.getKey() != null && e.getValue() != null && e.getValue() > 0) {
+                matIds.add(e.getKey());
+                matCounts.add(e.getValue());
+            }
+        }
+        for (int i = 0; i < matIds.size(); i++) {
+            if (!takeMaterial(matIds.get(i), matCounts.get(i))) {
+                for (int j = 0; j < i; j++)
+                    addMaterial(matIds.get(j), matCounts.get(j));
+                notifyCrafting("Missing reagents.");
+                return false;
+            }
+        }
         if (!takeDust(index, cost)) {
+            for (int i = 0; i < matIds.size(); i++)
+                addMaterial(matIds.get(i), matCounts.get(i));
             notifyCrafting("Not enough " + dustRarity(index).getLongName() + " dust (need " + cost + ").");
             return false;
         }
         addCard(printing, 1, false);
         skills.onCardCrafted(cost);
         return true;
+    }
+
+    /**
+     * Spell Smith: craft one Prismatic reagent of the given tier from one reagent of each
+     * of W/U/B/R/G at that tier (alts of the same color+tier are accepted).
+     */
+    public boolean craftPrismatic(int tier) {
+        if (!Config.ascendant()) {
+            notifyCrafting("Crafting is not available in this world.");
+            return false;
+        }
+        if (tier < 1 || tier > 4) {
+            notifyCrafting("Invalid prismatic tier.");
+            return false;
+        }
+        MaterialData result = MaterialListData.prismaticForTier(tier);
+        if (result == null) {
+            notifyCrafting("Prismatic reagent T" + tier + " is not defined.");
+            return false;
+        }
+        String[] colors = {"W", "U", "B", "R", "G"};
+        Map<String, Integer> payment = new LinkedHashMap<>();
+        for (String color : colors) {
+            if (CardReagentCost.ownedForColor(this, color, tier) < 1) {
+                MaterialData primary = MaterialListData.primaryReagent(color, tier);
+                String label = primary != null ? primary.getDisplayName() : color;
+                notifyCrafting("Need 1× " + label + " (or same-color alt) for Prismatic T" + tier + ".");
+                return false;
+            }
+            // Prefer primary family, then alts (same order as card craft).
+            boolean took = false;
+            for (MaterialData m : new Array.ArrayIterator<>(MaterialListData.reagentsForColorTier(color, tier))) {
+                if (getMaterial(m.id) > 0) {
+                    payment.merge(m.id, 1, Integer::sum);
+                    took = true;
+                    break;
+                }
+            }
+            if (!took) {
+                notifyCrafting("Need a " + color + " T" + tier + " reagent.");
+                return false;
+            }
+        }
+        List<String> matIds = new ArrayList<>(payment.keySet());
+        for (int i = 0; i < matIds.size(); i++) {
+            if (!takeMaterial(matIds.get(i), payment.get(matIds.get(i)))) {
+                for (int j = 0; j < i; j++)
+                    addMaterial(matIds.get(j), payment.get(matIds.get(j)));
+                notifyCrafting("Missing reagents for Prismatic.");
+                return false;
+            }
+        }
+        addMaterial(result.id, 1);
+        int xp = Math.max(0, Config.instance().getConfigData().prismaticCraftXp);
+        if (xp > 0)
+            skills.addXp(PlayerSkills.Skill.SPELLSMITHING, xp);
+        return true;
+    }
+
+    /** Why a Prismatic craft would fail, or null if it can proceed. */
+    public String prismaticCraftProblem(int tier) {
+        if (!Config.ascendant())
+            return "Crafting is not available in this world.";
+        if (tier < 1 || tier > 4)
+            return "Invalid prismatic tier.";
+        if (MaterialListData.prismaticForTier(tier) == null)
+            return "Prismatic reagent T" + tier + " is not defined.";
+        for (String color : new String[]{"W", "U", "B", "R", "G"}) {
+            if (CardReagentCost.ownedForColor(this, color, tier) < 1) {
+                MaterialData primary = MaterialListData.primaryReagent(color, tier);
+                String label = primary != null ? primary.getDisplayName() : color;
+                return "Need 1× " + label + " (or same-color alt)";
+            }
+        }
+        return null;
     }
 
     /** After a card enters the collection: salvage copies beyond the keep limit when auto-salvage is on. */

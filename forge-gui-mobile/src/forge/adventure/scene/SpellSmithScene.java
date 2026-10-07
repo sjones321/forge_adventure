@@ -165,11 +165,18 @@ public class SpellSmithScene extends UIScene {
             openRefine.setBounds(openCraft.getX() - refineW - 8f, exitSmith.getY(), refineW, exitSmith.getHeight());
             openRefine.setVisible(false);
             ui.addActor(openRefine);
+
+            openPrismatic = Controls.newTextButton("Prism", () -> Forge.switchScene(PrismaticScene.instance()));
+            float prismW = Math.max(55f, exitSmith.getWidth() * 0.9f);
+            openPrismatic.setBounds(openRefine.getX() - prismW - 8f, exitSmith.getY(), prismW, exitSmith.getHeight());
+            openPrismatic.setVisible(false);
+            ui.addActor(openPrismatic);
         }
     }
 
     private TextraButton openCraft;
     private TextraButton openRefine;
+    private TextraButton openPrismatic;
 
     private void reset() {
         edition = "";
@@ -345,6 +352,8 @@ public class SpellSmithScene extends UIScene {
             openCraft.setVisible(Config.ascendant());
         if (openRefine != null)
             openRefine.setVisible(Config.ascendant());
+        if (openPrismatic != null)
+            openPrismatic.setVisible(Config.ascendant());
         reset();
         loadEditions(); //just to be safe since it's preloaded, if somehow edition is null, then reload it
         editionList.clearListeners();

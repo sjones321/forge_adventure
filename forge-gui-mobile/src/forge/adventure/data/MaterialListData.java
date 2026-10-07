@@ -155,6 +155,114 @@ public final class MaterialListData {
         return byFamily("prismatic");
     }
 
+    /**
+     * Primary gather-line family for a mana color letter (W/U/B/R/G/C).
+     * Used as the preferred reagent when several materials share a color+tier.
+     */
+    public static String primaryFamilyForColor(String color) {
+        if (color == null || color.isEmpty())
+            return "";
+        switch (color.trim().toUpperCase()) {
+            case "W":
+                return "sacred_stone";
+            case "U":
+                return "waters";
+            case "B":
+                return "dead";
+            case "R":
+                return "ash";
+            case "G":
+                return "plants";
+            case "C":
+                return "ore";
+            default:
+                return "";
+        }
+    }
+
+    /**
+     * All materials that can pay a reagent of this mana color at this tier
+     * (primary line plus drop alts like feathers/hide/brine). Excludes prismatic.
+     */
+    public static Array<MaterialData> reagentsForColorTier(String color, int tier) {
+        Array<MaterialData> out = new Array<>();
+        if (color == null || color.isEmpty() || materialList == null)
+            return out;
+        String c = color.trim().toUpperCase();
+        for (MaterialData m : new Array.ArrayIterator<>(materialList)) {
+            if (m == null || m.id == null)
+                continue;
+            if (m.tier != tier)
+                continue;
+            if (m.color == null || !c.equalsIgnoreCase(m.color.trim()))
+                continue;
+            if ("prismatic".equalsIgnoreCase(m.family))
+                continue;
+            out.add(m);
+        }
+        // Prefer primary gather line first for stable UI labels / payment order.
+        String primary = primaryFamilyForColor(c);
+        if (!primary.isEmpty()) {
+            out.sort((a, b) -> {
+                boolean ap = primary.equalsIgnoreCase(a.family);
+                boolean bp = primary.equalsIgnoreCase(b.family);
+                if (ap != bp)
+                    return ap ? -1 : 1;
+                String an = a.getDisplayName();
+                String bn = b.getDisplayName();
+                return an.compareToIgnoreCase(bn);
+            });
+        }
+        return out;
+    }
+
+    /** Preferred reagent for a color+tier (primary family, else first alt). */
+    public static MaterialData primaryReagent(String color, int tier) {
+        Array<MaterialData> all = reagentsForColorTier(color, tier);
+        return all.size > 0 ? all.get(0) : null;
+    }
+
+    /** Ore of the given tier, or null. */
+    public static MaterialData oreForTier(int tier) {
+        return firstInFamilyTier("ore", tier);
+    }
+
+    /** Scrap of the given tier (can replace ore for colorless card costs). */
+    public static MaterialData scrapForTier(int tier) {
+        return firstInFamilyTier("scrap", tier);
+    }
+
+    /** Prismatic reagent of the given tier (A2 any-color mana sources / crafted). */
+    public static MaterialData prismaticForTier(int tier) {
+        return firstInFamilyTier("prismatic", tier);
+    }
+
+    private static MaterialData firstInFamilyTier(String family, int tier) {
+        if (family == null || materialList == null)
+            return null;
+        for (MaterialData m : new Array.ArrayIterator<>(materialList)) {
+            if (m != null && family.equalsIgnoreCase(m.family) && m.tier == tier)
+                return m;
+        }
+        return null;
+    }
+
+    /**
+     * Card rarity → reagent tier: common→1, uncommon→2, rare/special→3, mythic→4.
+     * Returns 0 when the rarity is not craftable as dust.
+     */
+    public static int reagentTierForRarity(forge.card.CardRarity rarity) {
+        if (rarity == null)
+            return 0;
+        return switch (rarity) {
+            case Common -> 1;
+            case Uncommon -> 2;
+            case Rare, Special -> 3;
+            case MythicRare -> 4;
+            default -> 0;
+        };
+    }
+
     private static Array<MaterialData> byFamily(String family) {
         Array<MaterialData> out = new Array<>();
         if (materialList == null || family == null)
