@@ -42,20 +42,21 @@ public class SpritesDataMap implements SaveFileContent {
             return data;
         }
     }
-    private final int numberOfChunks;
+    /** Chunk grid size; synced from {@code mapObjects.length} on load so old saves match. */
+    private int numberOfChunks;
     BiomeSpriteDataMap objectData = new BiomeSpriteDataMap();
     HashMap<String, Integer> objectKeys = new HashMap<>();
     int tileSize;
     int chunkSize;
     private List<Pair<Vector2, Integer>>[][] mapObjects;
 
-    SpritesDataMap(int chunkSize, int tiles, int numberOfChunks) {
+    public SpritesDataMap(int chunkSize, int tiles, int numberOfChunks) {
         this.tileSize = tiles;
         this.chunkSize = chunkSize;
-        this.numberOfChunks = numberOfChunks;
-        mapObjects = new List[numberOfChunks][numberOfChunks];
-        for (int x = 0; x < numberOfChunks; x++) {
-            for (int y = 0; y < numberOfChunks; y++) {
+        this.numberOfChunks = Math.max(1, numberOfChunks);
+        mapObjects = new List[this.numberOfChunks][this.numberOfChunks];
+        for (int x = 0; x < this.numberOfChunks; x++) {
+            for (int y = 0; y < this.numberOfChunks; y++) {
                 mapObjects[x][y] = new ArrayList<Pair<Vector2, Integer>>();
             }
         }
@@ -91,7 +92,12 @@ public class SpritesDataMap implements SaveFileContent {
     }
 
     public List<Pair<Vector2, Integer>> positions(int chunkX, int chunkY) {
-        if (chunkX >= numberOfChunks || chunkY >= numberOfChunks || chunkX < 0 || chunkY < 0)
+        if (mapObjects == null)
+            return new ArrayList<>();
+        // Bound against the live array so a stale numberOfChunks can't OOB after load.
+        if (chunkX >= mapObjects.length || chunkY >= mapObjects.length || chunkX < 0 || chunkY < 0)
+            return new ArrayList<>();
+        if (mapObjects[chunkX] == null || chunkY >= mapObjects[chunkX].length)
             return new ArrayList<>();
         return mapObjects[chunkX][chunkY];
     }
@@ -105,6 +111,11 @@ public class SpritesDataMap implements SaveFileContent {
         objectKeys = (HashMap<String, Integer>)data.readObject("objectKeys");
         tileSize = data.readInt("tileSize");
         chunkSize = data.readInt("chunkSize");
+        // Old Ascendant saves are 700-wide while the current world.json may be 1000.
+        // Always trust the saved chunk grid over the constructor argument.
+        if (mapObjects != null) {
+            numberOfChunks = mapObjects.length;
+        }
     }
 
     @Override

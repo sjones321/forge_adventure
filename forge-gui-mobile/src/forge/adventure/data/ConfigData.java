@@ -195,5 +195,17 @@ public class ConfigData {
     public int leagueGamesPerMatch = 3;
     /** Badges required to open the League (normally equals the gym count). */
     public int leagueBadgeRequirement = 8;
+    // ---- Ascendant world travel (Package C): waypoint travel + road speed. ----
+
+    /** Exploration level required to use waypoint travel between visited towns. */
+    public int waypointTravelUnlockLevel = 5;
+    /** Flat gold fee added to every waypoint trip before distance cost. */
+    public int waypointTravelBaseCost = 25;
+    /** Gold charged per overworld tile of distance (pre-discount). */
+    public float waypointTravelCostPerTile = 0.5f;
+    /** Max Exploration discount on waypoint travel cost at level 99 (0.5 = 50% off). */
+    public float waypointTravelDiscountMax = 0.5f;
+    /** Overworld move-speed multiplier while standing on a road tile (Ascendant only). */
+    public float roadSpeedBonus = 1.25f;
 
 }

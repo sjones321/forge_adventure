@@ -762,6 +762,28 @@ public class PlayerSkills {
         return out;
     }
 
+    /** True when Exploration is high enough for Ascendant waypoint travel between visited towns. */
+    public boolean canUseWaypointTravel() {
+        if (!rulesOn()) return false;
+        int need = Config.instance().getConfigData().waypointTravelUnlockLevel;
+        return getLevel(Skill.EXPLORATION) >= Math.max(1, need);
+    }
+
+    /**
+     * Gold cost to waypoint-travel {@code distanceTiles} tiles. Applies Exploration discount
+     * up to {@code waypointTravelDiscountMax} at level 99.
+     */
+    public int waypointTravelCost(float distanceTiles) {
+        if (!rulesOn()) return Integer.MAX_VALUE;
+        ConfigData cfg = Config.instance().getConfigData();
+        float raw = cfg.waypointTravelBaseCost + Math.max(0f, distanceTiles) * cfg.waypointTravelCostPerTile;
+        float t = (getLevel(Skill.EXPLORATION) - 1) / 98f;
+        if (t < 0f) t = 0f;
+        if (t > 1f) t = 1f;
+        float discount = Math.max(0f, Math.min(1f, cfg.waypointTravelDiscountMax)) * t;
+        return Math.max(1, Math.round(raw * (1f - discount)));
+    }
+
     // ---- save/load ----
 
     public String[] saveKeys() {
