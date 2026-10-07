@@ -149,7 +149,8 @@ public class GymScene extends UIScene implements IAfterMatch {
         if (challengeActive) {
             challengeActive = false;
             fightIndex = 0;
-            showInfo("Challenge forfeited", "Return when you are ready.");
+            Current.player().defeated();
+            showInfo("Challenge forfeited", "The challenge is over. The normal defeat penalty was applied.");
             rebuild();
             return;
         }
@@ -186,7 +187,8 @@ public class GymScene extends UIScene implements IAfterMatch {
         awaitingDuel = true;
         DuelScene duelScene = DuelScene.instance();
         FThreads.invokeInEdtNowOrLater(() -> Forge.setTransitionScreen(new TransitionScreen(() -> {
-            duelScene.initDuels(WorldStage.getInstance().getPlayerSprite(), enemy, true, null);
+            // isArena must stay false — Hard/Insane would replace gym decks with genetic AI.
+            duelScene.initDuels(WorldStage.getInstance().getPlayerSprite(), enemy, false, null, false);
             Forge.switchScene(duelScene);
         }, ScreenUtil.getInstance().takeScreenshot(), true, false, false, false, "",
                 Current.player().avatar(), enemy.getAtlasPath(), Current.player().getName(), enemy.getName())));
@@ -200,6 +202,7 @@ public class GymScene extends UIScene implements IAfterMatch {
         if (!winner) {
             challengeActive = false;
             fightIndex = 0;
+            Current.player().defeated();
             rebuild();
             showInfo("Defeated", "The gym challenge is over. Heal up and try again.");
             return;

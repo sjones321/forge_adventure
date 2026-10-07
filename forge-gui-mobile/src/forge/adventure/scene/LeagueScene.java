@@ -42,7 +42,6 @@ public class LeagueScene extends UIScene implements IAfterMatch {
     private boolean challengeActive;
     private boolean awaitingDuel;
     private boolean rematch;
-    private int lifeAtStart;
     private Dialog infoDialog;
 
     public static LeagueScene instance() {
@@ -159,7 +158,6 @@ public class LeagueScene extends UIScene implements IAfterMatch {
         rematch = Current.player().isLeagueCleared();
         fightIndex = 0;
         challengeActive = true;
-        lifeAtStart = Current.player().getLife();
         rebuild();
         startNextFight();
     }
@@ -168,9 +166,8 @@ public class LeagueScene extends UIScene implements IAfterMatch {
         if (challengeActive) {
             challengeActive = false;
             fightIndex = 0;
-            // Restore life to what they entered with so a mid-League forfeit is not a soft-lock at 1 life.
-            Current.player().heal(Math.max(0, lifeAtStart - Current.player().getLife()));
-            showInfo("League forfeited", "Your life was restored to when you entered.");
+            Current.player().defeated();
+            showInfo("League forfeited", "The challenge is over. The normal defeat penalty was applied.");
             rebuild();
             return;
         }
@@ -191,7 +188,8 @@ public class LeagueScene extends UIScene implements IAfterMatch {
         awaitingDuel = true;
         DuelScene duelScene = DuelScene.instance();
         FThreads.invokeInEdtNowOrLater(() -> Forge.setTransitionScreen(new TransitionScreen(() -> {
-            duelScene.initDuels(WorldStage.getInstance().getPlayerSprite(), enemy, true, null);
+            // isArena=false so Hard/Insane keeps gym decks; persistLife carries attrition.
+            duelScene.initDuels(WorldStage.getInstance().getPlayerSprite(), enemy, false, null, true);
             Forge.switchScene(duelScene);
         }, ScreenUtil.getInstance().takeScreenshot(), true, false, false, false, "",
                 Current.player().avatar(), enemy.getAtlasPath(), Current.player().getName(), enemy.getName())));
@@ -205,13 +203,14 @@ public class LeagueScene extends UIScene implements IAfterMatch {
         if (!winner) {
             challengeActive = false;
             fightIndex = 0;
+            Current.player().defeated();
             rebuild();
             showInfo("Defeated", "The League challenge ends here. No healing was granted mid-run.");
             return;
         }
         boolean isChamp = fightIndex == lineup.size - 1;
         Current.player().win(isChamp);
-        // Intentionally no heal — League rules.
+        // Life already persisted from the duel — no heal between matches.
         fightIndex++;
         rebuild();
         if (fightIndex >= lineup.size)
@@ -224,7 +223,9 @@ public class LeagueScene extends UIScene implements IAfterMatch {
         challengeActive = false;
         boolean first = !Current.player().isLeagueCleared();
         Current.player().setLeagueCleared(true);
-        Current.player().fullHeal();
+        // Full heal only on the first League clear; rematches keep attrition life.
+        if (first)
+            Current.player().fullHeal();
         GymRewardData table = (!first || rematch) && league.rematchRewards != null
                 ? league.rematchRewards : league.rewards;
         Array<Reward> rewards = GymUtil.grantRewards(table);

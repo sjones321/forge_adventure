@@ -1,5 +1,6 @@
 package forge.adventure.util;
 
+import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.ObjectMap;
 import forge.adventure.data.ConfigData;
@@ -8,10 +9,19 @@ import forge.adventure.data.GymFighterData;
 import forge.adventure.data.GymRewardData;
 import forge.adventure.data.RewardData;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.player.StandardWindow;
 import forge.card.CardRarity;
 import forge.deck.Deck;
+import forge.deck.DeckgenUtil;
+import forge.game.GameFormat;
+import forge.game.GameType;
 import forge.item.PaperCard;
 import forge.model.FModel;
+import forge.util.Aggregates;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Shared helpers for gyms and the League: format deck resolution, EnemyData build,
@@ -22,6 +32,8 @@ public final class GymUtil {
     public static final String FORMAT_PAUPER = "Pauper";
     public static final String FORMAT_HISTORIC = "Historic";
     public static final String FORMAT_COMMANDER = "Commander";
+    /** Sentinel in gyms.json deck maps: generate a format-legal deck at challenge time. */
+    public static final String GENERATE = "$generate";
 
     private GymUtil() {
     }
@@ -74,12 +86,65 @@ public final class GymUtil {
         return decks.get(FORMAT_STANDARD);
     }
 
-    /** Builds a transient EnemyData for a gym / League duel. */
+    /** True when the path means "build a legal deck now" rather than load a .dck file. */
+    public static boolean shouldGenerateDeck(String path) {
+        if (path == null || path.isEmpty() || GENERATE.equals(path))
+            return true;
+        // Legacy Package G decks were all *_standard.dck with non-window cards — generate instead.
+        if (path.contains("/gym/") && path.endsWith("_standard.dck"))
+            return true;
+        FileHandle handle = Config.instance().getFile(path);
+        return handle == null || !handle.exists();
+    }
+
+    /**
+     * Builds a deck legal for the current run format, themed by fighter colors.
+     * Standard uses the player's window editions (and rotating staples via format generators).
+     */
+    public static Deck generateLegalDeck(String colors, boolean rematch) {
+        AdventurePlayer player = Current.player();
+        String format = player.getRunFormat();
+        String cols = (colors == null || colors.isEmpty() || "Guild".equals(colors) || "Rainbow".equals(colors)
+                || "C".equals(colors))
+                ? (colors != null && colors.length() >= 2 && !"Guild".equals(colors) && !"Rainbow".equals(colors)
+                ? colors : "WUBRG")
+                : colors;
+        if ("C".equals(colors))
+            cols = "";
+        if ("Guild".equals(colors))
+            cols = "WR";
+        if ("Rainbow".equals(colors))
+            cols = "WUBRG";
+
+        if (FORMAT_COMMANDER.equals(format) || player.isCommanderMode()) {
+            return DeckgenUtil.generateCommanderDeck(true, GameType.Commander);
+        }
+        if (FORMAT_PAUPER.equals(format)) {
+            return DeckgenUtil.buildLDACArchetypeDeck(FModel.getFormats().getPauper(), true);
+        }
+        if (FORMAT_HISTORIC.equals(format)) {
+            return DeckgenUtil.buildLDACArchetypeDeck(FModel.getFormats().getHistoric(), true);
+        }
+        // Standard: restrict to the run's window editions when available.
+        StandardWindow window = player.getStandardWindow();
+        if (window.isActive() && !window.getSets().isEmpty()) {
+            String[] editions = window.getSets().toArray(new String[0]);
+            Deck deck = DeckgenUtil.getRandomOrPreconOrThemeDeck(cols, true, !rematch, false, editions);
+            if (deck != null && !deck.isEmpty())
+                return deck;
+        }
+        GameFormat std = FModel.getFormats().getStandard();
+        return DeckgenUtil.buildLDACArchetypeDeck(std, true);
+    }
+
+    /** Builds a transient EnemyData for a gym / League duel with a format-legal prepared deck. */
     public static EnemyData toEnemy(GymFighterData fighter, int badgesHeld, boolean rematch) {
         EnemyData e = new EnemyData();
         e.name = fighter.name != null ? fighter.name : "Gym Fighter";
         e.sprite = fighter.sprite;
         e.life = Math.max(1, fighter.life);
+        if (rematch)
+            e.life = Math.max(e.life, e.life + 4 + badgesHeld);
         e.colors = fighter.colors != null ? fighter.colors : "";
         int games = fighter.gamesPerMatch;
         if (games <= 0) {
@@ -89,16 +154,17 @@ public final class GymUtil {
         e.gamesPerMatch = Math.max(1, games);
         e.boss = fighter.boss || e.gamesPerMatch > 1;
         String path = resolveDeckPath(fighter, badgesHeld, rematch);
-        if (path != null && !path.isEmpty())
+        if (shouldGenerateDeck(path)) {
+            e.preparedDeck = generateLegalDeck(e.colors, rematch);
+            e.deck = new String[]{GENERATE};
+        } else {
             e.deck = new String[]{path};
-        else
-            e.deck = new String[]{"decks/standard/adventurer.dck"};
+        }
         return e;
     }
 
     /**
      * True when the selected deck may challenge gyms / League for this run's format.
-     * Until package K, every run is Standard: Commander and Historic-tagged decks are refused.
      */
     public static boolean selectedDeckLegalForRun() {
         AdventurePlayer p = Current.player();
@@ -109,21 +175,31 @@ public final class GymUtil {
         if (FORMAT_COMMANDER.equals(format))
             return p.isCommanderDeck(d);
         if (FORMAT_HISTORIC.equals(format))
-            return p.isHistoricDeck(d) || (!p.isCommanderDeck(d) && !p.isHistoricDeck(d));
+            return p.isHistoricDeck(d);
         if (FORMAT_PAUPER.equals(format))
             return !p.isCommanderDeck(d); // package K will tighten to Pauper legality
-        // Standard run: selected deck must be the Adventure Standard format (not Commander / Historic).
-        return !p.isCommanderDeck(d) && !p.isHistoricDeck(d);
+        // Standard: not Commander/Historic-tagged, and every card legal in the window / staples.
+        if (p.isCommanderDeck(d) || p.isHistoricDeck(d))
+            return false;
+        return p.standardDeckProblem(d) == null;
     }
 
     public static String legalityMessage() {
-        String format = Current.player().getRunFormat();
+        AdventurePlayer p = Current.player();
+        String format = p.getRunFormat();
+        if (FORMAT_STANDARD.equals(format)) {
+            String problem = p.standardDeckProblem(p.getSelectedDeck());
+            if (problem != null)
+                return problem;
+            if (p.isCommanderDeckSelected() || p.isHistoricDeckSelected())
+                return "Select a Standard deck for this run (not Commander or Historic).";
+        }
         return "Your selected deck must be legal for this run's format (" + format + ").";
     }
 
     /**
-     * Applies dust immediately (no Reward.Type.Dust). Returns gold / material / staple
-     * for {@link forge.adventure.scene.RewardScene} EventReward, which calls addReward on claim.
+     * Applies dust immediately. Returns gold / material / staple for RewardScene EventReward.
+     * Staple rewards prefer a rotating Standard staple (or window-legal named card).
      */
     public static Array<Reward> grantRewards(GymRewardData reward) {
         Array<Reward> out = new Array<>();
@@ -153,15 +229,46 @@ public final class GymUtil {
             mat.materialName = reward.material;
             out.addAll(mat.generate(false, null, true));
         }
-        if (reward.stapleCard != null && !reward.stapleCard.isEmpty()) {
-            PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(reward.stapleCard);
-            if (pc == null)
-                pc = CardUtil.getCardByName(reward.stapleCard);
-            if (pc != null)
-                out.add(new Reward(pc));
-            else
-                System.err.println("Gym staple missing: " + reward.stapleCard);
-        }
+        PaperCard staple = pickStapleReward(reward.stapleCard);
+        if (staple != null)
+            out.add(new Reward(staple));
         return out;
+    }
+
+    /**
+     * Prefer {@code preferred} when it is Standard-legal for this run; otherwise a random
+     * rotating staple (or unlocked color staple). Commander runs use commander staples.
+     */
+    public static PaperCard pickStapleReward(String preferred) {
+        AdventurePlayer player = Current.player();
+        StandardWindow window = player.getStandardWindow();
+        boolean commander = FORMAT_COMMANDER.equals(player.getRunFormat()) || player.isCommanderMode();
+        if (preferred != null && !preferred.isEmpty()) {
+            PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(preferred);
+            if (pc == null)
+                pc = CardUtil.getCardByName(preferred);
+            if (pc != null && (commander || !window.isActive() || window.isStandardLegal(pc.getName())))
+                return pc;
+        }
+        List<String> pool = new ArrayList<>();
+        if (window.isActive()) {
+            Set<String> active = window.activeStaples(commander);
+            if (active != null)
+                pool.addAll(active);
+            pool.addAll(StandardWindow.unlockedColorStaples());
+        }
+        while (!pool.isEmpty()) {
+            String name = Aggregates.removeRandom(pool);
+            if (name == null || name.isEmpty())
+                continue;
+            if (!commander && window.isActive() && !window.isStandardLegal(name))
+                continue;
+            PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(name);
+            if (pc == null)
+                pc = CardUtil.getCardByName(name);
+            if (pc != null)
+                return pc;
+        }
+        return null;
     }
 }

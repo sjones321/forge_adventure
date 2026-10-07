@@ -547,6 +547,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return life;
     }
 
+    /** Sets current map life (clamped to ≥ 0). Used by League attrition between matches. */
+    public void setLife(int amount) {
+        life = Math.max(0, amount);
+        onLifeTotalChangeList.emit();
+    }
+
     public AdventureModes getAdventureMode(){
         return adventureMode;
     }
@@ -1522,9 +1528,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     /**
      * Run format for gyms, League and (later) tournaments.
-     * Package K persists the New Game+ choice; until then this is always Standard.
+     * Commander-mode saves always report Commander so gyms stay enterable.
+     * Package K persists the New Game+ choice; until then non-Commander runs are Standard.
      */
     public String getRunFormat() {
+        if (isCommanderMode())
+            return GymUtil.FORMAT_COMMANDER;
         return runFormat != null && !runFormat.isEmpty() ? runFormat : GymUtil.FORMAT_STANDARD;
     }
 
