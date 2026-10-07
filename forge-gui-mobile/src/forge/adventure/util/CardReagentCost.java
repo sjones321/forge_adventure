@@ -16,9 +16,9 @@ import forge.card.mana.ManaCostShard;
 import forge.item.PaperCard;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -200,23 +200,15 @@ public final class CardReagentCost {
     }
 
     /**
-     * True when a mana ability adds mana of any color ({@code Produced$ Any})
-     * or the oracle describes adding mana of any color (Command Tower, Exotic Orchard, …).
+     * True when a face has a mana ability that produces {@code Any}
+     * ({@code AB$ Mana | … | Produced$ Any}). Oracle / static text is ignored so
+     * cards like Mycosynth Lattice ("spend mana as though it were mana of any color")
+     * are not treated as any-color producers.
      */
     public static boolean producesAnyColorMana(CardRules rules) {
         if (rules == null)
             return false;
-        if (faceProducesAny(rules.getMainPart()))
-            return true;
-        if (faceProducesAny(rules.getOtherPart()))
-            return true;
-        String oracle = rules.getOracleText();
-        if (oracle != null) {
-            String lower = oracle.toLowerCase(Locale.ROOT);
-            if (lower.contains("mana of any color"))
-                return true;
-        }
-        return false;
+        return faceProducesAny(rules.getMainPart()) || faceProducesAny(rules.getOtherPart());
     }
 
     private static boolean faceProducesAny(ICardFace face) {
@@ -228,8 +220,9 @@ public final class CardReagentCost {
         for (String ab : abilities) {
             if (ab == null)
                 continue;
+            // Ability scripts look like: "AB$ Mana | Cost$ T | Produced$ Any | …"
             String compact = ab.replace(" ", "");
-            if (compact.contains("Produced$Any") || compact.contains("Produced$ComboAny"))
+            if (compact.contains("AB$Mana") && compact.contains("Produced$Any"))
                 return true;
         }
         return false;
@@ -280,42 +273,74 @@ public final class CardReagentCost {
         return p != null ? player.getMaterial(p.id) : 0;
     }
 
+    /**
+     * True when {@link #resolvePayment} can allocate every line without double-counting
+     * the same reagent across COLOR / HYBRID requirements (e.g. {@code {W}{W/U}} needs 2 white
+     * or 1 white + 1 blue, not 1 white for both).
+     */
     public boolean canAfford(AdventurePlayer player) {
-        return missing(player).isEmpty();
+        return tryAllocate(player) != null;
     }
 
     /**
      * Human-readable missing pieces for UI (empty if affordable).
+     * Uses the same sequential allocation as {@link #resolvePayment}.
      */
     public List<String> missing(AdventurePlayer player) {
         List<String> out = new ArrayList<>();
         if (player == null)
             return List.of("No player");
+        Map<String, Integer> pay = new LinkedHashMap<>();
         for (Line line : lines) {
-            int have = ownedForLine(player, line);
-            if (have >= line.count)
+            if (takeInto(pay, player, line))
                 continue;
+            int have = remainingForLine(player, pay, line);
             out.add("Need " + line.count + "× " + labelForLine(line) + " (have " + have + ")");
         }
         return out;
     }
 
-    public int ownedForLine(AdventurePlayer player, Line line) {
+    /**
+     * Units still available for a line after prior allocations in {@code pay}.
+     * For hybrids, the best single OR-color remaining count.
+     */
+    public int remainingForLine(AdventurePlayer player, Map<String, Integer> pay, Line line) {
+        if (player == null || line == null)
+            return 0;
+        Map<String, Integer> reserved = pay != null ? pay : Collections.emptyMap();
         return switch (line.kind) {
-            case COLOR -> ownedForColor(player, line.color, line.tier);
+            case COLOR -> ownedForColor(player, line.color, line.tier)
+                    - reservedForColor(reserved, line.color, line.tier);
             case HYBRID -> {
                 int best = 0;
-                for (String c : line.colors)
-                    best = Math.max(best, ownedForColor(player, c, line.tier));
-                // Hybrids need `count` units from a single chosen color (or split? → single color pick).
-                // Paying count across colors: allow summing across OR colors for affordability of count=1
-                // typical hybrids are count=1. For count>1, require best single color >= count
-                // (each hybrid symbol is its own line with count 1 after fromManaCost).
-                yield best;
+                for (String c : line.colors) {
+                    int have = ownedForColor(player, c, line.tier) - reservedForColor(reserved, c, line.tier);
+                    best = Math.max(best, have);
+                }
+                yield Math.max(0, best);
             }
-            case COLORLESS -> ownedColorless(player, line.tier);
-            case PRISMATIC -> ownedPrismatic(player, line.tier);
+            case COLORLESS -> {
+                int sum = 0;
+                MaterialData ore = MaterialListData.oreForTier(line.tier);
+                MaterialData scrap = MaterialListData.scrapForTier(line.tier);
+                if (ore != null)
+                    sum += player.getMaterial(ore.id) - reserved.getOrDefault(ore.id, 0);
+                if (scrap != null)
+                    sum += player.getMaterial(scrap.id) - reserved.getOrDefault(scrap.id, 0);
+                yield Math.max(0, sum);
+            }
+            case PRISMATIC -> {
+                MaterialData p = MaterialListData.prismaticForTier(line.tier);
+                if (p == null)
+                    yield 0;
+                yield Math.max(0, player.getMaterial(p.id) - reserved.getOrDefault(p.id, 0));
+            }
         };
+    }
+
+    /** Raw owned units for a line ignoring other lines (display only; not for afford checks). */
+    public int ownedForLine(AdventurePlayer player, Line line) {
+        return remainingForLine(player, Collections.emptyMap(), line);
     }
 
     /** Preferred display label (primary material name, or "Ore/Scrap", or Prismatic). */
@@ -352,16 +377,26 @@ public final class CardReagentCost {
     /**
      * Resolve concrete material id → count to spend. Empty if not affordable.
      * Prefers primary-family reagents, then alts; ore before scrap.
+     * Allocation is sequential so the same unit cannot pay two lines.
      */
     public Map<String, Integer> resolvePayment(AdventurePlayer player) {
+        Map<String, Integer> pay = tryAllocate(player);
+        return pay != null ? pay : new LinkedHashMap<>();
+    }
+
+    /**
+     * Attempt sequential allocation for every line. Returns the payment map on success
+     * (empty map when there are no reagent lines), or {@code null} if any line fails.
+     */
+    public Map<String, Integer> tryAllocate(AdventurePlayer player) {
+        if (player == null)
+            return null;
         Map<String, Integer> pay = new LinkedHashMap<>();
-        if (player == null || !canAfford(player))
+        if (lines.isEmpty())
             return pay;
         for (Line line : lines) {
-            if (!takeInto(pay, player, line)) {
-                pay.clear();
-                return pay;
-            }
+            if (!takeInto(pay, player, line))
+                return null;
         }
         return pay;
     }
@@ -460,18 +495,21 @@ public final class CardReagentCost {
 
     /**
      * Detail line with have/need counts for the craft screen.
-     * {@code anyMissing} is true when at least one line is short.
+     * Uses sequential allocation so shared reagents are not counted twice.
      */
     public String detailSummary(AdventurePlayer player) {
         if (lines.isEmpty())
             return "Reagents: none";
         StringBuilder sb = new StringBuilder("Reagents: ");
+        Map<String, Integer> pay = new LinkedHashMap<>();
         for (int i = 0; i < lines.size(); i++) {
             if (i > 0)
                 sb.append(", ");
             Line line = lines.get(i);
-            int have = ownedForLine(player, line);
+            int have = remainingForLine(player, pay, line);
             sb.append(labelForLine(line)).append(" ").append(have).append("/").append(line.count);
+            // Advance allocation when possible so later lines see the spend.
+            takeInto(pay, player, line);
         }
         return sb.toString();
     }
