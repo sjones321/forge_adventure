@@ -37,12 +37,29 @@ public class PlayerSkills {
         EXPLORATION("Exploration"),
         SALVAGING("Salvaging"),
         SPELLSMITHING("Spellsmithing"),
-        BARTERING("Bartering");
+        BARTERING("Bartering"),
+        // Ascendant gathering (Package B). Crafting skills (E) append after these.
+        WOODCUTTING("Woodcutting"),
+        MINING("Mining"),
+        QUARRYING("Quarrying"),
+        FORAGING("Foraging"),
+        DELVING("Delving");
 
         public final String displayName;
 
         Skill(String displayName) {
             this.displayName = displayName;
+        }
+
+        /** Match materials.json {@code skill} strings (display name or enum name). */
+        public static Skill fromMaterialSkill(String name) {
+            if (name == null || name.isEmpty())
+                return null;
+            for (Skill s : values()) {
+                if (s.displayName.equalsIgnoreCase(name) || s.name().equalsIgnoreCase(name))
+                    return s;
+            }
+            return null;
         }
     }
 
@@ -272,6 +289,23 @@ public class PlayerSkills {
     public void onMaterialsSold(int unitCount, int goldEarned) {
         if (unitCount > 0)
             addXp(Skill.BARTERING, unitCount * 2 + Math.max(0, goldEarned) / 4);
+    }
+
+    /** Overworld node gather (Package B). XP is materials.json {@code xp} × units gathered. */
+    public void onMaterialGathered(Skill skill, int xpAmount) {
+        if (skill != null && xpAmount > 0)
+            addXp(skill, xpAmount);
+    }
+
+    /**
+     * Gathering channel duration factor: 1 at level 1, down toward {@code minFactor} at 99.
+     * Used by WorldStage; keep logic here so skill-tree work (J) can hook the same call site.
+     */
+    public float gatherChannelFactor(Skill skill, float minFactor) {
+        if (!rulesOn() || skill == null)
+            return 1f;
+        float t = (getLevel(skill) - 1) / (float) (MAX_LEVEL - 1);
+        return 1f - (1f - minFactor) * Math.max(0f, Math.min(1f, t));
     }
 
     // ---- color perks: unlocked at levels 15, 40 and 75 of each color skill ----

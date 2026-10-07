@@ -2018,5 +2018,197 @@
     "name": "Fifth Shard",
     "iconName": "StrangeKey",
     "questItem": true
+  },
+  {
+    "name": "Copper Hatchet",
+    "description": "Tier 1 logs gathering tool. Chop trees for logs. Caps gather tier at 1.",
+    "iconName": "WoodBow",
+    "cost": 40,
+    "toolFamily": "logs",
+    "toolTier": 1
+  },
+  {
+    "name": "Iron Hatchet",
+    "description": "Tier 2 logs gathering tool. Chop trees for logs. Caps gather tier at 2.",
+    "iconName": "CompositeBow",
+    "cost": 120,
+    "toolFamily": "logs",
+    "toolTier": 2
+  },
+  {
+    "name": "Mithril Hatchet",
+    "description": "Tier 3 logs gathering tool. Chop trees for logs. Caps gather tier at 3.",
+    "iconName": "JungleShield",
+    "cost": 350,
+    "toolFamily": "logs",
+    "toolTier": 3
+  },
+  {
+    "name": "Adamant Hatchet",
+    "description": "Tier 4 logs gathering tool. Chop trees for logs. Caps gather tier at 4.",
+    "iconName": "MithrilShield",
+    "cost": 900,
+    "toolFamily": "logs",
+    "toolTier": 4
+  },
+  {
+    "name": "Copper Pickaxe",
+    "description": "Tier 1 ore gathering tool. Mine ore and gems. Caps gather tier at 1.",
+    "iconName": "BronzeSword",
+    "cost": 40,
+    "toolFamily": "ore",
+    "toolTier": 1
+  },
+  {
+    "name": "Iron Pickaxe",
+    "description": "Tier 2 ore gathering tool. Mine ore and gems. Caps gather tier at 2.",
+    "iconName": "SteelSword",
+    "cost": 120,
+    "toolFamily": "ore",
+    "toolTier": 2
+  },
+  {
+    "name": "Mithril Pickaxe",
+    "description": "Tier 3 ore gathering tool. Mine ore and gems. Caps gather tier at 3.",
+    "iconName": "FlameSword",
+    "cost": 350,
+    "toolFamily": "ore",
+    "toolTier": 3
+  },
+  {
+    "name": "Adamant Pickaxe",
+    "description": "Tier 4 ore gathering tool. Mine ore and gems. Caps gather tier at 4.",
+    "iconName": "GarrukAxe",
+    "cost": 900,
+    "toolFamily": "ore",
+    "toolTier": 4
+  },
+  {
+    "name": "Copper Chisel",
+    "description": "Tier 1 stone gathering tool. Quarry stone and marble. Caps gather tier at 1.",
+    "iconName": "SteelShield",
+    "cost": 40,
+    "toolFamily": "stone",
+    "toolTier": 1
+  },
+  {
+    "name": "Iron Chisel",
+    "description": "Tier 2 stone gathering tool. Quarry stone and marble. Caps gather tier at 2.",
+    "iconName": "IronShield",
+    "cost": 120,
+    "toolFamily": "stone",
+    "toolTier": 2
+  },
+  {
+    "name": "Mithril Chisel",
+    "description": "Tier 3 stone gathering tool. Quarry stone and marble. Caps gather tier at 3.",
+    "iconName": "MithrilShield",
+    "cost": 350,
+    "toolFamily": "stone",
+    "toolTier": 3
+  },
+  {
+    "name": "Adamant Chisel",
+    "description": "Tier 4 stone gathering tool. Quarry stone and marble. Caps gather tier at 4.",
+    "iconName": "KiteShield",
+    "cost": 900,
+    "toolFamily": "stone",
+    "toolTier": 4
+  },
+  {
+    "name": "Copper Sickle",
+    "description": "Tier 1 herbs gathering tool. Forage herbs and bone. Caps gather tier at 1.",
+    "iconName": "FarmersTools",
+    "cost": 40,
+    "toolFamily": "herbs",
+    "toolTier": 1
+  },
+  {
+    "name": "Iron Sickle",
+    "description": "Tier 2 herbs gathering tool. Forage herbs and bone. Caps gather tier at 2.",
+    "iconName": "GreenStaff",
+    "cost": 120,
+    "toolFamily": "herbs",
+    "toolTier": 2
+  },
+  {
+    "name": "Mithril Sickle",
+    "description": "Tier 3 herbs gathering tool. Forage herbs and bone. Caps gather tier at 3.",
+    "iconName": "WildMagusStaff",
+    "cost": 350,
+    "toolFamily": "herbs",
+    "toolTier": 3
+  },
+  {
+    "name": "Adamant Sickle",
+    "description": "Tier 4 herbs gathering tool. Forage herbs and bone. Caps gather tier at 4.",
+    "iconName": "Hivestone",
+    "cost": 900,
+    "toolFamily": "herbs",
+    "toolTier": 4
+  },
+  {
+    "name": "Copper Probe",
+    "description": "Tier 1 crystal gathering tool. Delve for crystal and pearls. Caps gather tier at 1.",
+    "iconName": "PrismRing",
+    "cost": 40,
+    "toolFamily": "crystal",
+    "toolTier": 1
+  },
+  {
+    "name": "Iron Probe",
+    "description": "Tier 2 crystal gathering tool. Delve for crystal and pearls. Caps gather tier at 2.",
+    "iconName": "VeilstoneAmulet",
+    "cost": 120,
+    "toolFamily": "crystal",
+    "toolTier": 2
+  },
+  {
+    "name": "Mithril Probe",
+    "description": "Tier 3 crystal gathering tool. Delve for crystal and pearls. Caps gather tier at 3.",
+    "iconName": "RingofThreeWishes",
+    "cost": 350,
+    "toolFamily": "crystal",
+    "toolTier": 3
+  },
+  {
+    "name": "Adamant Probe",
+    "description": "Tier 4 crystal gathering tool. Delve for crystal and pearls. Caps gather tier at 4.",
+    "iconName": "AladdinsRing",
+    "cost": 900,
+    "toolFamily": "crystal",
+    "toolTier": 4
+  },
+  {
+    "name": "Copper Spanner",
+    "description": "Tier 1 scrap gathering tool. Salvage scrap from the wastes. Caps gather tier at 1.",
+    "iconName": "SolRing",
+    "cost": 40,
+    "toolFamily": "scrap",
+    "toolTier": 1
+  },
+  {
+    "name": "Iron Spanner",
+    "description": "Tier 2 scrap gathering tool. Salvage scrap from the wastes. Caps gather tier at 2.",
+    "iconName": "StrangeKey",
+    "cost": 120,
+    "toolFamily": "scrap",
+    "toolTier": 2
+  },
+  {
+    "name": "Mithril Spanner",
+    "description": "Tier 3 scrap gathering tool. Salvage scrap from the wastes. Caps gather tier at 3.",
+    "iconName": "FarmersTools",
+    "cost": 350,
+    "toolFamily": "scrap",
+    "toolTier": 3
+  },
+  {
+    "name": "Adamant Spanner",
+    "description": "Tier 4 scrap gathering tool. Salvage scrap from the wastes. Caps gather tier at 4.",
+    "iconName": "GarrukAxe",
+    "cost": 900,
+    "toolFamily": "scrap",
+    "toolTier": 4
   }
 ]

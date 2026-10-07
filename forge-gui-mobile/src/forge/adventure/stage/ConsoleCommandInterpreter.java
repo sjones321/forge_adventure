@@ -259,6 +259,29 @@ public class ConsoleCommandInterpreter {
             Current.player().addMaterial(id, amount);
             return "Added " + amount + " " + id + " (now " + Current.player().getMaterial(id) + ")";
         });
+        registerCommand(new String[]{"give", "tools"}, s -> {
+            Current.player().ensureStarterGatheringTools();
+            return "Ensured T1 gathering tools on toolbelt";
+        });
+        registerCommand(new String[]{"spawn", "node"}, s -> {
+            if (!Config.ascendant())
+                return "Gathering nodes are Ascendant-only";
+            if (!(currentGameStage() instanceof WorldStage))
+                return "Must be on the overworld";
+            String id = s.length >= 1 ? s[0] : "oak";
+            forge.adventure.data.MaterialData mat = forge.adventure.data.MaterialListData.get(id);
+            if (mat == null)
+                return "Unknown material id: " + id;
+            // Place beside the player on a free tile.
+            forge.adventure.character.ResourceNodeSprite sprite =
+                    new forge.adventure.character.ResourceNodeSprite(mat);
+            sprite.setX(Current.player().getWorldPosX() + 24);
+            sprite.setY(Current.player().getWorldPosY());
+            WorldStage ws = WorldStage.getInstance();
+            // Access via spawn path: reuse public enter + reflection-free helper.
+            ws.debugSpawnNode(sprite);
+            return "Spawned node " + id;
+        });
         registerCommand(new String[]{"give", "life"}, s -> {
             if (s.length < 1) return "Command needs 1 parameter: Amount.";
             int amount;
