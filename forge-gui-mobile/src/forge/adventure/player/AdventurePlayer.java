@@ -134,6 +134,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         deckLoadouts.clear();
         characterFlags.clear();
         skills.clear();
+        standardWindow.clear();
         questFlags.clear();
         quests.clear();
         events.clear();
@@ -153,9 +154,22 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     private final CardPool cards = new CardPool();
     private final PlayerSkills skills = new PlayerSkills();
+    private final StandardWindow standardWindow = new StandardWindow();
 
     public PlayerSkills getSkills() {
         return skills;
+    }
+
+    public StandardWindow getStandardWindow() {
+        return standardWindow;
+    }
+
+    /** After cards enter the collection: check set mastery (may unlock and rotate in a new set). */
+    private void afterCardsCollected() {
+        List<String> before = new ArrayList<>(standardWindow.getSets());
+        standardWindow.checkMastery(cards);
+        if (!before.equals(standardWindow.getSets()))
+            RewardData.invalidateCardPool();
     }
 
     public final ItemPool<PaperCard> newCards = new ItemPool<>(PaperCard.class);
@@ -591,6 +605,9 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
         skills.load(data.containsKey("skillXpKeys") ? (String[]) data.readObject("skillXpKeys") : null,
                 data.containsKey("skillXpValues") ? (Integer[]) data.readObject("skillXpValues") : null);
+        standardWindow.load(data.containsKey("standardSets") ? (String[]) data.readObject("standardSets") : null,
+                data.containsKey("standardSetUnlocked") && data.readBool("standardSetUnlocked"),
+                data.containsKey("standardChoicePending") && data.readBool("standardChoicePending"));
 
         if (data.containsKey("questFlagsKey") && data.containsKey("questFlagsValue")) {
             String[] keys = (String[]) data.readObject("questFlagsKey");
@@ -868,6 +885,9 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         data.storeObject("characterFlagsValue", characterFlagsValue.toArray(new Byte[0]));
         data.storeObject("skillXpKeys", skills.saveKeys());
         data.storeObject("skillXpValues", skills.saveValues());
+        data.storeObject("standardSets", standardWindow.saveSets());
+        data.store("standardSetUnlocked", standardWindow.isSetUnlockedThisWorld());
+        data.store("standardChoicePending", standardWindow.isChoicePending());
 
         // Save quest flags.
         ArrayList<String> questFlagsKey = new ArrayList<>();
@@ -978,6 +998,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         awardCollectingXp(card, amount);
         cards.add(card, amount);
         newCards.add(card, amount);
+        afterCardsCollected();
     }
 
     public void addCards(ItemPool<PaperCard> cardPool) {
@@ -985,6 +1006,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             awardCollectingXp(entry.getKey(), entry.getValue());
         cards.addAll(cardPool);
         newCards.addAll(cardPool);
+        afterCardsCollected();
     }
 
     /** Collecting XP: call before the card is added so the first copy of a card name is detected. */
@@ -1003,6 +1025,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 awardCollectingXp(reward.getCard(), 1);
                 cards.add(reward.getCard());
                 newCards.add(reward.getCard());
+                afterCardsCollected();
                 if (reward.isAutoSell()) {
                     autoSellCards.add(reward.getCard());
                     refreshEditor();

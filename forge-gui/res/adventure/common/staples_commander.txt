@@ -1,0 +1,41 @@
+# Curated staples for Adventure Commander: the always-useful cards of the format. A different random
+# subset is active for each rotation. Command Tower and Arcane Signet are given free when switching
+# to Commander, so they are not listed here. One card name per line.
+Sol Ring
+Mind Stone
+Fellwar Stone
+Commander's Sphere
+Thought Vessel
+Wayfarer's Bauble
+Solemn Simulacrum
+Burnished Hart
+Swords to Plowshares
+Path to Exile
+Generous Gift
+Chaos Warp
+Beast Within
+Counterspell
+Swan Song
+Cultivate
+Kodama's Reach
+Rampant Growth
+Nature's Lore
+Farseek
+Lightning Greaves
+Swiftfoot Boots
+Reliquary Tower
+Exotic Orchard
+Path of Ancestry
+Evolving Wilds
+Terramorphic Expanse
+Myriad Landscape
+Rogue's Passage
+Blasphemous Act
+Austere Command
+Farewell
+Rhystic Study
+Mystic Remora
+Phyrexian Arena
+Read the Bones
+Night's Whisper
+Harmonize

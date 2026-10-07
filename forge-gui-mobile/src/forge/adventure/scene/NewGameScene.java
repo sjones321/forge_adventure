@@ -1,5 +1,7 @@
 package forge.adventure.scene;
 
+import forge.adventure.util.Controls;
+import com.badlogic.gdx.scenes.scene2d.ui.SelectBox;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.ui.Image;
@@ -20,6 +22,7 @@ import forge.adventure.player.AdventurePlayer;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.*;
 import forge.adventure.world.WorldSave;
+import forge.adventure.player.StandardWindow;
 import forge.card.CardEdition;
 import forge.card.ColorSet;
 import forge.deck.DeckProxy;
@@ -49,6 +52,8 @@ public class NewGameScene extends MenuScene {
     private final Selector mode;
     private final Selector difficulty;
     private final Selector starterEdition;
+    private SelectBox<String> sealedSetBox;
+    private java.util.List<CardEdition> sealedSets;
     private final TextraLabel starterEditionLabel;
     private final Array<String> custom;
     private final TextraLabel colorLabel;
@@ -85,10 +90,13 @@ public class NewGameScene extends MenuScene {
             colorNames.add(UIActor.localize(idName));
         colorId.setTextList(colorNames);
 
+        // Sealed: the second selector picks the core set opened alongside the starter set
         modes.add(AdventureModes.Sealed);
-        AdventureModes.Sealed.setSelectionName(deckLabel);
-        AdventureModes.Sealed.setModes(new Array<>(new String[]{
-                Forge.getLocalizer().getMessageorUseDefault("lblSealedAutoDeck", "Built from your packs")}));
+        AdventureModes.Sealed.setSelectionName("[BLACK]Core set:");
+        Array<String> coreNames = new Array<>();
+        for (String code : Config.instance().getConfigData().coreSets)
+            coreNames.add(StandardWindow.setName(code));
+        AdventureModes.Sealed.setModes(coreNames);
 
         for (DifficultyData diff : Config.instance().getConfigData().difficulties)//check first difficulty if exists
         {
@@ -128,6 +136,23 @@ public class NewGameScene extends MenuScene {
         for (String editionName : starterEditionNames)
             originalEditionNames.add(UIActor.localize(editionName));
         starterEdition.setTextList(originalEditionNames);
+
+        // Sealed: a scrollable dropdown with every set Forge can open packs for, over the edition field
+        sealedSets = StandardWindow.boosterSets();
+        Array<String> sealedNames = new Array<>();
+        for (CardEdition e : sealedSets)
+            sealedNames.add(e.getName() + " (" + e.getCode() + ")");
+        sealedSetBox = Controls.newComboBox();
+        sealedSetBox.setItems(sealedNames);
+        starterEdition.getParent().addActor(sealedSetBox);
+        sealedSetBox.setBounds(starterEdition.getX(), starterEdition.getY(), starterEdition.getWidth(), starterEdition.getHeight());
+        sealedSetBox.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                sealedSetBox.showScrollPane();
+            }
+        });
+        sealedSetBox.setVisible(false);
 
         // Precon mode: deck names in colorId, set filter in starterEdition
         if (Config.instance().hasPreconDecks()) {
@@ -288,8 +313,13 @@ public class NewGameScene extends MenuScene {
     private void updateModeSelectionState(AdventureModes selectedMode) {
         colorLabel.setText(selectedMode.getSelectionName());
         boolean showEdition = selectedMode.usesStarterEditionSelector();
-        starterEdition.setVisible(showEdition);
+        boolean sealed = selectedMode == AdventureModes.Sealed;
+        starterEdition.setVisible(showEdition && !sealed);
         starterEditionLabel.setVisible(showEdition);
+        if (sealedSetBox != null) {
+            sealedSetBox.setBounds(starterEdition.getX(), starterEdition.getY(), starterEdition.getWidth(), starterEdition.getHeight());
+            sealedSetBox.setVisible(sealed);
+        }
 
         if (selectedMode == AdventureModes.Precon) {
             starterEdition.setTextList(Config.instance().getPreconSetNames());
@@ -322,6 +352,10 @@ public class NewGameScene extends MenuScene {
 
     private CardEdition getStartingEdition() {
         AdventureModes currentMode = modes.get(mode.getCurrentIndex());
+        if (currentMode == AdventureModes.Sealed && sealedSets != null && !sealedSets.isEmpty()) {
+            int idx = Math.max(0, sealedSetBox.getSelectedIndex());
+            return sealedSets.get(Math.min(idx, sealedSets.size() - 1));
+        }
         if ((currentMode == AdventureModes.Standard || currentMode == AdventureModes.Sealed) && editionIds.length > 0) {
             int idx = starterEdition.getCurrentIndex();
             return editionIds[idx < editionIds.length ? idx : 0];
@@ -481,11 +515,12 @@ public class NewGameScene extends MenuScene {
                 ConfigData config = Config.instance().getConfigData();
                 int opened = Math.max(1, Math.min(config.sealedStartOpenedPacks, config.sealedStartPacks));
                 summaryText.append(localizer.getMessageorUseDefault("advModeSealedSummary",
-                        "Sealed: you get " + config.sealedStartPacks + " boosters of the chosen set. "
-                        + opened + " are opened to build your starting deck, and every card from them goes into your collection. "
-                        + "The other " + (config.sealedStartPacks - opened) + " wait unopened in your inventory, "
-                        + "and you start with " + config.sealedStartBonusGold + " extra gold to fill the gaps. "
-                        + "If the chosen set has no boosters, a random starter set is used."));
+                        "Sealed: you get " + config.sealedStartPacks + " boosters of your starter set and "
+                        + config.sealedStartPacks + " of your chosen core set. " + opened + " of each are opened to build "
+                        + "your starting deck, and every card from them goes into your collection. The rest wait unopened "
+                        + "in your inventory, and you start with " + config.sealedStartBonusGold + " extra gold. "
+                        + "Both sets form your Standard: shops, loot and Spell Smith offer those sets plus a few staples. "
+                        + "Master your starter set to unlock a new one."));
                 break;
             }
             case Standard:

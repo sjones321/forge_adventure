@@ -1,6 +1,14 @@
 package forge.adventure.scene;
 
+import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Touchable;
+import com.badlogic.gdx.scenes.scene2d.ui.SelectBox;
+import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
+import com.badlogic.gdx.utils.Array;
+import com.github.tommyettinger.textra.TextraButton;
+import forge.adventure.data.RewardData;
+import forge.card.CardEdition;
+import java.util.List;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.Window;
@@ -9,6 +17,7 @@ import com.github.tommyettinger.textra.TypingLabel;
 import forge.Adventure;
 import forge.Forge;
 import forge.adventure.player.PlayerSkills;
+import forge.adventure.player.StandardWindow;
 import forge.adventure.util.Controls;
 import forge.adventure.util.Current;
 
@@ -73,7 +82,59 @@ public class SkillsScene extends UIScene {
             addRow("[BLACK]" + skill.displayName, "[BLACK]" + level, "[DARK_GRAY]" + progress);
         }
         addRow("[BLACK]Total level", "[BLACK]" + skills.getTotalLevel(), "");
+
+        StandardWindow window = Current.player().getStandardWindow();
+        if (window.isActive()) {
+            StringBuilder sets = new StringBuilder();
+            for (String code : window.getSets())
+                sets.append(sets.length() == 0 ? "" : ", ").append(StandardWindow.setName(code));
+            addRow("[BLACK]Standard", "", "[DARK_GRAY]" + sets);
+            int[] p = window.masteryProgress(Current.player().getCards());
+            int pct = p[1] == 0 ? 0 : Math.round(100f * p[0] / p[1]);
+            String status = window.isSetUnlockedThisWorld() ? " (next set: New Game+)" : "";
+            addRow("[BLACK]Mastery: " + StandardWindow.setName(window.newestSet()), "[BLACK]" + pct + "%",
+                    "[DARK_GRAY]" + String.format("%,d / %,d", p[0], p[1]) + status);
+            if (window.isChoicePending())
+                addSetChoice(window);
+        }
         performTouch(scrollPaneOfActor(scrollContainer)); //mouse wheel scrolling
+    }
+
+    /** After mastering a set: pick the next Standard set from every set with packs. */
+    private void addSetChoice(StandardWindow window) {
+        List<CardEdition> choices = window.choosableSets();
+        if (choices.isEmpty())
+            return;
+        Array<String> names = new Array<>();
+        for (CardEdition e : choices)
+            names.add(e.getName() + " (" + e.getCode() + ")");
+        SelectBox<String> box = Controls.newComboBox();
+        box.setItems(names);
+        box.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                box.showScrollPane();
+            }
+        });
+        TextraButton unlock = Controls.newTextButton("Unlock");
+        unlock.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                int i = box.getSelectedIndex();
+                if (i < 0 || i >= choices.size())
+                    return;
+                window.chooseNextSet(choices.get(i).getCode());
+                RewardData.invalidateCardPool();
+                buildList();
+            }
+        });
+        scrollContainer.row().padTop(10);
+        scrollContainer.add(label("[BLACK]Choose your next set:")).align(Align.left).padLeft(10).colspan(3);
+        scrollContainer.row().padTop(4);
+        scrollContainer.add(box).colspan(2).fillX().padLeft(10);
+        scrollContainer.add(unlock).padRight(10);
+        addToSelectable(box);
+        addToSelectable(unlock);
     }
 
     private void addRow(String name, String level, String xp) {

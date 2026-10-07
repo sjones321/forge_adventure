@@ -77,7 +77,66 @@ Every town already tracks **reputation**. Turn it into a visible **town level**:
 
 Each phase is playable on its own; tuning happens from playtest feedback.
 
-## 5. Status
+## 5. Formats, rotation and New Game+ (agreed with Steve 2026-10-06)
+
+### Standard (60-card) with rotation
+- Three sets are legal at a time (the "window"). A new game starts with **two** sets; the sealed start
+  opens the normal pack count **in each** of them.
+- Each NG+ adds a set; when a fourth arrives, the oldest rotates out.
+- Rotated cards leave the active collection unless a reprint keeps them legal, or they were moved to a
+  vault first (Commander Vault or Historic Vault).
+- **Shops** sell mostly the current window, plus a **rotating staples pool** (useful cards from any set)
+  that changes on rotation.
+
+### Vaults
+- **Commander Vault**: one-way. Vaulted cards never rotate but are Commander-only.
+- **Historic Vault**: same idea for rotated Standard cards, used by a Historic format.
+- **Crafting exception**: a vaulted card can be crafted as a new copy for Standard only while it is
+  legal in the current window, at full cost with no skill discounts.
+
+### Decks
+- 10 Standard deck slots and 10 Commander slots (Historic gets its own).
+- Decks are never deleted. If rotation removes cards a deck needs, the deck becomes **locked/archived**
+  (viewable, not playable) and unlocks again if the cards come back (reprint, craft, vault).
+- Switching active format moves the active deck to storage and makes the other format's deck active.
+- (Replaces the earlier "retire after 2 uses" idea; rotation provides the pressure.)
+
+### New Game+
+- Goal: **set mastery** of the newest set (threshold TBD: one of each card vs. playsets).
+- Carries over: skills, vaults, stored decks (locked if cards rotated), cards still legal.
+- Commander becomes available after at least 2 sets have been played.
+
+### Ban lists
+- One editable file per format; banned cards can't be added and locked decks show why.
+
+### Release
+- Fork stays GPL v3 (same as Forge). LLM opponent ships off by default with an options screen where
+  each player enters their own OpenAI-compatible endpoint, model and key.
+
+### Decided (2026-10-06, second pass)
+- **Mastery** of the newest set = 4x each common/uncommon, 2x each rare, 1x each mythic. It unlocks the
+  next set immediately (rotation can happen mid-world), but only **one set per world**; after that the
+  next unlock needs NG+.
+- **Staples** are curated per format (`common/staples_standard.txt`, `common/staples_commander.txt`);
+  a different subset of 12 is active per rotation. Command Tower and Arcane Signet are given free when
+  switching to Commander.
+- **Sealed start** = 10 packs of the starter set + 10 packs of a chosen core set (5 of each opened).
+  "Core Set Collection" is a custom pack drawing from all core sets (M10–M21, ORI, FDN).
+- **Enemies keep their themed decks** (not filtered by the window). Their decks may need tuning for
+  the 40-card early game.
+- **Inn drafts** should draw from the window, ideally letting the player choose the set.
+
+### Built so far
+- Standard window tracking + save/load, mastery progress on the Skills screen, mid-world unlock and
+  rotation of the window, shop/loot/Spell Smith filtering to window + staples, sealed start with core
+  set picker and Core Set Collection packs.
+
+### Not built yet
+- Removing rotated cards from the collection; Commander and Historic vaults; deck slots per format with
+  lock/archive; crafting a vaulted card; Commander switch and freebies; ban list files; inn draft set
+  choice; choosing the next set instead of random.
+
+## 6. Status
 
 - **Built (untested by Steve yet):** skill framework, RuneScape XP curve, XP drops, level-up
   notices, Skills screen (from Status and Quests), saving. Skills: Dueling (+1 max life per 10

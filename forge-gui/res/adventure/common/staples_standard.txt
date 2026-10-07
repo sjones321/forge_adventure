@@ -1,0 +1,37 @@
+# Curated staples for Adventure Standard: generally useful cards that can appear in shops and loot
+# alongside the current Standard sets. A different random subset is active for each rotation.
+# One card name per line. Keep these fair: no fast mana or game-breaking cards here.
+Swords to Plowshares
+Path to Exile
+Lightning Bolt
+Lightning Strike
+Shock
+Counterspell
+Essence Scatter
+Negate
+Opt
+Divination
+Duress
+Doom Blade
+Murder
+Go for the Throat
+Llanowar Elves
+Rampant Growth
+Cultivate
+Beast Within
+Disenchant
+Naturalize
+Pacifism
+Mind Stone
+Wayfarer's Bauble
+Evolving Wilds
+Terramorphic Expanse
+Thriving Heath
+Thriving Isle
+Thriving Moor
+Thriving Bluff
+Thriving Grove
+Solemn Simulacrum
+Fireball
+Wrath of God
+Day of Judgment

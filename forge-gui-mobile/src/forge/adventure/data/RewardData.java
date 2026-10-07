@@ -4,6 +4,7 @@ import com.badlogic.gdx.utils.Array;
 import forge.ImageKeys;
 import forge.StaticData;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.player.StandardWindow;
 import forge.adventure.util.*;
 import forge.adventure.world.WorldSave;
 import forge.card.CardDb;
@@ -130,12 +131,22 @@ public class RewardData implements Serializable {
         filters.add(pc -> !restrictedCards.contains(pc.getName()));
 
         // Filter out specific cards.
-        allCards = CardUtil.getFullCardPool(false).stream()
+        List<PaperCard> basePool = CardUtil.getFullCardPool(false).stream()
                 .filter(IterableUtil.and(filters))
                 .collect(Collectors.toList());
 
+        // Rotating Standard: shops, loot and Spell Smith only see the current window's sets plus this
+        // rotation's curated staples. Enemy decks keep the full pool so they stay themed.
+        StandardWindow window = AdventurePlayer.current().getStandardWindow();
+        if (window.isActive()) {
+            boolean commander = AdventurePlayer.current().isCommanderMode();
+            allCards = basePool.stream().filter(pc -> window.allows(pc, commander)).collect(Collectors.toList());
+        } else {
+            allCards = basePool;
+        }
+
         //Filter AI cards for enemies.
-        allEnemyCards = IterableUtil.filter(allCards, input -> {
+        allEnemyCards = IterableUtil.filter(basePool, input -> {
             if (input == null) return false;
             return !input.getRules().getAiHints().getRemAIDecks();
         });
@@ -249,7 +260,14 @@ public class RewardData implements Serializable {
                                 ret.add(new Reward(card, isNoSell));
                         }
                     } else {
-                        for (PaperCard card : CardUtil.generateCards(isForEnemy ? allEnemyCards:allCards,this, count + addedCount, rewardRandom)) {
+                        // Rotating Standard: shops pinned to a set outside the window would come up empty,
+                        // so the window replaces their set restriction (color/type/rarity filters still apply).
+                        RewardData filter = this;
+                        if (!isForEnemy && editions != null && AdventurePlayer.current().getStandardWindow().isActive()) {
+                            filter = new RewardData(this);
+                            filter.editions = null;
+                        }
+                        for (PaperCard card : CardUtil.generateCards(isForEnemy ? allEnemyCards:allCards, filter, count + addedCount, rewardRandom)) {
                             if (card != null)
                                 ret.add(new Reward(card, isNoSell));
                         }
@@ -276,6 +294,18 @@ public class RewardData implements Serializable {
                     }
                     break;
                 case "cardPackShop": {
+                    StandardWindow packWindow = AdventurePlayer.current().getStandardWindow();
+                    if (packWindow.isActive()) {
+                        // Rotating Standard: packs of the current window's sets; color shops get color packs from the window
+                        for (int i = 0; i < count + addedCount; i++) {
+                            Deck pack = colors == null
+                                    ? packWindow.randomWindowBooster(rewardRandom)
+                                    : packWindow.colorPack(colors[0]);
+                            if (pack != null)
+                                ret.add(new Reward(pack));
+                        }
+                        break;
+                    }
                     if (colors == null) {
                         CardEdition.Collection editions = FModel.getMagicDb().getEditions();
                         Predicate<CardEdition> filter = CardEdition.Predicates.CAN_MAKE_BOOSTER;

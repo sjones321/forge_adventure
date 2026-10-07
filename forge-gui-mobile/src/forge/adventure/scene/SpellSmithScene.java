@@ -1,5 +1,8 @@
 package forge.adventure.scene;
 
+import java.util.Set;
+import java.util.HashSet;
+import forge.adventure.player.StandardWindow;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
@@ -164,11 +167,20 @@ public class SpellSmithScene extends UIScene {
         editionList.setUserObject(edition);
     }
 
+    private String editionsWindowKey;
+
     public void loadEditions() {
-        if (editions != null)
+        // Rotating Standard: rebuild the list when the window changes, and only offer window sets
+        StandardWindow window = Current.player().getStandardWindow();
+        String key = String.join(",", window.getSets());
+        if (editions != null && key.equals(editionsWindowKey))
             return;
+        editionsWindowKey = key;
+        Set<String> windowCodes = window.isActive() ? new HashSet<>(window.expandedCodes()) : null;
         editions = StaticData.instance().getSortedEditions().stream().filter(input -> {
             if (input == null)
+                return false;
+            if (windowCodes != null && !windowCodes.contains(input.getCode()))
                 return false;
             if (CardEdition.Type.REPRINT_SET_TYPES.contains(input.getType()))
                 return false;

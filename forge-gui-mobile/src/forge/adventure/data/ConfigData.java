@@ -62,6 +62,10 @@ public class ConfigData {
      */
     public int sealedStartPacks = 10;
     public int sealedStartOpenedPacks = 5;
+    /** Sealed start also opens packs of a core set chosen on the New Game screen (counts above apply per set). */
+    public String[] coreSets = {"CORE", "FDN", "M21", "M20", "M19", "ORI", "M15", "M14", "M13", "M12", "M11", "M10"};
+    /** "CORE" = Core Set Collection: custom packs drawing from all of these core sets. */
+    public String[] coreCollectionSets = {"FDN", "M21", "M20", "M19", "ORI", "M15", "M14", "M13", "M12", "M11", "M10"};
     /** Adventure house rule: mulligans that cost no card, for both the player and enemies. */
     public int adventureFreeMulligans = 1;
 

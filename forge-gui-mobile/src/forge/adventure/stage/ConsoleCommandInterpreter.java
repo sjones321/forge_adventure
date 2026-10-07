@@ -1,5 +1,7 @@
 package forge.adventure.stage;
 
+import java.util.Map;
+import forge.adventure.player.StandardWindow;
 
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
@@ -184,6 +186,35 @@ public class ConsoleCommandInterpreter {
             }
             Current.player().giveGold(amount);
             return "Added " + amount + " gold";
+        });
+        registerCommand(new String[]{"give", "mastery"}, s -> {
+            // Debug: grant exactly what's still missing for mastery of the newest Standard set
+            StandardWindow window = Current.player().getStandardWindow();
+            if (!window.isActive())
+                return "No Standard window on this save (start a Sealed game).";
+            String code = window.newestSet();
+            CardEdition ed = FModel.getMagicDb().getEditions().get(code);
+            if (ed == null)
+                return "Newest set " + code + " has no card list.";
+            CardPool missing = new CardPool();
+            for (Map.Entry<String, Integer> e : StandardWindow.requirements(code).entrySet()) {
+                int have = Current.player().getCards().countByName(e.getKey());
+                PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(e.getKey(), code);
+                if (pc != null && have < e.getValue())
+                    missing.add(pc, e.getValue() - have);
+            }
+            Current.player().addCards(missing);
+            return "Added " + missing.countAll() + " cards for mastery of " + StandardWindow.setName(code)
+                    + ". Standard is now: " + String.join(", ", window.getSets());
+        });
+        registerCommand(new String[]{"undo", "unlock"}, s -> {
+            // Debug: take back the last set unlock so the next set can be chosen again
+            StandardWindow window = Current.player().getStandardWindow();
+            String removed = window.undoLastUnlock();
+            if (removed == null)
+                return "Nothing to undo.";
+            forge.adventure.data.RewardData.invalidateCardPool();
+            return "Removed " + StandardWindow.setName(removed) + ". Open the Skills screen to choose again.";
         });
         registerCommand(new String[]{"give", "quest"}, s -> {
             if (s.length < 1) return "Command needs 1 parameter: QuestID";

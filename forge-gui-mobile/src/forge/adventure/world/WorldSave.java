@@ -6,6 +6,8 @@ import com.badlogic.gdx.Gdx;
 import forge.OverlayText;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.DifficultyData;
+import forge.adventure.data.RewardData;
+import forge.adventure.player.StandardWindow;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.pointofintrest.PointOfInterest;
 import forge.adventure.pointofintrest.PointOfInterestChanges;
@@ -158,7 +160,7 @@ public class WorldSave {
         boolean custom = mode == AdventureModes.Custom;
 
         if (mode == AdventureModes.Sealed) {
-            createSealedStart(name, male, race, avatarIndex, diff, starterEdition);
+            createSealedStart(name, male, race, avatarIndex, diff, starterEdition, customDeckIndex);
         } else {
             Deck starterDeck = Config.instance().starterDeck(startingColorIdentity, diff, mode, customDeckIndex, starterEdition);
             currentSave.player.create(name, starterDeck, male, race, avatarIndex, chaos, custom, diff, mode);
@@ -171,29 +173,37 @@ public class WorldSave {
     }
 
     /**
-     * Sealed start: open some boosters of the chosen set into an auto-built deck,
-     * put every opened card in the collection, and keep the rest of the boosters
-     * unopened in the inventory along with some bonus gold.
+     * Sealed start: boosters of the chosen starter set and of the chosen core set. Some of each are
+     * opened into an auto-built deck (every opened card goes to the collection); the rest stay
+     * unopened in the inventory, along with some bonus gold. The two sets form the starting
+     * Standard window (core set oldest, so it rotates out first).
      */
-    private static void createSealedStart(String name, boolean male, int race, int avatarIndex, DifficultyData diff, CardEdition starterEdition) {
+    private static void createSealedStart(String name, boolean male, int race, int avatarIndex, DifficultyData diff, CardEdition starterEdition, int coreIndex) {
         ConfigData config = Config.instance().getConfigData();
         String setCode = sealedSetCode(starterEdition);
+        String coreCode = coreSetCode(coreIndex, setCode);
         int totalPacks = Math.max(1, config.sealedStartPacks);
         int openedPacks = Math.max(1, Math.min(config.sealedStartOpenedPacks, totalPacks));
 
         List<PaperCard> pool = new ArrayList<>();
         List<Deck> unopened = new ArrayList<>();
-        for (int i = 0; i < totalPacks; i++) {
-            Deck booster = AdventureEventController.instance().generateBooster(setCode);
-            if (i < openedPacks)
-                pool.addAll(booster.getMain().toFlatList());
-            else
-                unopened.add(booster);
+        for (String code : coreCode == null ? List.of(setCode) : List.of(coreCode, setCode)) {
+            for (int i = 0; i < totalPacks; i++) {
+                Deck booster = StandardWindow.CORE_COLLECTION.equals(code)
+                        ? StandardWindow.generateCoreCollectionBooster()
+                        : AdventureEventController.instance().generateBooster(code);
+                if (i < openedPacks)
+                    pool.addAll(booster.getMain().toFlatList());
+                else
+                    unopened.add(booster);
+            }
         }
 
         Deck starterDeck = new SealedDeckBuilder(pool).buildDeck(setCode);
         starterDeck.setName(FModel.getMagicDb().getEditions().get(setCode).getName() + " Sealed");
         currentSave.player.create(name, starterDeck, male, race, avatarIndex, false, false, diff, AdventureModes.Sealed);
+        currentSave.player.getStandardWindow().init(coreCode == null ? List.of(setCode) : List.of(coreCode, setCode));
+        RewardData.invalidateCardPool();
 
         // create() already put the deck's cards in the collection; add the opened cards that didn't make the deck
         List<PaperCard> leftovers = new ArrayList<>(pool);
@@ -206,6 +216,19 @@ public class WorldSave {
         currentSave.player.giveGold(config.sealedStartBonusGold);
         // The starting pool shouldn't count as Collecting XP; every character starts at level 1
         currentSave.player.getSkills().clear();
+    }
+
+    /** The core set picked on the New Game screen (if it has boosters and differs from the starter set). */
+    private static String coreSetCode(int index, String starterCode) {
+        String[] cores = Config.instance().getConfigData().coreSets;
+        if (cores == null || cores.length == 0)
+            return null;
+        String code = cores[Math.max(0, Math.min(index, cores.length - 1))];
+        if (StandardWindow.CORE_COLLECTION.equals(code))
+            return code;
+        if (code.equals(starterCode) || AdventureOverrides.instance().getBoosterTemplate(code) == null)
+            return null;
+        return code;
     }
 
     /** The chosen starter set if it has boosters, otherwise a random starter set that does. */
@@ -234,6 +257,7 @@ public class WorldSave {
 
     public boolean save(String text, int currentSlot) {
         header.name = text;
+        CollectionExporter.export(currentSave.player); // collection + decks for external deck builders
 
         String fileName = WorldSave.getSaveFile(currentSlot);
         String oldFileName = fileName.replace(".sav", ".old");
