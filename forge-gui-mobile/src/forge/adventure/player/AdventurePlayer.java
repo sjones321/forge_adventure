@@ -851,8 +851,19 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 characterFlags.put(keys[i], values[i]);
             }
         }
-        skills.load(data.containsKey("skillXpKeys") ? (String[]) data.readObject("skillXpKeys") : null,
+        boolean hadSkillXp = data.containsKey("skillXpKeys");
+        skills.load(hadSkillXp ? (String[]) data.readObject("skillXpKeys") : null,
                 data.containsKey("skillXpValues") ? (Integer[]) data.readObject("skillXpValues") : null);
+        skills.loadTree(
+                data.containsKey("skillTreeNodeIds") ? (String[]) data.readObject("skillTreeNodeIds") : null,
+                data.containsKey("skillTreeNodeRanks") ? (Integer[]) data.readObject("skillTreeNodeRanks") : null,
+                data.containsKey("skillTreeSlotted") ? (String[]) data.readObject("skillTreeSlotted") : null,
+                data.containsKey("skillCapes") ? (String[]) data.readObject("skillCapes") : null,
+                data.containsKey("skillTreeRespecCount") ? data.readInt("skillTreeRespecCount") : null,
+                data.containsKey("skillTreeFreeRespec") && data.readBool("skillTreeFreeRespec"),
+                data.containsKey("colorPerksRefunded") && data.readBool("colorPerksRefunded"));
+        if (!data.containsKey("skillTreeNodeIds"))
+            skills.migrateLegacyColorPerksIfNeeded(hadSkillXp);
         standardWindow.load(data.containsKey("standardSets") ? (String[]) data.readObject("standardSets") : null,
                 data.containsKey("standardSetUnlocked") && data.readBool("standardSetUnlocked"),
                 data.containsKey("standardChoicePending") && data.readBool("standardChoicePending"),
@@ -1156,6 +1167,13 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         data.storeObject("characterFlagsValue", characterFlagsValue.toArray(new Byte[0]));
         data.storeObject("skillXpKeys", skills.saveKeys());
         data.storeObject("skillXpValues", skills.saveValues());
+        data.storeObject("skillTreeNodeIds", skills.saveTreeNodeIds());
+        data.storeObject("skillTreeNodeRanks", skills.saveTreeNodeRanks());
+        data.storeObject("skillTreeSlotted", skills.saveSlottedPerks());
+        data.storeObject("skillCapes", skills.saveSkillCapes());
+        data.store("skillTreeRespecCount", skills.getRespecCount());
+        data.store("skillTreeFreeRespec", skills.isFreeRespecPending());
+        data.store("colorPerksRefunded", skills.isColorPerksRefunded());
         data.storeObject("standardSets", standardWindow.saveSets());
         data.store("standardSetUnlocked", standardWindow.isSetUnlockedThisWorld());
         data.store("standardChoicePending", standardWindow.isChoicePending());

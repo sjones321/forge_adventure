@@ -1,0 +1,5412 @@
+[
+  {
+    "skill": "WHITE",
+    "nodes": [
+      {
+        "id": "white_fortitude_1",
+        "branch": "fortitude",
+        "branchName": "Fortitude",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 2,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life per rank",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "white_fortitude_2",
+        "branch": "fortitude",
+        "branchName": "Fortitude",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_fortitude_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 10,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "white_fortitude_3",
+        "branch": "fortitude",
+        "branchName": "Fortitude",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 2,
+        "requires": [
+          "white_fortitude_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life per rank",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "white_fortitude_4",
+        "branch": "fortitude",
+        "branchName": "Fortitude",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_fortitude_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+3 starting life",
+        "effect": {
+          "lifeModifier": 3
+        }
+      },
+      {
+        "id": "white_fortitude_5",
+        "branch": "fortitude",
+        "branchName": "Fortitude",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "white_fortitude_4"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +5 starting life",
+        "effect": {
+          "lifeModifier": 5
+        }
+      },
+      {
+        "id": "white_fortitude_6",
+        "branch": "fortitude",
+        "branchName": "Fortitude",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_fortitude_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 70,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "white_fortitude_7",
+        "branch": "fortitude",
+        "branchName": "Fortitude",
+        "tier": 7,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_fortitude_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 85,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+3 starting life",
+        "effect": {
+          "lifeModifier": 3
+        }
+      },
+      {
+        "id": "white_fortitude_8",
+        "branch": "fortitude",
+        "branchName": "Fortitude",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "white_fortitude_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": true,
+        "description": "Skill cape: +4 life and a Food token",
+        "effect": {
+          "lifeModifier": 4,
+          "startBattleWithCard": [
+            "c_a_food_sac"
+          ]
+        }
+      },
+      {
+        "id": "white_tokens_1",
+        "branch": "tokens",
+        "branchName": "Tokens",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Food token",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_food_sac"
+          ]
+        }
+      },
+      {
+        "id": "white_tokens_2",
+        "branch": "tokens",
+        "branchName": "Tokens",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_tokens_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 15,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a 1/1 Soldier",
+        "effect": {
+          "startBattleWithCard": [
+            "w_1_1_soldier"
+          ]
+        }
+      },
+      {
+        "id": "white_tokens_3",
+        "branch": "tokens",
+        "branchName": "Tokens",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_tokens_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 30,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Food token",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_food_sac"
+          ]
+        }
+      },
+      {
+        "id": "white_tokens_4a",
+        "branch": "tokens",
+        "branchName": "Tokens",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_tokens_3"
+        ],
+        "exclusiveWith": [
+          "white_tokens_4b"
+        ],
+        "levelRequired": 45,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with two Soldiers",
+        "effect": {
+          "startBattleWithCard": [
+            "w_1_1_soldier",
+            "w_1_1_soldier"
+          ]
+        }
+      },
+      {
+        "id": "white_tokens_4b",
+        "branch": "tokens",
+        "branchName": "Tokens",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_tokens_3"
+        ],
+        "exclusiveWith": [
+          "white_tokens_4a"
+        ],
+        "levelRequired": 45,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with Food and a Soldier",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_food_sac",
+            "w_1_1_soldier"
+          ]
+        }
+      },
+      {
+        "id": "white_tokens_5",
+        "branch": "tokens",
+        "branchName": "Tokens",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_tokens_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "white_tokens_6",
+        "branch": "tokens",
+        "branchName": "Tokens",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_tokens_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Soldier",
+        "effect": {
+          "startBattleWithCard": [
+            "w_1_1_soldier"
+          ]
+        }
+      },
+      {
+        "id": "white_tokens_7",
+        "branch": "tokens",
+        "branchName": "Tokens",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "white_tokens_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with Food and two Soldiers",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_food_sac",
+            "w_1_1_soldier",
+            "w_1_1_soldier"
+          ]
+        }
+      },
+      {
+        "id": "white_radiance_1",
+        "branch": "radiance",
+        "branchName": "Radiance",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "white_radiance_2",
+        "branch": "radiance",
+        "branchName": "Radiance",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_radiance_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 card in opening hand",
+        "effect": {
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "white_radiance_3",
+        "branch": "radiance",
+        "branchName": "Radiance",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_radiance_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 35,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "white_radiance_4a",
+        "branch": "radiance",
+        "branchName": "Radiance",
+        "tier": 4,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "white_radiance_3"
+        ],
+        "exclusiveWith": [
+          "white_radiance_4b"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +1 mana shard each duel",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "white_radiance_4b",
+        "branch": "radiance",
+        "branchName": "Radiance",
+        "tier": 4,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "white_radiance_3"
+        ],
+        "exclusiveWith": [
+          "white_radiance_4a"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: opponents start with 1 less life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -1
+          }
+        }
+      },
+      {
+        "id": "white_radiance_5",
+        "branch": "radiance",
+        "branchName": "Radiance",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_radiance_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 65,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "white_radiance_6",
+        "branch": "radiance",
+        "branchName": "Radiance",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "white_radiance_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 80,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 5% cheaper",
+        "effect": {
+          "goldModifier": 0.95
+        }
+      },
+      {
+        "id": "white_radiance_7",
+        "branch": "radiance",
+        "branchName": "Radiance",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "white_radiance_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life and +1 hand card",
+        "effect": {
+          "lifeModifier": 2,
+          "changeStartCards": 1
+        }
+      }
+    ]
+  },
+  {
+    "skill": "BLUE",
+    "nodes": [
+      {
+        "id": "blue_insight_1",
+        "branch": "insight",
+        "branchName": "Insight",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 5% cheaper",
+        "spellSmithPriceFactor": 0.95
+      },
+      {
+        "id": "blue_insight_2",
+        "branch": "insight",
+        "branchName": "Insight",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_insight_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 15,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 15% cheaper",
+        "spellSmithPriceFactor": 0.85
+      },
+      {
+        "id": "blue_insight_3",
+        "branch": "insight",
+        "branchName": "Insight",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_insight_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 30,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard each duel",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "blue_insight_4",
+        "branch": "insight",
+        "branchName": "Insight",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_insight_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 45,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 5% cheaper",
+        "spellSmithPriceFactor": 0.95
+      },
+      {
+        "id": "blue_insight_5",
+        "branch": "insight",
+        "branchName": "Insight",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "blue_insight_4"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +1 opening hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "blue_insight_6",
+        "branch": "insight",
+        "branchName": "Insight",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_insight_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 70,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard each duel",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "blue_insight_7",
+        "branch": "insight",
+        "branchName": "Insight",
+        "tier": 7,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_insight_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 85,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 10% cheaper",
+        "spellSmithPriceFactor": 0.9
+      },
+      {
+        "id": "blue_insight_8",
+        "branch": "insight",
+        "branchName": "Insight",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "blue_insight_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": true,
+        "description": "Skill cape: +1 hand card and +1 mana shard",
+        "effect": {
+          "changeStartCards": 1,
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "blue_tide_1",
+        "branch": "tide",
+        "branchName": "Tide",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "blue_tide_2",
+        "branch": "tide",
+        "branchName": "Tide",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_tide_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 opening hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "blue_tide_3",
+        "branch": "tide",
+        "branchName": "Tide",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_tide_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 35,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "blue_tide_4a",
+        "branch": "tide",
+        "branchName": "Tide",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_tide_3"
+        ],
+        "exclusiveWith": [
+          "blue_tide_4b"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents start with 1 fewer card",
+        "effect": {
+          "opponent": {
+            "changeStartCards": -1
+          }
+        }
+      },
+      {
+        "id": "blue_tide_4b",
+        "branch": "tide",
+        "branchName": "Tide",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_tide_3"
+        ],
+        "exclusiveWith": [
+          "blue_tide_4a"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents start with 1 less life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -1
+          }
+        }
+      },
+      {
+        "id": "blue_tide_5",
+        "branch": "tide",
+        "branchName": "Tide",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_tide_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 65,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard each duel",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "blue_tide_6",
+        "branch": "tide",
+        "branchName": "Tide",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_tide_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 80,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 opening hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "blue_tide_7",
+        "branch": "tide",
+        "branchName": "Tide",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "blue_tide_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 hand card and +1 free mulligan",
+        "effect": {
+          "changeStartCards": 1,
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "blue_clarity_1",
+        "branch": "clarity",
+        "branchName": "Clarity",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "blue_clarity_2",
+        "branch": "clarity",
+        "branchName": "Clarity",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_clarity_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "blue_clarity_3",
+        "branch": "clarity",
+        "branchName": "Clarity",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_clarity_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "blue_clarity_4",
+        "branch": "clarity",
+        "branchName": "Clarity",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_clarity_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "blue_clarity_5",
+        "branch": "clarity",
+        "branchName": "Clarity",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "blue_clarity_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +2 mana shards each duel",
+        "effect": {
+          "extraManaShards": 2
+        }
+      },
+      {
+        "id": "blue_clarity_6",
+        "branch": "clarity",
+        "branchName": "Clarity",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "blue_clarity_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 5% cheaper",
+        "spellSmithPriceFactor": 0.95
+      },
+      {
+        "id": "blue_clarity_7",
+        "branch": "clarity",
+        "branchName": "Clarity",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "blue_clarity_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "blue_clarity_8",
+        "branch": "clarity",
+        "branchName": "Clarity",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "blue_clarity_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      }
+    ]
+  },
+  {
+    "skill": "BLACK",
+    "nodes": [
+      {
+        "id": "black_drain_1",
+        "branch": "drain",
+        "branchName": "Drain",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents start with 1 less life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -1
+          }
+        }
+      },
+      {
+        "id": "black_drain_2",
+        "branch": "drain",
+        "branchName": "Drain",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 2,
+        "requires": [
+          "black_drain_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 15,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents -1 life per rank",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -1
+          }
+        }
+      },
+      {
+        "id": "black_drain_3",
+        "branch": "drain",
+        "branchName": "Drain",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_drain_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 30,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents start with 1 fewer card",
+        "effect": {
+          "opponent": {
+            "changeStartCards": -1
+          }
+        }
+      },
+      {
+        "id": "black_drain_4",
+        "branch": "drain",
+        "branchName": "Drain",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_drain_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 45,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents start with 2 less life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -2
+          }
+        }
+      },
+      {
+        "id": "black_drain_5",
+        "branch": "drain",
+        "branchName": "Drain",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "black_drain_4"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: opponents -3 life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -3
+          }
+        }
+      },
+      {
+        "id": "black_drain_6",
+        "branch": "drain",
+        "branchName": "Drain",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_drain_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 70,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents start with 1 fewer card",
+        "effect": {
+          "opponent": {
+            "changeStartCards": -1
+          }
+        }
+      },
+      {
+        "id": "black_drain_7",
+        "branch": "drain",
+        "branchName": "Drain",
+        "tier": 7,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_drain_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 85,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents -2 life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -2
+          }
+        }
+      },
+      {
+        "id": "black_drain_8",
+        "branch": "drain",
+        "branchName": "Drain",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "black_drain_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": true,
+        "description": "Skill cape: opponents -2 life and -1 card",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -2,
+            "changeStartCards": -1
+          }
+        }
+      },
+      {
+        "id": "black_secrets_1",
+        "branch": "secrets",
+        "branchName": "Secrets",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Clue token",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_clue_draw"
+          ]
+        }
+      },
+      {
+        "id": "black_secrets_2",
+        "branch": "secrets",
+        "branchName": "Secrets",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_secrets_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Clue token",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_clue_draw"
+          ]
+        }
+      },
+      {
+        "id": "black_secrets_3",
+        "branch": "secrets",
+        "branchName": "Secrets",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_secrets_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 35,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "black_secrets_4a",
+        "branch": "secrets",
+        "branchName": "Secrets",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_secrets_3"
+        ],
+        "exclusiveWith": [
+          "black_secrets_4b"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with two Clues",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_clue_draw",
+            "c_a_clue_draw"
+          ]
+        }
+      },
+      {
+        "id": "black_secrets_4b",
+        "branch": "secrets",
+        "branchName": "Secrets",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_secrets_3"
+        ],
+        "exclusiveWith": [
+          "black_secrets_4a"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 opening hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "black_secrets_5",
+        "branch": "secrets",
+        "branchName": "Secrets",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_secrets_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 65,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Clue",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_clue_draw"
+          ]
+        }
+      },
+      {
+        "id": "black_secrets_6",
+        "branch": "secrets",
+        "branchName": "Secrets",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_secrets_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 80,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "black_secrets_7",
+        "branch": "secrets",
+        "branchName": "Secrets",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "black_secrets_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Clue and +1 hand card",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_clue_draw"
+          ],
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "black_shadow_1",
+        "branch": "shadow",
+        "branchName": "Shadow",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 2% cheaper",
+        "effect": {
+          "goldModifier": 0.98
+        }
+      },
+      {
+        "id": "black_shadow_2",
+        "branch": "shadow",
+        "branchName": "Shadow",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_shadow_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "black_shadow_3",
+        "branch": "shadow",
+        "branchName": "Shadow",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_shadow_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "black_shadow_4",
+        "branch": "shadow",
+        "branchName": "Shadow",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_shadow_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents -1 life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -1
+          }
+        }
+      },
+      {
+        "id": "black_shadow_5",
+        "branch": "shadow",
+        "branchName": "Shadow",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "black_shadow_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: start with a Clue",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_clue_draw"
+          ]
+        }
+      },
+      {
+        "id": "black_shadow_6",
+        "branch": "shadow",
+        "branchName": "Shadow",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "black_shadow_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "black_shadow_7",
+        "branch": "shadow",
+        "branchName": "Shadow",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "black_shadow_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents -2 life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -2
+          }
+        }
+      },
+      {
+        "id": "black_shadow_8",
+        "branch": "shadow",
+        "branchName": "Shadow",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "black_shadow_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      }
+    ]
+  },
+  {
+    "skill": "RED",
+    "nodes": [
+      {
+        "id": "red_ember_1",
+        "branch": "ember",
+        "branchName": "Ember",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 3% faster",
+        "effect": {
+          "moveSpeed": 1.03
+        }
+      },
+      {
+        "id": "red_ember_2",
+        "branch": "ember",
+        "branchName": "Ember",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_ember_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 15,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 5% faster",
+        "effect": {
+          "moveSpeed": 1.05
+        }
+      },
+      {
+        "id": "red_ember_3",
+        "branch": "ember",
+        "branchName": "Ember",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_ember_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 30,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents start with 2 less life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -2
+          }
+        }
+      },
+      {
+        "id": "red_ember_4",
+        "branch": "ember",
+        "branchName": "Ember",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_ember_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 45,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 3% faster",
+        "effect": {
+          "moveSpeed": 1.03
+        }
+      },
+      {
+        "id": "red_ember_5",
+        "branch": "ember",
+        "branchName": "Ember",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "red_ember_4"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: start with a Treasure",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac"
+          ]
+        }
+      },
+      {
+        "id": "red_ember_6",
+        "branch": "ember",
+        "branchName": "Ember",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_ember_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 70,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents -2 life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -2
+          }
+        }
+      },
+      {
+        "id": "red_ember_7",
+        "branch": "ember",
+        "branchName": "Ember",
+        "tier": 7,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_ember_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 85,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 5% faster",
+        "effect": {
+          "moveSpeed": 1.05
+        }
+      },
+      {
+        "id": "red_ember_8",
+        "branch": "ember",
+        "branchName": "Ember",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "red_ember_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": true,
+        "description": "Skill cape: Treasure and opponents -2 life",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac"
+          ],
+          "opponent": {
+            "lifeModifier": -2
+          }
+        }
+      },
+      {
+        "id": "red_fury_1",
+        "branch": "fury",
+        "branchName": "Fury",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Treasure token",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac"
+          ]
+        }
+      },
+      {
+        "id": "red_fury_2",
+        "branch": "fury",
+        "branchName": "Fury",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_fury_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents -1 life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -1
+          }
+        }
+      },
+      {
+        "id": "red_fury_3",
+        "branch": "fury",
+        "branchName": "Fury",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_fury_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 35,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Treasure",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac"
+          ]
+        }
+      },
+      {
+        "id": "red_fury_4a",
+        "branch": "fury",
+        "branchName": "Fury",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_fury_3"
+        ],
+        "exclusiveWith": [
+          "red_fury_4b"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Two Treasures",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac",
+            "c_a_treasure_sac"
+          ]
+        }
+      },
+      {
+        "id": "red_fury_4b",
+        "branch": "fury",
+        "branchName": "Fury",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_fury_3"
+        ],
+        "exclusiveWith": [
+          "red_fury_4a"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents -3 life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -3
+          }
+        }
+      },
+      {
+        "id": "red_fury_5",
+        "branch": "fury",
+        "branchName": "Fury",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_fury_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 65,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "red_fury_6",
+        "branch": "fury",
+        "branchName": "Fury",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_fury_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 80,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents -2 life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -2
+          }
+        }
+      },
+      {
+        "id": "red_fury_7",
+        "branch": "fury",
+        "branchName": "Fury",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "red_fury_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Treasure and opponents -2 life",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac"
+          ],
+          "opponent": {
+            "lifeModifier": -2
+          }
+        }
+      },
+      {
+        "id": "red_spark_1",
+        "branch": "spark",
+        "branchName": "Spark",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "red_spark_2",
+        "branch": "spark",
+        "branchName": "Spark",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_spark_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "red_spark_3",
+        "branch": "spark",
+        "branchName": "Spark",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_spark_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "red_spark_4",
+        "branch": "spark",
+        "branchName": "Spark",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_spark_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "red_spark_5",
+        "branch": "spark",
+        "branchName": "Spark",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "red_spark_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "red_spark_6",
+        "branch": "spark",
+        "branchName": "Spark",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "red_spark_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 3% faster",
+        "effect": {
+          "moveSpeed": 1.03
+        }
+      },
+      {
+        "id": "red_spark_7",
+        "branch": "spark",
+        "branchName": "Spark",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "red_spark_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "red_spark_8",
+        "branch": "spark",
+        "branchName": "Spark",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "red_spark_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents -1 life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -1
+          }
+        }
+      }
+    ]
+  },
+  {
+    "skill": "GREEN",
+    "nodes": [
+      {
+        "id": "green_growth_1",
+        "branch": "growth",
+        "branchName": "Growth",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 2,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life per rank",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "green_growth_2",
+        "branch": "growth",
+        "branchName": "Growth",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_growth_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 15,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+3 starting life",
+        "effect": {
+          "lifeModifier": 3
+        }
+      },
+      {
+        "id": "green_growth_3",
+        "branch": "growth",
+        "branchName": "Growth",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 2,
+        "requires": [
+          "green_growth_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 30,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life per rank",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "green_growth_4",
+        "branch": "growth",
+        "branchName": "Growth",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_growth_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 45,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+3 starting life",
+        "effect": {
+          "lifeModifier": 3
+        }
+      },
+      {
+        "id": "green_growth_5",
+        "branch": "growth",
+        "branchName": "Growth",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "green_growth_4"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +5 starting life",
+        "effect": {
+          "lifeModifier": 5
+        }
+      },
+      {
+        "id": "green_growth_6",
+        "branch": "growth",
+        "branchName": "Growth",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_growth_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 70,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "green_growth_7",
+        "branch": "growth",
+        "branchName": "Growth",
+        "tier": 7,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_growth_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 85,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+3 starting life",
+        "effect": {
+          "lifeModifier": 3
+        }
+      },
+      {
+        "id": "green_growth_8",
+        "branch": "growth",
+        "branchName": "Growth",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "green_growth_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": true,
+        "description": "Skill cape: +4 life and a Forest",
+        "effect": {
+          "lifeModifier": 4,
+          "startBattleWithCard": [
+            "Forest"
+          ]
+        }
+      },
+      {
+        "id": "green_bounty_1",
+        "branch": "bounty",
+        "branchName": "Bounty",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward after wins",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "green_bounty_2",
+        "branch": "bounty",
+        "branchName": "Bounty",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_bounty_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with an extra Forest",
+        "effect": {
+          "startBattleWithCard": [
+            "Forest"
+          ]
+        }
+      },
+      {
+        "id": "green_bounty_3",
+        "branch": "bounty",
+        "branchName": "Bounty",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_bounty_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 35,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward after wins",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "green_bounty_4a",
+        "branch": "bounty",
+        "branchName": "Bounty",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_bounty_3"
+        ],
+        "exclusiveWith": [
+          "green_bounty_4b"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with two Forests",
+        "effect": {
+          "startBattleWithCard": [
+            "Forest",
+            "Forest"
+          ]
+        }
+      },
+      {
+        "id": "green_bounty_4b",
+        "branch": "bounty",
+        "branchName": "Bounty",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_bounty_3"
+        ],
+        "exclusiveWith": [
+          "green_bounty_4a"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 opening hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "green_bounty_5",
+        "branch": "bounty",
+        "branchName": "Bounty",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_bounty_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 65,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "green_bounty_6",
+        "branch": "bounty",
+        "branchName": "Bounty",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_bounty_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 80,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Forest",
+        "effect": {
+          "startBattleWithCard": [
+            "Forest"
+          ]
+        }
+      },
+      {
+        "id": "green_bounty_7",
+        "branch": "bounty",
+        "branchName": "Bounty",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "green_bounty_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Forest and +2 life",
+        "effect": {
+          "startBattleWithCard": [
+            "Forest"
+          ],
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "green_wilds_1",
+        "branch": "wilds",
+        "branchName": "Wilds",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 3% faster",
+        "effect": {
+          "moveSpeed": 1.03
+        }
+      },
+      {
+        "id": "green_wilds_2",
+        "branch": "wilds",
+        "branchName": "Wilds",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_wilds_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "green_wilds_3",
+        "branch": "wilds",
+        "branchName": "Wilds",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_wilds_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "green_wilds_4",
+        "branch": "wilds",
+        "branchName": "Wilds",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_wilds_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "green_wilds_5",
+        "branch": "wilds",
+        "branchName": "Wilds",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "green_wilds_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: start with a Forest",
+        "effect": {
+          "startBattleWithCard": [
+            "Forest"
+          ]
+        }
+      },
+      {
+        "id": "green_wilds_6",
+        "branch": "wilds",
+        "branchName": "Wilds",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "green_wilds_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 3% faster",
+        "effect": {
+          "moveSpeed": 1.03
+        }
+      },
+      {
+        "id": "green_wilds_7",
+        "branch": "wilds",
+        "branchName": "Wilds",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "green_wilds_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+3 starting life",
+        "effect": {
+          "lifeModifier": 3
+        }
+      },
+      {
+        "id": "green_wilds_8",
+        "branch": "wilds",
+        "branchName": "Wilds",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "green_wilds_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      }
+    ]
+  },
+  {
+    "skill": "DUELING",
+    "nodes": [
+      {
+        "id": "duel_blade_1",
+        "branch": "blade",
+        "branchName": "Blade",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "duel_blade_2",
+        "branch": "blade",
+        "branchName": "Blade",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_blade_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "duel_blade_3",
+        "branch": "blade",
+        "branchName": "Blade",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_blade_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "duel_blade_4",
+        "branch": "blade",
+        "branchName": "Blade",
+        "tier": 4,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "duel_blade_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +2 free mulligans",
+        "effect": {
+          "freeMulligans": 2
+        }
+      },
+      {
+        "id": "duel_blade_5",
+        "branch": "blade",
+        "branchName": "Blade",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_blade_4"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 60,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "duel_blade_6",
+        "branch": "blade",
+        "branchName": "Blade",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_blade_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 80,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "duel_blade_7",
+        "branch": "blade",
+        "branchName": "Blade",
+        "tier": 7,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_blade_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 opening hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "duel_blade_8",
+        "branch": "blade",
+        "branchName": "Blade",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "duel_blade_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": true,
+        "description": "Skill cape: +2 free mulligans and +2 life",
+        "effect": {
+          "freeMulligans": 2,
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "duel_guard_1",
+        "branch": "guard",
+        "branchName": "Guard",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 2,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life per rank",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "duel_guard_2",
+        "branch": "guard",
+        "branchName": "Guard",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_guard_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "duel_guard_3",
+        "branch": "guard",
+        "branchName": "Guard",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_guard_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "duel_guard_4a",
+        "branch": "guard",
+        "branchName": "Guard",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_guard_3"
+        ],
+        "exclusiveWith": [
+          "duel_guard_4b"
+        ],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+3 starting life",
+        "effect": {
+          "lifeModifier": 3
+        }
+      },
+      {
+        "id": "duel_guard_4b",
+        "branch": "guard",
+        "branchName": "Guard",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_guard_3"
+        ],
+        "exclusiveWith": [
+          "duel_guard_4a"
+        ],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "duel_guard_5",
+        "branch": "guard",
+        "branchName": "Guard",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "duel_guard_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +4 starting life",
+        "effect": {
+          "lifeModifier": 4
+        }
+      },
+      {
+        "id": "duel_guard_6",
+        "branch": "guard",
+        "branchName": "Guard",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_guard_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "duel_guard_7",
+        "branch": "guard",
+        "branchName": "Guard",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "duel_guard_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+3 life and +1 mulligan",
+        "effect": {
+          "lifeModifier": 3,
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "duel_tactics_1",
+        "branch": "tactics",
+        "branchName": "Tactics",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "duel_tactics_2",
+        "branch": "tactics",
+        "branchName": "Tactics",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_tactics_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents -1 life",
+        "effect": {
+          "opponent": {
+            "lifeModifier": -1
+          }
+        }
+      },
+      {
+        "id": "duel_tactics_3",
+        "branch": "tactics",
+        "branchName": "Tactics",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_tactics_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 opening hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "duel_tactics_4",
+        "branch": "tactics",
+        "branchName": "Tactics",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_tactics_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Opponents -1 card",
+        "effect": {
+          "opponent": {
+            "changeStartCards": -1
+          }
+        }
+      },
+      {
+        "id": "duel_tactics_5",
+        "branch": "tactics",
+        "branchName": "Tactics",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "duel_tactics_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +2 mana shards",
+        "effect": {
+          "extraManaShards": 2
+        }
+      },
+      {
+        "id": "duel_tactics_6",
+        "branch": "tactics",
+        "branchName": "Tactics",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "duel_tactics_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "duel_tactics_7",
+        "branch": "tactics",
+        "branchName": "Tactics",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "duel_tactics_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 hand card and opponents -1 life",
+        "effect": {
+          "changeStartCards": 1,
+          "opponent": {
+            "lifeModifier": -1
+          }
+        }
+      },
+      {
+        "id": "duel_tactics_8",
+        "branch": "tactics",
+        "branchName": "Tactics",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "duel_tactics_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      }
+    ]
+  },
+  {
+    "skill": "COLLECTING",
+    "nodes": [
+      {
+        "id": "collect_hoard_1",
+        "branch": "hoard",
+        "branchName": "Hoard",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward after wins",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "collect_hoard_2",
+        "branch": "hoard",
+        "branchName": "Hoard",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_hoard_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "collect_hoard_3",
+        "branch": "hoard",
+        "branchName": "Hoard",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_hoard_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "collect_hoard_4",
+        "branch": "hoard",
+        "branchName": "Hoard",
+        "tier": 4,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "collect_hoard_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "collect_hoard_5",
+        "branch": "hoard",
+        "branchName": "Hoard",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_hoard_4"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 60,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "collect_hoard_6",
+        "branch": "hoard",
+        "branchName": "Hoard",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_hoard_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 80,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "collect_hoard_7",
+        "branch": "hoard",
+        "branchName": "Hoard",
+        "tier": 7,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_hoard_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 5% cheaper",
+        "effect": {
+          "goldModifier": 0.95
+        }
+      },
+      {
+        "id": "collect_hoard_8",
+        "branch": "hoard",
+        "branchName": "Hoard",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "collect_hoard_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": true,
+        "description": "Skill cape: +1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "collect_curator_1",
+        "branch": "curator",
+        "branchName": "Curator",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "collect_curator_2",
+        "branch": "curator",
+        "branchName": "Curator",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_curator_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "collect_curator_3",
+        "branch": "curator",
+        "branchName": "Curator",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_curator_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "collect_curator_4a",
+        "branch": "curator",
+        "branchName": "Curator",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_curator_3"
+        ],
+        "exclusiveWith": [
+          "collect_curator_4b"
+        ],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "collect_curator_4b",
+        "branch": "curator",
+        "branchName": "Curator",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_curator_3"
+        ],
+        "exclusiveWith": [
+          "collect_curator_4a"
+        ],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 opening hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "collect_curator_5",
+        "branch": "curator",
+        "branchName": "Curator",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "collect_curator_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +1 hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "collect_curator_6",
+        "branch": "curator",
+        "branchName": "Curator",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_curator_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "collect_curator_7",
+        "branch": "curator",
+        "branchName": "Curator",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "collect_curator_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 life and +1 mulligan",
+        "effect": {
+          "lifeModifier": 2,
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "collect_appraisal_1",
+        "branch": "appraisal",
+        "branchName": "Appraisal",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 2% cheaper",
+        "effect": {
+          "goldModifier": 0.98
+        }
+      },
+      {
+        "id": "collect_appraisal_2",
+        "branch": "appraisal",
+        "branchName": "Appraisal",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_appraisal_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "collect_appraisal_3",
+        "branch": "appraisal",
+        "branchName": "Appraisal",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_appraisal_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 3% cheaper",
+        "spellSmithPriceFactor": 0.97
+      },
+      {
+        "id": "collect_appraisal_4",
+        "branch": "appraisal",
+        "branchName": "Appraisal",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_appraisal_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 55,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "collect_appraisal_5",
+        "branch": "appraisal",
+        "branchName": "Appraisal",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "collect_appraisal_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: shops 5% cheaper",
+        "effect": {
+          "goldModifier": 0.95
+        }
+      },
+      {
+        "id": "collect_appraisal_6",
+        "branch": "appraisal",
+        "branchName": "Appraisal",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "collect_appraisal_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 5% cheaper",
+        "spellSmithPriceFactor": 0.95
+      },
+      {
+        "id": "collect_appraisal_7",
+        "branch": "appraisal",
+        "branchName": "Appraisal",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "collect_appraisal_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 5% cheaper",
+        "effect": {
+          "goldModifier": 0.95
+        }
+      },
+      {
+        "id": "collect_appraisal_8",
+        "branch": "appraisal",
+        "branchName": "Appraisal",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "collect_appraisal_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      }
+    ]
+  },
+  {
+    "skill": "EXPLORATION",
+    "nodes": [
+      {
+        "id": "explore_path_1",
+        "branch": "pathfinder",
+        "branchName": "Pathfinder",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 3% faster",
+        "effect": {
+          "moveSpeed": 1.03
+        }
+      },
+      {
+        "id": "explore_path_2",
+        "branch": "pathfinder",
+        "branchName": "Pathfinder",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_path_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 15,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 3% faster",
+        "effect": {
+          "moveSpeed": 1.03
+        }
+      },
+      {
+        "id": "explore_path_3",
+        "branch": "pathfinder",
+        "branchName": "Pathfinder",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_path_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 30,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 4% faster",
+        "effect": {
+          "moveSpeed": 1.04
+        }
+      },
+      {
+        "id": "explore_path_4",
+        "branch": "pathfinder",
+        "branchName": "Pathfinder",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_path_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 45,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 3% faster",
+        "effect": {
+          "moveSpeed": 1.03
+        }
+      },
+      {
+        "id": "explore_path_5",
+        "branch": "pathfinder",
+        "branchName": "Pathfinder",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "explore_path_4"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: walk 6% faster",
+        "effect": {
+          "moveSpeed": 1.06
+        }
+      },
+      {
+        "id": "explore_path_6",
+        "branch": "pathfinder",
+        "branchName": "Pathfinder",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_path_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 70,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 3% faster",
+        "effect": {
+          "moveSpeed": 1.03
+        }
+      },
+      {
+        "id": "explore_path_7",
+        "branch": "pathfinder",
+        "branchName": "Pathfinder",
+        "tier": 7,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_path_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 85,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 4% faster",
+        "effect": {
+          "moveSpeed": 1.04
+        }
+      },
+      {
+        "id": "explore_path_8",
+        "branch": "pathfinder",
+        "branchName": "Pathfinder",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "explore_path_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": true,
+        "description": "Skill cape: walk 8% faster",
+        "effect": {
+          "moveSpeed": 1.08
+        }
+      },
+      {
+        "id": "explore_scout_1",
+        "branch": "scout",
+        "branchName": "Scout",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "explore_scout_2",
+        "branch": "scout",
+        "branchName": "Scout",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_scout_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "explore_scout_3",
+        "branch": "scout",
+        "branchName": "Scout",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_scout_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 35,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "explore_scout_4a",
+        "branch": "scout",
+        "branchName": "Scout",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_scout_3"
+        ],
+        "exclusiveWith": [
+          "explore_scout_4b"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "explore_scout_4b",
+        "branch": "scout",
+        "branchName": "Scout",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_scout_3"
+        ],
+        "exclusiveWith": [
+          "explore_scout_4a"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "explore_scout_5",
+        "branch": "scout",
+        "branchName": "Scout",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_scout_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 65,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 3% faster",
+        "effect": {
+          "moveSpeed": 1.03
+        }
+      },
+      {
+        "id": "explore_scout_6",
+        "branch": "scout",
+        "branchName": "Scout",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_scout_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 80,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "explore_scout_7",
+        "branch": "scout",
+        "branchName": "Scout",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "explore_scout_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "explore_cart_1",
+        "branch": "cartographer",
+        "branchName": "Cartographer",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 2% cheaper",
+        "effect": {
+          "goldModifier": 0.98
+        }
+      },
+      {
+        "id": "explore_cart_2",
+        "branch": "cartographer",
+        "branchName": "Cartographer",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_cart_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "explore_cart_3",
+        "branch": "cartographer",
+        "branchName": "Cartographer",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_cart_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 3% faster",
+        "effect": {
+          "moveSpeed": 1.03
+        }
+      },
+      {
+        "id": "explore_cart_4",
+        "branch": "cartographer",
+        "branchName": "Cartographer",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_cart_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 55,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "explore_cart_5",
+        "branch": "cartographer",
+        "branchName": "Cartographer",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "explore_cart_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "explore_cart_6",
+        "branch": "cartographer",
+        "branchName": "Cartographer",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "explore_cart_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "explore_cart_7",
+        "branch": "cartographer",
+        "branchName": "Cartographer",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "explore_cart_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walk 5% faster",
+        "effect": {
+          "moveSpeed": 1.05
+        }
+      },
+      {
+        "id": "explore_cart_8",
+        "branch": "cartographer",
+        "branchName": "Cartographer",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "explore_cart_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 5% cheaper",
+        "effect": {
+          "goldModifier": 0.95
+        }
+      }
+    ]
+  },
+  {
+    "skill": "SALVAGING",
+    "nodes": [
+      {
+        "id": "salvage_scrap_1",
+        "branch": "scrapper",
+        "branchName": "Scrapper",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 2% cheaper",
+        "effect": {
+          "goldModifier": 0.98
+        }
+      },
+      {
+        "id": "salvage_scrap_2",
+        "branch": "scrapper",
+        "branchName": "Scrapper",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_scrap_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 15,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "salvage_scrap_3",
+        "branch": "scrapper",
+        "branchName": "Scrapper",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_scrap_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 30,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "salvage_scrap_4",
+        "branch": "scrapper",
+        "branchName": "Scrapper",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_scrap_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 45,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "salvage_scrap_5",
+        "branch": "scrapper",
+        "branchName": "Scrapper",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_scrap_4"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: shops 5% cheaper",
+        "effect": {
+          "goldModifier": 0.95
+        }
+      },
+      {
+        "id": "salvage_scrap_6",
+        "branch": "scrapper",
+        "branchName": "Scrapper",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_scrap_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 70,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "salvage_scrap_7",
+        "branch": "scrapper",
+        "branchName": "Scrapper",
+        "tier": 7,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_scrap_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 85,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "salvage_scrap_8",
+        "branch": "scrapper",
+        "branchName": "Scrapper",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_scrap_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": true,
+        "description": "Skill cape: shops 5% cheaper",
+        "effect": {
+          "goldModifier": 0.95
+        }
+      },
+      {
+        "id": "salvage_reclaim_1",
+        "branch": "reclaim",
+        "branchName": "Reclaim",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "salvage_reclaim_2",
+        "branch": "reclaim",
+        "branchName": "Reclaim",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_reclaim_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Treasure",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac"
+          ]
+        }
+      },
+      {
+        "id": "salvage_reclaim_3",
+        "branch": "reclaim",
+        "branchName": "Reclaim",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_reclaim_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 35,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "salvage_reclaim_4a",
+        "branch": "reclaim",
+        "branchName": "Reclaim",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_reclaim_3"
+        ],
+        "exclusiveWith": [
+          "salvage_reclaim_4b"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Clue",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_clue_draw"
+          ]
+        }
+      },
+      {
+        "id": "salvage_reclaim_4b",
+        "branch": "reclaim",
+        "branchName": "Reclaim",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_reclaim_3"
+        ],
+        "exclusiveWith": [
+          "salvage_reclaim_4a"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "salvage_reclaim_5",
+        "branch": "reclaim",
+        "branchName": "Reclaim",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_reclaim_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 65,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "salvage_reclaim_6",
+        "branch": "reclaim",
+        "branchName": "Reclaim",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_reclaim_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 80,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Treasure",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac"
+          ]
+        }
+      },
+      {
+        "id": "salvage_reclaim_7",
+        "branch": "reclaim",
+        "branchName": "Reclaim",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_reclaim_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Treasure and +2 life",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac"
+          ],
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "salvage_fence_1",
+        "branch": "fence",
+        "branchName": "Fence",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 2% cheaper",
+        "effect": {
+          "goldModifier": 0.98
+        }
+      },
+      {
+        "id": "salvage_fence_2",
+        "branch": "fence",
+        "branchName": "Fence",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_fence_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 3% cheaper",
+        "spellSmithPriceFactor": 0.97
+      },
+      {
+        "id": "salvage_fence_3",
+        "branch": "fence",
+        "branchName": "Fence",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_fence_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "salvage_fence_4",
+        "branch": "fence",
+        "branchName": "Fence",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_fence_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 55,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "salvage_fence_5",
+        "branch": "fence",
+        "branchName": "Fence",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_fence_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: Spell Smith 10% cheaper",
+        "spellSmithPriceFactor": 0.9
+      },
+      {
+        "id": "salvage_fence_6",
+        "branch": "fence",
+        "branchName": "Fence",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_fence_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "salvage_fence_7",
+        "branch": "fence",
+        "branchName": "Fence",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_fence_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 5% cheaper",
+        "effect": {
+          "goldModifier": 0.95
+        }
+      },
+      {
+        "id": "salvage_fence_8",
+        "branch": "fence",
+        "branchName": "Fence",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "salvage_fence_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 5% cheaper",
+        "spellSmithPriceFactor": 0.95
+      }
+    ]
+  },
+  {
+    "skill": "SPELLSMITHING",
+    "nodes": [
+      {
+        "id": "smith_art_1",
+        "branch": "artisan",
+        "branchName": "Artisan",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 3% cheaper",
+        "spellSmithPriceFactor": 0.97
+      },
+      {
+        "id": "smith_art_2",
+        "branch": "artisan",
+        "branchName": "Artisan",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_art_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 15,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 5% cheaper",
+        "spellSmithPriceFactor": 0.95
+      },
+      {
+        "id": "smith_art_3",
+        "branch": "artisan",
+        "branchName": "Artisan",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_art_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 30,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 5% cheaper",
+        "spellSmithPriceFactor": 0.95
+      },
+      {
+        "id": "smith_art_4",
+        "branch": "artisan",
+        "branchName": "Artisan",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_art_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 45,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 7% cheaper",
+        "spellSmithPriceFactor": 0.93
+      },
+      {
+        "id": "smith_art_5",
+        "branch": "artisan",
+        "branchName": "Artisan",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "smith_art_4"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: Spell Smith 10% cheaper",
+        "spellSmithPriceFactor": 0.9
+      },
+      {
+        "id": "smith_art_6",
+        "branch": "artisan",
+        "branchName": "Artisan",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_art_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 70,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 5% cheaper",
+        "spellSmithPriceFactor": 0.95
+      },
+      {
+        "id": "smith_art_7",
+        "branch": "artisan",
+        "branchName": "Artisan",
+        "tier": 7,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_art_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 85,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 7% cheaper",
+        "spellSmithPriceFactor": 0.93
+      },
+      {
+        "id": "smith_art_8",
+        "branch": "artisan",
+        "branchName": "Artisan",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "smith_art_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": true,
+        "description": "Skill cape: Spell Smith 12% cheaper",
+        "spellSmithPriceFactor": 0.88
+      },
+      {
+        "id": "smith_spark_1",
+        "branch": "sparkmage",
+        "branchName": "Sparkmage",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "smith_spark_2",
+        "branch": "sparkmage",
+        "branchName": "Sparkmage",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_spark_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "smith_spark_3",
+        "branch": "sparkmage",
+        "branchName": "Sparkmage",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_spark_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 35,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "smith_spark_4a",
+        "branch": "sparkmage",
+        "branchName": "Sparkmage",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_spark_3"
+        ],
+        "exclusiveWith": [
+          "smith_spark_4b"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 opening hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      },
+      {
+        "id": "smith_spark_4b",
+        "branch": "sparkmage",
+        "branchName": "Sparkmage",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_spark_3"
+        ],
+        "exclusiveWith": [
+          "smith_spark_4a"
+        ],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+2 mana shards",
+        "effect": {
+          "extraManaShards": 2
+        }
+      },
+      {
+        "id": "smith_spark_5",
+        "branch": "sparkmage",
+        "branchName": "Sparkmage",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_spark_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 65,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "smith_spark_6",
+        "branch": "sparkmage",
+        "branchName": "Sparkmage",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_spark_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 80,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "smith_spark_7",
+        "branch": "sparkmage",
+        "branchName": "Sparkmage",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "smith_spark_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 hand card and +1 shard",
+        "effect": {
+          "changeStartCards": 1,
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "smith_bind_1",
+        "branch": "binder",
+        "branchName": "Binder",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 2% cheaper",
+        "effect": {
+          "goldModifier": 0.98
+        }
+      },
+      {
+        "id": "smith_bind_2",
+        "branch": "binder",
+        "branchName": "Binder",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_bind_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "smith_bind_3",
+        "branch": "binder",
+        "branchName": "Binder",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_bind_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 3% cheaper",
+        "spellSmithPriceFactor": 0.97
+      },
+      {
+        "id": "smith_bind_4",
+        "branch": "binder",
+        "branchName": "Binder",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_bind_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "smith_bind_5",
+        "branch": "binder",
+        "branchName": "Binder",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "smith_bind_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: +2 starting life",
+        "effect": {
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "smith_bind_6",
+        "branch": "binder",
+        "branchName": "Binder",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "smith_bind_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "smith_bind_7",
+        "branch": "binder",
+        "branchName": "Binder",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "smith_bind_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 10% cheaper",
+        "spellSmithPriceFactor": 0.9
+      },
+      {
+        "id": "smith_bind_8",
+        "branch": "binder",
+        "branchName": "Binder",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "smith_bind_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      }
+    ]
+  },
+  {
+    "skill": "BARTERING",
+    "nodes": [
+      {
+        "id": "barter_hag_1",
+        "branch": "haggle",
+        "branchName": "Haggle",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "barter_hag_2",
+        "branch": "haggle",
+        "branchName": "Haggle",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_hag_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 15,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "barter_hag_3",
+        "branch": "haggle",
+        "branchName": "Haggle",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_hag_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 30,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 4% cheaper",
+        "effect": {
+          "goldModifier": 0.96
+        }
+      },
+      {
+        "id": "barter_hag_4",
+        "branch": "haggle",
+        "branchName": "Haggle",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_hag_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 45,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "barter_hag_5",
+        "branch": "haggle",
+        "branchName": "Haggle",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "barter_hag_4"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: shops 6% cheaper",
+        "effect": {
+          "goldModifier": 0.94
+        }
+      },
+      {
+        "id": "barter_hag_6",
+        "branch": "haggle",
+        "branchName": "Haggle",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_hag_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 70,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "barter_hag_7",
+        "branch": "haggle",
+        "branchName": "Haggle",
+        "tier": 7,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_hag_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 85,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 4% cheaper",
+        "effect": {
+          "goldModifier": 0.96
+        }
+      },
+      {
+        "id": "barter_hag_8",
+        "branch": "haggle",
+        "branchName": "Haggle",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "barter_hag_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": true,
+        "description": "Skill cape: shops 8% cheaper",
+        "effect": {
+          "goldModifier": 0.92
+        }
+      },
+      {
+        "id": "barter_bro_1",
+        "branch": "broker",
+        "branchName": "Broker",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 3% cheaper",
+        "spellSmithPriceFactor": 0.97
+      },
+      {
+        "id": "barter_bro_2",
+        "branch": "broker",
+        "branchName": "Broker",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_bro_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "barter_bro_3",
+        "branch": "broker",
+        "branchName": "Broker",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_bro_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 35,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 5% cheaper",
+        "spellSmithPriceFactor": 0.95
+      },
+      {
+        "id": "barter_bro_4a",
+        "branch": "broker",
+        "branchName": "Broker",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_bro_3"
+        ],
+        "exclusiveWith": [
+          "barter_bro_4b"
+        ],
+        "levelRequired": 50,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 5% cheaper",
+        "effect": {
+          "goldModifier": 0.95
+        }
+      },
+      {
+        "id": "barter_bro_4b",
+        "branch": "broker",
+        "branchName": "Broker",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_bro_3"
+        ],
+        "exclusiveWith": [
+          "barter_bro_4a"
+        ],
+        "levelRequired": 50,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 10% cheaper",
+        "spellSmithPriceFactor": 0.9
+      },
+      {
+        "id": "barter_bro_5",
+        "branch": "broker",
+        "branchName": "Broker",
+        "tier": 5,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_bro_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 65,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 bonus card reward",
+        "effect": {
+          "cardRewardBonus": 1
+        }
+      },
+      {
+        "id": "barter_bro_6",
+        "branch": "broker",
+        "branchName": "Broker",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_bro_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 80,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Shops 3% cheaper",
+        "effect": {
+          "goldModifier": 0.97
+        }
+      },
+      {
+        "id": "barter_bro_7",
+        "branch": "broker",
+        "branchName": "Broker",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "barter_bro_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Spell Smith 8% cheaper",
+        "spellSmithPriceFactor": 0.92
+      },
+      {
+        "id": "barter_coin_1",
+        "branch": "coin",
+        "branchName": "Coinpurse",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 5,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Treasure",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac"
+          ]
+        }
+      },
+      {
+        "id": "barter_coin_2",
+        "branch": "coin",
+        "branchName": "Coinpurse",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_coin_1"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 25,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 starting life",
+        "effect": {
+          "lifeModifier": 1
+        }
+      },
+      {
+        "id": "barter_coin_3",
+        "branch": "coin",
+        "branchName": "Coinpurse",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_coin_2"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 mana shard",
+        "effect": {
+          "extraManaShards": 1
+        }
+      },
+      {
+        "id": "barter_coin_4",
+        "branch": "coin",
+        "branchName": "Coinpurse",
+        "tier": 4,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_coin_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 55,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Start with a Treasure",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac"
+          ]
+        }
+      },
+      {
+        "id": "barter_coin_5",
+        "branch": "coin",
+        "branchName": "Coinpurse",
+        "tier": 5,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "barter_coin_3"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": true,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: two Treasures",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac",
+            "c_a_treasure_sac"
+          ]
+        }
+      },
+      {
+        "id": "barter_coin_6",
+        "branch": "coin",
+        "branchName": "Coinpurse",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [
+          "barter_coin_5"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 75,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 free mulligan",
+        "effect": {
+          "freeMulligans": 1
+        }
+      },
+      {
+        "id": "barter_coin_7",
+        "branch": "coin",
+        "branchName": "Coinpurse",
+        "tier": 7,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "barter_coin_6"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 90,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Treasure and +2 life",
+        "effect": {
+          "startBattleWithCard": [
+            "c_a_treasure_sac"
+          ],
+          "lifeModifier": 2
+        }
+      },
+      {
+        "id": "barter_coin_8",
+        "branch": "coin",
+        "branchName": "Coinpurse",
+        "tier": 8,
+        "cost": 2,
+        "maxRanks": 1,
+        "requires": [
+          "barter_coin_7"
+        ],
+        "exclusiveWith": [],
+        "levelRequired": 95,
+        "duelPerk": true,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+1 opening hand card",
+        "effect": {
+          "changeStartCards": 1
+        }
+      }
+    ]
+  }
+]

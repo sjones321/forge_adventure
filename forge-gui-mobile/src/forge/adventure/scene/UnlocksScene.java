@@ -8,6 +8,9 @@ import com.badlogic.gdx.utils.Align;
 import com.github.tommyettinger.textra.TypingLabel;
 import forge.Adventure;
 import forge.Forge;
+import forge.adventure.data.SkillTreeData;
+import forge.adventure.data.SkillTreeListData;
+import forge.adventure.data.SkillTreeNodeData;
 import forge.adventure.player.PlayerSkills;
 import forge.adventure.player.StandardWindow;
 import forge.adventure.util.Controls;
@@ -19,7 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * A RuneScape-style collection log of everything skills unlock: color perks, skill staples,
+ * A RuneScape-style collection log of everything skills unlock: tree talents, skill staples,
  * multicolor staples and utility lands, each shown as unlocked (green) or with exactly what it needs.
  */
 public class UnlocksScene extends UIScene {
@@ -71,15 +74,14 @@ public class UnlocksScene extends UIScene {
 
         header("Unlocks");
         note("Staples are always Standard-legal for you once unlocked, and show up in shops, loot and Spell Smith.");
+        note("Flat color perks were replaced by talent trees (Skills → click a skill).");
 
         PlayerSkills.Skill[] colors = {PlayerSkills.Skill.WHITE, PlayerSkills.Skill.BLUE, PlayerSkills.Skill.BLACK,
                 PlayerSkills.Skill.RED, PlayerSkills.Skill.GREEN};
         for (PlayerSkills.Skill color : colors) {
             int level = skills.getLevel(color);
             header(color.displayName + " (level " + level + ")");
-            String[] perks = PlayerSkills.colorPerks(color);
-            for (int i = 0; i < perks.length; i++)
-                entry(level >= PlayerSkills.COLOR_PERK_LEVELS[i], "Perk", PlayerSkills.COLOR_PERK_LEVELS[i], perks[i]);
+            addTreeSummary(skills, color);
             addLevelList(staples.get(color), level, "Staple");
         }
 
@@ -107,6 +109,28 @@ public class UnlocksScene extends UIScene {
                     + " " + p.level() + " (" + a + " / " + b + ")"));
         }
         performTouch(scrollPaneOfActor(list)); //mouse wheel scrolling
+    }
+
+    private void addTreeSummary(PlayerSkills skills, PlayerSkills.Skill skill) {
+        SkillTreeData tree = SkillTreeListData.get(skill);
+        int earned = skills.talentPointsEarned(skill);
+        int spent = skills.talentPointsSpent(skill);
+        line(spent > 0 || earned > 0, "Talents: " + spent + " spent / " + earned + " earned"
+                + (skills.hasSkillCape(skill) ? " · skill cape" : ""));
+        if (tree.isEmpty())
+            return;
+        int owned = 0;
+        int capstones = 0;
+        for (SkillTreeNodeData n : tree.nodes) {
+            if (n == null)
+                continue;
+            if (skills.getNodeRanks(n.id) > 0) {
+                owned++;
+                if (n.capstone)
+                    capstones++;
+            }
+        }
+        line(owned > 0, "Tree nodes owned: " + owned + (capstones > 0 ? " (" + capstones + " capstones)" : ""));
     }
 
     private void addLevelList(LinkedHashMap<String, Integer> entries, int level, String kind) {

@@ -123,4 +123,17 @@ public class ConfigData {
     /** Units granted when a non-boss material drop succeeds. */
     public int enemyMaterialDropCount = 1;
 
+    // ---- Ascendant skill trees (Package J): talent points, duel perk slots, respec. ----
+
+    /** Duel perk slots at total skill level 0 (Ascendant only). */
+    public int perkSlotsBase = 3;
+    /** Hard cap on duel perk slots. */
+    public int perkSlotsMax = 10;
+    /** Total skill levels needed for each extra duel perk slot above the base. */
+    public int perkSlotTotalLevelsPerSlot = 80;
+    /** Gold cost of the first paid skill-tree respec. */
+    public int respecBaseGold = 500;
+    /** Extra gold added to the respec cost for each prior respec. */
+    public int respecGoldIncrement = 500;
+
 }
