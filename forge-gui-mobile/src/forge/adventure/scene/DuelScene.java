@@ -85,6 +85,11 @@ public class DuelScene extends ForgeScene {
     boolean callbackExit = false;
     boolean arenaBattleChallenge = false;
     boolean isArena = false;
+    /**
+     * When true (League challenge series), remaining duel life is written back to
+     * {@link AdventurePlayer} after the match so the next opponent starts at that life.
+     */
+    boolean persistLifeAfterMatch = false;
     AdventureEventData eventData;
     final int enemyAvatarKey = 90001;
     final int playerAvatarKey = 90000;
@@ -196,6 +201,16 @@ public class DuelScene extends ForgeScene {
                     }
                 }
             }
+            // League attrition: after a win, carry remaining life into the next match.
+            // Losses use the normal defeated() penalty from the challenge scene instead.
+            if (persistLifeAfterMatch && winner) {
+                List<PlayerControllerHuman> humans = hostedMatch.getHumanControllers();
+                if (humans.size() == 1 && humans.get(0).getPlayer() != null) {
+                    int remaining = humans.get(0).getPlayer().getLife();
+                    Current.player().setLife(Math.max(1, remaining));
+                }
+            }
+            persistLifeAfterMatch = false;
 
             // Mostly for ante handling, but also blacker lotus
             GameOutcome.AnteResult anteResult = hostedMatch.getAnteResult(humanPlayer);
@@ -472,6 +487,11 @@ public class DuelScene extends ForgeScene {
         if (eventData == null || eventData.eventRules.allowsItems) {
             EffectData perks = advPlayer.getSkills().duelPerks();
             playerEffects.add(perks);
+            // Ascendant gym badge perks (Package G); empty EffectData when none.
+            EffectData badgePerks = advPlayer.badgePerks();
+            playerEffects.add(badgePerks);
+            if (badgePerks.opponent != null)
+                oppEffects.add(badgePerks.opponent);
             if (perks.opponent != null)
                 oppEffects.add(perks.opponent);
         }
@@ -835,9 +855,20 @@ public class DuelScene extends ForgeScene {
     }
 
     public void initDuels(PlayerSprite playerSprite, EnemySprite enemySprite, boolean isArena, AdventureEventData eventData) {
+        initDuels(playerSprite, enemySprite, isArena, eventData, false);
+    }
+
+    /**
+     * @param persistLife when true, write remaining duel life back to the adventure player after
+     *                    the match (League series). Must not set {@code isArena} for gyms/League —
+     *                    that flag swaps in genetic-AI decks on Hard/Insane.
+     */
+    public void initDuels(PlayerSprite playerSprite, EnemySprite enemySprite, boolean isArena,
+                          AdventureEventData eventData, boolean persistLife) {
         this.player = playerSprite;
         this.enemy = enemySprite;
         this.isArena = isArena;
+        this.persistLifeAfterMatch = persistLife;
         this.eventData = eventData;
         if (eventData != null && eventData.eventRules == null)
             eventData.eventRules = new AdventureEventData.AdventureEventRules(AdventureEventController.EventFormat.Constructed, 1.0f);

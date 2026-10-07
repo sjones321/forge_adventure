@@ -5,14 +5,18 @@ import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.Window;
 import com.badlogic.gdx.utils.Align;
+import com.badlogic.gdx.utils.Array;
 import com.github.tommyettinger.textra.TypingLabel;
 import forge.Adventure;
 import forge.Forge;
+import forge.adventure.data.GymData;
+import forge.adventure.data.GymListData;
 import forge.adventure.data.SkillTreeData;
 import forge.adventure.data.SkillTreeListData;
 import forge.adventure.data.SkillTreeNodeData;
 import forge.adventure.player.PlayerSkills;
 import forge.adventure.player.StandardWindow;
+import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 import forge.adventure.util.Current;
 
@@ -75,6 +79,17 @@ public class UnlocksScene extends UIScene {
         header("Unlocks");
         note("Staples are always Standard-legal for you once unlocked, and show up in shops, loot and Spell Smith.");
         note("Flat color perks were replaced by talent trees (Skills → click a skill).");
+
+        if (Config.ascendant()) {
+            header("Gym badges (" + Current.player().getBadgeCount() + "/8)");
+            Array<GymData> gyms = GymListData.getAll();
+            for (GymData g : gyms) {
+                boolean has = Current.player().hasBadge(g.badgeId);
+                String perk = g.badgePerk != null ? " — " + g.badgePerk : "";
+                line(has, g.badgeName + perk);
+            }
+            line(Current.player().isLeagueCleared(), "League Champion");
+        }
 
         PlayerSkills.Skill[] colors = {PlayerSkills.Skill.WHITE, PlayerSkills.Skill.BLUE, PlayerSkills.Skill.BLACK,
                 PlayerSkills.Skill.RED, PlayerSkills.Skill.GREEN};

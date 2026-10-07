@@ -48,6 +48,12 @@ public class EnemyData implements Serializable {
     public String bossInsult;
     public String bossIntro;
 
+    /**
+     * Optional pre-built deck (e.g. gym / League). When set, {@link #generateDeck} returns it
+     * instead of loading files or rolling genetic AI. Not serialized.
+     */
+    public transient Deck preparedDeck;
+
     public EnemyData() {
     }
 
@@ -88,6 +94,9 @@ public class EnemyData implements Serializable {
     }
 
     public Deck generateDeck(boolean isFantasyMode, boolean useGeneticAI) {
+        if (preparedDeck != null)
+            return preparedDeck;
+
         boolean canUseGeneticAI = useGeneticAI && life > 16;
 
         if (canUseGeneticAI && Config.instance().getSettingData().generateLDADecks) {
