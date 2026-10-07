@@ -82,18 +82,33 @@ public final class GatheringMethodListData {
 
     /** Highest-rank method upgrade for a skill at or below {@code rank}, or null. */
     public static GatheringMethodData.MethodUpgrade methodForSkillRank(String skill, int rank) {
-        if (skill == null || rank < 1)
+        Array<GatheringMethodData.MethodUpgrade> all = methodsUpToRank(skill, rank);
+        if (all.size == 0)
             return null;
-        GatheringMethodData.MethodUpgrade best = null;
-        for (GatheringMethodData.MethodUpgrade m : new Array.ArrayIterator<>(getMethods())) {
-            if (m == null || m.skill == null)
-                continue;
-            if (!skill.equalsIgnoreCase(m.skill) || m.rank > rank)
-                continue;
-            if (best == null || m.rank > best.rank)
+        GatheringMethodData.MethodUpgrade best = all.first();
+        for (GatheringMethodData.MethodUpgrade m : new Array.ArrayIterator<>(all)) {
+            if (m.rank > best.rank)
                 best = m;
         }
         return best;
+    }
+
+    /**
+     * All method upgrades for {@code skill} with rank ≤ {@code rank}, sorted ascending.
+     * Ranks stack: callers should apply every returned upgrade.
+     */
+    public static Array<GatheringMethodData.MethodUpgrade> methodsUpToRank(String skill, int rank) {
+        Array<GatheringMethodData.MethodUpgrade> out = new Array<>();
+        if (skill == null || rank < 1)
+            return out;
+        for (GatheringMethodData.MethodUpgrade m : new Array.ArrayIterator<>(getMethods())) {
+            if (m == null || m.skill == null)
+                continue;
+            if (skill.equalsIgnoreCase(m.skill) && m.rank >= 1 && m.rank <= rank)
+                out.add(m);
+        }
+        out.sort((a, b) -> Integer.compare(a.rank, b.rank));
+        return out;
     }
 
     /** True when the player has unlocked this method id (or any higher rank for that skill). */

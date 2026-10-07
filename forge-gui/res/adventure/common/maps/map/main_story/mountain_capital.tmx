@@ -284,7 +284,7 @@
     <property name="type" value="gym"/>
    </properties>
   </object>
-  <object id="78" template="../../obj/outpost.tx" x="360" y="434">
+  <object id="78" template="../../obj/outpost.tx" x="280" y="482">
    <properties>
     <property name="outpostId" value="mine_shaft"/>
    </properties>

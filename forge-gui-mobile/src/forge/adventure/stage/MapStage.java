@@ -1111,15 +1111,8 @@ public class MapStage extends GameStage {
         ap.updateCampProduction(outpostId);
         AdventurePlayer.CampState st = ap.getCamp(outpostId);
         int level = st != null ? st.level : 0;
-        float stored = st != null ? st.stored : 0f;
         GatheringMethodData.OutpostLevel curLevel = level > 0 ? def.levelData(level) : null;
-        final String matName;
-        if (curLevel != null && curLevel.materialId != null) {
-            MaterialData mat = MaterialListData.get(curLevel.materialId);
-            matName = mat != null ? mat.getDisplayName() : curLevel.materialId;
-        } else {
-            matName = "";
-        }
+        final String storedSummary = ap.campStoredSummary(outpostId);
 
         dialog.getContentTable().clear();
         dialog.getButtonTable().clear();
@@ -1145,8 +1138,7 @@ public class MapStage extends GameStage {
                                 : build.materialId);
             }
         } else {
-            body.append("Level ").append(level).append(" · Stored ")
-                    .append((int) Math.floor(stored)).append("× ").append(matName).append("\n");
+            body.append("Level ").append(level).append(" · Stored ").append(storedSummary).append("\n");
             if (curLevel != null)
                 body.append("Output ").append(curLevel.outputPerHour).append("/hr (cap ")
                         .append((int) def.storageCapHours).append("h)\n");
@@ -1183,7 +1175,8 @@ public class MapStage extends GameStage {
                 hideDialog();
                 int got = ap.collectCamp(outpostId);
                 if (got > 0)
-                    GameHUD.getInstance().addNotification("Collected " + got + "× " + matName + ".");
+                    GameHUD.getInstance().addNotification("Collected " + got + " materials from "
+                            + def.getDisplayName() + ".");
                 else
                     GameHUD.getInstance().addNotification("Nothing ready to collect yet.");
             })).width(100f);

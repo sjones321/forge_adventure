@@ -280,12 +280,12 @@
     <property name="type" value="gym"/>
    </properties>
   </object>
-  <object id="87" template="../../obj/outpost.tx" x="183" y="483">
+  <object id="87" template="../../obj/outpost.tx" x="183" y="499">
    <properties>
     <property name="outpostId" value="logging_camp"/>
    </properties>
   </object>
-  <object id="88" template="../../obj/outpost.tx" x="199" y="483">
+  <object id="88" template="../../obj/outpost.tx" x="215" y="499">
    <properties>
     <property name="outpostId" value="herb_garden"/>
    </properties>

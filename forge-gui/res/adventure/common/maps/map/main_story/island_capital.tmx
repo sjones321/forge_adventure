@@ -280,7 +280,7 @@
     <property name="type" value="gym"/>
    </properties>
   </object>
-  <object id="77" template="../../obj/outpost.tx" x="295" y="291">
+  <object id="77" template="../../obj/outpost.tx" x="168" y="500">
    <properties>
     <property name="outpostId" value="well"/>
    </properties>

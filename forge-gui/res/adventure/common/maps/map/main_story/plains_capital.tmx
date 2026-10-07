@@ -289,7 +289,7 @@
     <property name="type" value="league"/>
    </properties>
   </object>
-  <object id="78" template="../../obj/outpost.tx" x="520" y="208">
+  <object id="78" template="../../obj/outpost.tx" x="176" y="450">
    <properties>
     <property name="outpostId" value="shrine_quarry"/>
    </properties>

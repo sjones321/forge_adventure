@@ -103,8 +103,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
      * Package B2: claimed outpost camps (outpost id → state). Optional on load.
      */
     private final LinkedHashMap<String, CampState> camps = new LinkedHashMap<>();
-    /** In-game play seconds used for outpost production (Ascendant). Optional on load → 0. */
-    private float adventurePlaySeconds = 0f;
+    /**
+     * In-game play seconds used for outpost production (Ascendant). Optional on load → 0.
+     * Double so the timer does not stall after ~146 hours of float precision loss.
+     */
+    private double adventurePlaySeconds = 0d;
     /** T1 tools granted free at New Game and on old Ascendant saves. Package E crafts higher tiers. */
     public static final String[] STARTER_GATHERING_TOOLS = {
             "Copper Hatchet", "Copper Pickaxe", "Copper Chisel",
@@ -129,8 +132,33 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         @Serial
         private static final long serialVersionUID = 1L;
         public int level = 0;
-        public float stored = 0f;
-        public float lastUpdatePlaySeconds = 0f;
+        /**
+         * Stored output keyed by material id so upgrading the camp cannot convert
+         * lower-tier stock into the new tier.
+         */
+        public final LinkedHashMap<String, Float> storedByMaterial = new LinkedHashMap<>();
+        public double lastUpdatePlaySeconds = 0d;
+
+        public float totalStored() {
+            float sum = 0f;
+            for (Float v : storedByMaterial.values()) {
+                if (v != null)
+                    sum += v;
+            }
+            return sum;
+        }
+
+        public float getStored(String materialId) {
+            if (materialId == null)
+                return 0f;
+            return storedByMaterial.getOrDefault(materialId, 0f);
+        }
+
+        public void addStored(String materialId, float amount) {
+            if (materialId == null || amount <= 0f)
+                return;
+            storedByMaterial.merge(materialId, amount, Float::sum);
+        }
     }
     private EffectData blessing; //Blessing to apply for next battle.
     private final PlayerStatistic statistic = new PlayerStatistic();
@@ -208,7 +236,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         gatherMethodRanks.clear();
         toolEnchantments.clear();
         camps.clear();
-        adventurePlaySeconds = 0f;
+        adventurePlaySeconds = 0d;
         maxDeckCount = 20;
         clearDecks();
         inventoryItems.clear();
@@ -874,29 +902,54 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
         camps.clear();
         if (data.containsKey("campOutpostIds") && data.containsKey("campLevels")
-                && data.containsKey("campStored") && data.containsKey("campLastUpdate")) {
+                && data.containsKey("campLastUpdate")) {
             Object rawIds = data.readObject("campOutpostIds");
             Object rawLevels = data.readObject("campLevels");
-            Object rawStored = data.readObject("campStored");
             Object rawLast = data.readObject("campLastUpdate");
-            if (rawIds instanceof String[] ids && rawLevels instanceof int[] levels
-                    && rawStored instanceof float[] stored && rawLast instanceof float[] last) {
-                int n = Math.min(Math.min(ids.length, levels.length), Math.min(stored.length, last.length));
+            if (rawIds instanceof String[] ids && rawLevels instanceof int[] levels) {
+                int n = Math.min(ids.length, levels.length);
+                double[] last = readCampLastUpdate(rawLast, n);
+                // New format: per-material storage blobs "matId:amount,matId:amount".
+                String[] storedBlobs = null;
+                if (data.containsKey("campStoredByMaterial")) {
+                    Object rawBlobs = data.readObject("campStoredByMaterial");
+                    if (rawBlobs instanceof String[] blobs)
+                        storedBlobs = blobs;
+                }
+                // Legacy format: single float amount per camp (converted to current tier material).
+                float[] legacyStored = null;
+                if (storedBlobs == null && data.containsKey("campStored")) {
+                    Object rawStored = data.readObject("campStored");
+                    if (rawStored instanceof float[] stored)
+                        legacyStored = stored;
+                }
                 for (int i = 0; i < n; i++) {
                     if (ids[i] == null || ids[i].isEmpty() || levels[i] <= 0)
                         continue;
-                    if (GatheringMethodListData.getOutpost(ids[i]) == null)
+                    GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(ids[i]);
+                    if (def == null)
                         continue;
                     CampState st = new CampState();
                     st.level = levels[i];
-                    st.stored = Math.max(0f, stored[i]);
-                    st.lastUpdatePlaySeconds = Math.max(0f, last[i]);
+                    st.lastUpdatePlaySeconds = last != null && i < last.length ? Math.max(0d, last[i]) : 0d;
+                    if (storedBlobs != null && i < storedBlobs.length)
+                        parseCampStoredBlob(st, storedBlobs[i]);
+                    else if (legacyStored != null && i < legacyStored.length && legacyStored[i] > 0f) {
+                        GatheringMethodData.OutpostLevel lvl = def.levelData(st.level);
+                        String matId = lvl != null ? lvl.materialId : null;
+                        if (matId != null)
+                            st.addStored(matId, legacyStored[i]);
+                    }
                     camps.put(ids[i], st);
                 }
             }
         }
-        adventurePlaySeconds = data.containsKey("adventurePlaySeconds")
-                ? Math.max(0f, data.readFloat("adventurePlaySeconds")) : 0f;
+        adventurePlaySeconds = 0d;
+        // Double key avoids mis-reading old float-encoded adventurePlaySeconds blobs.
+        if (data.containsKey("adventurePlaySecondsD"))
+            adventurePlaySeconds = Math.max(0d, data.readDouble("adventurePlaySecondsD"));
+        else if (data.containsKey("adventurePlaySeconds"))
+            adventurePlaySeconds = Math.max(0d, data.readFloat("adventurePlaySeconds"));
         worldPosX = data.readFloat("worldPosX");
         worldPosY = data.readFloat("worldPosY");
 
@@ -1336,20 +1389,20 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         {
             String[] ids = camps.keySet().toArray(new String[0]);
             int[] levels = new int[ids.length];
-            float[] stored = new float[ids.length];
-            float[] last = new float[ids.length];
+            String[] storedBlobs = new String[ids.length];
+            double[] last = new double[ids.length];
             for (int i = 0; i < ids.length; i++) {
                 CampState st = camps.get(ids[i]);
                 levels[i] = st != null ? st.level : 0;
-                stored[i] = st != null ? st.stored : 0f;
-                last[i] = st != null ? st.lastUpdatePlaySeconds : 0f;
+                storedBlobs[i] = st != null ? formatCampStoredBlob(st) : "";
+                last[i] = st != null ? st.lastUpdatePlaySeconds : 0d;
             }
             data.storeObject("campOutpostIds", ids);
             data.storeObject("campLevels", levels);
-            data.storeObject("campStored", stored);
+            data.storeObject("campStoredByMaterial", storedBlobs);
             data.storeObject("campLastUpdate", last);
         }
-        data.store("adventurePlaySeconds", adventurePlaySeconds);
+        data.store("adventurePlaySecondsD", adventurePlaySeconds);
         data.store("deckName", deck.getName());
 
         data.storeObject("inventory", inventoryItems.toArray(new ItemData[0]));
@@ -2771,8 +2824,59 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         adventurePlaySeconds += delta;
     }
 
-    public float getAdventurePlaySeconds() {
+    public double getAdventurePlaySeconds() {
         return adventurePlaySeconds;
+    }
+
+    private static double[] readCampLastUpdate(Object rawLast, int n) {
+        if (rawLast instanceof double[] d) {
+            double[] out = new double[n];
+            for (int i = 0; i < n && i < d.length; i++)
+                out[i] = d[i];
+            return out;
+        }
+        if (rawLast instanceof float[] f) {
+            double[] out = new double[n];
+            for (int i = 0; i < n && i < f.length; i++)
+                out[i] = f[i];
+            return out;
+        }
+        return new double[n];
+    }
+
+    private static void parseCampStoredBlob(CampState st, String blob) {
+        if (st == null || blob == null || blob.isEmpty())
+            return;
+        for (String part : blob.split(",")) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty())
+                continue;
+            int colon = trimmed.indexOf(':');
+            if (colon <= 0)
+                continue;
+            String matId = trimmed.substring(0, colon).trim();
+            try {
+                float amt = Float.parseFloat(trimmed.substring(colon + 1).trim());
+                if (!matId.isEmpty() && amt > 0f)
+                    st.addStored(matId, amt);
+            } catch (NumberFormatException ignored) {
+                // skip malformed fragment
+            }
+        }
+    }
+
+    private static String formatCampStoredBlob(CampState st) {
+        if (st == null || st.storedByMaterial.isEmpty())
+            return "";
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, Float> e : st.storedByMaterial.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || e.getValue() <= 0f)
+                continue;
+            if (sb.length() > 0)
+                sb.append(',');
+            sb.append(e.getKey()).append(':').append(e.getValue());
+        }
+        return sb.toString();
     }
 
     public int getGatherMethodRank(String skill) {
@@ -2799,6 +2903,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return true;
     }
 
+    /** All socketed enchantment ids for a family (may exceed current tool's slot count). */
     public List<String> getToolEnchantments(String family) {
         if (family == null)
             return Collections.emptyList();
@@ -2806,6 +2911,21 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (list == null || list.isEmpty())
             return Collections.emptyList();
         return Collections.unmodifiableList(list);
+    }
+
+    /**
+     * Enchantments that currently apply: only the first {@link #toolEnchantSlots(String)}
+     * sockets on the equipped tool. Extra enchants stay stored until the tool has slots again
+     * or the player removes them.
+     */
+    public List<String> getActiveToolEnchantments(String family) {
+        List<String> all = getToolEnchantments(family);
+        int slots = toolEnchantSlots(family);
+        if (slots <= 0 || all.isEmpty())
+            return Collections.emptyList();
+        if (all.size() <= slots)
+            return all;
+        return Collections.unmodifiableList(all.subList(0, slots));
     }
 
     /** Socket count available for the equipped tool of this family. */
@@ -2844,12 +2964,32 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return true;
     }
 
-    /** Sum of enchantment {@code value} for a given effect key on a tool family. */
+    /**
+     * Remove a socketed enchantment and refund its gem/crystal material.
+     * Returns the refunded material id, or null on failure.
+     */
+    public String removeToolEnchantment(String family, String enchantmentId) {
+        if (!Config.ascendant() || family == null || enchantmentId == null)
+            return null;
+        ArrayList<String> list = toolEnchantments.get(family);
+        if (list == null || !list.remove(enchantmentId))
+            return null;
+        if (list.isEmpty())
+            toolEnchantments.remove(family);
+        GatheringMethodData.ToolEnchantment ench = GatheringMethodListData.getEnchantment(enchantmentId);
+        if (ench != null && ench.socketMaterial != null && !ench.socketMaterial.isEmpty()) {
+            addMaterial(ench.socketMaterial, 1);
+            return ench.socketMaterial;
+        }
+        return enchantmentId;
+    }
+
+    /** Sum of active enchantment {@code value} for a given effect key on a tool family. */
     public float toolEnchantEffect(String family, String effect) {
         if (family == null || effect == null)
             return 0f;
         float sum = 0f;
-        for (String id : getToolEnchantments(family)) {
+        for (String id : getActiveToolEnchantments(family)) {
             GatheringMethodData.ToolEnchantment e = GatheringMethodListData.getEnchantment(id);
             if (e != null && effect.equalsIgnoreCase(e.effect))
                 sum += e.value;
@@ -2878,16 +3018,20 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (st == null || def == null || st.level <= 0)
             return;
         GatheringMethodData.OutpostLevel level = def.levelData(st.level);
-        if (level == null)
+        if (level == null || level.materialId == null)
             return;
         ConfigData cfg = Config.instance().getConfigData();
         float secPerHour = cfg != null && cfg.outpostSecondsPerHour > 0 ? cfg.outpostSecondsPerHour : 60f;
         float capHours = def.storageCapHours > 0 ? def.storageCapHours
                 : (cfg != null ? cfg.outpostDefaultStorageHours : 72f);
+        // Cap applies to the current tier's bin only; older-tier stock is kept separately.
         float cap = Math.max(0f, level.outputPerHour) * Math.max(1f, capHours);
-        float elapsed = Math.max(0f, adventurePlaySeconds - st.lastUpdatePlaySeconds);
-        float gained = (elapsed / secPerHour) * Math.max(0f, level.outputPerHour);
-        st.stored = Math.min(cap, st.stored + gained);
+        double elapsed = Math.max(0d, adventurePlaySeconds - st.lastUpdatePlaySeconds);
+        float gained = (float) ((elapsed / secPerHour) * Math.max(0f, level.outputPerHour));
+        float cur = st.getStored(level.materialId);
+        float room = Math.max(0f, cap - cur);
+        if (gained > 0f && room > 0f)
+            st.addStored(level.materialId, Math.min(gained, room));
         st.lastUpdatePlaySeconds = adventurePlaySeconds;
     }
 
@@ -2935,7 +3079,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             st = new CampState();
             camps.put(outpostId, st);
         }
-        // Collect pending before tier change so nothing is lost.
+        // Accrue into the current tier's material bin before raising the level so
+        // existing stock stays under its material id (never converts on upgrade).
         updateCampProduction(outpostId);
         st.level = targetLevel;
         st.lastUpdatePlaySeconds = adventurePlaySeconds;
@@ -2963,24 +3108,50 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return blockers;
     }
 
-    /** Collect whole units from camp storage into the materials inventory. */
+    /**
+     * Collect whole units from every material bin in camp storage.
+     * Returns total units granted across all materials.
+     */
     public int collectCamp(String outpostId) {
         if (!Config.ascendant() || outpostId == null)
             return 0;
         updateCampProduction(outpostId);
         CampState st = camps.get(outpostId);
-        GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(outpostId);
-        if (st == null || def == null || st.level <= 0)
+        if (st == null || st.level <= 0 || st.storedByMaterial.isEmpty())
             return 0;
-        GatheringMethodData.OutpostLevel level = def.levelData(st.level);
-        if (level == null || level.materialId == null)
-            return 0;
-        int amount = (int) Math.floor(st.stored);
-        if (amount <= 0)
-            return 0;
-        st.stored -= amount;
-        addMaterial(level.materialId, amount);
-        return amount;
+        int total = 0;
+        for (String matId : new ArrayList<>(st.storedByMaterial.keySet())) {
+            float have = st.getStored(matId);
+            int amount = (int) Math.floor(have);
+            if (amount <= 0)
+                continue;
+            float remain = have - amount;
+            if (remain > 0f)
+                st.storedByMaterial.put(matId, remain);
+            else
+                st.storedByMaterial.remove(matId);
+            addMaterial(matId, amount);
+            total += amount;
+        }
+        return total;
+    }
+
+    /** Human-readable stored stock summary for outpost dialogs. */
+    public String campStoredSummary(String outpostId) {
+        CampState st = getCamp(outpostId);
+        if (st == null || st.storedByMaterial.isEmpty())
+            return "none";
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, Float> e : st.storedByMaterial.entrySet()) {
+            int whole = (int) Math.floor(e.getValue() != null ? e.getValue() : 0f);
+            if (whole <= 0)
+                continue;
+            if (sb.length() > 0)
+                sb.append(", ");
+            MaterialData mat = MaterialListData.get(e.getKey());
+            sb.append(whole).append("× ").append(mat != null ? mat.getDisplayName() : e.getKey());
+        }
+        return sb.length() == 0 ? "none" : sb.toString();
     }
 
     public Long itemInSlot(String key) {

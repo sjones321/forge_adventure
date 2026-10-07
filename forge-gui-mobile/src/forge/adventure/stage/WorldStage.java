@@ -538,10 +538,14 @@ public class WorldStage extends GameStage implements SaveFileContent {
     private float gatherChannelMultiplier(AdventurePlayer ap, PlayerSkills.Skill skill, String toolFamily) {
         float mult = 1f;
         if (skill != null) {
-            GatheringMethodData.MethodUpgrade method = GatheringMethodListData.methodForSkillRank(
-                    skill.displayName, ap.getGatherMethodRank(skill.displayName));
-            if (method != null && "shorter_channel".equalsIgnoreCase(method.effect) && method.effectValue > 0f)
-                mult *= method.effectValue;
+            // Ranks stack: every unlocked shorter_channel method applies.
+            for (GatheringMethodData.MethodUpgrade method : new com.badlogic.gdx.utils.Array.ArrayIterator<>(
+                    GatheringMethodListData.methodsUpToRank(skill.displayName,
+                            ap.getGatherMethodRank(skill.displayName)))) {
+                if (method != null && "shorter_channel".equalsIgnoreCase(method.effect)
+                        && method.effectValue > 0f)
+                    mult *= method.effectValue;
+            }
         }
         float faster = ap.toolEnchantEffect(toolFamily, "faster_channel");
         if (faster > 0f)
@@ -631,25 +635,29 @@ public class WorldStage extends GameStage implements SaveFileContent {
         return a.family.equalsIgnoreCase(b.family);
     }
 
-    /** Radius for adjacent/blast methods; 0 if none. */
+    /** Largest radius among stacked adjacent/blast/lumber-crew methods; 0 if none. */
     private float multiNodeGatherRadius(AdventurePlayer ap, MaterialData mat) {
         PlayerSkills.Skill skill = PlayerSkills.Skill.fromMaterialSkill(mat.skill);
         if (skill == null)
             return 0f;
-        GatheringMethodData.MethodUpgrade method = GatheringMethodListData.methodForSkillRank(
-                skill.displayName, ap.getGatherMethodRank(skill.displayName));
-        if (method == null || method.effect == null)
-            return 0f;
-        String effect = method.effect.toLowerCase(Locale.ROOT);
-        if ("adjacent_same_family".equals(effect) || "lumber_crew".equals(effect)
-                || "blast_vein".equals(effect))
-            return Math.max(16f, method.effectValue);
-        return 0f;
+        float radius = 0f;
+        for (GatheringMethodData.MethodUpgrade method : new com.badlogic.gdx.utils.Array.ArrayIterator<>(
+                GatheringMethodListData.methodsUpToRank(skill.displayName,
+                        ap.getGatherMethodRank(skill.displayName)))) {
+            if (method == null || method.effect == null)
+                continue;
+            String effect = method.effect.toLowerCase(Locale.ROOT);
+            if ("adjacent_same_family".equals(effect) || "lumber_crew".equals(effect)
+                    || "blast_vein".equals(effect))
+                radius = Math.max(radius, Math.max(16f, method.effectValue));
+        }
+        return radius;
     }
 
     /**
      * Apply yield, XP, method/enchant modifiers, and rare extras for one node.
      * {@code primary} controls whether dust/gold/shard rolls run (only once per channel).
+     * All unlocked method ranks for the skill stack.
      */
     private void grantGatherRewards(MaterialData mat, AdventurePlayer ap,
                                    StringBuilder msg, boolean primary) {
@@ -659,9 +667,10 @@ public class WorldStage extends GameStage implements SaveFileContent {
         PlayerSkills.Skill skill = PlayerSkills.Skill.fromMaterialSkill(mat.skill);
         int skillLevel = skill != null ? ap.getSkills().getLevel(skill) : 1;
         String toolFamily = mat.toolFamily();
-        GatheringMethodData.MethodUpgrade method = skill != null
-                ? GatheringMethodListData.methodForSkillRank(skill.displayName,
-                ap.getGatherMethodRank(skill.displayName)) : null;
+        com.badlogic.gdx.utils.Array<GatheringMethodData.MethodUpgrade> methods = skill != null
+                ? GatheringMethodListData.methodsUpToRank(skill.displayName,
+                ap.getGatherMethodRank(skill.displayName))
+                : new com.badlogic.gdx.utils.Array<>();
 
         int yieldMin = cfg != null ? cfg.gatherYieldMin : 1;
         int yieldMax = cfg != null ? cfg.gatherYieldMax : 3;
@@ -674,8 +683,15 @@ public class WorldStage extends GameStage implements SaveFileContent {
             amount++;
         amount = Math.min(yieldMax, Math.max(yieldMin, amount));
 
-        // Method yield modifiers.
-        if (method != null && method.effect != null) {
+        // Method yield modifiers (every unlocked rank).
+        int purifySteps = 0;
+        float graveChance = 0f;
+        float upgradeFindChance = 0f;
+        boolean elementalBonus = false;
+        boolean consecratedBonus = false;
+        for (GatheringMethodData.MethodUpgrade method : new com.badlogic.gdx.utils.Array.ArrayIterator<>(methods)) {
+            if (method == null || method.effect == null)
+                continue;
             String effect = method.effect.toLowerCase(Locale.ROOT);
             if ("double_plant_yield".equals(effect) && "plants".equalsIgnoreCase(mat.family))
                 amount *= Math.max(1, Math.round(method.effectValue));
@@ -684,22 +700,29 @@ public class WorldStage extends GameStage implements SaveFileContent {
             if ("lumber_crew".equals(effect) && "logs".equalsIgnoreCase(mat.family))
                 amount += 1;
             if ("consecrated_quarry".equals(effect) && ("sacred_stone".equalsIgnoreCase(mat.family)
-                    || "stone".equalsIgnoreCase(mat.family)))
+                    || "stone".equalsIgnoreCase(mat.family))) {
                 amount += Math.max(0, Math.round(method.effectValue));
+                consecratedBonus = true;
+            }
+            if (("purify_next_tier".equals(effect) || "elemental_condenser".equals(effect))
+                    && "waters".equalsIgnoreCase(mat.family))
+                purifySteps += Math.max(1, Math.round(method.effectValue));
+            if ("elemental_condenser".equals(effect))
+                elementalBonus = true;
+            if ("grave_lantern".equals(effect))
+                graveChance += method.effectValue;
+            if ("upgrade_find".equals(effect))
+                upgradeFindChance += method.effectValue;
         }
-        // Enchant: chance to double yield.
+        // Enchant: chance to double yield (only active sockets).
         float doubleChance = ap.toolEnchantEffect(toolFamily, "double_yield");
         if (doubleChance > 0f && rand.nextFloat() < doubleChance)
             amount *= 2;
 
         MaterialData grantMat = mat;
-        // Delving still / condenser: purify up one or more tiers.
-        if (method != null && ("purify_next_tier".equalsIgnoreCase(method.effect)
-                || "elemental_condenser".equalsIgnoreCase(method.effect))
-                && "waters".equalsIgnoreCase(mat.family)) {
-            int steps = Math.max(1, Math.round(method.effectValue));
+        if (purifySteps > 0 && "waters".equalsIgnoreCase(mat.family)) {
             MaterialData next = mat;
-            for (int i = 0; i < steps; i++) {
+            for (int i = 0; i < purifySteps; i++) {
                 MaterialData up = MaterialListData.nextTierInFamily(next);
                 if (up == null)
                     break;
@@ -707,10 +730,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
             }
             grantMat = next;
         }
-        // Salvaging scanner: chance to find next-tier scrap.
-        if (method != null && "upgrade_find".equalsIgnoreCase(method.effect)
-                && "scrap".equalsIgnoreCase(mat.family)
-                && rand.nextFloat() < method.effectValue) {
+        if (upgradeFindChance > 0f && "scrap".equalsIgnoreCase(mat.family)
+                && rand.nextFloat() < upgradeFindChance) {
             MaterialData up = MaterialListData.nextTierInFamily(mat);
             if (up != null)
                 grantMat = up;
@@ -731,9 +752,9 @@ public class WorldStage extends GameStage implements SaveFileContent {
         ap.getSkills().onMaterialGathered(skill, xp);
 
         // Foraging grave lantern: rare dead-thing bonus.
-        if (method != null && "grave_lantern".equalsIgnoreCase(method.effect)
+        if (graveChance > 0f
                 && ("dead".equalsIgnoreCase(mat.family) || "remains".equalsIgnoreCase(mat.nodeType))
-                && rand.nextFloat() < method.effectValue) {
+                && rand.nextFloat() < graveChance) {
             MaterialData rareDead = MaterialListData.getFamilyTier("dead", Math.min(4, mat.tier + 1));
             if (rareDead == null)
                 rareDead = MaterialListData.getFamilyTier("dead", 4);
@@ -750,9 +771,9 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
         float gemChance = cfg != null ? cfg.gatherGemChance : 0.08f;
         gemChance += ap.toolEnchantEffect(toolFamily, "rare_find");
-        if (method != null && "elemental_condenser".equalsIgnoreCase(method.effect))
+        if (elementalBonus)
             gemChance += 0.15f;
-        if (method != null && "consecrated_quarry".equalsIgnoreCase(method.effect))
+        if (consecratedBonus)
             gemChance += 0.08f;
         if (("ore".equalsIgnoreCase(mat.family) || "vein".equalsIgnoreCase(mat.nodeType))
                 && rand.nextFloat() < gemChance) {

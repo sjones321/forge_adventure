@@ -273,7 +273,7 @@
     <property name="type" value="gym"/>
    </properties>
   </object>
-  <object id="99" template="../../obj/outpost.tx" x="345" y="435">
+  <object id="99" template="../../obj/outpost.tx" x="168" y="482">
    <properties>
     <property name="outpostId" value="bone_pit"/>
    </properties>
