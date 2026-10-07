@@ -186,8 +186,12 @@ public class LeagueScene extends UIScene implements IAfterMatch {
             MapStage.getInstance().exitDungeon(true, wasBoss);
             return;
         }
-        if (wasBoss)
-            WorldStage.getInstance().defeatedFromBoss();
+        if (wasBoss) {
+            // Leave first so the defeat dialog (and its control unfreeze) shows on the visible town map.
+            leaveLeague();
+            MapStage.getInstance().defeatedFromBoss();
+            return;
+        }
         rebuild();
         showInfo(title, body);
     }

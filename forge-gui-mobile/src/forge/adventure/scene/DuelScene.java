@@ -217,7 +217,8 @@ public class DuelScene extends ForgeScene {
                     int next = mapLifeBeforeMatch - damage;
                     // Floor at 0; cap at maxLife unless map life was already above max (potions).
                     int upper = Math.max(max, mapLifeBeforeMatch);
-                    Current.player().setLife(Math.max(0, Math.min(upper, next)));
+                    // A won match never leaves the player at 0 life (the next fight would be an instant loss).
+                    Current.player().setLife(Math.max(1, Math.min(upper, next)));
                 }
             }
             persistLifeAfterMatch = false;

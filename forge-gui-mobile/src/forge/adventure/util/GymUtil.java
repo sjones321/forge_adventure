@@ -167,6 +167,9 @@ public final class GymUtil {
             return deck;
         } finally {
             MyRandom.setRandom(previous);
+            // Un-pin the world RNG so rewards and drops after a gym fight aren't predictable.
+            if (WorldSave.getCurrentSave() != null && WorldSave.getCurrentSave().getWorld() != null)
+                WorldSave.getCurrentSave().getWorld().getRandom().setSeed(System.nanoTime());
         }
     }
 
@@ -193,7 +196,10 @@ public final class GymUtil {
         if (colors == null || colors.isEmpty() || isColorlessTheme(colors))
             return new String[0];
         if ("Guild".equalsIgnoreCase(colors)) {
-            String[] pair = GUILD_PAIRS[Math.floorMod((int) seed, GUILD_PAIRS.length)];
+            // One pair per world, shared by every fighter in the Guild gym and stable as badges change.
+            long worldSeed = WorldSave.getCurrentSave() != null && WorldSave.getCurrentSave().getWorld() != null
+                    ? WorldSave.getCurrentSave().getWorld().getSeed() : 0L;
+            String[] pair = GUILD_PAIRS[Math.floorMod(Long.hashCode(worldSeed), GUILD_PAIRS.length)];
             return pair.clone();
         }
         if ("Rainbow".equalsIgnoreCase(colors)) {
@@ -269,16 +275,16 @@ public final class GymUtil {
             if (!cardLegalForRun(pc, format, player))
                 continue;
             if (colorlessOnly) {
-                if (!pc.getRules().getColor().isColorless() && !pc.getRules().getType().isArtifact())
+                if (!pc.getRules().getColorIdentity().isColorless())
                     continue;
             } else if (templateColors != null && templateColors.length > 0
                     && templateColors.length < 5
-                    && !pc.getRules().getType().isBasicLand()
-                    && !pc.getRules().getColor().isColorless()) {
+                    && !pc.getRules().getType().isBasicLand()) {
                 byte allowed = 0;
                 for (String c : templateColors)
                     allowed |= MagicColor.fromName(c);
-                if (!pc.getRules().getColor().hasNoColorsExcept(allowed))
+                // Color identity, so off-color lands and colored activation costs are filtered too.
+                if (!pc.getRules().getColorIdentity().hasNoColorsExcept(allowed))
                     continue;
             }
             if (FORMAT_HISTORIC.equals(format) && BanLists.isBanned("historic", pc.getName()))
