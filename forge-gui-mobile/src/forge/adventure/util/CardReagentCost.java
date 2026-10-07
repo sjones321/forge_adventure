@@ -222,7 +222,10 @@ public final class CardReagentCost {
     private static boolean faceProducesAny(ICardFace face) {
         if (face == null)
             return false;
-        for (String ab : face.getAbilities()) {
+        Iterable<String> abilities = face.getAbilities();
+        if (abilities == null)
+            return false;
+        for (String ab : abilities) {
             if (ab == null)
                 continue;
             String compact = ab.replace(" ", "");
