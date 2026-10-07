@@ -7,7 +7,6 @@ import forge.game.player.PlayerView;
 import forge.item.PaperCard;
 import forge.localinstance.properties.ForgeConstants;
 import forge.screens.match.MatchController;
-import forge.screens.match.PlayableTracker;
 import forge.screens.match.views.VPrompt;
 import forge.toolbox.FButton;
 import forge.util.ImageUtil;
@@ -52,7 +51,7 @@ import java.util.prefs.Preferences;
 
 /**
  * Pop-out window for a second monitor: the human player's hand in a grid at a readable size
- * (never stacked), cards castable right now glowing green like Arena, a side panel with a large
+ * (never stacked), cards you can act on glowing (Forge's actionable highlights), a side panel with a large
  * image and the full text of the hovered card, and the game's prompt with its two buttons.
  * Clicking a card selects it exactly as clicking it in the in-game hand would; mouse button 4
  * presses OK. The window remembers its position and size. Opened via reflection from DuelScene.
@@ -354,9 +353,11 @@ public final class HandWindow {
                 PlayerView me = MatchController.instance.getCurrentPlayer();
                 if (me != null && me.getHand() != null)
                     newHand.addAll(me.getHand());
-                // same "castable now" answer as the main window's hand glow
-                PlayableTracker.refreshIfStale();
-                newPlayable.addAll(PlayableTracker.playableIds());
+                // Forge's own "actionable highlights" (computed on the game thread at priority),
+                // the same set the main window highlights
+                for (CardView cv : newHand)
+                    if (MatchController.instance.isWeaklySelectable(cv))
+                        newPlayable.add(cv.getId());
             } catch (Exception ignored) {
                 // game state changing under us; try again next tick
             }

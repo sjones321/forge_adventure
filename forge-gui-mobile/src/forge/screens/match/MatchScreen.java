@@ -431,7 +431,6 @@ public class MatchScreen extends FScreen {
 
         drawArcs(g);
         CardFlightOverlay.draw(g, bottomPlayerPanel.getPlayer(), getHeight());
-        PlayableTracker.refreshIfStale();
         drawMulliganAdvice(g);
         if (FModel.getPreferences().getPrefBoolean(ForgePreferences.FPref.UI_ENABLE_MAGNIFIER) && Forge.magnify && Forge.magnifyToggle) {
             if (Forge.isLandscapeMode() && (!GuiBase.isMobile() || Forge.hasGamepad()) && !CardZoom.isOpen() && potentialListener != null) {
