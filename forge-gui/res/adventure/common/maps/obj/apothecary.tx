@@ -5,8 +5,8 @@
   <properties>
    <property name="hasSign" type="bool" value="true"/>
    <property name="signSprite" value="WizardShop"/>
-   <property name="signXOffset" type="float" value="0"/>
-   <property name="signYOffset" type="float" value="0"/>
+   <property name="signXOffset" type="float" value="16"/>
+   <property name="signYOffset" type="float" value="-16"/>
    <property name="type" value="apothecary"/>
   </properties>
  </object>

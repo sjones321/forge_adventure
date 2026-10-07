@@ -35,6 +35,7 @@ public class PrismaticScreen extends FScreen {
     private final FLabel lblDetail = add(new FLabel.Builder().text("").font(FSkinFont.get(12)).align(Align.left).build());
     private final FButton btnCraft = add(new FButton("Craft"));
     private final TierLister list = add(new TierLister());
+    private boolean listenersRegistered;
 
     public PrismaticScreen() {
         super("Prismatic Reagents");
@@ -48,8 +49,11 @@ public class PrismaticScreen extends FScreen {
                     "Prismatic", FOptionPane.INFORMATION_ICON, result -> Forge.back());
             return;
         }
+        if (!listenersRegistered) {
+            Current.player().onMaterialChange(this::reload);
+            listenersRegistered = true;
+        }
         reload();
-        Current.player().onMaterialChange(this::reload);
     }
 
     private void reload() {

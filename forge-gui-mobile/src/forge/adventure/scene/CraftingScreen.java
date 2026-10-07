@@ -1,5 +1,6 @@
 package forge.adventure.scene;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -48,6 +49,12 @@ public class CraftingScreen extends FScreen {
     private final FButton btnCraft = add(new FButton("Craft"));
     private final FCheckBox chkAutoSalvage = add(new FCheckBox("Auto-salvage extras beyond keep limit"));
 
+    /** Cost structure cache (independent of inventory). Cleared when the craftable pool reloads. */
+    private final Map<PaperCard, CardReagentCost> reagentCostCache = new HashMap<>();
+    /** Affordability cache; cleared on material changes. */
+    private final Map<PaperCard, Boolean> reagentAffordCache = new HashMap<>();
+    private boolean listenersRegistered;
+
     public CraftingScreen() {
         super("Crafting");
 
@@ -71,16 +78,44 @@ public class CraftingScreen extends FScreen {
                     "Crafting", FOptionPane.INFORMATION_ICON, result -> Forge.back());
             return;
         }
+        if (!listenersRegistered) {
+            Current.player().onDustChange(this::updateDust);
+            Current.player().onMaterialChange(this::onMaterialsChanged);
+            listenersRegistered = true;
+        }
         reloadPool();
         chkAutoSalvage.setSelected(Current.player().isAutoSalvage());
         updateDust();
         updateDetail();
-        Current.player().onDustChange(this::updateDust);
-        Current.player().onMaterialChange(this::updateDetail);
+    }
+
+    private void onMaterialsChanged() {
+        reagentAffordCache.clear();
+        updateDetail();
+        cardManager.refresh();
     }
 
     private void reloadPool() {
+        reagentCostCache.clear();
+        reagentAffordCache.clear();
         cardManager.setPool(buildCraftablePool(), true);
+    }
+
+    private CardReagentCost cachedReagentCost(PaperCard card) {
+        if (card == null)
+            return CardReagentCost.forCard(null);
+        return reagentCostCache.computeIfAbsent(card, c -> Current.player().craftReagentCost(c));
+    }
+
+    private boolean cachedMissingReagents(PaperCard card) {
+        if (card == null)
+            return true;
+        Boolean affordable = reagentAffordCache.get(card);
+        if (affordable == null) {
+            affordable = cachedReagentCost(card).canAfford(Current.player());
+            reagentAffordCache.put(card, affordable);
+        }
+        return !affordable;
     }
 
     /** Newest unlocked printing per craftable card name. */
@@ -153,13 +188,14 @@ public class CraftingScreen extends FScreen {
                     + " dust (need " + cost + ").");
             return;
         }
-        CardReagentCost reagents = player.craftReagentCost(printing);
+        CardReagentCost reagents = cachedReagentCost(printing);
         if (!reagents.canAfford(player)) {
             var missing = reagents.missing(player);
             FOptionPane.showMessageDialog(missing.isEmpty() ? "Missing reagents." : missing.get(0));
             return;
         }
         if (player.craftCard(selected)) {
+            reagentAffordCache.clear();
             updateDust();
             updateDetail();
             cardManager.refresh();
@@ -194,9 +230,9 @@ public class CraftingScreen extends FScreen {
         lblDetail.setText(printing.getName() + "  ·  " + cost + " " + rarity.getLongName()
                 + " dust  ·  owned " + owned + "  ·  " + historic);
 
-        CardReagentCost reagents = player.craftReagentCost(printing);
+        CardReagentCost reagents = cachedReagentCost(printing);
         lblReagents.setText(reagents.detailSummary(player));
-        boolean missingReagents = reagents.anyMissing(player);
+        boolean missingReagents = cachedMissingReagents(printing);
         lblReagents.setTextColor(missingReagents ? MISSING_COLOR
                 : FSkinColor.get(FSkinColor.Colors.ADV_CLR_TEXT));
 
@@ -251,7 +287,7 @@ public class CraftingScreen extends FScreen {
         g.fillRect(FSkinColor.get(FSkinColor.Colors.ADV_CLR_THEME), 0, 0, getWidth(), getHeight());
     }
 
-    private static class CraftCardManager extends CardManager {
+    private class CraftCardManager extends CardManager {
         CraftCardManager() {
             super(true);
         }
@@ -269,7 +305,7 @@ public class CraftingScreen extends FScreen {
             int cost = player.craftCost(card);
             int owned = countOwnedByName(player, card.getName());
             String historic = player.isStandardLegal(card) ? "" : " ×2";
-            CardReagentCost reagents = player.craftReagentCost(card);
+            CardReagentCost reagents = cachedReagentCost(card);
             String reagentBit = reagents.isEmpty() ? "" : " +" + reagents.shortSummary();
             return " [" + cost + shortRarity(card.getRarity()) + historic + reagentBit + "] ×" + owned;
         }
@@ -287,21 +323,20 @@ public class CraftingScreen extends FScreen {
                     PaperCard card = value.getKey();
                     AdventurePlayer player = Current.player();
                     int cost = player.craftCost(card);
-                    CardReagentCost reagents = player.craftReagentCost(card);
                     FSkinImage icon = rarityIcon(card.getRarity());
                     float priceHeight = font.getLineHeight();
                     float drawY = y + totalHeight - priceHeight - FList.PADDING;
                     g.fillRect(backColor, x - FList.PADDING, drawY, cardArtWidth, priceHeight);
                     float iconSize = priceHeight;
                     g.drawImage(icon, x, drawY, iconSize, iconSize);
-                    FSkinColor costColor = reagents.anyMissing(player) ? MISSING_COLOR : foreColor;
+                    FSkinColor costColor = cachedMissingReagents(card) ? MISSING_COLOR : foreColor;
                     g.drawText(String.valueOf(cost), font, costColor, x + iconSize * 1.1f, drawY,
                             cardArtWidth - iconSize * 1.1f - 2 * FList.PADDING, priceHeight, false, Align.left, true);
                 }
             };
         }
 
-        private static FSkinImage rarityIcon(CardRarity rarity) {
+        private FSkinImage rarityIcon(CardRarity rarity) {
             return switch (rarity) {
                 case Common -> FSkinImage.SET_COMMON;
                 case Uncommon -> FSkinImage.SET_UNCOMMON;
