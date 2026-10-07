@@ -154,6 +154,19 @@ public class ConfigData {
     public int gatherGoldAmount = 5;
     /** Chance (0-1) a gather grants a mana shard. */
     public float gatherShardChance = 0.015f;
+
+    // ---- Ascendant reagent card crafting (Package A2). ----
+
+    /**
+     * Colorless card reagent cost: ore (or scrap of the same tier) equal to mana value,
+     * capped at this value. Minimum is {@link #colorlessOreMin}.
+     */
+    public int colorlessOreCap = 4;
+    /** Minimum ore/scrap units for colorless cards and colorless no-cost cards/lands. */
+    public int colorlessOreMin = 1;
+    /** Spellsmithing XP granted when crafting one Prismatic reagent (any tier). */
+    public int prismaticCraftXp = 40;
+
     // ---- Ascendant stations (Package E): recipe crafting at Forge / Workshop / Apothecary / Jeweler. ----
 
     /**

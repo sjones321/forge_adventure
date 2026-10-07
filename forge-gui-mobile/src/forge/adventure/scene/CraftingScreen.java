@@ -10,6 +10,7 @@ import forge.Forge;
 import forge.Graphics;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.player.StandardWindow;
+import forge.adventure.util.CardReagentCost;
 import forge.adventure.util.Config;
 import forge.adventure.util.Current;
 import forge.assets.FSkinColor;
@@ -34,14 +35,16 @@ import forge.util.ItemPool;
 import forge.util.Utils;
 
 /**
- * Ascendant crafting UI: search the craftable pool, preview cards, spend dust to craft.
+ * Ascendant crafting UI: search the craftable pool, preview cards, spend dust + reagents to craft.
  */
 public class CraftingScreen extends FScreen {
     private static final float PADDING = Utils.scale(5f);
+    private static final FSkinColor MISSING_COLOR = FSkinColor.getStandardColor(200, 60, 60);
 
     private final CraftCardManager cardManager = add(new CraftCardManager());
     private final FLabel lblDust = add(new FLabel.Builder().text("").font(FSkinFont.get(14)).align(Align.left).build());
     private final FLabel lblDetail = add(new FLabel.Builder().text("").font(FSkinFont.get(14)).align(Align.left).build());
+    private final FLabel lblReagents = add(new FLabel.Builder().text("").font(FSkinFont.get(12)).align(Align.left).build());
     private final FButton btnCraft = add(new FButton("Craft"));
     private final FCheckBox chkAutoSalvage = add(new FCheckBox("Auto-salvage extras beyond keep limit"));
 
@@ -73,6 +76,7 @@ public class CraftingScreen extends FScreen {
         updateDust();
         updateDetail();
         Current.player().onDustChange(this::updateDust);
+        Current.player().onMaterialChange(this::updateDetail);
     }
 
     private void reloadPool() {
@@ -149,6 +153,12 @@ public class CraftingScreen extends FScreen {
                     + " dust (need " + cost + ").");
             return;
         }
+        CardReagentCost reagents = player.craftReagentCost(printing);
+        if (!reagents.canAfford(player)) {
+            var missing = reagents.missing(player);
+            FOptionPane.showMessageDialog(missing.isEmpty() ? "Missing reagents." : missing.get(0));
+            return;
+        }
         if (player.craftCard(selected)) {
             updateDust();
             updateDetail();
@@ -164,6 +174,8 @@ public class CraftingScreen extends FScreen {
         PaperCard selected = cardManager.getSelectedItem();
         if (selected == null) {
             lblDetail.setText("Select a card. Search filters the craftable pool.");
+            lblReagents.setText("");
+            lblReagents.setTextColor(FSkinColor.get(FSkinColor.Colors.ADV_CLR_TEXT));
             btnCraft.setEnabled(false);
             return;
         }
@@ -171,6 +183,7 @@ public class CraftingScreen extends FScreen {
         PaperCard printing = player.craftPrinting(selected);
         if (printing == null) {
             lblDetail.setText(player.craftProblem(selected));
+            lblReagents.setText("");
             btnCraft.setEnabled(false);
             return;
         }
@@ -180,7 +193,15 @@ public class CraftingScreen extends FScreen {
         String historic = player.isStandardLegal(printing) ? "Standard cost" : "Historic (2×)";
         lblDetail.setText(printing.getName() + "  ·  " + cost + " " + rarity.getLongName()
                 + " dust  ·  owned " + owned + "  ·  " + historic);
-        btnCraft.setEnabled(player.canCraft(printing) && player.getDust(AdventurePlayer.dustIndex(rarity)) >= cost);
+
+        CardReagentCost reagents = player.craftReagentCost(printing);
+        lblReagents.setText(reagents.detailSummary(player));
+        boolean missingReagents = reagents.anyMissing(player);
+        lblReagents.setTextColor(missingReagents ? MISSING_COLOR
+                : FSkinColor.get(FSkinColor.Colors.ADV_CLR_TEXT));
+
+        boolean enoughDust = player.getDust(AdventurePlayer.dustIndex(rarity)) >= cost;
+        btnCraft.setEnabled(player.canCraft(printing) && enoughDust && !missingReagents);
         btnCraft.setText("Craft (" + cost + " " + shortRarity(rarity) + ")");
     }
 
@@ -212,9 +233,11 @@ public class CraftingScreen extends FScreen {
 
         float btnH = Utils.AVG_FINGER_HEIGHT * 0.8f;
         float craftW = width * 0.28f;
+        float detailH = Utils.AVG_FINGER_HEIGHT * 1.15f;
         btnCraft.setBounds(width - PADDING - craftW, y, craftW, btnH);
-        lblDetail.setBounds(PADDING, y, width - craftW - 3 * PADDING, btnH);
-        y += btnH + PADDING;
+        lblDetail.setBounds(PADDING, y, width - craftW - 3 * PADDING, btnH * 0.55f);
+        lblReagents.setBounds(PADDING, y + btnH * 0.55f, width - craftW - 3 * PADDING, detailH - btnH * 0.55f);
+        y += detailH + PADDING;
 
         float checkH = Utils.AVG_FINGER_HEIGHT * 0.65f;
         chkAutoSalvage.setBounds(PADDING, height - PADDING - checkH, width - 2 * PADDING, checkH);
@@ -246,7 +269,9 @@ public class CraftingScreen extends FScreen {
             int cost = player.craftCost(card);
             int owned = countOwnedByName(player, card.getName());
             String historic = player.isStandardLegal(card) ? "" : " ×2";
-            return " [" + cost + shortRarity(card.getRarity()) + historic + "] ×" + owned;
+            CardReagentCost reagents = player.craftReagentCost(card);
+            String reagentBit = reagents.isEmpty() ? "" : " +" + reagents.shortSummary();
+            return " [" + cost + shortRarity(card.getRarity()) + historic + reagentBit + "] ×" + owned;
         }
 
         @Override
@@ -262,13 +287,15 @@ public class CraftingScreen extends FScreen {
                     PaperCard card = value.getKey();
                     AdventurePlayer player = Current.player();
                     int cost = player.craftCost(card);
+                    CardReagentCost reagents = player.craftReagentCost(card);
                     FSkinImage icon = rarityIcon(card.getRarity());
                     float priceHeight = font.getLineHeight();
                     float drawY = y + totalHeight - priceHeight - FList.PADDING;
                     g.fillRect(backColor, x - FList.PADDING, drawY, cardArtWidth, priceHeight);
                     float iconSize = priceHeight;
                     g.drawImage(icon, x, drawY, iconSize, iconSize);
-                    g.drawText(String.valueOf(cost), font, foreColor, x + iconSize * 1.1f, drawY,
+                    FSkinColor costColor = reagents.anyMissing(player) ? MISSING_COLOR : foreColor;
+                    g.drawText(String.valueOf(cost), font, costColor, x + iconSize * 1.1f, drawY,
                             cardArtWidth - iconSize * 1.1f - 2 * FList.PADDING, priceHeight, false, Align.left, true);
                 }
             };
