@@ -5,39 +5,37 @@ import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.ObjectMap;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.EnemyData;
+import forge.adventure.data.GeneratedDeckData;
+import forge.adventure.data.GeneratedDeckTemplateData;
 import forge.adventure.data.GymFighterData;
 import forge.adventure.data.GymRewardData;
 import forge.adventure.data.RewardData;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.player.BanLists;
 import forge.adventure.player.StandardWindow;
+import forge.adventure.world.WorldSave;
 import forge.card.CardRarity;
-import forge.card.ColorSet;
+import forge.card.MagicColor;
+import forge.deck.CardPool;
 import forge.deck.Deck;
-import forge.deck.DeckProxy;
-import forge.deck.DeckgenUtil;
-import forge.game.GameFormat;
-import forge.game.GameType;
-import forge.gamemodes.quest.QuestController;
+import forge.deck.DeckSection;
 import forge.item.PaperCard;
 import forge.model.FModel;
 import forge.util.Aggregates;
 import forge.util.MyRandom;
-import forge.util.StreamUtil;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
-import java.util.function.Predicate;
 
 /**
  * Shared helpers for gyms and the League: format deck resolution, EnemyData build,
  * reward grant, and run-format legality checks (package K will expand formats).
  *
- * Deck generation intentionally avoids {@link DeckgenUtil#getRandomOrPreconOrThemeDeck}'s
- * color switch (missing breaks — brief forbids editing forge-gui) and LDA archetype
- * generation when LDA data is unloaded (NPE). Color decks are built via
- * {@link DeckgenUtil#buildColorDeck} / filtered precon proxies instead.
+ * Gym decks are built with Adventure's {@link CardUtil#generateDeck} ($generate path),
+ * never DeckgenUtil/precons. Seeded per gym + badge count; padded with basics / colorless
+ * staples when the legal pool is thin. Catches {@link StackOverflowError} from builders.
  */
 public final class GymUtil {
     public static final String FORMAT_STANDARD = "Standard";
@@ -46,6 +44,18 @@ public final class GymUtil {
     public static final String FORMAT_COMMANDER = "Commander";
     /** Sentinel in gyms.json deck maps: generate a format-legal deck at challenge time. */
     public static final String GENERATE = "$generate";
+
+    private static final String[][] GUILD_PAIRS = {
+            {"white", "blue"}, {"white", "black"}, {"white", "red"}, {"white", "green"},
+            {"blue", "black"}, {"blue", "red"}, {"blue", "green"},
+            {"black", "red"}, {"black", "green"}, {"red", "green"}
+    };
+    private static final String[] COLOR_NAMES = {"white", "blue", "black", "red", "green"};
+    private static final String[] COLORLESS_STAPLES = {
+            "Solemn Simulacrum", "Burnished Hart", "Hedron Archive", "Mind Stone",
+            "Coldsteel Heart", "Guardian Idol", "Sky Diamond", "Charcoal Diamond",
+            "Fire Diamond", "Marble Diamond", "Moss Diamond"
+    };
 
     private GymUtil() {
     }
@@ -109,75 +119,249 @@ public final class GymUtil {
         return handle == null || !handle.exists();
     }
 
-    /**
-     * Builds a deck legal for the current run format, themed by fighter colors.
-     * Deterministic for the same colors + rematch + badges + run format.
-     * Never throws when LDA data is missing — falls back to color generation.
-     */
     public static Deck generateLegalDeck(String colors, boolean rematch) {
         return generateLegalDeck(colors, rematch, Current.player().getBadgeCount(), null);
     }
 
     /**
-     * @param seedKey optional stable id (fighter name / gym id) mixed into the RNG seed
+     * Builds a run-legal gym/League deck via {@link CardUtil#generateDeck}.
+     * Deterministic for the same colors + rematch + badges + run format + seedKey.
      */
     public static Deck generateLegalDeck(String colors, boolean rematch, int badgesHeld, String seedKey) {
         AdventurePlayer player = Current.player();
         String format = player.getRunFormat();
-        String cols = normalizeColors(colors);
-        long seed = deckSeed(cols, rematch, badgesHeld, format, seedKey);
+        long seed = deckSeed(colors, rematch, badgesHeld, format, seedKey);
         Random previous = MyRandom.getRandom();
         try {
             MyRandom.setRandom(new Random(seed));
-            if (FORMAT_COMMANDER.equals(format) || player.isCommanderMode()) {
-                Deck d = safeGenerate(() -> DeckgenUtil.generateCommanderDeck(true, GameType.Commander));
-                return d != null ? d : emptyFallback("Commander");
+            if (WorldSave.getCurrentSave() != null && WorldSave.getCurrentSave().getWorld() != null) {
+                // Pin Adventure's reward RNG (used inside CardUtil.generateDeck) to the same seed.
+                WorldSave.getCurrentSave().getWorld().getRandom().setSeed(seed);
             }
-            if (FORMAT_PAUPER.equals(format)) {
-                Deck d = generateColorDeck(cols, FModel.getFormats().getPauper().getFilterPrinted(), true);
-                return d != null && !d.isEmpty() ? d : emptyFallback("Pauper");
+
+            int target = targetDeckSize(format, player);
+            String[] templateColors = resolveTemplateColors(colors, seed);
+            boolean colorlessOnly = isColorlessTheme(colors);
+
+            GeneratedDeckData data = new GeneratedDeckData();
+            data.name = "Gym " + (seedKey != null ? seedKey : colors) + " (" + format + ")";
+            if (colorlessOnly) {
+                data.mainDeck = colorlessRewards(target, badgesHeld, rematch, format);
+            } else {
+                data.template = new GeneratedDeckTemplateData();
+                data.template.count = target;
+                data.template.rares = Math.min(0.35f, 0.1f + badgesHeld * 0.03f + (rematch ? 0.05f : 0f));
+                data.template.colors = templateColors;
             }
-            if (FORMAT_HISTORIC.equals(format)) {
-                Deck d = generateColorDeck(cols, FModel.getFormats().getHistoric().getFilterPrinted(), true);
-                return d != null && !d.isEmpty() ? d : emptyFallback("Historic");
+
+            Deck deck;
+            try {
+                deck = CardUtil.generateDeck(data, null, true);
+            } catch (StackOverflowError | Exception e) {
+                deck = new Deck(data.name);
             }
-            // Standard: window editions when available; color-matched precon / color gen otherwise.
-            StandardWindow window = player.getStandardWindow();
-            if (window.isActive() && !window.getSets().isEmpty()) {
-                String[] editions = window.getSets().toArray(new String[0]);
-                Deck deck = generateColorMatchedPreconOrTheme(cols, true, !rematch, editions);
-                if (deck != null && !deck.isEmpty())
-                    return deck;
-                Predicate<PaperCard> windowFilter = pc -> pc != null && (
-                        pc.getRules().getType().isBasicLand()
-                                || window.isStandardLegal(pc.getName()));
-                Deck colored = generateColorDeck(cols, windowFilter, true);
-                if (colored != null && !colored.isEmpty())
-                    return colored;
-            }
-            Deck std = generateColorMatchedPreconOrTheme(cols, true, !rematch, null);
-            if (std != null && !std.isEmpty())
-                return std;
-            GameFormat standard = FModel.getFormats().getStandard();
-            Deck lda = safeLda(standard);
-            if (lda != null && !lda.isEmpty())
-                return lda;
-            Deck colored = generateColorDeck(cols, standard != null ? standard.getFilterPrinted() : null, true);
-            return colored != null && !colored.isEmpty() ? colored : emptyFallback("Standard");
+            if (deck == null)
+                deck = new Deck(data.name);
+
+            deck = sanitizeAndPad(deck, target, templateColors, colorlessOnly, format, player);
+            return deck;
         } finally {
             MyRandom.setRandom(previous);
         }
     }
 
-    /** Maps gym color codes (W/U/B/R/G/C/Guild/Rainbow) to a WUBRG string for generators. */
-    static String normalizeColors(String colors) {
-        if (colors == null || colors.isEmpty() || "C".equals(colors))
-            return "WUBRG";
-        if ("Guild".equals(colors))
-            return "WR";
-        if ("Rainbow".equals(colors))
-            return "WUBRG";
-        return colors;
+    private static int targetDeckSize(String format, AdventurePlayer player) {
+        if (FORMAT_COMMANDER.equals(format) || player.isCommanderMode())
+            return 100;
+        // Adventure constructed is typically 40; Ascendant Standard window runs use 60.
+        if (FORMAT_STANDARD.equals(format) && player.getStandardWindow().isActive())
+            return 60;
+        if (FORMAT_HISTORIC.equals(format) || FORMAT_PAUPER.equals(format))
+            return 60;
+        return 40;
+    }
+
+    private static boolean isColorlessTheme(String colors) {
+        return colors != null && ("C".equals(colors) || "colorless".equalsIgnoreCase(colors));
+    }
+
+    /**
+     * Mono → that color name; Guild → seeded two-color pair; Rainbow → 3–5 colors;
+     * Colorless → empty (handled separately); WUBRG codes map to names.
+     */
+    static String[] resolveTemplateColors(String colors, long seed) {
+        if (colors == null || colors.isEmpty() || isColorlessTheme(colors))
+            return new String[0];
+        if ("Guild".equalsIgnoreCase(colors)) {
+            String[] pair = GUILD_PAIRS[Math.floorMod((int) seed, GUILD_PAIRS.length)];
+            return pair.clone();
+        }
+        if ("Rainbow".equalsIgnoreCase(colors)) {
+            int n = 3 + Math.floorMod((int) (seed >> 3), 3); // 3..5
+            List<String> pick = new ArrayList<>(List.of(COLOR_NAMES));
+            Random r = new Random(seed);
+            List<String> out = new ArrayList<>();
+            while (out.size() < n && !pick.isEmpty())
+                out.add(pick.remove(r.nextInt(pick.size())));
+            return out.toArray(new String[0]);
+        }
+        // Already a color-name list? Unlikely from gyms.json — parse WUBRG / WR / etc.
+        if (colors.contains("white") || colors.contains("blue"))
+            return colors.split("[, ]+");
+        List<String> names = new ArrayList<>();
+        for (char c : colors.toUpperCase().toCharArray()) {
+            switch (c) {
+                case 'W': names.add("white"); break;
+                case 'U': names.add("blue"); break;
+                case 'B': names.add("black"); break;
+                case 'R': names.add("red"); break;
+                case 'G': names.add("green"); break;
+                default: break;
+            }
+        }
+        // Guild-length WUBRG string with exactly 2 letters already covered; Rainbow WUBRG → 5.
+        if (names.size() >= 3)
+            return names.toArray(new String[0]);
+        if (names.size() == 2)
+            return names.toArray(new String[0]);
+        if (names.size() == 1)
+            return names.toArray(new String[0]);
+        // Fallback: seeded guild pair rather than an unfiltered 5-color random deck.
+        return GUILD_PAIRS[Math.floorMod((int) seed, GUILD_PAIRS.length)].clone();
+    }
+
+    private static RewardData[] colorlessRewards(int target, int badges, boolean rematch, String format) {
+        int spells = Math.max(1, Math.round(target * 0.6f));
+        RewardData colorless = new RewardData();
+        colorless.type = "card";
+        colorless.count = spells / 2;
+        colorless.colorType = "Colorless";
+        colorless.probability = 1f;
+        if (FORMAT_PAUPER.equals(format))
+            colorless.rarity = new String[]{"Common"};
+        else
+            colorless.rarity = rematch || badges >= 3
+                    ? new String[]{"Common", "Uncommon", "Rare", "Mythic Rare"}
+                    : new String[]{"Common", "Uncommon", "Rare"};
+
+        RewardData artifacts = new RewardData();
+        artifacts.type = "card";
+        artifacts.count = spells - colorless.count;
+        artifacts.cardTypes = new String[]{"Artifact"};
+        artifacts.probability = 1f;
+        artifacts.rarity = colorless.rarity;
+
+        RewardData wastes = new RewardData();
+        wastes.type = "card";
+        wastes.cardName = "Wastes";
+        wastes.count = target - spells;
+        wastes.probability = 1f;
+        return new RewardData[]{colorless, artifacts, wastes};
+    }
+
+    private static Deck sanitizeAndPad(Deck deck, int target, String[] templateColors,
+                                       boolean colorlessOnly, String format, AdventurePlayer player) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        List<PaperCard> keep = new ArrayList<>();
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc == null)
+                continue;
+            if (!cardLegalForRun(pc, format, player))
+                continue;
+            if (colorlessOnly) {
+                if (!pc.getRules().getColor().isColorless() && !pc.getRules().getType().isArtifact())
+                    continue;
+            } else if (templateColors != null && templateColors.length > 0
+                    && templateColors.length < 5
+                    && !pc.getRules().getType().isBasicLand()
+                    && !pc.getRules().getColor().isColorless()) {
+                byte allowed = 0;
+                for (String c : templateColors)
+                    allowed |= MagicColor.fromName(c);
+                if (!pc.getRules().getColor().hasNoColorsExcept(allowed))
+                    continue;
+            }
+            if (FORMAT_HISTORIC.equals(format) && BanLists.isBanned("historic", pc.getName()))
+                continue;
+            if (FORMAT_PAUPER.equals(format) && !pc.getRules().getType().isBasicLand()
+                    && pc.getRarity() != CardRarity.Common
+                    && pc.getRarity() != CardRarity.BasicLand)
+                continue;
+            keep.add(pc);
+        }
+        main.clear();
+        for (PaperCard pc : keep)
+            main.add(pc);
+
+        padToSize(deck, target, templateColors, colorlessOnly, format, player);
+        return deck;
+    }
+
+    private static boolean cardLegalForRun(PaperCard pc, String format, AdventurePlayer player) {
+        if (pc == null)
+            return false;
+        if (pc.getRules().getType().isBasicLand())
+            return true;
+        if (FORMAT_STANDARD.equals(format) && player.getStandardWindow().isActive())
+            return player.isStandardLegal(pc) && !BanLists.isBanned("standard", pc.getName());
+        if (FORMAT_HISTORIC.equals(format))
+            return !BanLists.isBanned("historic", pc.getName());
+        if (FORMAT_PAUPER.equals(format))
+            return !BanLists.isBanned("pauper", pc.getName());
+        return true;
+    }
+
+    private static void padToSize(Deck deck, int target, String[] templateColors,
+                                  boolean colorlessOnly, String format, AdventurePlayer player) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        int guard = 0;
+        while (main.countAll() < target && guard++ < target * 3) {
+            PaperCard pad = pickPadCard(templateColors, colorlessOnly, format, player, main.countAll());
+            if (pad == null)
+                break;
+            main.add(pad);
+        }
+    }
+
+    private static PaperCard pickPadCard(String[] templateColors, boolean colorlessOnly,
+                                         String format, AdventurePlayer player, int index) {
+        // Prefer basics matching the theme, then colorless staples, then Wastes.
+        if (!colorlessOnly && templateColors != null && templateColors.length > 0) {
+            String basic = basicForColor(templateColors[index % templateColors.length]);
+            PaperCard land = CardUtil.getCardByName(basic);
+            if (land != null && cardLegalForRun(land, format, player))
+                return land;
+        }
+        if (colorlessOnly || index % 3 == 0) {
+            String staple = COLORLESS_STAPLES[index % COLORLESS_STAPLES.length];
+            if (!BanLists.isBanned(format.toLowerCase(), staple)
+                    && !(FORMAT_HISTORIC.equals(format) && BanLists.isBanned("historic", staple))) {
+                PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(staple);
+                if (pc == null)
+                    pc = CardUtil.getCardByName(staple);
+                if (pc != null && cardLegalForRun(pc, format, player)
+                        && !(FORMAT_PAUPER.equals(format) && pc.getRarity() != CardRarity.Common))
+                    return pc;
+            }
+        }
+        String basic = colorlessOnly ? "Wastes"
+                : (templateColors != null && templateColors.length > 0
+                ? basicForColor(templateColors[0]) : "Wastes");
+        PaperCard land = CardUtil.getCardByName(basic);
+        return land != null ? land : CardUtil.getCardByName("Wastes");
+    }
+
+    private static String basicForColor(String colorName) {
+        if (colorName == null)
+            return "Wastes";
+        return switch (colorName.toLowerCase()) {
+            case "white", "w" -> "Plains";
+            case "blue", "u" -> "Island";
+            case "black", "b" -> "Swamp";
+            case "red", "r" -> "Mountain";
+            case "green", "g" -> "Forest";
+            default -> "Wastes";
+        };
     }
 
     private static long deckSeed(String cols, boolean rematch, int badges, String format, String seedKey) {
@@ -188,108 +372,6 @@ public final class GymUtil {
             h *= 0x100000001b3L;
         }
         return h;
-    }
-
-    /**
-     * Color-matched precon/theme pick that does <em>not</em> use DeckgenUtil's broken
-     * color switch. Filters proxies by {@link ColorSet} from the WUBRG string directly.
-     */
-    private static Deck generateColorMatchedPreconOrTheme(String colors, boolean forAi, boolean isTheme,
-                                                         String[] allowedEditions) {
-        try {
-            List<DeckProxy> source = new ArrayList<>(DeckProxy.getAllPreconstructedDecks(QuestController.getPrecons()));
-            if (isTheme)
-                source.addAll(DeckProxy.getNonEasyQuestDuelDecks());
-            ColorSet want = ColorSet.fromNames(colors.toCharArray());
-            Predicate<DeckProxy> predicate = deckProxy -> deckProxy.getMainSize() <= 60;
-            if (allowedEditions != null && allowedEditions.length > 0) {
-                Set<String> editionSet = Set.of(allowedEditions);
-                predicate = predicate.and(dp -> dp.getEdition() != null && editionSet.contains(dp.getEdition().getCode()));
-            }
-            if (want != null && !want.isColorless() && want.countColors() < 4) {
-                final ColorSet filter = want;
-                predicate = predicate.and(dp -> dp.getColorIdentity() != null
-                        && dp.getColorIdentity().hasAllColors(filter.getColor()));
-            }
-            return source.stream().filter(predicate).collect(StreamUtil.random()).map(DeckProxy::getDeck).orElse(null);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static Deck generateColorDeck(String colors, Predicate<PaperCard> formatFilter, boolean forAi) {
-        List<String> selection = colorSelection(colors);
-        if (selection.isEmpty())
-            selection = List.of("white", "blue", "black", "red", "green");
-        try {
-            return DeckgenUtil.buildColorDeck(selection, formatFilter, forAi);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /** Converts a WUBRG string into DeckgenUtil color-name selection (no fall-through bugs). */
-    private static List<String> colorSelection(String colors) {
-        List<String> selection = new ArrayList<>();
-        if (colors == null)
-            return selection;
-        for (char c : colors.toLowerCase().toCharArray()) {
-            switch (c) {
-                case 'w':
-                    selection.add("white");
-                    break;
-                case 'u':
-                    selection.add("blue");
-                    break;
-                case 'b':
-                    selection.add("black");
-                    break;
-                case 'r':
-                    selection.add("red");
-                    break;
-                case 'g':
-                    selection.add("green");
-                    break;
-                default:
-                    break;
-            }
-        }
-        // Cap at 3 for mono/dual/tri generators; 4+ → 5-color path via empty/full list size.
-        if (selection.size() > 3)
-            return List.of("white", "blue", "black", "red", "green");
-        return selection;
-    }
-
-    private static Deck safeLda(GameFormat format) {
-        if (format == null)
-            return null;
-        try {
-            if (forge.deck.CardArchetypeLDAGenerator.ldaArchetypes.get(format.getName()) == null)
-                return null;
-            return DeckgenUtil.buildLDACArchetypeDeck(format, true);
-        } catch (Exception | Error e) {
-            return null;
-        }
-    }
-
-    private static Deck safeGenerate(java.util.concurrent.Callable<Deck> gen) {
-        try {
-            return gen.call();
-        } catch (Exception | Error e) {
-            return null;
-        }
-    }
-
-    private static Deck emptyFallback(String label) {
-        Deck d = new Deck("Gym fallback (" + label + ")");
-        // Last-resort non-empty deck so a missing LDA/precon never NPE mid-challenge.
-        try {
-            Deck random = DeckgenUtil.getRandomColorDeck(true);
-            if (random != null && !random.isEmpty())
-                return random;
-        } catch (Exception ignored) {
-        }
-        return d;
     }
 
     /**
@@ -344,7 +426,6 @@ public final class GymUtil {
             return p.historicDeckProblem(d) == null;
         if (FORMAT_PAUPER.equals(format))
             return p.pauperDeckProblem(d) == null;
-        // Standard: not Commander/Historic-tagged, and every card legal in the window / staples.
         if (p.isCommanderDeck(d) || p.isHistoricDeck(d))
             return false;
         return p.standardDeckProblem(d) == null;
@@ -372,10 +453,6 @@ public final class GymUtil {
         return "Your selected deck must be legal for this run's format (" + format + ").";
     }
 
-    /**
-     * Applies dust immediately. Returns gold / material / staple for RewardScene EventReward.
-     * Staple rewards prefer a rotating Standard staple (or window-legal named card).
-     */
     public static Array<Reward> grantRewards(GymRewardData reward) {
         Array<Reward> out = new Array<>();
         if (reward == null)
@@ -410,10 +487,6 @@ public final class GymUtil {
         return out;
     }
 
-    /**
-     * Prefer {@code preferred} when it is Standard-legal for this run; otherwise a random
-     * rotating staple (or unlocked color staple). Commander runs use commander staples.
-     */
     public static PaperCard pickStapleReward(String preferred) {
         AdventurePlayer player = Current.player();
         StandardWindow window = player.getStandardWindow();

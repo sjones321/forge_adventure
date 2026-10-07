@@ -18,6 +18,7 @@ import forge.adventure.data.GymRewardData;
 import forge.adventure.data.LeagueData;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.IAfterMatch;
+import forge.adventure.stage.MapStage;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
@@ -166,24 +167,29 @@ public class LeagueScene extends UIScene implements IAfterMatch {
 
     private void onLeave() {
         if (challengeActive) {
-            applyDefeat("League forfeited", "The challenge is over. The normal defeat penalty was applied.");
+            applyDefeat(true, "League forfeited",
+                    "The challenge is over. The normal defeat penalty was applied.");
             return;
         }
         leaveLeague();
     }
 
-    /** Applies the normal duel defeat penalty; respawns at Spawn when life drops below 1. */
-    private void applyDefeat(String title, String body) {
+    /**
+     * Same path as a normal town loss: {@link MapStage#exitDungeon} when life hits ≤0.
+     * League fighters are bosses — call {@code defeatedFromBoss} when life remains.
+     */
+    private void applyDefeat(boolean wasBoss, String title, String body) {
         challengeActive = false;
         fightIndex = 0;
         boolean wiped = Current.player().defeated();
-        rebuild();
         if (wiped) {
-            leaveLeague();
-            WorldStage.getInstance().resetPlayerLocation();
-        } else {
-            showInfo(title, body);
+            MapStage.getInstance().exitDungeon(true, wasBoss);
+            return;
         }
+        if (wasBoss)
+            WorldStage.getInstance().defeatedFromBoss();
+        rebuild();
+        showInfo(title, body);
     }
 
     private void leaveLeague() {
@@ -217,7 +223,7 @@ public class LeagueScene extends UIScene implements IAfterMatch {
         if (!challengeActive)
             return;
         if (!winner) {
-            applyDefeat("Defeated", "The League challenge ends here. No healing was granted mid-run.");
+            applyDefeat(true, "Defeated", "The League challenge ends here. No healing was granted mid-run.");
             return;
         }
         boolean isChamp = fightIndex == lineup.size - 1;

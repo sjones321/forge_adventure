@@ -653,11 +653,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     /**
-     * Sets current map life (clamped to 0..maxLife). Used by League attrition between matches.
-     * Duel-only bonuses (badge/skill lifeModifier) must not raise map life above max.
+     * Sets current map life (clamped to ≥ 0). May exceed {@link #getMaxLife()} when the player
+     * has false-life potions. League attrition uses damage-based write-back in DuelScene so
+     * badge/skill bonuses never absorb map damage and potions above max are not cut off.
      */
     public void setLife(int amount) {
-        life = Math.max(0, Math.min(maxLife, amount));
+        life = Math.max(0, amount);
         onLifeTotalChangeList.emit();
     }
 

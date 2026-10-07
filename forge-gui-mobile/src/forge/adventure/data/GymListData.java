@@ -57,8 +57,10 @@ public final class GymListData {
     /** Reloads when the adventure plane no longer matches the cached data. */
     private static void ensureCurrentWorld() {
         String plane = Config.instance().getPlane();
-        if (loadedPlane == null || !loadedPlane.equals(plane))
+        if (loadedPlane == null || !loadedPlane.equals(plane)) {
+            forge.adventure.player.BanLists.clear();
             reload();
+        }
     }
 
     public static Array<GymData> getAll() {

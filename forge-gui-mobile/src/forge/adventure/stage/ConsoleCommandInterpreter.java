@@ -325,7 +325,7 @@ public class ConsoleCommandInterpreter {
         });
         registerCommand(new String[]{"give", "badge"}, s -> {
             if (!Config.ascendant())
-                return "Badges are Ascendant-only";
+                return "Command is Ascendant-only";
             if (s.length < 1)
                 return "Command needs 1 parameter: badge id (or 'all').";
             if ("all".equalsIgnoreCase(s[0])) {

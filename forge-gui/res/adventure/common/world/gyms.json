@@ -543,7 +543,7 @@
           "name": "Void Gym Adept",
           "sprite": "sprites/enemy/construct/golem_3.atlas",
           "life": 18,
-          "colors": "WUBRG",
+          "colors": "C",
           "gamesPerMatch": 1,
           "decks": {
             "Standard": "$generate",
@@ -556,7 +556,7 @@
           "name": "Void Gym Veteran",
           "sprite": "sprites/enemy/construct/golem_3.atlas",
           "life": 22,
-          "colors": "WUBRG",
+          "colors": "C",
           "gamesPerMatch": 1,
           "decks": {
             "Standard": "$generate",
@@ -570,7 +570,7 @@
         "name": "Void Gym Leader",
         "sprite": "sprites/enemy/construct/arcane_golem.atlas",
         "life": 30,
-        "colors": "WUBRG",
+        "colors": "C",
         "gamesPerMatch": 0,
         "boss": true,
         "decks": {
@@ -640,7 +640,7 @@
           "name": "Guild Gym Adept",
           "sprite": "sprites/enemy/humanoid/knight.atlas",
           "life": 18,
-          "colors": "WR",
+          "colors": "Guild",
           "gamesPerMatch": 1,
           "decks": {
             "Standard": "$generate",
@@ -653,7 +653,7 @@
           "name": "Guild Gym Veteran",
           "sprite": "sprites/enemy/humanoid/knight.atlas",
           "life": 22,
-          "colors": "WR",
+          "colors": "Guild",
           "gamesPerMatch": 1,
           "decks": {
             "Standard": "$generate",
@@ -666,7 +666,7 @@
           "name": "Guild Gym Elite",
           "sprite": "sprites/enemy/humanoid/knight.atlas",
           "life": 24,
-          "colors": "WR",
+          "colors": "Guild",
           "gamesPerMatch": 1,
           "decks": {
             "Standard": "$generate",
@@ -680,7 +680,7 @@
         "name": "Guild Gym Leader",
         "sprite": "sprites/enemy/humanoid/paladin_2.atlas",
         "life": 30,
-        "colors": "WR",
+        "colors": "Guild",
         "gamesPerMatch": 0,
         "boss": true,
         "decks": {
