@@ -1113,10 +1113,12 @@ public class MapStage extends GameStage {
         int level = st != null ? st.level : 0;
         float stored = st != null ? st.stored : 0f;
         GatheringMethodData.OutpostLevel curLevel = level > 0 ? def.levelData(level) : null;
-        String matName = "";
+        final String matName;
         if (curLevel != null && curLevel.materialId != null) {
             MaterialData mat = MaterialListData.get(curLevel.materialId);
             matName = mat != null ? mat.getDisplayName() : curLevel.materialId;
+        } else {
+            matName = "";
         }
 
         dialog.getContentTable().clear();
