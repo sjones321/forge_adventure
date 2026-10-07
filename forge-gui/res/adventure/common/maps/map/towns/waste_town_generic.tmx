@@ -116,5 +116,6 @@
     <property name="questtype" value="waste_town_generic"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="64" template="../../obj/forge.tx" x="182" y="273"/>
+</objectgroup>
 </map>

@@ -43,7 +43,12 @@ public class PlayerSkills {
         MINING("Mining"),
         QUARRYING("Quarrying"),
         FORAGING("Foraging"),
-        DELVING("Delving");
+        DELVING("Delving"),
+        // Package E crafting skills.
+        SMITHING("Smithing"),
+        WOODWORKING("Woodworking"),
+        ALCHEMY("Alchemy"),
+        JEWELCRAFTING("Jewelcrafting");
 
         public final String displayName;
 
@@ -53,10 +58,20 @@ public class PlayerSkills {
 
         /** Match materials.json {@code skill} strings (display name or enum name). */
         public static Skill fromMaterialSkill(String name) {
+            return fromName(name);
+        }
+
+        /** Resolve by enum name or display name; unknown → null. */
+        public static Skill fromName(String name) {
             if (name == null || name.isEmpty())
                 return null;
+            try {
+                return Skill.valueOf(name.trim().toUpperCase().replace(' ', '_'));
+            } catch (IllegalArgumentException ignored) {
+                // fall through to display-name match
+            }
             for (Skill s : values()) {
-                if (s.displayName.equalsIgnoreCase(name) || s.name().equalsIgnoreCase(name))
+                if (s.displayName.equalsIgnoreCase(name.trim()))
                     return s;
             }
             return null;
@@ -306,6 +321,10 @@ public class PlayerSkills {
             return 1f;
         float t = (getLevel(skill) - 1) / (float) (MAX_LEVEL - 1);
         return 1f - (1f - minFactor) * Math.max(0f, Math.min(1f, t));
+    /** A station recipe was crafted; XP comes from the recipe's {@code xp} field. */
+    public void onRecipeCrafted(Skill skill, int xp) {
+        if (skill != null && xp > 0)
+            addXp(skill, xp);
     }
 
     // ---- color perks: unlocked at levels 15, 40 and 75 of each color skill ----

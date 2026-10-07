@@ -110,5 +110,7 @@
     <property name="questtype" value="plains_town_trobal"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="60" template="../../obj/forge.tx" x="256" y="211"/>
+  <object id="61" template="../../obj/workshop.tx" x="272" y="227"/>
+</objectgroup>
 </map>

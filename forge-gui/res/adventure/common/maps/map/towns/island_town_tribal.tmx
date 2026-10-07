@@ -116,5 +116,6 @@
     <property name="uncommonShopList" value="Creature2Blue,Creature,Blue"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="57" template="../../obj/jeweler.tx" x="279" y="82"/>
+</objectgroup>
 </map>

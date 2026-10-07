@@ -42,5 +42,6 @@
   <object id="45" template="../../obj/shop.tx" x="271.5" y="257.5" width="33.5" height="16"/>
   <object id="46" template="../../obj/shop.tx" x="463" y="241.5" width="35" height="16"/>
   <object id="47" template="../../obj/inn.tx" x="351" y="177" width="34" height="16"/>
- </objectgroup>
+   <object id="48" template="../../obj/apothecary.tx" x="367" y="209"/>
+</objectgroup>
 </map>

@@ -113,5 +113,6 @@
     <property name="uncommonShopList" value="Artifact,Wolf4Red,Devil,Dwarf,Dragon,Sliver2Red,Knight4Red,Soldier4Red,Minotaur,Shaman,Dinosaur4Red,Ogre4Red,Wand,Equip,Multicolor,Giant,SnowShop"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="55" template="../../obj/forge.tx" x="246" y="114"/>
+</objectgroup>
 </map>

@@ -154,5 +154,12 @@ public class ConfigData {
     public int gatherGoldAmount = 5;
     /** Chance (0-1) a gather grants a mana shard. */
     public float gatherShardChance = 0.015f;
+    // ---- Ascendant stations (Package E): recipe crafting at Forge / Workshop / Apothecary / Jeweler. ----
+
+    /**
+     * Max gold-cost discount for station recipes at crafting-skill level 99
+     * (0.25 = 25% off). Linear from 0 at level 1.
+     */
+    public float stationCraftGoldDiscountMax = 0.25f;
 
 }

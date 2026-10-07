@@ -104,5 +104,6 @@
     <property name="rotation" value="Green1,Green2,Green3,Green4,Green5,Green6"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="54" template="../../obj/workshop.tx" x="185" y="178"/>
+</objectgroup>
 </map>

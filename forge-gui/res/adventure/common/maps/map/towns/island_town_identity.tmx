@@ -106,5 +106,6 @@
     <property name="signYOffset" type="float" value="-16"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="58" template="../../obj/jeweler.tx" x="279" y="82"/>
+</objectgroup>
 </map>

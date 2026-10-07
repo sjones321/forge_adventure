@@ -110,5 +110,6 @@
     <property name="uncommonShopList" value="Gruul,Izzet,Rakdos,Boros,Gruul,Izzet,Rakdos,Boros,Land"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="57" template="../../obj/forge.tx" x="246" y="114"/>
+</objectgroup>
 </map>

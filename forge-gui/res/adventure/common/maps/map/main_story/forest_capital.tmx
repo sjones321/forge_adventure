@@ -270,5 +270,9 @@
     <property name="signYOffset" type="float" value="-2"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="82" template="../../obj/forge.tx" x="231" y="419"/>
+  <object id="83" template="../../obj/workshop.tx" x="247" y="435"/>
+  <object id="84" template="../../obj/apothecary.tx" x="215" y="451"/>
+  <object id="85" template="../../obj/jeweler.tx" x="263" y="419"/>
+</objectgroup>
 </map>

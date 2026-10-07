@@ -110,5 +110,6 @@
     <property name="uncommonShopList" value="Artifact,Vampire,Zombie,Skeleton,Demon,Knight4Black,Rogue4Black,Sliver2Black,Wand,Equip,Multicolor"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="54" template="../../obj/apothecary.tx" x="246" y="130"/>
+</objectgroup>
 </map>

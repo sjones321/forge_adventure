@@ -1,0 +1,64 @@
+[
+  {
+    "id": "sample_bronze_sword",
+    "station": "forge",
+    "result": "Bronze Sword",
+    "resultType": "item",
+    "materials": {
+      "copper": 3,
+      "ash": 1
+    },
+    "gold": 25,
+    "skill": "Smithing",
+    "levelRequired": 1,
+    "xp": 40
+  },
+  {
+    "id": "sample_oak_shield",
+    "station": "workshop",
+    "result": "Jungle Shield",
+    "resultType": "item",
+    "materials": {
+      "oak": 4,
+      "hide": 1
+    },
+    "gold": 30,
+    "skill": "Woodworking",
+    "levelRequired": 1,
+    "xp": 40
+  },
+  {
+    "id": "sample_vigor_draught",
+    "station": "apothecary",
+    "result": "Vigor Draught",
+    "resultType": "potion",
+    "materials": {
+      "wild_herbs": 2,
+      "spring_water": 1,
+      "bone_fragments": 1
+    },
+    "gold": 20,
+    "skill": "Alchemy",
+    "levelRequired": 1,
+    "xp": 35,
+    "blessing": {
+      "name": "Vigor Draught",
+      "lifeModifier": 2
+    }
+  },
+  {
+    "id": "sample_life_amulet",
+    "station": "jeweler",
+    "result": "Life Amulet",
+    "resultType": "item",
+    "materials": {
+      "garnet": 1,
+      "limestone": 1,
+      "brine": 1
+    },
+    "gold": 50,
+    "skill": "Jewelcrafting",
+    "levelRequired": 1,
+    "xp": 45
+  }
+]

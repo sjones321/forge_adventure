@@ -66,5 +66,6 @@
     <property name="shopList" value="Swamp"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="49" template="../../obj/apothecary.tx" x="246" y="130"/>
+</objectgroup>
 </map>

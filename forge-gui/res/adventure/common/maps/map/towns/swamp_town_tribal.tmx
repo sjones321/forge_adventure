@@ -111,5 +111,6 @@
     <property name="uncommonShopList" value="Creature2Black,Creature,Black"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="53" template="../../obj/apothecary.tx" x="246" y="130"/>
+</objectgroup>
 </map>

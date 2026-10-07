@@ -34,6 +34,7 @@
   "gatherGoldChance": 0.04,
   "gatherGoldAmount": 5,
   "gatherShardChance": 0.015,
+  "stationCraftGoldDiscountMax": 0.25,
   "screenWidth": 480,
   "screenHeight": 270,
   "skin": "skin/ui_skin.json",

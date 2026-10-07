@@ -122,5 +122,6 @@
     <property name="uncommonShopList" value="Creature2Red,Creature,Red"/>
    </properties>
   </object>
- </objectgroup>
+   <object id="54" template="../../obj/forge.tx" x="246" y="114"/>
+</objectgroup>
 </map>
