@@ -29,6 +29,12 @@ public class WorldData implements Serializable {
     public BiomeData roadTileset;
     public String biomesSprites;
     public float maxRoadDistance;
+    /**
+     * Minimum center-to-center distance in tiles between town/capital POIs.
+     * 0 (default) keeps the legacy 8×8-tile exclusion box used by stock worlds.
+     * Ascendant sets this higher so towns are spread out on the larger map.
+     */
+    public int minTownSpacing = 0;
     public String[] biomesNames;
 
 

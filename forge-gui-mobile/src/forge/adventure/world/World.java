@@ -526,6 +526,16 @@ public class World implements Disposable, SaveFileContent {
                                     }
                                     if (!foundSolution) {
                                         if (counter == 499) {
+                                            boolean isTownPoi = poi.type != null
+                                                    && (poi.type.equals("town") || poi.type.equals("capital"));
+                                            // With minTownSpacing, skip unplaceable town instances rather than
+                                            // rerunning the whole map (counts are tuned for ~120-150 towns).
+                                            if (isTownPoi && data.minTownSpacing > 0) {
+                                                System.err.print("Can not place town POI " + poi.name
+                                                        + " with minTownSpacing=" + data.minTownSpacing
+                                                        + "...Skipping instance.\n");
+                                                break;
+                                            }
                                             System.err.print("Can not place POI " + poi.name + "...Rerunning..\n");
                                             running = true;
                                             towns.clear();
@@ -538,7 +548,20 @@ public class World implements Disposable, SaveFileContent {
                                         continue;
                                     }
                                 }
-                                otherPoints.add(new Rectangle(x - data.tileSize * 4, y - data.tileSize * 4, data.tileSize * 8, data.tileSize * 8));
+                                boolean isTownOrCapital = poi.type != null
+                                        && (poi.type.equals("town") || poi.type.equals("capital"));
+                                // Legacy exclusion is an 8×8-tile box (half-extent 4 → centers ≥~4 tiles apart).
+                                // minTownSpacing is the minimum center-to-center distance in tiles, so the
+                                // exclusion half-extent equals that spacing.
+                                float halfTiles = 4f;
+                                if (isTownOrCapital && data.minTownSpacing > 0) {
+                                    halfTiles = Math.max(4f, (float) data.minTownSpacing);
+                                }
+                                otherPoints.add(new Rectangle(
+                                        x - data.tileSize * halfTiles,
+                                        y - data.tileSize * halfTiles,
+                                        data.tileSize * halfTiles * 2f,
+                                        data.tileSize * halfTiles * 2f));
                                 PointOfInterest newPoint = new PointOfInterest(poi, new Vector2(x, y), random);
                                 clearTerrain((int) (x / data.tileSize), (int) (y / data.tileSize), 3);
                                 mapPoiIds.add(newPoint);
@@ -555,7 +578,7 @@ public class World implements Disposable, SaveFileContent {
                                 }
 
 
-                                if (poi.type != null && (poi.type.equals("town") || poi.type.equals("capital"))) {
+                                if (isTownOrCapital) {
                                     if (!newPoint.hasDisplayName()) {
                                         if (poi.displayName == null || poi.displayName.isEmpty()) {
                                             newPoint.setDisplayName(biome.getNewTownName());
@@ -818,7 +841,15 @@ public class World implements Disposable, SaveFileContent {
             mapMarkerPixmap.dispose();
             biomeImage = pix;
             measureGenerationTime("sprites", currentTime[0]);
-            System.out.println("Generating world took :\t\t" + ((System.currentTimeMillis() - startTime) / 1000f) + " s");
+            long elapsedMs = System.currentTimeMillis() - startTime;
+            Runtime rt = Runtime.getRuntime();
+            long usedMb = (rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L);
+            long totalMb = rt.totalMemory() / (1024L * 1024L);
+            System.out.println("Generating world took :\t\t" + (elapsedMs / 1000f) + " s");
+            System.out.println("World size " + width + "x" + height
+                    + " | towns=" + towns.size()
+                    + " | minTownSpacing=" + data.minTownSpacing
+                    + " | heap used~" + usedMb + "MB / total~" + totalMb + "MB");
             WorldStage.getInstance().clearCache();
 
             if (GuiBase.isMobile())
@@ -925,6 +956,17 @@ public class World implements Disposable, SaveFileContent {
 
     public int getTileSize() {
         return data.tileSize;
+    }
+
+    /** True when the tile is marked as a road (highest biome bit past the biome list). */
+    public boolean isRoad(int tileX, int tileY) {
+        if (data == null || biomeMap == null)
+            return false;
+        try {
+            return highestBiome(getBiome(tileX, tileY)) >= data.GetBiomes().size();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public Pixmap getBiomeImage() {

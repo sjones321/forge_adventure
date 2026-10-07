@@ -9,6 +9,7 @@ import forge.adventure.player.AdventurePlayer;
 import forge.adventure.pointofintrest.PointOfInterestChanges;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.util.AdventureEventController;
+import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 import forge.adventure.util.Current;
 import forge.model.CardBlock;
@@ -41,7 +42,7 @@ public class InnScene extends UIScene {
     }
 
 
-    TextraButton tempHitPointCost, sell, leave, event;
+    TextraButton tempHitPointCost, sell, leave, event, travel;
     Image healIcon, sellIcon, leaveIcon;
     private TextraLabel playerGold,playerShards,eventDescription;
 
@@ -65,6 +66,11 @@ public class InnScene extends UIScene {
         eventDescription = ui.findActor("eventDescription");
 
         ui.onButtonPress("event", InnScene.this::startEvent);
+
+        travel = ui.findActor("travel");
+        if (travel != null) {
+            ui.onButtonPress("travel", InnScene.this::openTravel);
+        }
     }
 
 
@@ -110,6 +116,17 @@ public class InnScene extends UIScene {
         tempHitPointCost.setDisabled(!purchaseable);
         tempHitPointCost.setText("[+GoldCoin] " + tempHealthCost);
 
+        if (travel != null) {
+            boolean showTravel = Config.ascendant();
+            travel.setVisible(showTravel);
+            if (showTravel) {
+                boolean unlocked = Current.player().getSkills().canUseWaypointTravel();
+                travel.setDisabled(!unlocked);
+                travel.setText(unlocked ? "Travel" : "Travel (Exp "
+                        + Config.instance().getConfigData().waypointTravelUnlockLevel + ")");
+            }
+        }
+
         initLocalEvent();
         if (localEvent == null){
             eventDescription.setText("[GREY]No events at this time");
@@ -142,6 +159,12 @@ public class InnScene extends UIScene {
                     break;
             }
         }
+    }
+
+    private void openTravel() {
+        if (!Config.ascendant())
+            return;
+        Forge.switchScene(WaypointTravelScene.instance().prepare(localPointOfInterestId));
     }
 
     private void sell() {

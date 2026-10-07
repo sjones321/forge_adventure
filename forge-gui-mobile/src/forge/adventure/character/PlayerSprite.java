@@ -5,8 +5,11 @@ import forge.Forge;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.scene.Scene;
 import forge.adventure.stage.GameStage;
+import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
 import forge.adventure.util.Current;
+import forge.adventure.world.World;
+import forge.adventure.world.WorldSave;
 
 /**
  * Class that will represent the player sprite on the map
@@ -69,7 +72,8 @@ public class PlayerSprite extends CharacterSprite {
         if (Forge.advFreezePlayerControls)
             return;
 
-        direction.setLength(playerSpeed * delta * playerSpeedModifier * playerSpeedEquipmentModifier);
+        float roadBonus = roadSpeedBonus();
+        direction.setLength(playerSpeed * delta * playerSpeedModifier * playerSpeedEquipmentModifier * roadBonus);
         prevDirection.set(direction);
         Scene previousScene = forge.Forge.getCurrentScene();
 
@@ -97,5 +101,20 @@ public class PlayerSprite extends CharacterSprite {
 
     public void setPosition(Vector2 oldPosition) {
         setPosition(oldPosition.x, oldPosition.y);
+    }
+
+    /** Ascendant-only road bonus on the overworld; 1f elsewhere / stock worlds. */
+    private float roadSpeedBonus() {
+        if (!Config.ascendant() || !(gameStage instanceof WorldStage))
+            return 1f;
+        World world = WorldSave.getCurrentSave().getWorld();
+        if (world == null || world.getData() == null)
+            return 1f;
+        int tileX = (int) ((getX() + getWidth() / 2f) / world.getTileSize());
+        int tileY = (int) (getY() / world.getTileSize());
+        if (!world.isRoad(tileX, tileY))
+            return 1f;
+        float bonus = Config.instance().getConfigData().roadSpeedBonus;
+        return bonus > 0f ? bonus : 1f;
     }
 }
