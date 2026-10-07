@@ -151,7 +151,7 @@ public class SpellSmithScene extends UIScene {
             filterResults();
         });
 
-        // Ascendant-only: open the crafting screen from Spell Smith without changing stock UI JSON.
+        // Ascendant-only: Craft / Refine from Spell Smith without changing stock UI JSON.
         // Created once; shown per visit in enter() since the scene outlives a world switch.
         if (exitSmith != null) {
             openCraft = Controls.newTextButton("Craft", () -> Forge.switchScene(CraftingScene.instance()));
@@ -159,10 +159,17 @@ public class SpellSmithScene extends UIScene {
             openCraft.setBounds(exitSmith.getX() - craftW - 8f, exitSmith.getY(), craftW, exitSmith.getHeight());
             openCraft.setVisible(false);
             ui.addActor(openCraft);
+
+            openRefine = Controls.newTextButton("Refine", () -> Forge.switchScene(RefineScene.instance()));
+            float refineW = Math.max(55f, exitSmith.getWidth() * 0.9f);
+            openRefine.setBounds(openCraft.getX() - refineW - 8f, exitSmith.getY(), refineW, exitSmith.getHeight());
+            openRefine.setVisible(false);
+            ui.addActor(openRefine);
         }
     }
 
     private TextraButton openCraft;
+    private TextraButton openRefine;
 
     private void reset() {
         edition = "";
@@ -336,6 +343,8 @@ public class SpellSmithScene extends UIScene {
     public void enter() {
         if (openCraft != null)
             openCraft.setVisible(Config.ascendant());
+        if (openRefine != null)
+            openRefine.setVisible(Config.ascendant());
         reset();
         loadEditions(); //just to be safe since it's preloaded, if somehow edition is null, then reload it
         editionList.clearListeners();

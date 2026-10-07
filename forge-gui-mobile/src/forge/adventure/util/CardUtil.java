@@ -7,6 +7,7 @@ import forge.StaticData;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.GeneratedDeckData;
 import forge.adventure.data.GeneratedDeckTemplateData;
+import forge.adventure.data.MaterialData;
 import forge.adventure.data.RewardData;
 import forge.card.*;
 import forge.card.DeckHints.Type;
@@ -431,6 +432,11 @@ public class CardUtil {
             return getCardPrice(card);
         if (reward.getItem() != null)
             return reward.getItem().cost;
+        if (reward.getType() == Reward.Type.Material) {
+            MaterialData mat = reward.getMaterial();
+            int unit = mat != null ? mat.sellPrice : 5;
+            return unit * Math.max(1, reward.getCount());
+        }
         if (reward.getType() == Reward.Type.Life)
             return reward.getCount() * 500;
         if (reward.getType() == Reward.Type.Shards)

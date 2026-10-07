@@ -15,6 +15,8 @@ import com.github.tommyettinger.textra.TextraButton;
 import com.github.tommyettinger.textra.TextraLabel;
 import forge.Forge;
 import forge.adventure.data.ItemData;
+import forge.adventure.data.MaterialData;
+import forge.adventure.data.MaterialListData;
 import forge.adventure.stage.ConsoleCommandInterpreter;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.MapStage;
@@ -23,7 +25,9 @@ import forge.deck.Deck;
 import org.apache.commons.lang3.tuple.Pair;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class InventoryScene extends UIScene {
@@ -36,9 +40,16 @@ public class InventoryScene extends UIScene {
     private final HashMap<String, Button> equipmentSlots = new HashMap<>();
     HashMap<Button, Pair<String, ItemData>> itemLocation = new HashMap<>();
     HashMap<Button, Deck> deckLocation = new HashMap<>();
+    /** Materials tab selection: button → material id. */
+    HashMap<Button, String> materialLocation = new HashMap<>();
     Button selected;
     Button deleteButton;
     TextraButton repairButton;
+    TextraButton materialsTab;
+    TextraButton sellOneButton;
+    TextraButton sellAllButton;
+    /** Ascendant Materials inventory mode (vs equipment/items). */
+    private boolean materialsMode = false;
     Texture equipOverlay, unusableOverlay;
     Dialog useDialog, deleteDialog;
     int columns = 0;
@@ -159,6 +170,92 @@ public class InventoryScene extends UIScene {
         columns -= 1;
         if (columns <= 0) columns = 1;
         scrollPane.setActor(inventory);
+
+        // Ascendant-only Materials tab + sell actions (programmatic; stock UI JSON unchanged).
+        if (leave != null) {
+            materialsTab = Controls.newTextButton("Materials", this::toggleMaterialsMode);
+            float tabW = Math.max(70f, leave.getWidth() * 1.15f);
+            materialsTab.setBounds(leave.getX() - tabW - 8f, leave.getY(), tabW, leave.getHeight());
+            materialsTab.setVisible(false);
+            ui.addActor(materialsTab);
+
+            sellOneButton = Controls.newTextButton("Sell", this::sellSelectedMaterial);
+            sellOneButton.setBounds(equipButton.getX(), equipButton.getY(), equipButton.getWidth(), equipButton.getHeight());
+            sellOneButton.setVisible(false);
+            ui.addActor(sellOneButton);
+
+            sellAllButton = Controls.newTextButton("Sell All", this::sellAllSelectedMaterial);
+            sellAllButton.setBounds(useButton.getX(), useButton.getY(), useButton.getWidth(), useButton.getHeight());
+            sellAllButton.setVisible(false);
+            ui.addActor(sellAllButton);
+        }
+    }
+
+    private void toggleMaterialsMode() {
+        if (!Config.ascendant())
+            return;
+        materialsMode = !materialsMode;
+        if (materialsMode) {
+            selectedSlot = null;
+            for (Button slot : equipmentSlots.values()) {
+                removeSlotBorder(slot);
+                slot.setChecked(false);
+            }
+        }
+        setSelected(null);
+        updateInventory();
+        updateMaterialsChrome();
+    }
+
+    private void updateMaterialsChrome() {
+        boolean show = Config.ascendant() && materialsMode;
+        if (materialsTab != null) {
+            materialsTab.setVisible(Config.ascendant());
+            materialsTab.setText(materialsMode ? "Items" : "Materials");
+        }
+        if (sellOneButton != null)
+            sellOneButton.setVisible(show);
+        if (sellAllButton != null)
+            sellAllButton.setVisible(show);
+        if (equipButton != null)
+            equipButton.setVisible(!show);
+        if (useButton != null)
+            useButton.setVisible(!show);
+        if (deleteButton != null)
+            deleteButton.setVisible(!show);
+        if (repairButton != null && show)
+            repairButton.setVisible(false);
+        for (Button slot : equipmentSlots.values())
+            slot.setVisible(!show);
+    }
+
+    private void sellSelectedMaterial() {
+        if (!materialsMode || selected == null)
+            return;
+        String id = materialLocation.get(selected);
+        if (id == null)
+            return;
+        int price = Current.player().materialSellPrice(id);
+        if (Current.player().sellMaterial(id, 1) > 0) {
+            itemDescription.setText("Sold 1 for [+GoldCoin] " + price);
+            updateInventory();
+        }
+    }
+
+    private void sellAllSelectedMaterial() {
+        if (!materialsMode || selected == null)
+            return;
+        String id = materialLocation.get(selected);
+        if (id == null)
+            return;
+        int have = Current.player().getMaterial(id);
+        int price = Current.player().materialSellPrice(id);
+        int sold = Current.player().sellMaterial(id, have);
+        if (sold > 0) {
+            itemDescription.setText("Sold " + sold + " for [+GoldCoin] " + (price * sold));
+            setSelected(null);
+            updateInventory();
+        }
     }
 
     private void showConfirm() {
@@ -219,6 +316,7 @@ public class InventoryScene extends UIScene {
 
 
     public void done() {
+        materialsMode = false;
         selectedSlot = null;
         for (Button slot : equipmentSlots.values()) {
             removeSlotBorder(slot);
@@ -330,10 +428,48 @@ public class InventoryScene extends UIScene {
             deleteButton.setDisabled(true);
             equipButton.setDisabled(true);
             useButton.setDisabled(true);
+            if (sellOneButton != null)
+                sellOneButton.setDisabled(true);
+            if (sellAllButton != null)
+                sellAllButton.setDisabled(true);
             repairButton.setVisible(false);
             for (Button button : inventoryButtons) {
                 button.setChecked(false);
             }
+            return;
+        }
+        if (materialsMode && materialLocation.containsKey(actor)) {
+            String id = materialLocation.get(actor);
+            MaterialData mat = MaterialListData.get(id);
+            int count = Current.player().getMaterial(id);
+            int price = Current.player().materialSellPrice(id);
+            StringBuilder desc = new StringBuilder();
+            if (mat != null) {
+                desc.append(mat.getDisplayName()).append(" ×").append(count).append("\n[%98]");
+                if (mat.family != null && !mat.family.isEmpty())
+                    desc.append("Family: ").append(mat.family).append("  Tier ").append(mat.tier).append("\n");
+                desc.append("Sell: [+GoldCoin] ").append(price).append(" each");
+                if (mat.dustRefine != null) {
+                    int yield = Current.player().refineDustYield(id);
+                    desc.append("\nRefine: ").append(yield).append(" ").append(mat.dustRefine.rarity).append(" dust");
+                }
+            } else {
+                desc.append(id).append(" ×").append(count);
+            }
+            itemDescription.setText(desc.toString());
+            if (sellOneButton != null)
+                sellOneButton.setDisabled(count < 1);
+            if (sellAllButton != null)
+                sellAllButton.setDisabled(count < 1);
+            deleteButton.setDisabled(true);
+            equipButton.setDisabled(true);
+            useButton.setDisabled(true);
+            repairButton.setVisible(false);
+            for (Button button : inventoryButtons) {
+                if (actor != button && button.isChecked())
+                    button.setChecked(false);
+            }
+            performTouch(scrollPaneOfActor(itemDescription));
             return;
         }
         if (itemLocation.containsKey(actor)) {
@@ -399,7 +535,15 @@ public class InventoryScene extends UIScene {
         clearSelectable();
         inventoryButtons.clear();
         inventory.clear();
+        itemLocation.clear();
+        deckLocation.clear();
+        materialLocation.clear();
         repairButton.setVisible(false);
+
+        if (materialsMode && Config.ascendant()) {
+            updateMaterialsInventory();
+            return;
+        }
 
         int itemSlotsUsed = 0;
         ArrayList<ItemData> items = new ArrayList<>();
@@ -540,14 +684,78 @@ public class InventoryScene extends UIScene {
         repairButton.setZIndex(ui.getChildren().size);
     }
 
+    /** Ascendant Materials tab: list owned materials with counts. */
+    private void updateMaterialsInventory() {
+        List<Map.Entry<String, Integer>> owned = new ArrayList<>(Current.player().getMaterials().entrySet());
+        owned.sort(Comparator
+                .comparing((Map.Entry<String, Integer> e) -> {
+                    MaterialData m = MaterialListData.get(e.getKey());
+                    return m != null && m.family != null ? m.family : "";
+                })
+                .thenComparing(e -> {
+                    MaterialData m = MaterialListData.get(e.getKey());
+                    return m != null ? m.tier : 0;
+                })
+                .thenComparing(e -> {
+                    MaterialData m = MaterialListData.get(e.getKey());
+                    return m != null ? m.getDisplayName() : e.getKey();
+                }));
+
+        int i = 0;
+        for (Map.Entry<String, Integer> entry : owned) {
+            if (entry.getValue() == null || entry.getValue() <= 0)
+                continue;
+            MaterialData mat = MaterialListData.get(entry.getKey());
+            if (i % columns == 0)
+                inventory.row();
+            Button newActor = createInventorySlot();
+            inventory.add(newActor).top().left().space(1);
+            addToSelectable(new Selectable(newActor) {
+                @Override
+                public void onSelect(UIScene scene) {
+                    setSelected(newActor);
+                    super.onSelect(scene);
+                }
+            });
+            inventoryButtons.add(newActor);
+            materialLocation.put(newActor, entry.getKey());
+
+            Sprite sprite = mat != null ? mat.sprite() : Config.instance().getItemSprite("Item");
+            if (sprite != null) {
+                Image img = new Image(sprite);
+                img.setX((newActor.getWidth() - img.getWidth()) / 2);
+                img.setY((newActor.getHeight() - img.getHeight()) / 2);
+                newActor.addActor(img);
+            }
+            TextraLabel count = Controls.newTextraLabel("[%80]" + entry.getValue());
+            count.setPosition(2, 2);
+            newActor.addActor(count);
+
+            newActor.addListener(new ChangeListener() {
+                @Override
+                public void changed(ChangeEvent event, Actor actor) {
+                    if (((Button) actor).isChecked())
+                        setSelected((Button) actor);
+                }
+            });
+            i++;
+        }
+        if (sellOneButton != null)
+            sellOneButton.setDisabled(selected == null || !materialLocation.containsKey(selected));
+        if (sellAllButton != null)
+            sellAllButton.setDisabled(selected == null || !materialLocation.containsKey(selected));
+    }
+
     @Override
     public void enter() {
+        materialsMode = false;
         selectedSlot = null;
         for (Button slot : equipmentSlots.values()) {
             removeSlotBorder(slot);
             slot.setChecked(false);
         }
         clearItemDescription();
+        updateMaterialsChrome();
         updateInventory();
         //inventory.add().expand();
         super.enter();

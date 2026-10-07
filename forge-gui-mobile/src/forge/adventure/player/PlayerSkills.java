@@ -262,6 +262,18 @@ public class PlayerSkills {
             addXp(Skill.SPELLSMITHING, Math.max(1, dustSpent));
     }
 
+    /** Materials refined into dust at Spell Smith; XP follows dust granted. */
+    public void onMaterialRefined(int dustGranted) {
+        if (dustGranted > 0)
+            addXp(Skill.SPELLSMITHING, Math.max(1, dustGranted));
+    }
+
+    /** Materials sold for gold (inventory Materials tab). XP shares Bartering with shop sales. */
+    public void onMaterialsSold(int unitCount, int goldEarned) {
+        if (unitCount > 0)
+            addXp(Skill.BARTERING, unitCount * 2 + Math.max(0, goldEarned) / 4);
+    }
+
     // ---- color perks: unlocked at levels 15, 40 and 75 of each color skill ----
 
     public static final int[] COLOR_PERK_LEVELS = {15, 40, 75};
