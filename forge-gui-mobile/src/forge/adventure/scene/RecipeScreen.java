@@ -130,9 +130,15 @@ public class RecipeScreen extends FScreen {
             FOptionPane.showMessageDialog("Crafting failed.");
             return;
         }
-        String msg = row.recipe.isPotion()
-                ? "Brewed " + row.recipe.getDisplayResult() + " (next duel blessing)."
-                : "Crafted " + row.recipe.getDisplayResult() + ".";
+        String msg;
+        if (row.recipe.isPotion())
+            msg = "Brewed " + row.recipe.getDisplayResult() + " (next duel blessing).";
+        else if (row.recipe.isMethod())
+            msg = "Unlocked gathering method: " + row.recipe.getDisplayResult() + ".";
+        else if (row.recipe.isToolEnchant())
+            msg = "Socketed " + row.recipe.getDisplayResult() + ".";
+        else
+            msg = "Crafted " + row.recipe.getDisplayResult() + ".";
         FOptionPane.showMessageDialog(msg, stationTitle(station));
         reload();
     }
@@ -163,6 +169,10 @@ public class RecipeScreen extends FScreen {
             sb.append(" (potion)");
         else if (row.recipe.isTool())
             sb.append(" (tool)");
+        else if (row.recipe.isMethod())
+            sb.append(" (method)");
+        else if (row.recipe.isToolEnchant())
+            sb.append(" (enchant)");
         sb.append("  ·  ").append(row.recipe.skill).append(" ").append(row.recipe.levelRequired);
         sb.append("  ·  ").append(goldCost).append(" gold");
         sb.append("  ·  +").append(row.recipe.xp).append(" XP");

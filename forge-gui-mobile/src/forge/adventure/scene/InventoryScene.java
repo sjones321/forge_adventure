@@ -14,9 +14,12 @@ import com.badlogic.gdx.utils.Array;
 import com.github.tommyettinger.textra.TextraButton;
 import com.github.tommyettinger.textra.TextraLabel;
 import forge.Forge;
+import forge.adventure.data.GatheringMethodData;
+import forge.adventure.data.GatheringMethodListData;
 import forge.adventure.data.ItemData;
 import forge.adventure.data.MaterialData;
 import forge.adventure.data.MaterialListData;
+import forge.adventure.player.AdventurePlayer;
 import forge.adventure.stage.ConsoleCommandInterpreter;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.MapStage;
@@ -400,6 +403,13 @@ public class InventoryScene extends UIScene {
             ItemData data = itemLocation.get(selected).getRight();
             if (data == null)
                 return;
+            // Package B2: Use on an enchanted gathering tool unsockets the last gem (refunded).
+            if (Config.ascendant() && data.isGatheringTool()
+                    && Current.player().isToolEquipped(data)
+                    && !Current.player().getToolEnchantments(data.toolFamily).isEmpty()) {
+                unsocketLastEnchantment(data);
+                return;
+            }
             if (useDialog == null) {
                 useDialog = createGenericDialog("", null, Forge.getLocalizer().getMessage("lblYes"),
                         Forge.getLocalizer().getMessage("lblNo"), () -> {
@@ -416,6 +426,33 @@ public class InventoryScene extends UIScene {
                 return;
             this.openBooster();
         }
+    }
+
+    /** Remove the last socketed enchantment on this tool family and refund its gem. */
+    private void unsocketLastEnchantment(ItemData data) {
+        if (data == null || !data.isGatheringTool())
+            return;
+        List<String> all = Current.player().getToolEnchantments(data.toolFamily);
+        if (all.isEmpty())
+            return;
+        String id = all.get(all.size() - 1);
+        GatheringMethodData.ToolEnchantment ench = GatheringMethodListData.getEnchantment(id);
+        String label = ench != null ? ench.getDisplayName() : id;
+        showDialog(createGenericDialog("Unsocket",
+                "Remove " + label + " and refund its gem?",
+                Forge.getLocalizer().getMessage("lblYes"),
+                Forge.getLocalizer().getMessage("lblNo"),
+                () -> {
+                    String refunded = Current.player().removeToolEnchantment(data.toolFamily, id);
+                    if (refunded != null) {
+                        MaterialData mat = MaterialListData.get(refunded);
+                        itemDescription.setText("Removed " + label
+                                + (mat != null ? " → refunded " + mat.getDisplayName() : "") + ".");
+                    }
+                    setSelected(selected);
+                    removeDialog();
+                },
+                this::removeDialog));
     }
 
     public void clearItemDescription() {
@@ -498,6 +535,13 @@ public class InventoryScene extends UIScene {
                         button.setText(Forge.getLocalizer().getMessage("lblEquip"));
                     button.layout();
                 }
+                // Allow Use → Unsocket when this tool is equipped and has enchantments.
+                if (Config.ascendant() && Current.player().isToolEquipped(data)
+                        && !Current.player().getToolEnchantments(data.toolFamily).isEmpty()) {
+                    useButton.setDisabled(false);
+                    useButton.setText("Unsocket");
+                    useButton.layout();
+                }
             } else if (data.equipmentSlot == null || data.equipmentSlot.isEmpty() || data.isCracked) {
                 equipButton.setDisabled(true);
             } else {
@@ -515,7 +559,10 @@ public class InventoryScene extends UIScene {
             }
             repairButton.setVisible(data.isCracked);
             String status = data.isCracked ? " (" + Forge.getLocalizer().getMessage("lblCracked") + ")" : "";
-            itemDescription.setText(data.getDisplayName() + status + "\n[%98]" + data.getDescription());
+            String desc = data.getDescription();
+            if (Config.ascendant() && data.isGatheringTool())
+                desc += toolSocketSummary(data);
+            itemDescription.setText(data.getDisplayName() + status + "\n[%98]" + desc);
         }
         else if (deckLocation.containsKey(actor)){
             Deck data = (deckLocation.get(actor));
@@ -770,6 +817,39 @@ public class InventoryScene extends UIScene {
         updateInventory();
         //inventory.add().expand();
         super.enter();
+    }
+
+    /** Package B2: socket fill / capacity for an equipped gathering tool. */
+    private static String toolSocketSummary(ItemData data) {
+        if (data == null || !data.isGatheringTool())
+            return "";
+        AdventurePlayer ap = Current.player();
+        if (!ap.isToolEquipped(data))
+            return "\nSockets: equip on toolbelt to enchant.";
+        int slots = ap.toolEnchantSlots(data.toolFamily);
+        List<String> all = ap.getToolEnchantments(data.toolFamily);
+        List<String> active = ap.getActiveToolEnchantments(data.toolFamily);
+        if (slots <= 0)
+            return "\nSockets: none (need tier "
+                    + Config.instance().getConfigData().toolEnchantSocketMinTier + "+)."
+                    + (all.isEmpty() ? "" : "\nStored (inactive): " + all.size()
+                    + " — equip a higher-tier tool or Unsocket.");
+        StringBuilder sb = new StringBuilder("\nSockets: ").append(active.size())
+                .append("/").append(slots).append(" active");
+        for (String id : active) {
+            GatheringMethodData.ToolEnchantment e = GatheringMethodListData.getEnchantment(id);
+            sb.append("\n  · ").append(e != null ? e.getDisplayName() : id);
+        }
+        if (all.size() > active.size()) {
+            sb.append("\nInactive (no slot):");
+            for (int i = active.size(); i < all.size(); i++) {
+                GatheringMethodData.ToolEnchantment e = GatheringMethodListData.getEnchantment(all.get(i));
+                sb.append("\n  · ").append(e != null ? e.getDisplayName() : all.get(i));
+            }
+        }
+        if (!all.isEmpty())
+            sb.append("\nUse Unsocket to remove the last gem (refunded).");
+        return sb.toString();
     }
 
     public Button createInventorySlot() {

@@ -34,6 +34,7 @@ import forge.sound.SoundEffectType;
 import forge.sound.SoundSystem;
 import forge.util.ItemPool;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.util.*;
 import java.util.function.Predicate;
@@ -88,6 +89,25 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
      * (logs, ore, stone, herbs, crystal, scrap). Not an equipment slot.
      */
     private final LinkedHashMap<String, String> toolbelt = new LinkedHashMap<>();
+    /**
+     * Package B2: highest unlocked gathering-method rank per skill display name
+     * (Woodcutting, Mining, …). Missing → 0 (base tool only).
+     */
+    private final LinkedHashMap<String, Integer> gatherMethodRanks = new LinkedHashMap<>();
+    /**
+     * Package B2: toolbelt family → ordered enchantment ids in sockets.
+     * Optional on old saves (including saves that already have a toolbelt).
+     */
+    private final LinkedHashMap<String, ArrayList<String>> toolEnchantments = new LinkedHashMap<>();
+    /**
+     * Package B2: claimed outpost camps (outpost id → state). Optional on load.
+     */
+    private final LinkedHashMap<String, CampState> camps = new LinkedHashMap<>();
+    /**
+     * In-game play seconds used for outpost production (Ascendant). Optional on load → 0.
+     * Double so the timer does not stall after ~146 hours of float precision loss.
+     */
+    private double adventurePlaySeconds = 0d;
     /** T1 tools granted free at New Game and on old Ascendant saves. Package E crafts higher tiers. */
     public static final String[] STARTER_GATHERING_TOOLS = {
             "Copper Hatchet", "Copper Pickaxe", "Copper Chisel",
@@ -106,6 +126,40 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
      * Commander-mode saves always report Commander regardless of this field.
      */
     private String runFormat = forge.adventure.util.GymUtil.FORMAT_STANDARD;
+
+    /** Serializable camp progress for Package B2 outposts. */
+    public static class CampState implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        public int level = 0;
+        /**
+         * Stored output keyed by material id so upgrading the camp cannot convert
+         * lower-tier stock into the new tier.
+         */
+        public final LinkedHashMap<String, Float> storedByMaterial = new LinkedHashMap<>();
+        public double lastUpdatePlaySeconds = 0d;
+
+        public float totalStored() {
+            float sum = 0f;
+            for (Float v : storedByMaterial.values()) {
+                if (v != null)
+                    sum += v;
+            }
+            return sum;
+        }
+
+        public float getStored(String materialId) {
+            if (materialId == null)
+                return 0f;
+            return storedByMaterial.getOrDefault(materialId, 0f);
+        }
+
+        public void addStored(String materialId, float amount) {
+            if (materialId == null || amount <= 0f)
+                return;
+            storedByMaterial.merge(materialId, amount, Float::sum);
+        }
+    }
     private EffectData blessing; //Blessing to apply for next battle.
     private final PlayerStatistic statistic = new PlayerStatistic();
     private final Map<String, Byte> questFlags = new HashMap<>();
@@ -179,6 +233,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         badges.clear();
         leagueCleared = false;
         runFormat = GymUtil.FORMAT_STANDARD;
+        gatherMethodRanks.clear();
+        toolEnchantments.clear();
+        camps.clear();
+        adventurePlaySeconds = 0d;
         maxDeckCount = 20;
         clearDecks();
         inventoryItems.clear();
@@ -810,6 +868,88 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         } else {
             runFormat = GymUtil.FORMAT_STANDARD;
         }
+        gatherMethodRanks.clear();
+        if (data.containsKey("gatherMethodSkills") && data.containsKey("gatherMethodRanks")) {
+            Object rawSkills = data.readObject("gatherMethodSkills");
+            Object rawRanks = data.readObject("gatherMethodRanks");
+            if (rawSkills instanceof String[] sk && rawRanks instanceof int[] rk) {
+                int n = Math.min(sk.length, rk.length);
+                for (int i = 0; i < n; i++) {
+                    if (sk[i] != null && !sk[i].isEmpty() && rk[i] > 0)
+                        gatherMethodRanks.put(sk[i], rk[i]);
+                }
+            }
+        }
+        toolEnchantments.clear();
+        if (data.containsKey("toolEnchantFamilies") && data.containsKey("toolEnchantIds")) {
+            Object rawFam = data.readObject("toolEnchantFamilies");
+            Object rawIds = data.readObject("toolEnchantIds");
+            if (rawFam instanceof String[] fams && rawIds instanceof String[] ids) {
+                int n = Math.min(fams.length, ids.length);
+                for (int i = 0; i < n; i++) {
+                    if (fams[i] == null || fams[i].isEmpty() || ids[i] == null || ids[i].isEmpty())
+                        continue;
+                    ArrayList<String> list = new ArrayList<>();
+                    for (String part : ids[i].split(",")) {
+                        String trimmed = part.trim();
+                        if (!trimmed.isEmpty() && GatheringMethodListData.getEnchantment(trimmed) != null)
+                            list.add(trimmed);
+                    }
+                    if (!list.isEmpty())
+                        toolEnchantments.put(fams[i], list);
+                }
+            }
+        }
+        camps.clear();
+        if (data.containsKey("campOutpostIds") && data.containsKey("campLevels")
+                && data.containsKey("campLastUpdate")) {
+            Object rawIds = data.readObject("campOutpostIds");
+            Object rawLevels = data.readObject("campLevels");
+            Object rawLast = data.readObject("campLastUpdate");
+            if (rawIds instanceof String[] ids && rawLevels instanceof int[] levels) {
+                int n = Math.min(ids.length, levels.length);
+                double[] last = readCampLastUpdate(rawLast, n);
+                // New format: per-material storage blobs "matId:amount,matId:amount".
+                String[] storedBlobs = null;
+                if (data.containsKey("campStoredByMaterial")) {
+                    Object rawBlobs = data.readObject("campStoredByMaterial");
+                    if (rawBlobs instanceof String[] blobs)
+                        storedBlobs = blobs;
+                }
+                // Legacy format: single float amount per camp (converted to current tier material).
+                float[] legacyStored = null;
+                if (storedBlobs == null && data.containsKey("campStored")) {
+                    Object rawStored = data.readObject("campStored");
+                    if (rawStored instanceof float[] stored)
+                        legacyStored = stored;
+                }
+                for (int i = 0; i < n; i++) {
+                    if (ids[i] == null || ids[i].isEmpty() || levels[i] <= 0)
+                        continue;
+                    GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(ids[i]);
+                    if (def == null)
+                        continue;
+                    CampState st = new CampState();
+                    st.level = levels[i];
+                    st.lastUpdatePlaySeconds = last != null && i < last.length ? Math.max(0d, last[i]) : 0d;
+                    if (storedBlobs != null && i < storedBlobs.length)
+                        parseCampStoredBlob(st, storedBlobs[i]);
+                    else if (legacyStored != null && i < legacyStored.length && legacyStored[i] > 0f) {
+                        GatheringMethodData.OutpostLevel lvl = def.levelData(st.level);
+                        String matId = lvl != null ? lvl.materialId : null;
+                        if (matId != null)
+                            st.addStored(matId, legacyStored[i]);
+                    }
+                    camps.put(ids[i], st);
+                }
+            }
+        }
+        adventurePlaySeconds = 0d;
+        // Double key avoids mis-reading old float-encoded adventurePlaySeconds blobs.
+        if (data.containsKey("adventurePlaySecondsD"))
+            adventurePlaySeconds = Math.max(0d, data.readDouble("adventurePlaySecondsD"));
+        else if (data.containsKey("adventurePlaySeconds"))
+            adventurePlaySeconds = Math.max(0d, data.readFloat("adventurePlaySeconds"));
         worldPosX = data.readFloat("worldPosX");
         worldPosY = data.readFloat("worldPosY");
 
@@ -1228,6 +1368,41 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         data.storeObject("badgeIds", badges.toArray(new String[0]));
         data.store("leagueCleared", leagueCleared);
         data.store("runFormat", runFormat != null ? runFormat : GymUtil.FORMAT_STANDARD);
+        {
+            String[] sk = gatherMethodRanks.keySet().toArray(new String[0]);
+            int[] rk = new int[sk.length];
+            for (int i = 0; i < sk.length; i++)
+                rk[i] = gatherMethodRanks.getOrDefault(sk[i], 0);
+            data.storeObject("gatherMethodSkills", sk);
+            data.storeObject("gatherMethodRanks", rk);
+        }
+        {
+            String[] fams = toolEnchantments.keySet().toArray(new String[0]);
+            String[] ids = new String[fams.length];
+            for (int i = 0; i < fams.length; i++) {
+                ArrayList<String> list = toolEnchantments.get(fams[i]);
+                ids[i] = list == null || list.isEmpty() ? "" : String.join(",", list);
+            }
+            data.storeObject("toolEnchantFamilies", fams);
+            data.storeObject("toolEnchantIds", ids);
+        }
+        {
+            String[] ids = camps.keySet().toArray(new String[0]);
+            int[] levels = new int[ids.length];
+            String[] storedBlobs = new String[ids.length];
+            double[] last = new double[ids.length];
+            for (int i = 0; i < ids.length; i++) {
+                CampState st = camps.get(ids[i]);
+                levels[i] = st != null ? st.level : 0;
+                storedBlobs[i] = st != null ? formatCampStoredBlob(st) : "";
+                last[i] = st != null ? st.lastUpdatePlaySeconds : 0d;
+            }
+            data.storeObject("campOutpostIds", ids);
+            data.storeObject("campLevels", levels);
+            data.storeObject("campStoredByMaterial", storedBlobs);
+            data.storeObject("campLastUpdate", last);
+        }
+        data.store("adventurePlaySecondsD", adventurePlaySeconds);
         data.store("deckName", deck.getName());
 
         data.storeObject("inventory", inventoryItems.toArray(new ItemData[0]));
@@ -2081,8 +2256,29 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (recipe.isPotion()) {
             if (recipe.blessing == null)
                 blockers.add("Potion has no blessing effect");
+        } else if (recipe.isMethod()) {
+            GatheringMethodData.MethodUpgrade method = GatheringMethodListData.getMethod(recipe.methodId);
+            if (method == null)
+                blockers.add("Unknown gathering method");
+            else if (getGatherMethodRank(method.skill) >= method.rank)
+                blockers.add("Already unlocked " + method.getDisplayName());
+            else if (method.rank > 1 && getGatherMethodRank(method.skill) < method.rank - 1)
+                blockers.add("Need prior method rank for " + method.skill);
+        } else if (recipe.isToolEnchant()) {
+            GatheringMethodData.ToolEnchantment ench = GatheringMethodListData.getEnchantment(recipe.enchantmentId);
+            if (ench == null)
+                blockers.add("Unknown enchantment");
+            else if (recipe.toolFamily == null || recipe.toolFamily.isEmpty())
+                blockers.add("No tool family for enchantment");
+            else if (getToolTier(recipe.toolFamily) <= 0)
+                blockers.add("Equip a " + recipe.toolFamily + " tool first");
+            else if (toolEnchantSlots(recipe.toolFamily) <= 0)
+                blockers.add("Need a higher-tier " + recipe.toolFamily + " tool for sockets");
+            else if (getToolEnchantments(recipe.toolFamily).size() >= toolEnchantSlots(recipe.toolFamily))
+                blockers.add("No free sockets on " + recipe.toolFamily + " tool");
+            else if (getToolEnchantments(recipe.toolFamily).contains(recipe.enchantmentId))
+                blockers.add("Enchantment already socketed");
         } else if (recipe.isTool()) {
-            // Package B owns the toolbelt; until then tools craft as inventory items when defined.
             if (recipe.result == null || recipe.result.isEmpty() || ItemListData.getItem(recipe.result) == null)
                 blockers.add("Tool item not defined yet");
         } else {
@@ -2127,6 +2323,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (recipe.isPotion()) {
             addBlessing(new EffectData(recipe.blessing));
             granted = true;
+        } else if (recipe.isMethod()) {
+            granted = unlockGatherMethod(recipe.methodId);
+        } else if (recipe.isToolEnchant()) {
+            granted = socketToolEnchantment(recipe.toolFamily, recipe.enchantmentId);
         } else {
             granted = addItem(recipe.result);
         }
@@ -2613,6 +2813,345 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             if (equippedTier < e.getValue().toolTier)
                 toolbelt.put(e.getKey(), e.getValue().name);
         }
+    }
+
+    // ---- Ascendant gathering methods (Package B2) ----
+
+    /** Advance in-game play time used by outpost production. Ascendant only. */
+    public void tickAdventurePlaySeconds(float delta) {
+        if (!Config.ascendant() || delta <= 0f)
+            return;
+        adventurePlaySeconds += delta;
+    }
+
+    public double getAdventurePlaySeconds() {
+        return adventurePlaySeconds;
+    }
+
+    private static double[] readCampLastUpdate(Object rawLast, int n) {
+        if (rawLast instanceof double[] d) {
+            double[] out = new double[n];
+            for (int i = 0; i < n && i < d.length; i++)
+                out[i] = d[i];
+            return out;
+        }
+        if (rawLast instanceof float[] f) {
+            double[] out = new double[n];
+            for (int i = 0; i < n && i < f.length; i++)
+                out[i] = f[i];
+            return out;
+        }
+        return new double[n];
+    }
+
+    private static void parseCampStoredBlob(CampState st, String blob) {
+        if (st == null || blob == null || blob.isEmpty())
+            return;
+        for (String part : blob.split(",")) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty())
+                continue;
+            int colon = trimmed.indexOf(':');
+            if (colon <= 0)
+                continue;
+            String matId = trimmed.substring(0, colon).trim();
+            try {
+                float amt = Float.parseFloat(trimmed.substring(colon + 1).trim());
+                if (!matId.isEmpty() && amt > 0f)
+                    st.addStored(matId, amt);
+            } catch (NumberFormatException ignored) {
+                // skip malformed fragment
+            }
+        }
+    }
+
+    private static String formatCampStoredBlob(CampState st) {
+        if (st == null || st.storedByMaterial.isEmpty())
+            return "";
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, Float> e : st.storedByMaterial.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null || e.getValue() <= 0f)
+                continue;
+            if (sb.length() > 0)
+                sb.append(',');
+            sb.append(e.getKey()).append(':').append(e.getValue());
+        }
+        return sb.toString();
+    }
+
+    public int getGatherMethodRank(String skill) {
+        if (skill == null)
+            return 0;
+        return gatherMethodRanks.getOrDefault(skill, 0);
+    }
+
+    public Map<String, Integer> getGatherMethodRanks() {
+        return Collections.unmodifiableMap(gatherMethodRanks);
+    }
+
+    /** Unlock a method upgrade by id. Returns false if unknown or already at/above rank. */
+    public boolean unlockGatherMethod(String methodId) {
+        GatheringMethodData.MethodUpgrade method = GatheringMethodListData.getMethod(methodId);
+        if (method == null || method.skill == null)
+            return false;
+        int cur = getGatherMethodRank(method.skill);
+        if (cur >= method.rank)
+            return false;
+        if (method.rank > 1 && cur < method.rank - 1)
+            return false;
+        gatherMethodRanks.put(method.skill, method.rank);
+        return true;
+    }
+
+    /** All socketed enchantment ids for a family (may exceed current tool's slot count). */
+    public List<String> getToolEnchantments(String family) {
+        if (family == null)
+            return Collections.emptyList();
+        ArrayList<String> list = toolEnchantments.get(family);
+        if (list == null || list.isEmpty())
+            return Collections.emptyList();
+        return Collections.unmodifiableList(list);
+    }
+
+    /**
+     * Enchantments that currently apply: only the first {@link #toolEnchantSlots(String)}
+     * sockets on the equipped tool. Extra enchants stay stored until the tool has slots again
+     * or the player removes them.
+     */
+    public List<String> getActiveToolEnchantments(String family) {
+        List<String> all = getToolEnchantments(family);
+        int slots = toolEnchantSlots(family);
+        if (slots <= 0 || all.isEmpty())
+            return Collections.emptyList();
+        if (all.size() <= slots)
+            return all;
+        return Collections.unmodifiableList(all.subList(0, slots));
+    }
+
+    /** Socket count available for the equipped tool of this family. */
+    public int toolEnchantSlots(String family) {
+        if (!Config.ascendant())
+            return 0;
+        int tier = getToolTier(family);
+        if (tier <= 0)
+            return 0;
+        ConfigData cfg = Config.instance().getConfigData();
+        int minTier = cfg != null ? cfg.toolEnchantSocketMinTier : 2;
+        int tier2 = cfg != null ? cfg.toolEnchantSocketTier2 : 4;
+        int max = cfg != null ? cfg.toolEnchantSocketMax : 2;
+        if (tier < minTier)
+            return 0;
+        int slots = 1;
+        if (tier >= tier2)
+            slots = 2;
+        return Math.min(max, slots);
+    }
+
+    /** Socket an enchantment onto the equipped tool for {@code family}. */
+    public boolean socketToolEnchantment(String family, String enchantmentId) {
+        if (!Config.ascendant() || family == null || enchantmentId == null)
+            return false;
+        if (GatheringMethodListData.getEnchantment(enchantmentId) == null)
+            return false;
+        if (getToolTier(family) <= 0)
+            return false;
+        ArrayList<String> list = toolEnchantments.computeIfAbsent(family, k -> new ArrayList<>());
+        if (list.contains(enchantmentId))
+            return false;
+        if (list.size() >= toolEnchantSlots(family))
+            return false;
+        list.add(enchantmentId);
+        return true;
+    }
+
+    /**
+     * Remove a socketed enchantment and refund its gem/crystal material.
+     * Returns the refunded material id, or null on failure.
+     */
+    public String removeToolEnchantment(String family, String enchantmentId) {
+        if (!Config.ascendant() || family == null || enchantmentId == null)
+            return null;
+        ArrayList<String> list = toolEnchantments.get(family);
+        if (list == null || !list.remove(enchantmentId))
+            return null;
+        if (list.isEmpty())
+            toolEnchantments.remove(family);
+        GatheringMethodData.ToolEnchantment ench = GatheringMethodListData.getEnchantment(enchantmentId);
+        if (ench != null && ench.socketMaterial != null && !ench.socketMaterial.isEmpty()) {
+            addMaterial(ench.socketMaterial, 1);
+            return ench.socketMaterial;
+        }
+        return enchantmentId;
+    }
+
+    /** Sum of active enchantment {@code value} for a given effect key on a tool family. */
+    public float toolEnchantEffect(String family, String effect) {
+        if (family == null || effect == null)
+            return 0f;
+        float sum = 0f;
+        for (String id : getActiveToolEnchantments(family)) {
+            GatheringMethodData.ToolEnchantment e = GatheringMethodListData.getEnchantment(id);
+            if (e != null && effect.equalsIgnoreCase(e.effect))
+                sum += e.value;
+        }
+        return sum;
+    }
+
+    public boolean hasToolEnchantEffect(String family, String effect) {
+        return toolEnchantEffect(family, effect) > 0f;
+    }
+
+    public CampState getCamp(String outpostId) {
+        return outpostId == null ? null : camps.get(outpostId);
+    }
+
+    public Map<String, CampState> getCamps() {
+        return Collections.unmodifiableMap(camps);
+    }
+
+    /** Accrue production into camp storage based on adventure play time. */
+    public void updateCampProduction(String outpostId) {
+        if (!Config.ascendant() || outpostId == null)
+            return;
+        CampState st = camps.get(outpostId);
+        GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(outpostId);
+        if (st == null || def == null || st.level <= 0)
+            return;
+        GatheringMethodData.OutpostLevel level = def.levelData(st.level);
+        if (level == null || level.materialId == null)
+            return;
+        ConfigData cfg = Config.instance().getConfigData();
+        float secPerHour = cfg != null && cfg.outpostSecondsPerHour > 0 ? cfg.outpostSecondsPerHour : 60f;
+        float capHours = def.storageCapHours > 0 ? def.storageCapHours
+                : (cfg != null ? cfg.outpostDefaultStorageHours : 72f);
+        // Cap applies to the current tier's bin only; older-tier stock is kept separately.
+        float cap = Math.max(0f, level.outputPerHour) * Math.max(1f, capHours);
+        double elapsed = Math.max(0d, adventurePlaySeconds - st.lastUpdatePlaySeconds);
+        float gained = (float) ((elapsed / secPerHour) * Math.max(0f, level.outputPerHour));
+        float cur = st.getStored(level.materialId);
+        float room = Math.max(0f, cap - cur);
+        if (gained > 0f && room > 0f)
+            st.addStored(level.materialId, Math.min(gained, room));
+        st.lastUpdatePlaySeconds = adventurePlaySeconds;
+    }
+
+    public void updateAllCampProduction() {
+        for (String id : new ArrayList<>(camps.keySet()))
+            updateCampProduction(id);
+    }
+
+    /** Build level 1 or return false if already claimed / cannot afford. */
+    public boolean buildCamp(String outpostId) {
+        if (!Config.ascendant() || outpostId == null)
+            return false;
+        if (camps.containsKey(outpostId))
+            return false;
+        GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(outpostId);
+        if (def == null)
+            return false;
+        return upgradeCamp(outpostId, 1);
+    }
+
+    /** Upgrade camp to {@code targetLevel} (must be current+1, or 1 when unbuilt). */
+    public boolean upgradeCamp(String outpostId, int targetLevel) {
+        if (!Config.ascendant() || outpostId == null || targetLevel < 1)
+            return false;
+        GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(outpostId);
+        if (def == null)
+            return false;
+        GatheringMethodData.OutpostLevel level = def.levelData(targetLevel);
+        if (level == null)
+            return false;
+        CampState st = camps.get(outpostId);
+        int cur = st != null ? st.level : 0;
+        if (targetLevel != cur + 1)
+            return false;
+        List<String> blockers = campCostBlockers(level);
+        if (!blockers.isEmpty())
+            return false;
+        if (level.gold > 0)
+            takeGold(level.gold);
+        for (ObjectMap.Entry<String, Integer> e : level.getMaterials()) {
+            if (e.key != null && e.value != null && e.value > 0)
+                takeMaterial(e.key, e.value);
+        }
+        if (st == null) {
+            st = new CampState();
+            camps.put(outpostId, st);
+        }
+        // Accrue into the current tier's material bin before raising the level so
+        // existing stock stays under its material id (never converts on upgrade).
+        updateCampProduction(outpostId);
+        st.level = targetLevel;
+        st.lastUpdatePlaySeconds = adventurePlaySeconds;
+        return true;
+    }
+
+    public List<String> campCostBlockers(GatheringMethodData.OutpostLevel level) {
+        List<String> blockers = new ArrayList<>();
+        if (level == null) {
+            blockers.add("Unknown camp level");
+            return blockers;
+        }
+        if (level.gold > 0 && getGold() < level.gold)
+            blockers.add("Need " + level.gold + " gold (have " + getGold() + ")");
+        for (ObjectMap.Entry<String, Integer> e : level.getMaterials()) {
+            if (e.key == null || e.value == null || e.value <= 0)
+                continue;
+            int have = getMaterial(e.key);
+            if (have < e.value) {
+                MaterialData mat = MaterialListData.get(e.key);
+                String label = mat != null ? mat.getDisplayName() : e.key;
+                blockers.add("Need " + e.value + "× " + label + " (have " + have + ")");
+            }
+        }
+        return blockers;
+    }
+
+    /**
+     * Collect whole units from every material bin in camp storage.
+     * Returns total units granted across all materials.
+     */
+    public int collectCamp(String outpostId) {
+        if (!Config.ascendant() || outpostId == null)
+            return 0;
+        updateCampProduction(outpostId);
+        CampState st = camps.get(outpostId);
+        if (st == null || st.level <= 0 || st.storedByMaterial.isEmpty())
+            return 0;
+        int total = 0;
+        for (String matId : new ArrayList<>(st.storedByMaterial.keySet())) {
+            float have = st.getStored(matId);
+            int amount = (int) Math.floor(have);
+            if (amount <= 0)
+                continue;
+            float remain = have - amount;
+            if (remain > 0f)
+                st.storedByMaterial.put(matId, remain);
+            else
+                st.storedByMaterial.remove(matId);
+            addMaterial(matId, amount);
+            total += amount;
+        }
+        return total;
+    }
+
+    /** Human-readable stored stock summary for outpost dialogs. */
+    public String campStoredSummary(String outpostId) {
+        CampState st = getCamp(outpostId);
+        if (st == null || st.storedByMaterial.isEmpty())
+            return "none";
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, Float> e : st.storedByMaterial.entrySet()) {
+            int whole = (int) Math.floor(e.getValue() != null ? e.getValue() : 0f);
+            if (whole <= 0)
+                continue;
+            if (sb.length() > 0)
+                sb.append(", ");
+            MaterialData mat = MaterialListData.get(e.getKey());
+            sb.append(whole).append("× ").append(mat != null ? mat.getDisplayName() : e.getKey());
+        }
+        return sb.length() == 0 ? "none" : sb.toString();
     }
 
     public Long itemInSlot(String key) {

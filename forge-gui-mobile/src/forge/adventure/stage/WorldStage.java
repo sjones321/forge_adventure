@@ -105,6 +105,9 @@ public class WorldStage extends GameStage implements SaveFileContent {
         if (gatherFailNotifyCooldown > 0f)
             gatherFailNotifyCooldown -= delta;
 
+        // Package B2: outpost production uses active overworld play time.
+        Current.player().tickAdventurePlaySeconds(delta);
+
         boolean moving = player.isMoving();
         boolean channeling = channelNode != null;
         // Enemies keep chasing while the player channels so a touch can cancel gathering.
@@ -522,10 +525,32 @@ public class WorldStage extends GameStage implements SaveFileContent {
         float min = cfg != null ? cfg.gatherChannelMin : 1f;
         float factor = ap.getSkills().gatherChannelFactor(skill, min / max);
         channelDuration = Math.max(min, max * factor);
+        // B2 method upgrades / tool enchantments that shorten channel.
+        channelDuration *= gatherChannelMultiplier(ap, skill, toolFamily);
+        channelDuration = Math.max(0.35f, channelDuration);
         channelElapsed = 0f;
         channelNode = node;
         player.stop();
         node.setChannelProgress(0f);
+    }
+
+    /** Channel duration multiplier from Mining/Quarrying methods and faster_channel enchants. */
+    private float gatherChannelMultiplier(AdventurePlayer ap, PlayerSkills.Skill skill, String toolFamily) {
+        float mult = 1f;
+        if (skill != null) {
+            // Ranks stack: every unlocked shorter_channel method applies.
+            for (GatheringMethodData.MethodUpgrade method : new com.badlogic.gdx.utils.Array.ArrayIterator<>(
+                    GatheringMethodListData.methodsUpToRank(skill.displayName,
+                            ap.getGatherMethodRank(skill.displayName)))) {
+                if (method != null && "shorter_channel".equalsIgnoreCase(method.effect)
+                        && method.effectValue > 0f)
+                    mult *= method.effectValue;
+            }
+        }
+        float faster = ap.toolEnchantEffect(toolFamily, "faster_channel");
+        if (faster > 0f)
+            mult *= Math.max(0.35f, 1f - Math.min(0.65f, faster));
+        return mult;
     }
 
     private void tickGatherChannel(float delta) {
@@ -568,9 +593,84 @@ public class WorldStage extends GameStage implements SaveFileContent {
         }
 
         AdventurePlayer ap = Current.player();
+        StringBuilder msg = new StringBuilder();
+        grantGatherRewards(mat, ap, msg, true);
+
+        // B2: multi-node methods (adjacent trees / blast vein / lumber crew).
+        float blastRadius = multiNodeGatherRadius(ap, mat);
+        if (blastRadius > 0f) {
+            List<ResourceNodeSprite> extras = new ArrayList<>();
+            float cx = node.getX() + node.getWidth() / 2f;
+            float cy = node.getY() + node.getHeight() / 2f;
+            for (Pair<Float, ResourceNodeSprite> pair : nodes) {
+                ResourceNodeSprite other = pair.getValue();
+                if (other == null || other == node || other.getMaterial() == null)
+                    continue;
+                MaterialData om = other.getMaterial();
+                if (!sameGatherFamily(mat, om))
+                    continue;
+                float ox = other.getX() + other.getWidth() / 2f;
+                float oy = other.getY() + other.getHeight() / 2f;
+                float dx = ox - cx;
+                float dy = oy - cy;
+                if (dx * dx + dy * dy <= blastRadius * blastRadius)
+                    extras.add(other);
+            }
+            for (ResourceNodeSprite extra : extras) {
+                msg.append("; ");
+                grantGatherRewards(extra.getMaterial(), ap, msg, false);
+                extra.playEffect(Paths.EFFECT_KILL);
+                removeNode(extra);
+            }
+        }
+
+        GameHUD.getInstance().addNotification(msg.toString());
+        node.playEffect(Paths.EFFECT_KILL);
+        removeNode(node);
+    }
+
+    private boolean sameGatherFamily(MaterialData a, MaterialData b) {
+        if (a == null || b == null || a.family == null || b.family == null)
+            return false;
+        return a.family.equalsIgnoreCase(b.family);
+    }
+
+    /** Largest radius among stacked adjacent/blast/lumber-crew methods; 0 if none. */
+    private float multiNodeGatherRadius(AdventurePlayer ap, MaterialData mat) {
+        PlayerSkills.Skill skill = PlayerSkills.Skill.fromMaterialSkill(mat.skill);
+        if (skill == null)
+            return 0f;
+        float radius = 0f;
+        for (GatheringMethodData.MethodUpgrade method : new com.badlogic.gdx.utils.Array.ArrayIterator<>(
+                GatheringMethodListData.methodsUpToRank(skill.displayName,
+                        ap.getGatherMethodRank(skill.displayName)))) {
+            if (method == null || method.effect == null)
+                continue;
+            String effect = method.effect.toLowerCase(Locale.ROOT);
+            if ("adjacent_same_family".equals(effect) || "lumber_crew".equals(effect)
+                    || "blast_vein".equals(effect))
+                radius = Math.max(radius, Math.max(16f, method.effectValue));
+        }
+        return radius;
+    }
+
+    /**
+     * Apply yield, XP, method/enchant modifiers, and rare extras for one node.
+     * {@code primary} controls whether dust/gold/shard rolls run (only once per channel).
+     * All unlocked method ranks for the skill stack.
+     */
+    private void grantGatherRewards(MaterialData mat, AdventurePlayer ap,
+                                   StringBuilder msg, boolean primary) {
+        if (mat == null)
+            return;
         ConfigData cfg = gatherConfig();
         PlayerSkills.Skill skill = PlayerSkills.Skill.fromMaterialSkill(mat.skill);
         int skillLevel = skill != null ? ap.getSkills().getLevel(skill) : 1;
+        String toolFamily = mat.toolFamily();
+        com.badlogic.gdx.utils.Array<GatheringMethodData.MethodUpgrade> methods = skill != null
+                ? GatheringMethodListData.methodsUpToRank(skill.displayName,
+                ap.getGatherMethodRank(skill.displayName))
+                : new com.badlogic.gdx.utils.Array<>();
 
         int yieldMin = cfg != null ? cfg.gatherYieldMin : 1;
         int yieldMax = cfg != null ? cfg.gatherYieldMax : 3;
@@ -583,15 +683,98 @@ public class WorldStage extends GameStage implements SaveFileContent {
             amount++;
         amount = Math.min(yieldMax, Math.max(yieldMin, amount));
 
-        ap.addMaterial(mat.id, amount);
+        // Method yield modifiers (every unlocked rank).
+        int purifySteps = 0;
+        float graveChance = 0f;
+        float upgradeFindChance = 0f;
+        boolean elementalBonus = false;
+        boolean consecratedBonus = false;
+        for (GatheringMethodData.MethodUpgrade method : new com.badlogic.gdx.utils.Array.ArrayIterator<>(methods)) {
+            if (method == null || method.effect == null)
+                continue;
+            String effect = method.effect.toLowerCase(Locale.ROOT);
+            if ("double_plant_yield".equals(effect) && "plants".equalsIgnoreCase(mat.family))
+                amount *= Math.max(1, Math.round(method.effectValue));
+            if ("bonus_yield".equals(effect))
+                amount += Math.max(0, Math.round(method.effectValue));
+            if ("lumber_crew".equals(effect) && "logs".equalsIgnoreCase(mat.family))
+                amount += 1;
+            if ("consecrated_quarry".equals(effect) && ("sacred_stone".equalsIgnoreCase(mat.family)
+                    || "stone".equalsIgnoreCase(mat.family))) {
+                amount += Math.max(0, Math.round(method.effectValue));
+                consecratedBonus = true;
+            }
+            if (("purify_next_tier".equals(effect) || "elemental_condenser".equals(effect))
+                    && "waters".equalsIgnoreCase(mat.family))
+                purifySteps += Math.max(1, Math.round(method.effectValue));
+            if ("elemental_condenser".equals(effect))
+                elementalBonus = true;
+            if ("grave_lantern".equals(effect))
+                graveChance += method.effectValue;
+            if ("upgrade_find".equals(effect))
+                upgradeFindChance += method.effectValue;
+        }
+        // Enchant: chance to double yield (only active sockets).
+        float doubleChance = ap.toolEnchantEffect(toolFamily, "double_yield");
+        if (doubleChance > 0f && rand.nextFloat() < doubleChance)
+            amount *= 2;
+
+        MaterialData grantMat = mat;
+        if (purifySteps > 0 && "waters".equalsIgnoreCase(mat.family)) {
+            MaterialData next = mat;
+            for (int i = 0; i < purifySteps; i++) {
+                MaterialData up = MaterialListData.nextTierInFamily(next);
+                if (up == null)
+                    break;
+                next = up;
+            }
+            grantMat = next;
+        }
+        if (upgradeFindChance > 0f && "scrap".equalsIgnoreCase(mat.family)
+                && rand.nextFloat() < upgradeFindChance) {
+            MaterialData up = MaterialListData.nextTierInFamily(mat);
+            if (up != null)
+                grantMat = up;
+        }
+
+        boolean autoRefine = ap.hasToolEnchantEffect(toolFamily, "auto_refine");
+        if (autoRefine) {
+            // Grant then refine so Spellsmithing XP still applies.
+            ap.addMaterial(grantMat.id, amount);
+            int dust = ap.refineMaterial(grantMat.id, amount);
+            msg.append("Refined ").append(amount).append("× ").append(grantMat.getDisplayName())
+                    .append(" → ").append(dust).append(" dust");
+        } else {
+            ap.addMaterial(grantMat.id, amount);
+            msg.append("Gathered ").append(amount).append("× ").append(grantMat.getDisplayName());
+        }
         int xp = Math.max(0, mat.xp) * amount;
         ap.getSkills().onMaterialGathered(skill, xp);
 
-        StringBuilder msg = new StringBuilder();
-        msg.append("Gathered ").append(amount).append("× ").append(mat.getDisplayName());
+        // Foraging grave lantern: rare dead-thing bonus.
+        if (graveChance > 0f
+                && ("dead".equalsIgnoreCase(mat.family) || "remains".equalsIgnoreCase(mat.nodeType))
+                && rand.nextFloat() < graveChance) {
+            MaterialData rareDead = MaterialListData.getFamilyTier("dead", Math.min(4, mat.tier + 1));
+            if (rareDead == null)
+                rareDead = MaterialListData.getFamilyTier("dead", 4);
+            if (rareDead != null) {
+                if (autoRefine) {
+                    ap.addMaterial(rareDead.id, 1);
+                    ap.refineMaterial(rareDead.id, 1);
+                } else {
+                    ap.addMaterial(rareDead.id, 1);
+                }
+                msg.append(", ").append(rareDead.getDisplayName());
+            }
+        }
 
-        // Rare extras: gems on ore veins; crystal / pearls on water nodes (Delving).
         float gemChance = cfg != null ? cfg.gatherGemChance : 0.08f;
+        gemChance += ap.toolEnchantEffect(toolFamily, "rare_find");
+        if (elementalBonus)
+            gemChance += 0.15f;
+        if (consecratedBonus)
+            gemChance += 0.08f;
         if (("ore".equalsIgnoreCase(mat.family) || "vein".equalsIgnoreCase(mat.nodeType))
                 && rand.nextFloat() < gemChance) {
             com.badlogic.gdx.utils.Array<MaterialData> gems = MaterialListData.getGems();
@@ -611,6 +794,10 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 msg.append(", ").append(bonus.getDisplayName());
             }
         }
+
+        if (!primary)
+            return;
+
         float dustChance = cfg != null ? cfg.gatherDustChance : 0.12f;
         if (rand.nextFloat() < dustChance) {
             int dustAmt = cfg != null ? cfg.gatherDustAmount : 1;
@@ -628,10 +815,6 @@ public class WorldStage extends GameStage implements SaveFileContent {
             ap.addShards(1);
             msg.append(", 1 shard");
         }
-
-        GameHUD.getInstance().addNotification(msg.toString());
-        node.playEffect(Paths.EFFECT_KILL);
-        removeNode(node);
     }
 
     private void cancelGatherChannel(String message) {

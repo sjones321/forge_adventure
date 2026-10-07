@@ -1,0 +1,366 @@
+{
+  "methodUpgrades": [
+    {
+      "id": "woodcutting_felling_axe",
+      "skill": "Woodcutting",
+      "rank": 1,
+      "name": "Felling Axe",
+      "description": "Felling also clears nearby trees of the same family.",
+      "effect": "adjacent_same_family",
+      "effectValue": 48
+    },
+    {
+      "id": "woodcutting_lumber_crew",
+      "skill": "Woodcutting",
+      "rank": 2,
+      "name": "Lumber Crew",
+      "description": "A crew boosts log yield and clears nearby trees.",
+      "effect": "lumber_crew",
+      "effectValue": 64
+    },
+    {
+      "id": "mining_drill",
+      "skill": "Mining",
+      "rank": 1,
+      "name": "Mining Drill",
+      "description": "Shortens Mining channel time.",
+      "effect": "shorter_channel",
+      "effectValue": 0.6
+    },
+    {
+      "id": "mining_blasting_charge",
+      "skill": "Mining",
+      "rank": 2,
+      "name": "Blasting Charge",
+      "description": "Detonates the whole nearby vein at once.",
+      "effect": "blast_vein",
+      "effectValue": 56
+    },
+    {
+      "id": "delving_still",
+      "skill": "Delving",
+      "rank": 1,
+      "name": "Purifying Still",
+      "description": "Purifies gathered waters up one material tier.",
+      "effect": "purify_next_tier",
+      "effectValue": 1
+    },
+    {
+      "id": "delving_elemental_condenser",
+      "skill": "Delving",
+      "rank": 2,
+      "name": "Elemental Condenser",
+      "description": "Purifies waters and greatly improves rare crystal finds.",
+      "effect": "elemental_condenser",
+      "effectValue": 2
+    },
+    {
+      "id": "foraging_herb_pouch",
+      "skill": "Foraging",
+      "rank": 1,
+      "name": "Herb Pouch",
+      "description": "Doubles plant yield when foraging.",
+      "effect": "double_plant_yield",
+      "effectValue": 2
+    },
+    {
+      "id": "foraging_grave_lantern",
+      "skill": "Foraging",
+      "rank": 2,
+      "name": "Grave Lantern",
+      "description": "Reveals rare dead-thing materials while foraging remains.",
+      "effect": "grave_lantern",
+      "effectValue": 0.35
+    },
+    {
+      "id": "quarrying_stonecutter",
+      "skill": "Quarrying",
+      "rank": 1,
+      "name": "Stonecutter's Saw",
+      "description": "Shortens Quarrying channel time.",
+      "effect": "shorter_channel",
+      "effectValue": 0.7
+    },
+    {
+      "id": "quarrying_consecrated",
+      "skill": "Quarrying",
+      "rank": 2,
+      "name": "Consecrated Quarry Tools",
+      "description": "Extra sacred stone and better rare finds.",
+      "effect": "consecrated_quarry",
+      "effectValue": 1
+    },
+    {
+      "id": "salvaging_magnet",
+      "skill": "Salvaging",
+      "rank": 1,
+      "name": "Scrap Magnet",
+      "description": "Pulls extra scrap from each salvage.",
+      "effect": "bonus_yield",
+      "effectValue": 1
+    },
+    {
+      "id": "salvaging_thran_scanner",
+      "skill": "Salvaging",
+      "rank": 2,
+      "name": "Thran Scanner",
+      "description": "Chance to find a higher-tier scrap piece.",
+      "effect": "upgrade_find",
+      "effectValue": 0.25
+    }
+  ],
+  "enchantments": [
+    {
+      "id": "enchant_swift",
+      "name": "Swift Strike",
+      "description": "Faster gathering channel.",
+      "socketMaterial": "garnet",
+      "effect": "faster_channel",
+      "value": 0.25
+    },
+    {
+      "id": "enchant_bounty",
+      "name": "Bounty",
+      "description": "Chance to double gather yield.",
+      "socketMaterial": "emerald",
+      "effect": "double_yield",
+      "value": 0.2
+    },
+    {
+      "id": "enchant_seeker",
+      "name": "Seeker",
+      "description": "Higher chance of rare finds (gems, crystal, pearls).",
+      "socketMaterial": "sapphire",
+      "effect": "rare_find",
+      "value": 0.15
+    },
+    {
+      "id": "enchant_refiner",
+      "name": "Auto-Refiner",
+      "description": "Gathered materials refine into dust automatically.",
+      "socketMaterial": "onyx",
+      "effect": "auto_refine",
+      "value": 1
+    },
+    {
+      "id": "enchant_crystal_focus",
+      "name": "Crystal Focus",
+      "description": "Faster channel (crystal socket).",
+      "socketMaterial": "quartz",
+      "effect": "faster_channel",
+      "value": 0.15
+    }
+  ],
+  "outposts": [
+    {
+      "id": "logging_camp",
+      "name": "Logging Camp",
+      "family": "logs",
+      "skill": "Woodcutting",
+      "storageCapHours": 72,
+      "levels": [
+        {
+          "level": 1,
+          "materialId": "oak",
+          "outputPerHour": 2,
+          "gold": 40,
+          "materials": { "oak": 15, "copper": 3 }
+        },
+        {
+          "level": 2,
+          "materialId": "willow",
+          "outputPerHour": 3,
+          "gold": 100,
+          "materials": { "willow": 20, "iron": 5 }
+        },
+        {
+          "level": 3,
+          "materialId": "yew",
+          "outputPerHour": 4,
+          "gold": 220,
+          "materials": { "yew": 25, "mithril": 4 }
+        }
+      ]
+    },
+    {
+      "id": "mine_shaft",
+      "name": "Mine Shaft",
+      "family": "ore",
+      "skill": "Mining",
+      "storageCapHours": 72,
+      "levels": [
+        {
+          "level": 1,
+          "materialId": "copper",
+          "outputPerHour": 2,
+          "gold": 40,
+          "materials": { "copper": 15, "ash": 3 }
+        },
+        {
+          "level": 2,
+          "materialId": "iron",
+          "outputPerHour": 3,
+          "gold": 100,
+          "materials": { "iron": 20, "charcoal": 5 }
+        },
+        {
+          "level": 3,
+          "materialId": "mithril",
+          "outputPerHour": 4,
+          "gold": 220,
+          "materials": { "mithril": 20, "brimstone": 4 }
+        }
+      ]
+    },
+    {
+      "id": "shrine_quarry",
+      "name": "Shrine Quarry",
+      "family": "sacred_stone",
+      "skill": "Quarrying",
+      "storageCapHours": 72,
+      "levels": [
+        {
+          "level": 1,
+          "materialId": "limestone",
+          "outputPerHour": 2,
+          "gold": 40,
+          "materials": { "limestone": 15, "copper": 3 }
+        },
+        {
+          "level": 2,
+          "materialId": "marble",
+          "outputPerHour": 3,
+          "gold": 100,
+          "materials": { "marble": 20, "iron": 5 }
+        },
+        {
+          "level": 3,
+          "materialId": "sunstone",
+          "outputPerHour": 4,
+          "gold": 220,
+          "materials": { "sunstone": 20, "mithril": 4 }
+        }
+      ]
+    },
+    {
+      "id": "well",
+      "name": "Crystal Well",
+      "family": "waters",
+      "skill": "Delving",
+      "storageCapHours": 72,
+      "levels": [
+        {
+          "level": 1,
+          "materialId": "spring_water",
+          "outputPerHour": 2,
+          "gold": 40,
+          "materials": { "spring_water": 15, "copper": 3 }
+        },
+        {
+          "level": 2,
+          "materialId": "glacier_ice",
+          "outputPerHour": 3,
+          "gold": 100,
+          "materials": { "glacier_ice": 20, "iron": 5 }
+        },
+        {
+          "level": 3,
+          "materialId": "purified_water",
+          "outputPerHour": 4,
+          "gold": 220,
+          "materials": { "purified_water": 20, "mithril": 4 }
+        }
+      ]
+    },
+    {
+      "id": "bone_pit",
+      "name": "Bone Pit",
+      "family": "dead",
+      "skill": "Foraging",
+      "storageCapHours": 72,
+      "levels": [
+        {
+          "level": 1,
+          "materialId": "bone_fragments",
+          "outputPerHour": 2,
+          "gold": 40,
+          "materials": { "bone_fragments": 15, "wild_herbs": 5 }
+        },
+        {
+          "level": 2,
+          "materialId": "grave_moss",
+          "outputPerHour": 3,
+          "gold": 100,
+          "materials": { "grave_moss": 20, "iron": 5 }
+        },
+        {
+          "level": 3,
+          "materialId": "ancient_bone",
+          "outputPerHour": 4,
+          "gold": 220,
+          "materials": { "ancient_bone": 20, "mithril": 4 }
+        }
+      ]
+    },
+    {
+      "id": "herb_garden",
+      "name": "Herb Garden",
+      "family": "plants",
+      "skill": "Foraging",
+      "storageCapHours": 72,
+      "levels": [
+        {
+          "level": 1,
+          "materialId": "wild_herbs",
+          "outputPerHour": 2,
+          "gold": 40,
+          "materials": { "wild_herbs": 15, "oak": 5 }
+        },
+        {
+          "level": 2,
+          "materialId": "tree_sap",
+          "outputPerHour": 3,
+          "gold": 100,
+          "materials": { "tree_sap": 20, "willow": 8 }
+        },
+        {
+          "level": 3,
+          "materialId": "elder_seeds",
+          "outputPerHour": 4,
+          "gold": 220,
+          "materials": { "elder_seeds": 20, "yew": 8 }
+        }
+      ]
+    },
+    {
+      "id": "scrapyard",
+      "name": "Scrapyard",
+      "family": "scrap",
+      "skill": "Salvaging",
+      "storageCapHours": 72,
+      "levels": [
+        {
+          "level": 1,
+          "materialId": "scrap",
+          "outputPerHour": 2,
+          "gold": 40,
+          "materials": { "scrap": 15, "copper": 3 }
+        },
+        {
+          "level": 2,
+          "materialId": "brass_gears",
+          "outputPerHour": 3,
+          "gold": 100,
+          "materials": { "brass_gears": 15, "iron": 5 }
+        },
+        {
+          "level": 3,
+          "materialId": "thran_parts",
+          "outputPerHour": 4,
+          "gold": 220,
+          "materials": { "thran_parts": 15, "mithril": 4 }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<template>
+ <tileset firstgid="1" source="../tileset/buildings.tsx"/>
+ <object name="Outpost" class="outpost" gid="1391" width="16" height="16">
+  <properties>
+   <property name="type" value="outpost"/>
+  </properties>
+ </object>
+</template>

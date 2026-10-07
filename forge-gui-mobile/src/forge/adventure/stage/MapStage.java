@@ -649,6 +649,20 @@ public class MapStage extends GameStage {
                             addMapActor(obj, new OnCollide(() -> forge.adventure.scene.LeagueScene.instance().open()));
                         }
                         break;
+                    case "outpost":
+                        // Package B2: claimable gathering camps. Inert outside Ascendant.
+                        if (Config.ascendant()) {
+                            String outpostId = prop.containsKey("outpostId")
+                                    ? prop.get("outpostId").toString() : "";
+                            if (outpostId == null || outpostId.isEmpty())
+                                outpostId = prop.containsKey("id") ? prop.get("id").toString() : "";
+                            final String campId = outpostId;
+                            if (campId != null && !campId.isEmpty()
+                                    && GatheringMethodListData.getOutpost(campId) != null) {
+                                addMapActor(obj, new OnCollide(() -> openOutpostDialog(campId)));
+                            }
+                        }
+                        break;
                     case "shardtrader":
                         MapActor shardTraderActor = new OnCollide(() -> Forge.switchScene(ShardTraderScene.instance()));
                         addMapActor(obj, shardTraderActor);
@@ -1084,10 +1098,113 @@ public class MapStage extends GameStage {
     private final ArrayList<NavigationVertex> navVerticesList = new ArrayList<>(256);
     private final ProgressableGraphPath<NavigationVertex> emptyFallbackNavPath = new ProgressableGraphPath<>(0);
 
+    /**
+     * Package B2: dialog to claim, collect from, or upgrade a gathering outpost camp.
+     */
+    public void openOutpostDialog(String outpostId) {
+        if (!Config.ascendant() || outpostId == null)
+            return;
+        GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(outpostId);
+        if (def == null)
+            return;
+        AdventurePlayer ap = Current.player();
+        ap.updateCampProduction(outpostId);
+        AdventurePlayer.CampState st = ap.getCamp(outpostId);
+        int level = st != null ? st.level : 0;
+        GatheringMethodData.OutpostLevel curLevel = level > 0 ? def.levelData(level) : null;
+        final String storedSummary = ap.campStoredSummary(outpostId);
+
+        dialog.getContentTable().clear();
+        dialog.getButtonTable().clear();
+        dialog.clearListeners();
+
+        StringBuilder body = new StringBuilder();
+        body.append(def.getDisplayName()).append("\n");
+        if (level <= 0) {
+            body.append("Unclaimed camp. Build it to produce materials over time.\n");
+            GatheringMethodData.OutpostLevel build = def.levelData(1);
+            if (build != null) {
+                body.append("Build cost: ").append(build.gold).append(" gold");
+                for (ObjectMap.Entry<String, Integer> e : build.getMaterials()) {
+                    if (e.key == null || e.value == null || e.value <= 0)
+                        continue;
+                    MaterialData m = MaterialListData.get(e.key);
+                    body.append(", ").append(e.value).append("× ")
+                            .append(m != null ? m.getDisplayName() : e.key);
+                }
+                body.append("\nOutput: ").append(build.outputPerHour).append("/hr ")
+                        .append(MaterialListData.get(build.materialId) != null
+                                ? MaterialListData.get(build.materialId).getDisplayName()
+                                : build.materialId);
+            }
+        } else {
+            body.append("Level ").append(level).append(" · Stored ").append(storedSummary).append("\n");
+            if (curLevel != null)
+                body.append("Output ").append(curLevel.outputPerHour).append("/hr (cap ")
+                        .append((int) def.storageCapHours).append("h)\n");
+            if (level < def.maxLevel()) {
+                GatheringMethodData.OutpostLevel next = def.levelData(level + 1);
+                if (next != null) {
+                    body.append("Upgrade to ").append(level + 1).append(": ")
+                            .append(next.gold).append(" gold");
+                    for (ObjectMap.Entry<String, Integer> e : next.getMaterials()) {
+                        if (e.key == null || e.value == null || e.value <= 0)
+                            continue;
+                        MaterialData m = MaterialListData.get(e.key);
+                        body.append(", ").append(e.value).append("× ")
+                                .append(m != null ? m.getDisplayName() : e.key);
+                    }
+                }
+            }
+        }
+        TypingLabel L = Controls.newTypingLabel(body.toString());
+        L.setWrap(true);
+        L.skipToTheEnd();
+        dialog.getContentTable().add(L).width(260f);
+
+        if (level <= 0) {
+            dialog.getButtonTable().add(Controls.newTextButton("Build", () -> {
+                hideDialog();
+                if (ap.buildCamp(outpostId))
+                    GameHUD.getInstance().addNotification("Built " + def.getDisplayName() + ".");
+                else
+                    GameHUD.getInstance().addNotification("Cannot build: lacking gold or materials.");
+            })).width(100f);
+        } else {
+            dialog.getButtonTable().add(Controls.newTextButton("Collect", () -> {
+                hideDialog();
+                int got = ap.collectCamp(outpostId);
+                if (got > 0)
+                    GameHUD.getInstance().addNotification("Collected " + got + " materials from "
+                            + def.getDisplayName() + ".");
+                else
+                    GameHUD.getInstance().addNotification("Nothing ready to collect yet.");
+            })).width(100f);
+            if (level < def.maxLevel()) {
+                final int nextLevel = level + 1;
+                dialog.getButtonTable().add(Controls.newTextButton("Upgrade", () -> {
+                    hideDialog();
+                    if (ap.upgradeCamp(outpostId, nextLevel))
+                        GameHUD.getInstance().addNotification("Upgraded " + def.getDisplayName()
+                                + " to level " + nextLevel + ".");
+                    else
+                        GameHUD.getInstance().addNotification("Cannot upgrade: lacking gold or materials.");
+                })).width(100f);
+            }
+        }
+        dialog.getButtonTable().add(Controls.newTextButton("Leave", this::hideDialog)).width(100f);
+        dialog.setKeepWithinStage(true);
+        setDialogStage(GameHUD.getInstance());
+        showDialog();
+    }
+
     @Override
     protected void onActing(float delta) {
         if (isPaused() || isDialogOnlyInput() || Forge.advFreezePlayerControls || isPlayerLeavingDungeon)
             return;
+
+        // Package B2: camps also accrue while exploring interiors / towns.
+        Current.player().tickAdventurePlaySeconds(delta);
 
         if (freezeAllEnemyBehaviors) {
             if (!positions.contains(player.pos())) {
