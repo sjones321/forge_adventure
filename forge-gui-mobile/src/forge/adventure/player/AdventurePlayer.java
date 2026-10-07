@@ -1200,11 +1200,17 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     public void addCard(PaperCard card, int amount) {
+        addCard(card, amount, true);
+    }
+
+    /** autoSalvage=false for crafted cards, so a card made on purpose is never salvaged straight back. */
+    private void addCard(PaperCard card, int amount, boolean autoSalvage) {
         awardCollectingXp(card, amount);
         cards.add(card, amount);
         newCards.add(card, amount);
         afterCardsCollected();
-        maybeAutoSalvage(card);
+        if (autoSalvage)
+            maybeAutoSalvage(card);
     }
 
     public void addCards(ItemPool<PaperCard> cardPool) {
@@ -1839,7 +1845,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             notifyCrafting("Not enough " + dustRarity(index).getLongName() + " dust (need " + cost + ").");
             return false;
         }
-        addCard(printing, 1);
+        addCard(printing, 1, false);
         skills.onCardCrafted(cost);
         return true;
     }

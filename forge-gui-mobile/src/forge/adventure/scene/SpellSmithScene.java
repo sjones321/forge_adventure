@@ -152,13 +152,17 @@ public class SpellSmithScene extends UIScene {
         });
 
         // Ascendant-only: open the crafting screen from Spell Smith without changing stock UI JSON.
-        if (Config.ascendant() && exitSmith != null) {
-            TextraButton openCraft = Controls.newTextButton("Craft", () -> Forge.switchScene(CraftingScene.instance()));
+        // Created once; shown per visit in enter() since the scene outlives a world switch.
+        if (exitSmith != null) {
+            openCraft = Controls.newTextButton("Craft", () -> Forge.switchScene(CraftingScene.instance()));
             float craftW = Math.max(55f, exitSmith.getWidth() * 0.9f);
             openCraft.setBounds(exitSmith.getX() - craftW - 8f, exitSmith.getY(), craftW, exitSmith.getHeight());
+            openCraft.setVisible(false);
             ui.addActor(openCraft);
         }
     }
+
+    private TextraButton openCraft;
 
     private void reset() {
         edition = "";
@@ -330,6 +334,8 @@ public class SpellSmithScene extends UIScene {
 
     @Override
     public void enter() {
+        if (openCraft != null)
+            openCraft.setVisible(Config.ascendant());
         reset();
         loadEditions(); //just to be safe since it's preloaded, if somehow edition is null, then reload it
         editionList.clearListeners();
