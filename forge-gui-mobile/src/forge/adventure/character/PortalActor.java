@@ -84,7 +84,7 @@ public class PortalActor extends EntryActor {
     }
 
     /**
-     * MV1 planar travel: leave the interior (if any) and switch the live overworld plane.
+     * MV1 planar travel: eligibility checks run before leaving the interior.
      */
     private boolean travelToPlane(String planeId) {
         WorldSave save = WorldSave.getCurrentSave();
@@ -98,6 +98,15 @@ public class PortalActor extends EntryActor {
         if (PlaneMeta.HOME_ID.equalsIgnoreCase(id)) {
             id = PlaneMeta.HOME_ID;
         }
+        // Eligibility BEFORE exitDungeon — overload / guest / missing plane must not eject the player.
+        if (Config.ascendant() && Current.player() != null && Current.player().isOverloaded()) {
+            notifyPortal("Overloaded — clear Overflow before using portals.");
+            return false;
+        }
+        if (!forge.adventure.coop.CoopSession.get().canInitiatePlaneSwitch()) {
+            notifyPortal("Guests cannot planeswalk — follow the host.");
+            return false;
+        }
         try {
             if (!save.getMultiverse().hasPlane(id)) {
                 ConfigData cfg = Config.instance().getConfigData();
@@ -108,13 +117,17 @@ public class PortalActor extends EntryActor {
                     return false;
                 }
             }
-            // Exit dungeon/town first so WorldStage owns the player on the new overworld.
             if (stage != null && stage.isInMap()) {
                 stage.exitDungeon(false, false);
             }
             if (!save.switchPlane(id)) {
-                notifyPortal("Could not travel to " + id);
+                String err = save.getLastPlaneSwitchError();
+                notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
                 return false;
+            }
+            try {
+                forge.adventure.scene.GameScene.instance().enter();
+            } catch (Exception ignored) {
             }
             notifyPortal("Planeswalked to " + save.getMultiverse().getCurrentMeta().getDisplayName());
             return true;

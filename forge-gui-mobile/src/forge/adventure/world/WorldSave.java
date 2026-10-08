@@ -51,6 +51,9 @@ public class WorldSave {
     private final World world = new World();
     private final PointOfInterestChanges.Map pointOfInterestChanges = new PointOfInterestChanges.Map();
     private final MultiverseState multiverse = new MultiverseState();
+    /** Slot whose {@code .planes/} directory backs inactive MV1 blobs. */
+    private int activePlaneSlot = INVALID_SAVE_SLOT;
+    private String lastPlaneSwitchError = "";
 
 
     private final SignalList onLoadList = new SignalList();
@@ -75,8 +78,23 @@ public class WorldSave {
         return multiverse.getCurrentPlaneId();
     }
 
+    public String getLastPlaneSwitchError() {
+        return lastPlaneSwitchError != null ? lastPlaneSwitchError : "";
+    }
+
     public void onLoad(Runnable run) {
         onLoadList.add(run);
+    }
+
+    /** Bind the multiverse side-file store to a save slot's {@code .planes/} directory. */
+    public void attachPlaneStoreForSlot(int slot) {
+        activePlaneSlot = slot;
+        if (Config.ascendant()) {
+            File dir = FilePlaneBlobStore.planesDirForSaveFile(getSaveFile(slot));
+            multiverse.setBlobStore(new FilePlaneBlobStore(dir));
+        } else {
+            multiverse.setBlobStore(new MemoryPlaneBlobStore());
+        }
     }
 
     public PointOfInterestChanges getPointOfInterestChanges(String id) {
@@ -123,6 +141,7 @@ public class WorldSave {
                 }
 
                 // MV1: multi-plane registry, or wrap legacy single-world saves as home.
+                currentSave.attachPlaneStoreForSlot(currentSlot);
                 if (Config.ascendant()) {
                     SaveFileData multi = mainData.readSubData("multiverse");
                     if (multi == null || !currentSave.multiverse.loadRegistry(multi)) {
@@ -131,10 +150,19 @@ public class WorldSave {
                                 currentSave.player.getWorldPosX(),
                                 currentSave.player.getWorldPosY());
                     } else {
+                        currentSave.multiverse.ensureMetaForCurrent(
+                                currentSave.world.getSeed(),
+                                currentSave.world.getWorldConfigPath());
                         currentSave.multiverse.updateCurrentSeed(currentSave.world.getSeed());
                         currentSave.multiverse.rememberCurrentPosition(
                                 currentSave.player.getWorldPosX(),
                                 currentSave.player.getWorldPosY());
+                        try {
+                            currentSave.multiverse.flushEmbeddedMigrations();
+                        } catch (IOException ioe) {
+                            System.err.println("MV1: failed to migrate embedded plane blobs to side files: "
+                                    + ioe.getMessage());
+                        }
                     }
                 } else {
                     currentSave.multiverse.initHomeFromLive(
@@ -309,6 +337,7 @@ public class WorldSave {
         }
         header.name = text;
         CollectionExporter.export(currentSave.player); // collection + decks for external deck builders
+        currentSave.attachPlaneStoreForSlot(currentSlot);
 
         String fileName = WorldSave.getSaveFile(currentSlot);
         String oldFileName = fileName.replace(".sav", ".old");
@@ -466,7 +495,8 @@ public class WorldSave {
 
     /**
      * Create a set plane (MV1) if missing, generated from the Ascendant set-plane
-     * template and a unique seed. Does not switch to it.
+     * template and a unique seed. Does not switch to it. Generation uses a
+     * temporary {@link World} and never clears the live {@link WorldStage}.
      */
     public PlaneMeta ensureSetPlane(String planeId, String displayName) {
         if (!Config.ascendant()) {
@@ -475,12 +505,15 @@ public class WorldSave {
         if (planeId == null || planeId.isEmpty() || PlaneMeta.HOME_ID.equals(planeId)) {
             throw new IllegalArgumentException("Invalid set plane id");
         }
+        ensurePlaneStoreAttached();
         PlaneMeta existing = multiverse.getMeta(planeId);
-        if (existing != null && multiverse.getInactiveBlob(planeId) != null) {
-            return existing;
-        }
-        if (existing != null && planeId.equals(multiverse.getCurrentPlaneId())) {
-            return existing;
+        try {
+            if (existing != null && (planeId.equals(multiverse.getCurrentPlaneId())
+                    || multiverse.getBlobStore().exists(planeId))) {
+                return existing;
+            }
+        } catch (Exception ignored) {
+            // fall through to create
         }
         ConfigData cfg = Config.instance().getConfigData();
         int max = cfg != null ? Math.max(1, cfg.maxPlanesPerSave) : 16;
@@ -489,13 +522,16 @@ public class WorldSave {
         }
         String template = cfg != null && cfg.setPlaneWorldConfig != null && !cfg.setPlaneWorldConfig.isEmpty()
                 ? cfg.setPlaneWorldConfig : "world/set_plane_world.json";
+        if (!PlaneConfigPaths.isAllowed(template, multiverse)) {
+            throw new IllegalStateException("Disallowed set-plane template: " + template);
+        }
         long seed = System.nanoTime() ^ planeId.hashCode() ^ world.getSeed();
         PlaneMeta meta = multiverse.registerSetPlane(planeId, seed, template,
                 displayName != null ? displayName : planeId);
 
-        // Generate into a temporary World, pack as inactive blob, dispose grids.
+        // Temporary World — must not touch the live stage.
         World generated = new World();
-        if (!generated.generateNew(seed, template)) {
+        if (!generated.generateNew(seed, template, false)) {
             throw new IllegalStateException("Failed to generate set plane " + planeId);
         }
         meta.setSeed(generated.getSeed());
@@ -506,68 +542,110 @@ public class WorldSave {
         meta.setPlayerPos(startX, startY);
         SaveFileData emptyPoi = new PointOfInterestChanges.Map().save();
         SaveFileData blob = PlaneBlob.pack(generated.save(), emptyWorldStageData(), emptyPoi, meta);
-        multiverse.putInactiveBlob(planeId, blob);
+        try {
+            multiverse.writeInactiveBlob(planeId, blob);
+        } catch (IOException e) {
+            Forge.safeDispose(generated);
+            throw new IllegalStateException("Failed to write set plane side file: " + e.getMessage(), e);
+        }
         Forge.safeDispose(generated);
         return meta;
     }
 
     /**
-     * Switch the live overworld to {@code planeId}. Only the target plane is
-     * loaded; the previous plane is serialized into the multiverse registry.
-     *
-     * @return true on success
+     * Switch the live overworld to {@code planeId}.
+     * <ol>
+     *   <li>Load the target into a separate {@link World} first.</li>
+     *   <li>Only on success, stash the current plane to a side file and swap.</li>
+     *   <li>On failure, change nothing and set {@link #getLastPlaneSwitchError()}.</li>
+     * </ol>
+     * Never silently regenerates a plane from seed.
      */
     public boolean switchPlane(String planeId) {
+        lastPlaneSwitchError = "";
         if (!Config.ascendant()) {
+            lastPlaneSwitchError = "Multi-plane requires Ascendant";
             return false;
         }
         if (planeId == null || planeId.isEmpty()) {
+            lastPlaneSwitchError = "Missing plane id";
             return false;
         }
         if (planeId.equals(multiverse.getCurrentPlaneId())) {
             return true;
         }
         if (!multiverse.hasPlane(planeId)) {
+            lastPlaneSwitchError = "Unknown plane: " + planeId;
             return false;
         }
         if (player.isOverloaded()) {
+            lastPlaneSwitchError = "Overloaded — clear Overflow before planar travel.";
             return false;
         }
+        if (!forge.adventure.coop.CoopSession.get().canInitiatePlaneSwitch()) {
+            lastPlaneSwitchError = "Guests cannot initiate plane switches — follow the host.";
+            return false;
+        }
+        ensurePlaneStoreAttached();
 
+        final String fromId = multiverse.getCurrentPlaneId();
         multiverse.rememberCurrentPosition(player.getWorldPosX(), player.getWorldPosY());
         multiverse.updateCurrentSeed(world.getSeed());
 
+        SaveFileData targetBlob;
+        try {
+            targetBlob = multiverse.readInactiveBlob(planeId);
+        } catch (IOException e) {
+            lastPlaneSwitchError = "Cannot read plane side file: " + e.getMessage();
+            return false;
+        }
+        if (targetBlob == null) {
+            lastPlaneSwitchError = "No saved data for plane " + planeId;
+            return false;
+        }
+        SaveFileData worldData = PlaneBlob.world(targetBlob);
+        if (worldData == null) {
+            lastPlaneSwitchError = "Plane " + planeId + " has no world payload";
+            return false;
+        }
+        String cfgPath = PlaneConfigPaths.normalizeOrDefault(
+                PlaneBlob.readMeta(targetBlob) != null
+                        ? PlaneBlob.readMeta(targetBlob).getWorldConfigPath()
+                        : null);
+        if (!PlaneConfigPaths.isAllowed(cfgPath, multiverse)) {
+            lastPlaneSwitchError = "Rejected worldConfigPath: " + cfgPath;
+            return false;
+        }
+
+        // 1) Stage into a separate World — live state untouched on failure.
+        World staging = new World();
+        try {
+            staging.load(worldData);
+        } catch (Exception e) {
+            Forge.safeDispose(staging);
+            lastPlaneSwitchError = "Failed to load plane " + planeId + ": " + e.getMessage();
+            return false;
+        }
+
+        PlaneMeta targetMeta = PlaneBlob.readMeta(targetBlob);
+        if (targetMeta == null) {
+            targetMeta = multiverse.getMeta(planeId);
+        }
+        SaveFileData stageData = PlaneBlob.worldStage(targetBlob);
+        SaveFileData poiData = PlaneBlob.poiChanges(targetBlob);
+
+        // Snapshot current for stash + rollback.
         SaveFileData currentBlob = PlaneBlob.pack(
                 world.save(),
                 WorldStage.getInstance().save(),
                 pointOfInterestChanges.save(),
                 multiverse.getCurrentMeta());
 
-        SaveFileData targetBlob = multiverse.getInactiveBlob(planeId);
-        if (targetBlob == null && !planeId.equals(PlaneMeta.HOME_ID)) {
-            return false;
-        }
-
-        multiverse.stashCurrentAndSelect(planeId, currentBlob);
-
         try {
-            SaveFileData worldData = PlaneBlob.world(targetBlob);
-            SaveFileData stageData = PlaneBlob.worldStage(targetBlob);
-            SaveFileData poiData = PlaneBlob.poiChanges(targetBlob);
-            PlaneMeta targetMeta = PlaneBlob.readMeta(targetBlob);
-            if (targetMeta == null) {
-                targetMeta = multiverse.getMeta(planeId);
-            }
-            if (worldData == null) {
-                // Should not happen for registered planes; regenerate as last resort.
-                String path = targetMeta != null ? targetMeta.getWorldConfigPath() : Paths.WORLD;
-                long seed = targetMeta != null ? targetMeta.getSeed() : 0L;
-                if (!world.generateNew(seed, path)) {
-                    return false;
-                }
-            } else {
-                world.load(worldData);
-            }
+            // 2) Persist outgoing plane, then swap live world from the staging save.
+            multiverse.writeInactiveBlob(fromId, currentBlob);
+            SaveFileData stagedSave = staging.save();
+            world.load(stagedSave);
             pointOfInterestChanges.clear();
             if (poiData != null) {
                 pointOfInterestChanges.load(poiData);
@@ -577,6 +655,7 @@ public class WorldSave {
             } else {
                 WorldStage.getInstance().load(emptyWorldStageData());
             }
+            multiverse.selectCurrentPlane(planeId);
             float px = targetMeta != null ? targetMeta.getPlayerPosX() : player.getWorldPosX();
             float py = targetMeta != null ? targetMeta.getPlayerPosY() : player.getWorldPosY();
             if (px == 0f && py == 0f && world.getData() != null) {
@@ -589,10 +668,44 @@ public class WorldSave {
             multiverse.updateCurrentSeed(world.getSeed());
             CardUtil.clearPriceCache();
             onLoadList.emit();
+            try {
+                forge.adventure.scene.GameScene.instance().enter();
+            } catch (Exception ignored) {
+                // Scene may be unavailable in headless tests
+            }
             notifyCoopPlaneSwitch();
+            Forge.safeDispose(staging);
             return true;
         } catch (Exception e) {
             e.printStackTrace();
+            lastPlaneSwitchError = "Plane switch failed: " + e.getMessage();
+            // Roll back live world from the in-memory snapshot (state unchanged for the player).
+            try {
+                SaveFileData rollbackWorld = PlaneBlob.world(currentBlob);
+                SaveFileData rollbackStage = PlaneBlob.worldStage(currentBlob);
+                SaveFileData rollbackPoi = PlaneBlob.poiChanges(currentBlob);
+                if (rollbackWorld != null) {
+                    world.load(rollbackWorld);
+                }
+                pointOfInterestChanges.clear();
+                if (rollbackPoi != null) {
+                    pointOfInterestChanges.load(rollbackPoi);
+                }
+                if (rollbackStage != null) {
+                    WorldStage.getInstance().load(rollbackStage);
+                }
+                if (!fromId.equals(multiverse.getCurrentPlaneId())) {
+                    // selectCurrentPlane may not have run; ensure id stays on fromId
+                    try {
+                        multiverse.selectCurrentPlane(fromId);
+                    } catch (Exception ignored) {
+                    }
+                }
+                multiverse.markInactive(planeId);
+            } catch (Exception rollbackEx) {
+                rollbackEx.printStackTrace();
+            }
+            Forge.safeDispose(staging);
             return false;
         }
     }
@@ -609,7 +722,19 @@ public class WorldSave {
         }
     }
 
-    static SaveFileData emptyWorldStageData() {
+    private void ensurePlaneStoreAttached() {
+        if (activePlaneSlot == INVALID_SAVE_SLOT) {
+            // Prefer last active save slot; fall back to auto.
+            String last = Config.instance().getSettingData().lastActiveSave;
+            int slot = last != null ? filenameToSlot(last) : AUTO_SAVE_SLOT;
+            if (slot == INVALID_SAVE_SLOT) {
+                slot = AUTO_SAVE_SLOT;
+            }
+            attachPlaneStoreForSlot(slot);
+        }
+    }
+
+    public static SaveFileData emptyWorldStageData() {
         SaveFileData emptyStage = new SaveFileData();
         emptyStage.storeObject("timeouts", new ArrayList<Float>());
         emptyStage.storeObject("names", new ArrayList<String>());
