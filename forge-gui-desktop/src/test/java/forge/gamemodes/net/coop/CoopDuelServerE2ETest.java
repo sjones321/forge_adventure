@@ -111,26 +111,28 @@ public class CoopDuelServerE2ETest {
         }
         assertNotNull(remoteGui, "FServerManager.getGui(1) after FGameClient connect");
 
-        final RegisteredPlayer host = new RegisteredPlayer(landDeck("Host", "Drifting Meadow"))
+        final RegisteredPlayer hostRp = new RegisteredPlayer(landDeck("Host", "Drifting Meadow"))
                 .setPlayer(new LobbyPlayerHuman("Host"));
-        host.setTeamNumber(0);
-        host.setStartingLife(20);
-        final RegisteredPlayer guest = new RegisteredPlayer(landDeck("Guest", "Drifting Meadow"))
-                .setPlayer(GamePlayerUtil.getGuiPlayer(guestName, 0, 0, false));
-        guest.setTeamNumber(0);
-        guest.setStartingLife(20);
-        final RegisteredPlayer enemy = new RegisteredPlayer(landDeck("Enemy", "Plains"))
+        hostRp.setTeamNumber(0);
+        hostRp.setStartingLife(20);
+        // Distinct LobbyPlayerHuman (not getGuiPlayer singleton) so Match sees 3 seats.
+        final RegisteredPlayer guestRp = new RegisteredPlayer(landDeck("Guest", "Drifting Meadow"))
+                .setPlayer(new LobbyPlayerHuman(guestName));
+        guestRp.setTeamNumber(0);
+        guestRp.setStartingLife(20);
+        final RegisteredPlayer enemyRp = new RegisteredPlayer(landDeck("Enemy", "Plains"))
                 .setPlayer(GamePlayerUtil.createAiPlayer("Enemy"));
-        enemy.setTeamNumber(1);
-        enemy.setStartingLife(20);
+        enemyRp.setTeamNumber(1);
+        enemyRp.setStartingLife(20);
 
         // Host uses an in-process ProtocolGuiGame (headless); guest seat uses the
         // RemoteClientGuiGame from FServerManager — same split as CoopDuelRuntime.
+        final CoopDuelInProcessTest.RecordingRemote hostRemote = new CoopDuelInProcessTest.RecordingRemote();
         final forge.gamemodes.net.ProtocolGuiGame hostGui =
-                new forge.gamemodes.net.ProtocolGuiGame(new CoopDuelInProcessTest.RecordingRemote());
+                new forge.gamemodes.net.ProtocolGuiGame(hostRemote);
         final Map<RegisteredPlayer, IGuiGame> guis = new HashMap<>();
-        guis.put(host, hostGui);
-        guis.put(guest, remoteGui);
+        guis.put(hostRp, hostGui);
+        guis.put(guestRp, remoteGui);
 
         final AtomicReference<CoopDuelResultEvent> outcome = new AtomicReference<>();
         final AtomicInteger endGameCalls = new AtomicInteger();
@@ -170,12 +172,12 @@ public class CoopDuelServerE2ETest {
         });
         // Guest QUIT → concede seat only.
         match.setQuitAsConcede(hc -> hc != null && hc.getPlayer() != null
-                && hc.getPlayer().getRegisteredPlayer() == guest);
+                && hc.getPlayer().getRegisteredPlayer() == guestRp);
         // Duel socket drop → concede guest (wired like CoopDuelRuntime).
         server.setCoopGuestDisconnectHook(() -> {
             for (final forge.player.PlayerControllerHuman hc : match.getHumanControllers()) {
                 if (hc != null && hc.getPlayer() != null
-                        && hc.getPlayer().getRegisteredPlayer() == guest) {
+                        && hc.getPlayer().getRegisteredPlayer() == guestRp) {
                     final forge.game.Game g = match.getGame();
                     if (g != null) {
                         g.getAction().invoke(hc::concede);
@@ -188,7 +190,7 @@ public class CoopDuelServerE2ETest {
         });
 
         match.startMatch(rules, EnumSet.of(GameType.Constructed),
-                List.of(host, guest, enemy), guis, null);
+                List.of(hostRp, guestRp, enemyRp), guis, null);
 
         // Concede both humans so the AI wins and the match ends.
         final long deadline = System.currentTimeMillis() + 90_000;
