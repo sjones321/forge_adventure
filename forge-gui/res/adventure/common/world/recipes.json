@@ -61,13 +61,15 @@
     "levelRequired": 1,
     "xp": 45
   },
-
   {
     "id": "tool_iron_hatchet",
     "station": "workshop",
     "result": "Iron Hatchet",
     "resultType": "tool",
-    "materials": { "iron": 4, "oak": 2 },
+    "materials": {
+      "iron": 4,
+      "oak": 2
+    },
     "gold": 40,
     "skill": "Woodworking",
     "levelRequired": 15,
@@ -78,7 +80,10 @@
     "station": "workshop",
     "result": "Mithril Hatchet",
     "resultType": "tool",
-    "materials": { "mithril": 4, "willow": 3 },
+    "materials": {
+      "mithril": 4,
+      "willow": 3
+    },
     "gold": 120,
     "skill": "Woodworking",
     "levelRequired": 40,
@@ -89,7 +94,10 @@
     "station": "workshop",
     "result": "Adamant Hatchet",
     "resultType": "tool",
-    "materials": { "adamant": 4, "yew": 3 },
+    "materials": {
+      "adamant": 4,
+      "yew": 3
+    },
     "gold": 300,
     "skill": "Woodworking",
     "levelRequired": 70,
@@ -100,7 +108,10 @@
     "station": "forge",
     "result": "Iron Pickaxe",
     "resultType": "tool",
-    "materials": { "iron": 5, "ash": 2 },
+    "materials": {
+      "iron": 5,
+      "ash": 2
+    },
     "gold": 40,
     "skill": "Smithing",
     "levelRequired": 15,
@@ -111,7 +122,10 @@
     "station": "forge",
     "result": "Mithril Pickaxe",
     "resultType": "tool",
-    "materials": { "mithril": 5, "charcoal": 3 },
+    "materials": {
+      "mithril": 5,
+      "charcoal": 3
+    },
     "gold": 120,
     "skill": "Smithing",
     "levelRequired": 40,
@@ -122,7 +136,10 @@
     "station": "forge",
     "result": "Adamant Pickaxe",
     "resultType": "tool",
-    "materials": { "adamant": 5, "brimstone": 3 },
+    "materials": {
+      "adamant": 5,
+      "brimstone": 3
+    },
     "gold": 300,
     "skill": "Smithing",
     "levelRequired": 70,
@@ -133,7 +150,10 @@
     "station": "forge",
     "result": "Iron Chisel",
     "resultType": "tool",
-    "materials": { "iron": 4, "marble": 2 },
+    "materials": {
+      "iron": 4,
+      "marble": 2
+    },
     "gold": 40,
     "skill": "Smithing",
     "levelRequired": 15,
@@ -144,7 +164,10 @@
     "station": "forge",
     "result": "Mithril Chisel",
     "resultType": "tool",
-    "materials": { "mithril": 4, "sunstone": 2 },
+    "materials": {
+      "mithril": 4,
+      "sunstone": 2
+    },
     "gold": 120,
     "skill": "Smithing",
     "levelRequired": 40,
@@ -155,7 +178,10 @@
     "station": "forge",
     "result": "Adamant Chisel",
     "resultType": "tool",
-    "materials": { "adamant": 4, "starstone": 2 },
+    "materials": {
+      "adamant": 4,
+      "starstone": 2
+    },
     "gold": 300,
     "skill": "Smithing",
     "levelRequired": 70,
@@ -166,7 +192,10 @@
     "station": "workshop",
     "result": "Iron Sickle",
     "resultType": "tool",
-    "materials": { "iron": 3, "wild_herbs": 4 },
+    "materials": {
+      "iron": 3,
+      "wild_herbs": 4
+    },
     "gold": 40,
     "skill": "Woodworking",
     "levelRequired": 15,
@@ -177,7 +206,10 @@
     "station": "workshop",
     "result": "Mithril Sickle",
     "resultType": "tool",
-    "materials": { "mithril": 3, "tree_sap": 4 },
+    "materials": {
+      "mithril": 3,
+      "tree_sap": 4
+    },
     "gold": 120,
     "skill": "Woodworking",
     "levelRequired": 40,
@@ -188,7 +220,10 @@
     "station": "workshop",
     "result": "Adamant Sickle",
     "resultType": "tool",
-    "materials": { "adamant": 3, "elder_seeds": 4 },
+    "materials": {
+      "adamant": 3,
+      "elder_seeds": 4
+    },
     "gold": 300,
     "skill": "Woodworking",
     "levelRequired": 70,
@@ -199,7 +234,10 @@
     "station": "jeweler",
     "result": "Iron Probe",
     "resultType": "tool",
-    "materials": { "iron": 3, "glacier_ice": 3 },
+    "materials": {
+      "iron": 3,
+      "glacier_ice": 3
+    },
     "gold": 40,
     "skill": "Jewelcrafting",
     "levelRequired": 15,
@@ -210,7 +248,10 @@
     "station": "jeweler",
     "result": "Mithril Probe",
     "resultType": "tool",
-    "materials": { "mithril": 3, "purified_water": 3 },
+    "materials": {
+      "mithril": 3,
+      "purified_water": 3
+    },
     "gold": 120,
     "skill": "Jewelcrafting",
     "levelRequired": 40,
@@ -221,7 +262,10 @@
     "station": "jeweler",
     "result": "Adamant Probe",
     "resultType": "tool",
-    "materials": { "adamant": 3, "elemental_water": 3 },
+    "materials": {
+      "adamant": 3,
+      "elemental_water": 3
+    },
     "gold": 300,
     "skill": "Jewelcrafting",
     "levelRequired": 70,
@@ -232,7 +276,10 @@
     "station": "forge",
     "result": "Iron Spanner",
     "resultType": "tool",
-    "materials": { "iron": 4, "scrap": 4 },
+    "materials": {
+      "iron": 4,
+      "scrap": 4
+    },
     "gold": 40,
     "skill": "Smithing",
     "levelRequired": 15,
@@ -243,7 +290,10 @@
     "station": "forge",
     "result": "Mithril Spanner",
     "resultType": "tool",
-    "materials": { "mithril": 4, "brass_gears": 3 },
+    "materials": {
+      "mithril": 4,
+      "brass_gears": 3
+    },
     "gold": 120,
     "skill": "Smithing",
     "levelRequired": 40,
@@ -254,20 +304,25 @@
     "station": "forge",
     "result": "Adamant Spanner",
     "resultType": "tool",
-    "materials": { "adamant": 4, "thran_parts": 3 },
+    "materials": {
+      "adamant": 4,
+      "thran_parts": 3
+    },
     "gold": 300,
     "skill": "Smithing",
     "levelRequired": 70,
     "xp": 200
   },
-
   {
     "id": "method_woodcutting_felling_axe",
     "station": "workshop",
     "result": "Felling Axe Method",
     "resultType": "method",
     "methodId": "woodcutting_felling_axe",
-    "materials": { "oak": 20, "iron": 5 },
+    "materials": {
+      "oak": 20,
+      "iron": 5
+    },
     "gold": 80,
     "skill": "Woodworking",
     "levelRequired": 15,
@@ -279,7 +334,10 @@
     "result": "Lumber Crew Method",
     "resultType": "method",
     "methodId": "woodcutting_lumber_crew",
-    "materials": { "yew": 25, "mithril": 6 },
+    "materials": {
+      "yew": 25,
+      "mithril": 6
+    },
     "gold": 200,
     "skill": "Woodworking",
     "levelRequired": 40,
@@ -291,7 +349,10 @@
     "result": "Mining Drill Method",
     "resultType": "method",
     "methodId": "mining_drill",
-    "materials": { "iron": 20, "brass_gears": 4 },
+    "materials": {
+      "iron": 20,
+      "brass_gears": 4
+    },
     "gold": 80,
     "skill": "Smithing",
     "levelRequired": 15,
@@ -303,7 +364,10 @@
     "result": "Blasting Charge Method",
     "resultType": "method",
     "methodId": "mining_blasting_charge",
-    "materials": { "brimstone": 20, "mithril": 6 },
+    "materials": {
+      "brimstone": 20,
+      "mithril": 6
+    },
     "gold": 200,
     "skill": "Smithing",
     "levelRequired": 40,
@@ -315,7 +379,10 @@
     "result": "Stonecutter's Saw Method",
     "resultType": "method",
     "methodId": "quarrying_stonecutter",
-    "materials": { "marble": 20, "iron": 5 },
+    "materials": {
+      "marble": 20,
+      "iron": 5
+    },
     "gold": 80,
     "skill": "Smithing",
     "levelRequired": 15,
@@ -327,7 +394,10 @@
     "result": "Consecrated Quarry Tools",
     "resultType": "method",
     "methodId": "quarrying_consecrated",
-    "materials": { "sunstone": 20, "mithril": 6 },
+    "materials": {
+      "sunstone": 20,
+      "mithril": 6
+    },
     "gold": 200,
     "skill": "Smithing",
     "levelRequired": 40,
@@ -339,7 +409,10 @@
     "result": "Purifying Still Method",
     "resultType": "method",
     "methodId": "delving_still",
-    "materials": { "glacier_ice": 20, "quartz": 3 },
+    "materials": {
+      "glacier_ice": 20,
+      "quartz": 3
+    },
     "gold": 80,
     "skill": "Jewelcrafting",
     "levelRequired": 15,
@@ -351,7 +424,10 @@
     "result": "Elemental Condenser Method",
     "resultType": "method",
     "methodId": "delving_elemental_condenser",
-    "materials": { "purified_water": 20, "azure": 3 },
+    "materials": {
+      "purified_water": 20,
+      "azure": 3
+    },
     "gold": 200,
     "skill": "Jewelcrafting",
     "levelRequired": 40,
@@ -363,7 +439,10 @@
     "result": "Herb Pouch Method",
     "resultType": "method",
     "methodId": "foraging_herb_pouch",
-    "materials": { "wild_herbs": 25, "tree_sap": 8 },
+    "materials": {
+      "wild_herbs": 25,
+      "tree_sap": 8
+    },
     "gold": 80,
     "skill": "Alchemy",
     "levelRequired": 15,
@@ -375,7 +454,10 @@
     "result": "Grave Lantern Method",
     "resultType": "method",
     "methodId": "foraging_grave_lantern",
-    "materials": { "ancient_bone": 15, "grave_moss": 15 },
+    "materials": {
+      "ancient_bone": 15,
+      "grave_moss": 15
+    },
     "gold": 200,
     "skill": "Alchemy",
     "levelRequired": 40,
@@ -387,7 +469,10 @@
     "result": "Scrap Magnet Method",
     "resultType": "method",
     "methodId": "salvaging_magnet",
-    "materials": { "scrap": 25, "iron": 5 },
+    "materials": {
+      "scrap": 25,
+      "iron": 5
+    },
     "gold": 80,
     "skill": "Smithing",
     "levelRequired": 15,
@@ -399,13 +484,15 @@
     "result": "Thran Scanner Method",
     "resultType": "method",
     "methodId": "salvaging_thran_scanner",
-    "materials": { "thran_parts": 12, "mithril": 6 },
+    "materials": {
+      "thran_parts": 12,
+      "mithril": 6
+    },
     "gold": 200,
     "skill": "Smithing",
     "levelRequired": 40,
     "xp": 160
   },
-
   {
     "id": "enchant_swift_logs",
     "station": "jeweler",
@@ -413,7 +500,10 @@
     "resultType": "tool_enchant",
     "enchantmentId": "enchant_swift",
     "toolFamily": "logs",
-    "materials": { "garnet": 1, "oak": 5 },
+    "materials": {
+      "garnet": 1,
+      "oak": 5
+    },
     "gold": 60,
     "skill": "Jewelcrafting",
     "levelRequired": 15,
@@ -426,7 +516,10 @@
     "resultType": "tool_enchant",
     "enchantmentId": "enchant_swift",
     "toolFamily": "ore",
-    "materials": { "garnet": 1, "copper": 5 },
+    "materials": {
+      "garnet": 1,
+      "copper": 5
+    },
     "gold": 60,
     "skill": "Jewelcrafting",
     "levelRequired": 15,
@@ -439,7 +532,10 @@
     "resultType": "tool_enchant",
     "enchantmentId": "enchant_bounty",
     "toolFamily": "plants",
-    "materials": { "emerald": 1, "wild_herbs": 8 },
+    "materials": {
+      "emerald": 1,
+      "wild_herbs": 8
+    },
     "gold": 60,
     "skill": "Jewelcrafting",
     "levelRequired": 15,
@@ -452,7 +548,10 @@
     "resultType": "tool_enchant",
     "enchantmentId": "enchant_seeker",
     "toolFamily": "ore",
-    "materials": { "sapphire": 1, "iron": 5 },
+    "materials": {
+      "sapphire": 1,
+      "iron": 5
+    },
     "gold": 80,
     "skill": "Jewelcrafting",
     "levelRequired": 20,
@@ -465,7 +564,10 @@
     "resultType": "tool_enchant",
     "enchantmentId": "enchant_seeker",
     "toolFamily": "waters",
-    "materials": { "sapphire": 1, "spring_water": 8 },
+    "materials": {
+      "sapphire": 1,
+      "spring_water": 8
+    },
     "gold": 80,
     "skill": "Jewelcrafting",
     "levelRequired": 20,
@@ -478,7 +580,10 @@
     "resultType": "tool_enchant",
     "enchantmentId": "enchant_refiner",
     "toolFamily": "sacred_stone",
-    "materials": { "onyx": 1, "limestone": 10 },
+    "materials": {
+      "onyx": 1,
+      "limestone": 10
+    },
     "gold": 100,
     "skill": "Jewelcrafting",
     "levelRequired": 30,
@@ -491,7 +596,10 @@
     "resultType": "tool_enchant",
     "enchantmentId": "enchant_crystal_focus",
     "toolFamily": "waters",
-    "materials": { "quartz": 2, "glacier_ice": 5 },
+    "materials": {
+      "quartz": 2,
+      "glacier_ice": 5
+    },
     "gold": 50,
     "skill": "Jewelcrafting",
     "levelRequired": 10,
@@ -504,10 +612,99 @@
     "resultType": "tool_enchant",
     "enchantmentId": "enchant_bounty",
     "toolFamily": "scrap",
-    "materials": { "emerald": 1, "scrap": 10 },
+    "materials": {
+      "emerald": 1,
+      "scrap": 10
+    },
     "gold": 60,
     "skill": "Jewelcrafting",
     "levelRequired": 15,
     "xp": 70
+  },
+  {
+    "id": "upgrade_backpack_t1",
+    "station": "workshop",
+    "result": "Reinforced Backpack",
+    "resultType": "item",
+    "materials": {
+      "oak": 10,
+      "hide": 4
+    },
+    "gold": 80,
+    "skill": "Woodworking",
+    "levelRequired": 5,
+    "xp": 50
+  },
+  {
+    "id": "upgrade_backpack_t2",
+    "station": "workshop",
+    "result": "Heavy Backpack",
+    "resultType": "item",
+    "materials": {
+      "willow": 12,
+      "hide": 8,
+      "iron": 4
+    },
+    "gold": 200,
+    "skill": "Woodworking",
+    "levelRequired": 20,
+    "xp": 100
+  },
+  {
+    "id": "upgrade_pack_satchel",
+    "station": "workshop",
+    "result": "Pack Satchel",
+    "resultType": "item",
+    "materials": {
+      "oak": 6,
+      "hide": 6
+    },
+    "gold": 60,
+    "skill": "Woodworking",
+    "levelRequired": 5,
+    "xp": 40
+  },
+  {
+    "id": "upgrade_material_sack",
+    "station": "workshop",
+    "result": "Material Sack",
+    "resultType": "item",
+    "materials": {
+      "oak": 8,
+      "hide": 5
+    },
+    "gold": 60,
+    "skill": "Woodworking",
+    "levelRequired": 5,
+    "xp": 40
+  },
+  {
+    "id": "upgrade_material_sack_t2",
+    "station": "workshop",
+    "result": "Deep Material Sack",
+    "resultType": "item",
+    "materials": {
+      "yew": 10,
+      "hide": 10,
+      "mithril": 2
+    },
+    "gold": 180,
+    "skill": "Woodworking",
+    "levelRequired": 25,
+    "xp": 110
+  },
+  {
+    "id": "upgrade_currency_pouch",
+    "station": "jeweler",
+    "result": "Currency Pouch Lining",
+    "resultType": "item",
+    "materials": {
+      "hide": 4,
+      "copper": 4
+    },
+    "gold": 50,
+    "skill": "Jewelcrafting",
+    "levelRequired": 5,
+    "xp": 40
   }
 ]

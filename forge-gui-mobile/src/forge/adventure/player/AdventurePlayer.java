@@ -85,6 +85,15 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     /** Starter T1 gathering tools are given once per character, not on every load. */
     private boolean starterToolsGranted = false;
     /**
+     * Ascendant INV1 bags: capacities / stack limits. Contents stay in inventoryItems,
+     * boostersOwned, materials, and contestCurrencies. Stock Adventure leaves this unused.
+     */
+    private final InventoryBags bags = new InventoryBags();
+    /**
+     * Ascendant contest currencies (gym / tournament / Grand Prix). Extensible map; optional on load.
+     */
+    private final LinkedHashMap<String, Integer> contestCurrencies = new LinkedHashMap<>();
+    /**
      * Ascendant toolbelt (Package B): one equipped gathering tool name per material family
      * (logs, ore, stone, herbs, crystal, scrap). Not an equipment slot.
      */
@@ -229,6 +238,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         autoSalvage = false;
         materials.clear();
         starterToolsGranted = false;
+        bags.resetToDefaults(safeConfigData());
+        contestCurrencies.clear();
         toolbelt.clear();
         badges.clear();
         leagueCleared = false;
@@ -712,13 +723,93 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     /**
      * Adds {@code amount} of a material (no-op if amount ≤ 0 or id empty).
-     * Emits {@link #onMaterialChange}.
+     * Ascendant INV1: refuses when the materials bag cannot accept the grant (never deletes).
+     * Emits {@link #onMaterialChange} on success.
+     *
+     * @return false if refused (Ascendant capacity / unknown id)
      */
-    public void addMaterial(String id, int amount) {
+    public boolean addMaterial(String id, int amount) {
         if (id == null || id.isEmpty() || amount <= 0)
-            return;
+            return false;
+        if (Config.ascendant() && !bags.canAcceptMaterial(id, amount, materials)) {
+            notifyInventory(bags.getLastRefuseMessage());
+            return false;
+        }
         materials.put(id, getMaterial(id) + amount);
         onMaterialChangeList.emit();
+        return true;
+    }
+
+    /** Ascendant INV1 bag capacities (always non-null; ignored when not Ascendant). */
+    public InventoryBags getBags() {
+        return bags;
+    }
+
+    /** Unmodifiable contest currency id → count (Ascendant). */
+    public Map<String, Integer> getContestCurrencies() {
+        return Collections.unmodifiableMap(contestCurrencies);
+    }
+
+    public int getContestCurrency(String id) {
+        if (id == null)
+            return 0;
+        Integer n = contestCurrencies.get(id);
+        return n != null ? Math.max(0, n) : 0;
+    }
+
+    /**
+     * Grant contest currency (gym / tournament / Grand Prix). Ascendant only; refuses on overflow.
+     */
+    public boolean addContestCurrency(String id, int amount) {
+        if (!Config.ascendant() || id == null || id.isEmpty() || amount <= 0)
+            return false;
+        if (!bags.canAcceptContestCurrency(id, amount, contestCurrencies, inventoryItems)) {
+            notifyInventory(bags.getLastRefuseMessage());
+            return false;
+        }
+        contestCurrencies.put(id, getContestCurrency(id) + amount);
+        return true;
+    }
+
+    public boolean takeContestCurrency(String id, int amount) {
+        if (id == null || amount <= 0)
+            return false;
+        int have = getContestCurrency(id);
+        if (have < amount)
+            return false;
+        int left = have - amount;
+        if (left <= 0)
+            contestCurrencies.remove(id);
+        else
+            contestCurrencies.put(id, left);
+        return true;
+    }
+
+    /** Apply a bag-upgrade item: bump capacities, consume one copy. */
+    public boolean applyBagUpgrade(ItemData item) {
+        if (!Config.ascendant() || item == null || item.bagUpgrade == null || item.bagUpgrade.isEmpty())
+            return false;
+        if (!hasItem(item.name) && !inventoryItems.contains(item))
+            return false;
+        InventoryBagType type = InventoryBags.parseBagUpgrade(item.bagUpgrade);
+        bags.applyUpgrade(item);
+        if (inventoryItems.contains(item))
+            removeItem(item);
+        else
+            removeItem(item.name);
+        String bagName = type != null ? type.label : "Bag";
+        notifyInventory(item.getDisplayName() + " applied. " + bagName + " expanded.");
+        return true;
+    }
+
+    private static void notifyInventory(String msg) {
+        if (msg == null || msg.isEmpty())
+            return;
+        try {
+            GameHUD.getInstance().addNotification(msg);
+        } catch (Exception ignored) {
+            // HUD may be unavailable during load/tests
+        }
     }
 
     /**
@@ -1350,6 +1441,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
 
         ensureStarterGatheringTools();
+        loadInventoryBags(data);
 
         RewardData.invalidateCardPool();
         onLifeTotalChangeList.emit();
@@ -1358,6 +1450,47 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         onMaterialChangeList.emit();
         onGoldChangeList.emit();
         onBlessing.emit();
+    }
+
+    /**
+     * INV1: load per-bag capacities and contest currencies. Old saves without bag keys
+     * keep Java/config defaults; flat inventory is auto-sorted into bags by classification
+     * (nothing is deleted; over-capacity is allowed and shown).
+     */
+    private static ConfigData safeConfigData() {
+        try {
+            if (Config.instance() != null && Config.instance().getConfigData() != null)
+                return Config.instance().getConfigData();
+        } catch (Exception ignored) {
+            // Config may be unavailable during early clear/tests
+        }
+        return new ConfigData();
+    }
+
+    private void loadInventoryBags(SaveFileData data) {
+        ConfigData cfg = safeConfigData();
+        bags.resetToDefaults(cfg);
+        if (data != null && data.containsKey("bagTypes") && data.containsKey("bagSlots")) {
+            Object rawTypes = data.readObject("bagTypes");
+            Object rawSlots = data.readObject("bagSlots");
+            Object rawStacks = data.containsKey("bagMaxStacks") ? data.readObject("bagMaxStacks") : null;
+            if (rawTypes instanceof String[] types && rawSlots instanceof int[] slots) {
+                int[] stacks = rawStacks instanceof int[] s ? s : null;
+                bags.load(types, slots, stacks, cfg);
+            }
+        }
+        contestCurrencies.clear();
+        if (data != null && data.containsKey("contestCurrencyIds") && data.containsKey("contestCurrencyCounts")) {
+            Object rawIds = data.readObject("contestCurrencyIds");
+            Object rawCounts = data.readObject("contestCurrencyCounts");
+            if (rawIds instanceof String[] ids && rawCounts instanceof int[] counts) {
+                int n = Math.min(ids.length, counts.length);
+                for (int i = 0; i < n; i++) {
+                    if (ids[i] != null && !ids[i].isEmpty() && counts[i] > 0)
+                        contestCurrencies.put(ids[i], counts[i]);
+                }
+            }
+        }
     }
 
     @Override
@@ -1407,6 +1540,27 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             data.store("materialSchema", 2);
             data.store("starterToolsGranted", starterToolsGranted);
             data.storeObject("materialCounts", materialCounts);
+        }
+        {
+            // INV1 bag capacities (contents remain in inventory / boosters / materials).
+            data.storeObject("bagTypes", new String[]{
+                    InventoryBagType.BACKPACK.name(), InventoryBagType.PACKS.name(),
+                    InventoryBagType.CURRENCY.name(), InventoryBagType.MATERIALS.name()
+            });
+            data.storeObject("bagSlots", new int[]{
+                    bags.getSlots(InventoryBagType.BACKPACK), bags.getSlots(InventoryBagType.PACKS),
+                    bags.getSlots(InventoryBagType.CURRENCY), bags.getSlots(InventoryBagType.MATERIALS)
+            });
+            data.storeObject("bagMaxStacks", new int[]{
+                    bags.getMaxStack(InventoryBagType.BACKPACK), bags.getMaxStack(InventoryBagType.PACKS),
+                    bags.getMaxStack(InventoryBagType.CURRENCY), bags.getMaxStack(InventoryBagType.MATERIALS)
+            });
+            String[] cIds = contestCurrencies.keySet().toArray(new String[0]);
+            int[] cCounts = new int[cIds.length];
+            for (int i = 0; i < cIds.length; i++)
+                cCounts[i] = contestCurrencies.getOrDefault(cIds[i], 0);
+            data.storeObject("contestCurrencyIds", cIds);
+            data.storeObject("contestCurrencyCounts", cCounts);
         }
         {
             String[] fams = toolbelt.keySet().toArray(new String[0]);
@@ -1653,13 +1807,16 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 addGold(reward.getCount());
                 break;
             case Item:
-                if (reward.getItem() != null)
-                    addItem(reward.getItem().name);
+                if (reward.getItem() != null) {
+                    if (!addItem(reward.getItem().name))
+                        notifyInventory(bags.getLastRefuseMessage() != null
+                                ? bags.getLastRefuseMessage()
+                                : "Could not add item: " + reward.getItem().name);
+                }
                 break;
             case CardPack:
-                if (reward.getDeck() != null) {
-                    boostersOwned.add(reward.getDeck());
-                }
+                if (reward.getDeck() != null)
+                    addBooster(reward.getDeck());
                 break;
             case Life:
                 addMaxLife(reward.getCount());
@@ -2334,9 +2491,15 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         } else if (recipe.isTool()) {
             if (recipe.result == null || recipe.result.isEmpty() || ItemListData.getItem(recipe.result) == null)
                 blockers.add("Tool item not defined yet");
+            else if (!canAcceptNewItem(ItemListData.getItem(recipe.result)))
+                blockers.add(bags.getLastRefuseMessage() != null ? bags.getLastRefuseMessage()
+                        : "Backpack cannot accept this tool");
         } else {
             if (recipe.result == null || recipe.result.isEmpty() || ItemListData.getItem(recipe.result) == null)
                 blockers.add("Result item missing: " + recipe.result);
+            else if (!canAcceptNewItem(ItemListData.getItem(recipe.result)))
+                blockers.add(bags.getLastRefuseMessage() != null ? bags.getLastRefuseMessage()
+                        : "Inventory cannot accept this item");
         }
         return blockers;
     }
@@ -3264,6 +3427,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         ItemData item = ItemListData.getItem(name);
         if (item == null)
             return false;
+        if (Config.ascendant() && !canAcceptNewItem(item)) {
+            notifyInventory(bags.getLastRefuseMessage());
+            return false;
+        }
         inventoryItems.add(item);
         if (item.isGatheringTool()) {
             int have = getToolTier(item.toolFamily);
@@ -3275,6 +3442,43 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return true;
     }
 
+    /**
+     * Ascendant INV1 capacity gate. Never deletes existing items; may route overflow
+     * to {@link FortressStorageHook} when one is installed.
+     */
+    private boolean canAcceptNewItem(ItemData item) {
+        if (item == null)
+            return false;
+        if (InventoryBags.classifyItem(item) == InventoryBagType.CURRENCY)
+            return bags.canAcceptCurrencyItem(item, contestCurrencies, inventoryItems);
+        if (item.isGatheringTool()) {
+            int have = getToolTier(item.toolFamily);
+            if (item.toolTier > have) {
+                String prev = toolbelt.get(item.toolFamily);
+                if (prev == null)
+                    return true; // lives on toolbelt only
+                // Demoted previous tool re-enters the bag list — need a free slot.
+                int used = bags.usedBackpackSlots(inventoryItems, equippedItemIdSet(), toolbelt);
+                if (used < bags.getSlots(InventoryBagType.BACKPACK))
+                    return true;
+                if (bags.getFortressStorage().storeOverflow(InventoryBagType.BACKPACK, prev, 1))
+                    return true;
+                bags.canAcceptBackpackItem(item, inventoryItems, equippedItemIdSet(), toolbelt); // set message
+                return false;
+            }
+        }
+        return bags.canAcceptBackpackItem(item, inventoryItems, equippedItemIdSet(), toolbelt);
+    }
+
+    private Set<Long> equippedItemIdSet() {
+        return new HashSet<>(equippedItems.values());
+    }
+
+    /** Backpack items visible in the INV1 bag list (excludes equipped gear and toolbelt tools). */
+    public List<ItemData> getBackpackItems() {
+        return InventoryBags.backpackOccupants(inventoryItems, equippedItemIdSet(), toolbelt);
+    }
+
     public void removeAllQuestItems(){
         inventoryItems.removeIf(data -> data != null && data.questItem);
     }
@@ -3282,6 +3486,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     public boolean addBooster(Deck booster) {
         if (booster == null || booster.isEmpty())
             return false;
+        if (Config.ascendant() && !bags.canAcceptBooster(boostersOwned)) {
+            notifyInventory(bags.getLastRefuseMessage());
+            return false;
+        }
         boostersOwned.add(booster);
         return true;
     }

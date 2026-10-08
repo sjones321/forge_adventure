@@ -287,4 +287,35 @@ public class ConfigData {
      */
     public int coopDuelGuestConnectGraceSeconds = 8;
 
+    // ---- Ascendant inventory bags (INV1): slot counts and stack sizes (no weight). ----
+
+    /** Default backpack slots for gear and usable items. */
+    public int backpackSlots = 24;
+    /** Max stack size for stackable backpack items. */
+    public int backpackMaxStack = 20;
+    /** Default unopened-pack bag slots. */
+    public int packsSlots = 12;
+    /** Max stack size for packs (each booster is unique; kept for upgrade parity). */
+    public int packsMaxStack = 1;
+    /** Currency pouch slots (built-in currencies + contest coins). */
+    public int currencySlots = 16;
+    /** Max amount per contest/challenge coin stack in the currency pouch. */
+    public int currencyMaxStack = 9999;
+    /** Materials bag distinct-type slot count. */
+    public int materialsSlots = 40;
+    /** Max units of one material id before new grants are refused. */
+    public int materialsMaxStack = 99;
+    /** Slots added by a T1 backpack upgrade item. */
+    public int bagUpgradeBackpackSlots = 8;
+    /** Stack size added by a T1 backpack upgrade item. */
+    public int bagUpgradeBackpackStack = 10;
+    /** Slots added by a pack satchel upgrade. */
+    public int bagUpgradePacksSlots = 6;
+    /** Slots added by a material sack upgrade. */
+    public int bagUpgradeMaterialsSlots = 10;
+    /** Stack size added by a material sack upgrade. */
+    public int bagUpgradeMaterialsStack = 50;
+    /** Slots added by a currency pouch upgrade. */
+    public int bagUpgradeCurrencySlots = 4;
+
 }
