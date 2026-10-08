@@ -333,6 +333,112 @@ opens the whole game; the path only picks the first quest chain and a small star
 ## Stretch goal: main program UI
 After the systems above, improve Forge's main (non-Adventure) UI. Scope to be decided later.
 
+## The Multiverse (see `Game-Vision.md`)
+
+These packages turn the single big map into a home plane plus an endless chain of set planes. They supersede
+**V (Planeswalking)** and absorb **N (Rifts)** as one delve type.
+
+### MV1. Multi-plane save and planar portals (depends on C)
+- One save holds several worlds: the **home plane** and any number of **set planes**, each a `World` generated
+  from its own plane config and seed. Only the current plane is loaded; the rest stay serialized in the save
+  (or in side files next to it) and load on demand.
+- **Planar portal** objects (reuse `PortalActor`) move the player between planes, keeping position per plane.
+- The player's collection, skills, materials and items are account-level; plane state (enemies, POI changes,
+  nodes) is per plane.
+- Old Ascendant saves load as a single home plane.
+
+### MV2. Plane-per-set generator (depends on MV1)
+- Generate a set plane from a template (smaller map than the home plane, e.g. 300-400 tiles) plus the set's data:
+  biome mix from the set's color balance, enemies with `$generate` decks restricted to that set, shops and rewards
+  from that set, town names themed per set.
+- **Alignment**: planes of the sets in the Standard window are reachable by a normal portal. Mastering a set
+  (existing mastery) unlocks the next set's plane. Rotated-out planes stay reachable through a costlier portal.
+
+### MV3. Home plane and homestead (depends on MV1, E; replaces I)
+- The home plane carries the homestead: stations, storage chest, vault, trophy room, outposts and (later) farm.
+  It never resets except by prestige.
+
+### MV4. Delves (depends on MV1, B; absorbs N)
+- Temporary **pocket-plane portals** spawn at random in set planes. A delve is a chain of small instanced floors.
+  Deeper floors: harder enemies, tier 4 nodes, gems, relics, guardians.
+- Delve types: **resource delve** (nodes and guardians) and **rift** (the roguelite run from N).
+- Track deepest floor per account for the Hall of Fame and prestige XP.
+
+### M update. Prestige XP
+Prestige XP is earned from how far the account went before prestiging: deepest delve floor, planes mastered,
+League titles, total level. Spent on the prestige talent tree. Requirements stay steep.
+
+## Co-op: shared world (see `Game-Vision.md`)
+
+Forge already has what the duel side needs (`forge-gui/src/main/java/forge/gamemodes/net/`): a Netty server/client,
+host-authoritative matches where remote humans play through `RemoteClientGuiGame` / `NetGameController`, lobbies
+with team slots (`ServerGameLobby`, `LobbySlot.team`, default port 36743), and mobile online screens
+(`forge-gui-mobile/src/forge/screens/online/`). Two humans on team 0 against an AI is already supported by
+`GameLobby`. Adventure's `DuelScene` builds matches locally with `MatchController.startMatch(..., guiMap, ...)`, so a
+remote human can be added through `guiMap`. Nothing in Adventure knows about a second human yet.
+
+### CO1. Session and connection (start now)
+- **Host / Join** from the Adventure main menu (Ascendant only). Join takes an address (Tailscale `100.x` or LAN).
+- **Two ports**: Forge's game port (36743, existing) and a new overworld port (36744). Document the Windows firewall
+  rules; skip UPnP when the address is a Tailscale address.
+- **Hard version check**: co-op refuses to connect unless both builds and card databases match (the existing login
+  only warns). Exchange a build hash plus a hash of the loaded card data.
+- **Characters**: the guest brings their own character file (their `AdventurePlayer`: collection, decks, skills,
+  materials, items) and keeps it on their own PC; it is saved locally when the session ends. The host's save owns
+  the world.
+- **World**: the guest builds the host's world from the host's world seed and plane config (generation is
+  seeded), then checks a hash of the result against the host's. On mismatch, fall back to receiving the world data.
+- **Messages**: a small set of `NetEvent` types over the existing Netty pipeline (add them to `WireClassFilter`),
+  or JSON via Gson. Never send `PaperCard`/`Deck` objects; send decklists as text (`DeckSerializer`).
+
+### CO2. Shared overworld (depends on CO1)
+- The client sends position and facing at 10-20 Hz; the other player is drawn as a partner sprite with name tag.
+- **Host-authoritative world state**: enemy spawns and movement, resource nodes (first to gather claims it), POI
+  changes (cleared enemies, opened chests), loot rolls. The guest sends requests; the host confirms.
+- **Party up or go separate ways**: players are independent by default. Either can invite the other to a **party**
+  and either can leave it at any time. Nobody is ever moved, pulled into a location or pulled into a fight without
+  saying yes.
+- **Locations, v1**: both players roam freely. Entering a town, dungeon or delve asks a party partner who is nearby
+  whether to come along; declining is fine. Players in different interiors is a later step (v1 may require the
+  guest to wait outside an interior the host is in, or vice versa).
+- Pausing menus (inventory, deck editor) don't pause the world in co-op.
+
+### CO3. Co-op duels (depends on CO1; can run alongside CO2)
+- **Joining is opt-in**: when a player starts a fight and their party partner is nearby (configurable radius), the
+  partner gets a "Join the fight?" prompt with a short timer. No answer or not in a party means a normal solo fight.
+  Not in a party: never prompted.
+- For a joined fight the host builds the match as `DuelScene` does, with the
+  host on team 0, a second `RegisteredPlayer` for the guest on team 0 (deck rebuilt from the decklist text, GUI from
+  `FServerManager.getGui(slot)` / `RemoteClientGuiGame`), and the enemies on team 1.
+- **Scaling**: enemy life and extra cards scale for two players (tunable, like the existing enemy tuning).
+- **Adventure setup on the host for both players**: equipment and perk effects, custom card scripts, mana shards,
+  badge perks. Avatars are sent as names/ids, not textures.
+- The guest plays on the standard mobile match screen through `FGameClient`. When the match ends the host sends the
+  result; each player applies their own rewards, XP and penalties to their own character.
+- Watch out for blocking `sendAndWait` prompts freezing the host while the guest decides; keep timeouts generous.
+
+### CO4. Co-op systems (depends on CO2, MV3)
+- Shared home base on the host's home plane: both can use stations, storage and outposts.
+- Trading cards, materials and items between players.
+- Co-op gyms and League (both must win), co-op delves, shared quest progress.
+
+## AI opponent: bring your own
+
+The LLM opponent (`forge-ai/.../llm/LlmOpponent.java`, settings in `%APPDATA%\Forge\llm_opponent.properties`)
+stays optional and never ships a key. Forge's normal AI is always the fallback.
+
+### AI1. Player setup guide and settings screen
+- A settings screen for the LLM opponent (enable, endpoint URL, model, API key, timeout, test button) instead of
+  hand-editing the properties file. The key is stored locally and never logged or shown in full.
+- A thorough guide in `docs/Adventure/AI-Opponent.md` covering:
+  - **Hosted, OpenAI-compatible APIs** (DeepInfra, OpenRouter, etc.): where to get a key, rough cost per match,
+    recommended models.
+  - **Local models, no key**: LM Studio, Ollama or llama.cpp; recommended sizes by GPU memory; AMD cards via the
+    Vulkan backend (works on Windows), NVIDIA via CUDA.
+  - Troubleshooting: timeouts, slow turns, falling back to Forge AI.
+- Use the LLM only for key decisions (attacks, blocks, main spells); Forge AI handles routine priority passes, so
+  local models stay fast.
+
 ## Suggested order
 
 1. A (materials core) alone. A2 and B2 after B lands the new material lines.
@@ -344,6 +450,8 @@ After the systems above, improve Forge's main (non-Adventure) UI. Scope to be de
    then Q, S, T, U, W, X, Y, Z. AB once G and V exist.
 6. M (prestige) and I (homestead) once the account-level systems exist.
 7. AA (story) last.
+8. Multiverse: MV1 → MV2 and MV3 → MV4. See `Game-Vision.md` for milestone order.
+9. **Co-op is next**: CO1 first, then CO2 and CO3 in parallel, then CO4.
 
 ## Art
 
