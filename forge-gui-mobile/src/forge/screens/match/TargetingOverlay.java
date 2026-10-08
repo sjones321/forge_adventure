@@ -39,10 +39,14 @@ public class TargetingOverlay {
     private static final float ARROW_THICKNESS = Utils.scale(5);
     private static final float ARROW_SIZE = 3 * ARROW_THICKNESS;
     private static FSkinColor friendColor, foeAtkColor, foeDefColor;
-    /** Neo Forge CombatOverlay palette when {@link ModernDuelScreen} is on. */
+    /** Neo Forge CombatOverlay palette when {@link ModernDuelScreen} is on (cached). */
     private static final Color MODERN_ATTACK = Color.valueOf("D9534F");
     private static final Color MODERN_BLOCK = Color.valueOf("4A9BE0");
     private static final Color MODERN_TARGET = Color.valueOf("E0A63C");
+    private static final Color MODERN_ATTACK_SOFT = new Color(MODERN_ATTACK.r, MODERN_ATTACK.g, MODERN_ATTACK.b, 0.85f);
+    private static final Color MODERN_BLOCK_SOFT = new Color(MODERN_BLOCK.r, MODERN_BLOCK.g, MODERN_BLOCK.b, 0.85f);
+    private static final Color MODERN_TARGET_SOFT = new Color(MODERN_TARGET.r, MODERN_TARGET.g, MODERN_TARGET.b, 0.85f);
+    private static final Color MODERN_FRIEND_SOFT_FALLBACK = new Color(0.5f, 0.8f, 0.5f, 0.85f);
 
     public enum ArcConnection {
         Friends,
@@ -232,14 +236,22 @@ public class TargetingOverlay {
         final boolean modern = ModernDuelScreen.enabled();
         Color drawColor;
         if (modern) {
-            drawColor = switch (connects) {
-                case FoesAttacking -> MODERN_ATTACK;
-                case FoesBlocking -> MODERN_BLOCK;
-                case FriendsStackTargeting, FoesStackTargeting -> MODERN_TARGET;
-                default -> friendColor.getColor();
-            };
-            if (!solid) {
-                drawColor = new Color(drawColor.r, drawColor.g, drawColor.b, 0.85f);
+            if (solid) {
+                drawColor = switch (connects) {
+                    case FoesAttacking -> MODERN_ATTACK;
+                    case FoesBlocking -> MODERN_BLOCK;
+                    case FriendsStackTargeting, FoesStackTargeting -> MODERN_TARGET;
+                    default -> friendColor != null ? friendColor.getColor() : MODERN_FRIEND_SOFT_FALLBACK;
+                };
+            } else {
+                drawColor = switch (connects) {
+                    case FoesAttacking -> MODERN_ATTACK_SOFT;
+                    case FoesBlocking -> MODERN_BLOCK_SOFT;
+                    case FriendsStackTargeting, FoesStackTargeting -> MODERN_TARGET_SOFT;
+                    default -> friendColor != null
+                            ? friendColor.alphaColor(0.85f).getColor()
+                            : MODERN_FRIEND_SOFT_FALLBACK;
+                };
             }
         } else {
             FSkinColor color = foeDefColor;

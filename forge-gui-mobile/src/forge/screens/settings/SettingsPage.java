@@ -24,6 +24,7 @@ import forge.screens.TabPageScreen;
 import forge.screens.TabPageScreen.TabPage;
 import forge.screens.home.HomeScreen;
 import forge.screens.match.MatchController;
+import forge.screens.match.ModernDuelScreen;
 import forge.sound.MusicPlaylist;
 import forge.sound.SoundSystem;
 import forge.toolbox.FCheckBox;
@@ -680,7 +681,13 @@ public class SettingsPage extends TabPage<SettingsScreen> {
         lstSettings.addItem(new CustomSelectSetting(FPref.UI_MODERN_DUEL_SCREEN,
             Forge.getLocalizer().getMessage("lblModernDuelScreen"),
             Forge.getLocalizer().getMessage("nlModernDuelScreen"),
-            new String[] { "Auto", "Always", "Never" }), 5);
+            new String[] { "Auto", "Always", "Never" }) {
+                @Override
+                public void valueChanged(String newValue) {
+                    super.valueChanged(newValue);
+                    ModernDuelScreen.invalidate();
+                }
+            }, 5);
 
         // VIBRATION OPTIONS TAB
         Map<String, String> intensityOptions = new LinkedHashMap<>();

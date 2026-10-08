@@ -17,6 +17,7 @@
  */
 package forge.screens.match;
 
+import forge.Forge;
 import forge.adventure.util.Config;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.model.FModel;
@@ -24,7 +25,8 @@ import forge.model.FModel;
 /**
  * DS1 gate for the modern libGDX duel screen (drag cast/attack, peek hand,
  * floating mana, Neo-style arrows). Stock Forge stays unchanged unless the
- * preference is {@link #MODE_ALWAYS}; Ascendant defaults on via {@link #MODE_AUTO}.
+ * preference is {@link #MODE_ALWAYS}. {@link #MODE_AUTO} is per-match: on only
+ * for Adventure duels while Ascendant is active.
  */
 public final class ModernDuelScreen {
     public static final String MODE_AUTO = "Auto";
@@ -34,21 +36,40 @@ public final class ModernDuelScreen {
     /** ~9px as in Neo Forge {@code TableScreen.DRAG_SLOP}. */
     public static final float DRAG_SLOP_PX = 9f;
 
+    private static Boolean cachedEnabled;
+    private static String cachedMode;
+
     private ModernDuelScreen() {
     }
 
+    /**
+     * Whether the modern duel screen is active for the current match.
+     * Result is cached; call {@link #invalidate()} when the preference changes
+     * or a match starts (Adventure flag / Ascendant may differ).
+     */
     public static boolean enabled() {
         final String mode = FModel.getPreferences() == null
                 ? MODE_AUTO
                 : FModel.getPreferences().getPref(FPref.UI_MODERN_DUEL_SCREEN);
-        return resolve(mode, Config.ascendant());
+        if (cachedEnabled != null && modeEquals(cachedMode, mode)) {
+            return cachedEnabled.booleanValue();
+        }
+        final boolean adventureAscendant = Forge.isMobileAdventureMode && Config.ascendant();
+        final boolean on = resolve(mode, adventureAscendant);
+        cachedMode = mode;
+        cachedEnabled = Boolean.valueOf(on);
+        return on;
     }
 
     /**
-     * Pure preference resolution for tests and callers that already know
-     * whether Ascendant rules are active.
+     * Pure preference resolution for tests and callers that already know whether
+     * this match is an Adventure duel under Ascendant.
+     *
+     * @param adventureAscendantDuel {@code Forge.isMobileAdventureMode && Config.ascendant()}
+     *                               for the match being evaluated — not merely that the
+     *                               saved plane is Ascendant while in constructed/quest/draft
      */
-    public static boolean resolve(final String mode, final boolean ascendant) {
+    public static boolean resolve(final String mode, final boolean adventureAscendantDuel) {
         if (mode != null) {
             if (MODE_ALWAYS.equalsIgnoreCase(mode.trim())) {
                 return true;
@@ -57,6 +78,23 @@ public final class ModernDuelScreen {
                 return false;
             }
         }
-        return ascendant;
+        // Auto (default / null / unknown): Adventure + Ascendant only.
+        return adventureAscendantDuel;
+    }
+
+    /** Drop the enabled cache (preference change or match start). */
+    public static void invalidate() {
+        cachedEnabled = null;
+        cachedMode = null;
+    }
+
+    private static boolean modeEquals(final String a, final String b) {
+        if (a == b) {
+            return true;
+        }
+        if (a == null || b == null) {
+            return false;
+        }
+        return a.equals(b);
     }
 }

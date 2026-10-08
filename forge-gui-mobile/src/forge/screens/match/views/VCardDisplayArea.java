@@ -531,8 +531,11 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
         @Override
         public boolean pan(float x, float y, float deltaX, float deltaY, boolean moreVertical) {
             if (ModernDuelScreen.enabled()) {
-                return ModernDuelController.get().onCardPan(this,
-                        localToScreenX(x), localToScreenY(y));
+                // Only consume when a modern drag/peek gesture is active; otherwise scroll.
+                if (ModernDuelController.get().onCardPan(this,
+                        localToScreenX(x), localToScreenY(y))) {
+                    return true;
+                }
             }
             return super.pan(x, y, deltaX, deltaY, moreVertical);
         }
@@ -540,8 +543,10 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
         @Override
         public boolean panStop(float x, float y) {
             if (ModernDuelScreen.enabled()) {
-                return ModernDuelController.get().onCardPanStop(
-                        localToScreenX(x), localToScreenY(y));
+                if (ModernDuelController.get().onCardPanStop(
+                        localToScreenX(x), localToScreenY(y))) {
+                    return true;
+                }
             }
             return super.panStop(x, y);
         }
@@ -615,8 +620,9 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
 
         @Override
         public boolean longPress(float x, float y) {
-            if (ModernDuelScreen.enabled() && ModernDuelController.get().isBusy()) {
-                return true; // peek / drag owns the gesture
+            // Active drag owns the gesture; peek alone still allows long-press zoom.
+            if (ModernDuelScreen.enabled() && ModernDuelController.get().isDragActive()) {
+                return true;
             }
             if (renderedCardContains(x, y)) {
                 showZoom();

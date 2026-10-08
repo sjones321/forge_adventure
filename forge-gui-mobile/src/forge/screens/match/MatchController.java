@@ -230,6 +230,9 @@ public class MatchController extends NetworkGuiGame {
             }
         }
         view = new MatchScreen(playerPanels);
+        // Per-match gate: Adventure flag / Ascendant may differ from the previous match.
+        ModernDuelScreen.invalidate();
+        ModernDuelController.get().reset();
         if(GuiBase.isNetPlay(this))
             view.resetFields();
         selectionZonesBackup = null;

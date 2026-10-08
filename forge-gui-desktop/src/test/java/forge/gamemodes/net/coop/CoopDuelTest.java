@@ -283,7 +283,7 @@ public class CoopDuelTest {
         Assert.assertEquals(
                 Class.forName("forge.gamemodes.net.server.RemoteClientGuiGame").getSimpleName(),
                 "RemoteClientGuiGame");
-        // Auto = Ascendant only (see ModernDuelScreen.resolve in forge-gui-mobile).
+        // Auto = Adventure + Ascendant only (see ModernDuelScreen.resolve in forge-gui-mobile).
         Assert.assertEquals(FPref.UI_MODERN_DUEL_SCREEN.getDefault(), "Auto");
     }
 

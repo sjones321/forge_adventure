@@ -822,6 +822,7 @@ public class MatchScreen extends FScreen {
 
     public void resetFields() {
         CardAreaPanel.resetForNewGame();
+        ModernDuelScreen.invalidate();
         ModernDuelController.get().reset();
         for (VPlayerPanel playerPanel : getPlayerPanels().values()) {
             for (CardAreaPanel p : playerPanel.getField().getCardPanels()) {

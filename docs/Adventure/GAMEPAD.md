@@ -61,15 +61,16 @@ Controls:
   - Button Y - Show Zoom
   - Button Back - Show Menu Tabs
 
-- Match/Battle — modern duel screen (Ascendant default, or Settings → Modern duel screen = Always)
+- Match/Battle — modern duel screen (Auto = Adventure duels in Ascendant only; or Settings → Modern duel screen = Always)
 
-  Stock bindings above still apply when you are not in a modern pad mode. Modern modes use **X** as the mode key (unused in stock match) and **B** to back out of any modern mode.
+  Stock bindings above still apply when you are not in a modern pad mode. Modern modes use **X** as the mode key (unused in stock match) and **B** to back out of any modern mode. **A** picks up a card only when a drag action is possible (hand cast/reorder, or your creature during declare attackers/blockers); otherwise **A** is stock tap/activate (mana, abilities, loyalty).
 
   | Action | Binding |
   | --- | --- |
-  | Pick up / drop card (cast, attack, block, reorder) | **A** on focused card; **A** again on drop target |
-  | Attack a player | Hold attacker with **A**, focus opponent panel (no card), **A** |
-  | Assign several blockers to one attacker | Hold blocker **A** → focus attacker → **A**; repeat with the next blocker |
+  | Pick up / drop card (cast, attack, block, reorder) | **A** on focused card when drag is possible; **A** again on drop target |
+  | Stock tap / activate (no drag possible) | **A** (unchanged — pays mana, abilities, loyalty) |
+  | Attack a player | Hold attacker with **A** (declare-attackers only), focus opponent panel (no card), **A**. Dropping on the same defender again does not toggle the attacker off. |
+  | Assign several blockers to one attacker | Hold blocker **A** (declare-blockers only) → focus attacker → **A**; repeat with the next blocker |
   | Cancel hold / peek / mana / phase mode | **B** |
   | Press-to-peek hand | Focus a hand card, **X** — card enlarges |
   | Move peek between neighbours | **DPAD Left/Right** while peeking |
@@ -79,6 +80,6 @@ Controls:
   | Reorder hand | Hold a hand card with **A**, **DPAD** to another hand slot, **A** to drop |
   | Floating mana (while paying) | **X** when mana pips are showing (and hand is not focused) → mana mode; **DPAD Left/Right** cycle pips; **A** spends the focused pip |
   | Phase stops | **X** when neither peek nor mana applies → phase mode on your rail; **DPAD Left/Right** cycle phases; **A** toggles stop on/off |
-  | Target spells / abilities | During a selection prompt, **DPAD** to the target; amber arrow follows focus; **A** confirms (stock select). No pick-up needed. |
-  | Zoom card | **Y** (unchanged) |
+  | Target spells / abilities | During a selection prompt, **DPAD** to the target; amber arrow from the prompt source follows focus; **A** confirms (stock select). No pick-up. |
+  | Zoom card | **Y** (unchanged; long-press zoom on hand cards still works with peek) |
   | Zone tabs / player panels / prompts | **R1** / **L1** / triggers (unchanged) |

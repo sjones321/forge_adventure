@@ -46,6 +46,11 @@ public class VPrompt extends FContainer {
         this.card = card;
     }
 
+    /** Card associated with the current prompt (targeting / ability source), or null. */
+    public CardView getCardView() {
+        return card;
+    }
+
     // Double-click guard (match prompts only): after a button press, further presses are ignored until
     // the next prompt has been showing for a moment, so a repeat click can't land on the next prompt
     // (e.g. "End Turn") while the game is still catching up.
