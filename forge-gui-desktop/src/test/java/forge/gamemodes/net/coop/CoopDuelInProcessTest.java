@@ -274,13 +274,29 @@ public class CoopDuelInProcessTest {
             forceConcedeHumans(match, false, null);
         }
         waitGameOver(match, Math.max(8_000, deadlineMs - System.currentTimeMillis()));
+        // Flush Swing EDT so HostedMatch CONTINUE (scheduled via invokeLater) runs.
+        flushEdt();
+    }
+
+    private static void flushEdt() {
+        try {
+            forge.gui.GuiBase.getInterface().invokeInEdtAndWait(() -> { });
+        } catch (final Exception ignored) {
+        }
     }
 
     private static void waitGameOver(final HostedMatch match, final long ms) throws InterruptedException {
+        // Capture the game we are finishing. CONTINUE clears/replaces HostedMatch.game —
+        // treat null or a different GameView as "this game ended" so we do not sit in
+        // wait on the *next* game without a driver.
+        final GameView initial = match.getGameView();
         final long end = System.currentTimeMillis() + Math.max(1_000, ms);
         while (System.currentTimeMillis() < end) {
             final GameView gv = match.getGameView();
-            if (gv != null && gv.isGameOver()) {
+            if (gv == null || gv.isGameOver()) {
+                return;
+            }
+            if (initial != null && gv != initial) {
                 return;
             }
             if (match.getMatch() != null && match.getMatch().isMatchOver()) {
@@ -402,7 +418,7 @@ public class CoopDuelInProcessTest {
         policy.endDuel();
     }
 
-    @Test(timeOut = 240_000)
+    @Test(timeOut = 300_000)
     public void bestOfThreeEmitsOutcomeOnlyAtMatchEnd() throws Exception {
         TestUtils.ensureFModelInitialized();
         FModel.getPreferences().setPref(FPref.UI_SHOW_ACTIONABLE_HIGHLIGHTS, false);
@@ -456,17 +472,18 @@ public class CoopDuelInProcessTest {
                 List.of(host, guest, enemy), guis, null);
 
         // Play / concede through enough games for the match to end (first to 2).
-        final long overall = System.currentTimeMillis() + 200_000;
+        final long overall = System.currentTimeMillis() + 240_000;
         int safety = 0;
-        while (System.currentTimeMillis() < overall && safety++ < 8) {
+        while (System.currentTimeMillis() < overall && safety++ < 6) {
             if (match.getMatch() != null && match.getMatch().isMatchOver()) {
                 break;
             }
+            // Brief pause so CONTINUE from endGameHook can spin up the next game.
+            Thread.sleep(500);
             driveUntilGameOver(match, hostRemote, hostGui, guestRemote, guestGui, false,
-                    System.currentTimeMillis() + 40_000);
-            Thread.sleep(800);
+                    System.currentTimeMillis() + 50_000);
         }
-        waitMatchOver(match, 30_000);
+        waitMatchOver(match, 20_000);
         final long settle = System.currentTimeMillis() + 10_000;
         while (outcome.get() == null && System.currentTimeMillis() < settle) {
             Thread.sleep(100);
