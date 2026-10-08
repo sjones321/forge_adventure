@@ -385,8 +385,14 @@ public class InventoryScene extends UIScene {
             sellAllButton.setVisible(showMats);
         if (equipButton != null)
             equipButton.setVisible(!showMats && !showOverflow && activeBag != InventoryBagType.CURRENCY);
-        if (useButton != null)
-            useButton.setVisible(activeBag == InventoryBagType.BACKPACK || activeBag == InventoryBagType.PACKS);
+        if (useButton != null) {
+            useButton.setVisible(activeBag == InventoryBagType.BACKPACK || activeBag == InventoryBagType.PACKS
+                    || showOverflow);
+            if (showOverflow) {
+                useButton.setText("Retrieve");
+                useButton.layout();
+            }
+        }
         if (deleteButton != null)
             deleteButton.setVisible(activeBag == InventoryBagType.BACKPACK);
         if (repairButton != null && (showMats || showOverflow))
@@ -655,6 +661,16 @@ public class InventoryScene extends UIScene {
     }
 
     private void use() {
+        if (Config.ascendant() && activeBag == InventoryBagType.OVERFLOW
+                && selected != null && overflowLocation.containsKey(selected)) {
+            Integer idx = overflowLocation.get(selected);
+            if (idx != null && Current.player().retrieveFromOverflow(idx)) {
+                setSelected(null);
+                updateInventory();
+                updateAscendantChrome();
+            }
+            return;
+        }
         if (itemLocation.containsKey(selected)) {
             ItemData data = itemLocation.get(selected).getRight();
             if (data == null)
@@ -1294,7 +1310,16 @@ public class InventoryScene extends UIScene {
                     if (((Button) actor).isChecked()) {
                         setSelected((Button) actor);
                         itemDescription.setText("[#ffaa33]OVERFLOW[]\n" + entry.displayName()
-                                + "\n[%80]Cannot use, equip, or sell until moved to a bag with room.");
+                                + "\n[%80]Cannot equip or sell here. Use Retrieve (or long-press A) when a bag has room.");
+                        if (useButton != null) {
+                            useButton.setDisabled(false);
+                            useButton.setText("Retrieve");
+                            useButton.layout();
+                        }
+                        if (equipButton != null)
+                            equipButton.setDisabled(true);
+                        if (deleteButton != null)
+                            deleteButton.setDisabled(true);
                     }
                 }
             });

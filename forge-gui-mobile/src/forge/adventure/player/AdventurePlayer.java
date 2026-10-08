@@ -1032,6 +1032,73 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     /**
+     * Move one Overflow entry back into its bag/pouch when there is room.
+     * @return true if retrieved
+     */
+    public boolean retrieveFromOverflow(int index) {
+        if (!Config.ascendant())
+            return false;
+        OverflowEntry e = (index >= 0 && index < bags.overflowCount())
+                ? bags.getOverflow().get(index) : null;
+        if (e == null)
+            return false;
+        boolean fits;
+        switch (e.kind) {
+            case ITEM:
+                if (e.item == null)
+                    return false;
+                if (InventoryBags.classifyItem(e.item) == InventoryBagType.CURRENCY)
+                    fits = bags.fitsCurrencyItem(e.item, contestCurrencies, inventoryItems);
+                else
+                    fits = bags.fitsBackpack(e.item, inventoryItems, equippedItemIdSet(), toolbelt)
+                            || InventoryBags.isCapacityExempt(e.item);
+                if (!fits) {
+                    notifyInventory("No room in bag — free space first.");
+                    return false;
+                }
+                bags.takeOverflow(index);
+                inventoryItems.add(e.item);
+                return true;
+            case BOOSTER:
+                fits = bags.fitsBooster(boostersOwned);
+                if (!fits) {
+                    notifyInventory("No room in Packs — free space first.");
+                    return false;
+                }
+                bags.takeOverflow(index);
+                if (e.booster != null)
+                    boostersOwned.add(e.booster);
+                return true;
+            case MATERIAL: {
+                int room = bags.materialRoom(e.key, materials);
+                if (room <= 0) {
+                    notifyInventory("No room in Craft Pouch — free space or upgrade tier.");
+                    return false;
+                }
+                int move = Math.min(room, e.amount);
+                bags.takeOverflow(index);
+                materials.put(e.key, getMaterial(e.key) + move);
+                onMaterialChangeList.emit();
+                if (move < e.amount) {
+                    // Put remainder back.
+                    bags.placeInOverflow(OverflowEntry.ofMaterial(e.key, e.amount - move));
+                }
+                return true;
+            }
+            case CURRENCY:
+                if (!bags.fitsContestCurrency(e.key, e.amount, contestCurrencies, inventoryItems)) {
+                    notifyInventory("No room in Currency pouch.");
+                    return false;
+                }
+                bags.takeOverflow(index);
+                contestCurrencies.put(e.key, getContestCurrency(e.key) + e.amount);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
      * Removes {@code amount} of a material. Returns false if there is not enough (nothing taken).
      * Emits {@link #onMaterialChange} on success.
      */
