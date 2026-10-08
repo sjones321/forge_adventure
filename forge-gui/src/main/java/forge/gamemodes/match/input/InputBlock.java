@@ -71,6 +71,7 @@ public class InputBlock extends InputSyncronizedBase {
     /** {@inheritDoc} */
     @Override
     protected final void showMessage() {
+        getController().getGui().setCombatDeclareInput(false, true);
         getController().pushBlockerCandidates(defender, combat);
         // could add "Reset Blockers" button
         Localizer localizer = Localizer.getInstance();
@@ -92,6 +93,7 @@ public class InputBlock extends InputSyncronizedBase {
 
     @Override
     protected void onStop() {
+        getController().getGui().setCombatDeclareInput(false, false);
         // Clear so highlights don't survive autopass.
         getController().clearActionableCards();
     }

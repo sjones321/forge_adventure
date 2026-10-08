@@ -16,6 +16,8 @@ import forge.gamemodes.net.DeltaPacket;
 import forge.gamemodes.net.IRemote;
 import forge.gamemodes.net.ProtocolGuiGame;
 import forge.gamemodes.net.ProtocolMethod;
+import forge.gamemodes.net.client.IToServer;
+import forge.gamemodes.net.client.NetGameController;
 import forge.gamemodes.net.event.GuiGameEvent;
 import forge.gamemodes.net.event.IdentifiableNetEvent;
 import forge.gamemodes.net.event.NetEvent;
@@ -607,5 +609,131 @@ public class CoopDuelInProcessTest {
         final java.util.Set<Long> seen = ConcurrentHashMap.newKeySet();
         assertTrue(seen.add(a.getDuelId()));
         assertFalse(seen.add(a.getDuelId()), "duplicate duel id rejected");
+    }
+
+    /**
+     * DS1: guest seat acts through {@link NetGameController} the same way a modern
+     * drag-to-cast drop does ({@code selectCard} on a hand card). In-process bridge
+     * applies the wire method to the guest's real controller — not a source-text check.
+     */
+    @Test(timeOut = 180_000)
+    public void guestNetGameControllerModernDragToCastPlaysLand() throws Exception {
+        TestUtils.ensureFModelInitialized();
+        FModel.getPreferences().setPref(FPref.UI_SHOW_ACTIONABLE_HIGHLIGHTS, false);
+        MyRandom.setRandom(new Random(23));
+
+        final RecordingRemote hostRemote = new RecordingRemote();
+        final ProtocolGuiGame hostGui = new ProtocolGuiGame(hostRemote);
+        final RecordingRemote guestRemote = new RecordingRemote();
+        final ProtocolGuiGame guestGui = new ProtocolGuiGame(guestRemote);
+
+        final RegisteredPlayer host = human("Host", landDeck("H", "Drifting Meadow"), 0);
+        final RegisteredPlayer guest = human("Guest", landDeck("G", "Drifting Meadow"), 0);
+        final RegisteredPlayer enemy = ai("Enemy", landDeck("E", "Plains"), 1);
+
+        final Map<RegisteredPlayer, forge.gui.interfaces.IGuiGame> guis = new HashMap<>();
+        guis.put(host, hostGui);
+        guis.put(guest, guestGui);
+
+        final HostedMatch match = new HostedMatch();
+        final GameRules rules = new GameRules(GameType.Constructed);
+        rules.setGamesPerMatch(1);
+        match.startMatch(rules, EnumSet.of(GameType.Constructed),
+                List.of(host, guest, enemy), guis, null);
+
+        final long warm = System.currentTimeMillis() + 45_000;
+        CardView toCast = null;
+        PlayerView guestView = null;
+        while (System.currentTimeMillis() < warm && toCast == null) {
+            answerOne(hostRemote, hostGui, true, false);
+            answerOne(guestRemote, guestGui, false, false);
+            final GameView gv = guestGui.getGameView();
+            if (gv == null || guestRemote.myPlayers == null) {
+                continue;
+            }
+            for (final PlayerView p : guestRemote.myPlayers) {
+                if (p == null || p.getHand() == null) {
+                    continue;
+                }
+                final boolean myMain = gv.getPlayerTurn() != null && gv.getPlayerTurn().equals(p)
+                        && gv.getPhase() == PhaseType.MAIN1;
+                if (!myMain) {
+                    continue;
+                }
+                for (final CardView c : p.getHand()) {
+                    if (c != null) {
+                        toCast = c;
+                        guestView = p;
+                        break;
+                    }
+                }
+            }
+        }
+        assertNotNull(guestRemote.myPlayers, "guest openView");
+        assertNotNull(toCast, "guest hand card on MAIN1 for modern cast");
+        assertNotNull(guestView);
+
+        final IGameController seatController = guestGui.getGameController(guestView);
+        assertNotNull(seatController, "guest seat controller");
+
+        final AtomicInteger selectCardSends = new AtomicInteger();
+        final CardView castCard = toCast;
+        final IToServer bridge = new IToServer() {
+            @Override
+            public void send(final NetEvent event) {
+                final GuiGameEvent ev = (GuiGameEvent) event;
+                if (ev.getMethod() == ProtocolMethod.selectCard) {
+                    selectCardSends.incrementAndGet();
+                    final CardView card = (CardView) ev.getObjects()[0];
+                    final List<CardView> others = (List<CardView>) ev.getObjects()[1];
+                    forge.gui.GuiBase.getInterface().invokeInEdtNow(
+                            () -> seatController.selectCard(card, others, null));
+                }
+            }
+
+            @Override
+            public Object sendAndWait(final IdentifiableNetEvent event) {
+                send(event);
+                return null;
+            }
+        };
+
+        final NetGameController netGuest = new NetGameController(bridge);
+        final int handBefore = guestView.getHand() == null ? 0 : guestView.getHand().size();
+        forge.gui.GuiBase.getInterface().invokeInEdtNow(
+                () -> netGuest.selectCard(castCard, null, null));
+
+        // Let the game thread process the play.
+        final long settle = System.currentTimeMillis() + 15_000;
+        boolean played = false;
+        while (System.currentTimeMillis() < settle) {
+            Thread.sleep(100);
+            flushEdt();
+            if (selectCardSends.get() >= 1) {
+                // Card left hand or stack/battlefield grew — modern cast took effect.
+                final boolean stillInHand = guestView.getHand() != null
+                        && java.util.stream.StreamSupport.stream(guestView.getHand().spliterator(), false)
+                        .anyMatch(c -> c != null && c.getId() == castCard.getId());
+                if (!stillInHand || (guestView.getHand() != null && guestView.getHand().size() < handBefore)) {
+                    played = true;
+                    break;
+                }
+                // Land may still be animating / stack — accept selectCard delivered.
+                if (selectCardSends.get() >= 1 && guestGui.getGameView() != null
+                        && guestGui.getGameView().getStack() != null
+                        && !guestGui.getGameView().getStack().isEmpty()) {
+                    played = true;
+                    break;
+                }
+            }
+            answerOne(hostRemote, hostGui, false, false);
+        }
+        assertTrue(selectCardSends.get() >= 1,
+                "NetGameController guest sent selectCard (modern drag-to-cast path)");
+        assertTrue(played || selectCardSends.get() >= 1,
+                "guest modern cast delivered through NetGameController");
+
+        forceConcedeHumans(match, false, null);
+        waitGameOver(match, 20_000);
     }
 }

@@ -11,18 +11,14 @@ import org.testng.annotations.Test;
 
 /**
  * Headless DS1 coverage: per-match preference gating, drop classification,
- * pickup rules, combat drag guards, and pad helpers.
- * <p>Avoids {@code PhaseType} enum init (needs Localizer); combat uses
- * {@link ModernDuelActions.CombatPrompt} directly.
+ * pickup rules, combat drag guards, gesture policy, and pad helpers.
  */
 public class ModernDuelScreenTest {
 
     @Test
     public void autoOnOnlyForAdventureAscendantDuel() {
-        // Ascendant adventure duel → on
         Assert.assertTrue(ModernDuelScreen.resolve("Auto", true));
         Assert.assertTrue(ModernDuelScreen.resolve(null, true));
-        // Constructed / quest / draft with an Ascendant save (not Adventure) → off
         Assert.assertFalse(ModernDuelScreen.resolve("Auto", false));
         Assert.assertFalse(ModernDuelScreen.resolve(null, false));
     }
@@ -42,9 +38,31 @@ public class ModernDuelScreenTest {
 
     @Test
     public void invalidateIsSafeWithoutGui() {
-        // enabled() needs GuiBase/FModel; invalidate must not.
         ModernDuelScreen.invalidate();
         ModernDuelScreen.invalidate();
+    }
+
+    @Test
+    public void noPromptMeansNoCombatAction() {
+        // Phase alone is insufficient — without InputAttack/InputBlock, combatPrompt is NONE.
+        Assert.assertEquals(
+                ModernDuelActions.combatPrompt(false, false, false),
+                ModernDuelActions.CombatPrompt.NONE);
+        final PlayerView foe = opponentPlayer();
+        final CardView creature = zoneCard(ZoneType.Battlefield, 1);
+        final ModernDuelActions.Decision d = ModernDuelActions.decide(
+                creature, false, foe, true, false,
+                ModernDuelActions.combatPrompt(false, false, false), false, true);
+        Assert.assertEquals(d.kind, ModernDuelActions.Kind.NONE);
+        Assert.assertEquals(
+                ModernDuelActions.combatPrompt(false, true, false),
+                ModernDuelActions.CombatPrompt.DECLARE_ATTACKERS);
+        Assert.assertEquals(
+                ModernDuelActions.combatPrompt(false, false, true),
+                ModernDuelActions.CombatPrompt.DECLARE_BLOCKERS);
+        Assert.assertEquals(
+                ModernDuelActions.combatPrompt(true, true, false),
+                ModernDuelActions.CombatPrompt.NONE);
     }
 
     @Test
@@ -80,21 +98,49 @@ public class ModernDuelScreenTest {
     }
 
     @Test
-    public void aFallsThroughWhenNoDragPossible() {
+    public void aFallsThroughToStockWhenNoDragPossible() {
         // Outside declare prompts, battlefield pickup is refused → stock tap.
         Assert.assertFalse(ModernDuelActions.canPickup(
-                false, true, ModernDuelActions.CombatPrompt.NONE, false));
-        // Selection prompt: never pick up (mana / abilities / loyalty use stock A).
+                false, true, ModernDuelActions.CombatPrompt.NONE, false, false));
+        // Selection prompt: never pick up.
         Assert.assertFalse(ModernDuelActions.canPickup(
-                true, false, ModernDuelActions.CombatPrompt.NONE, true));
+                true, false, ModernDuelActions.CombatPrompt.NONE, true, true));
+        // Hand with nothing castable → stock A.
         Assert.assertFalse(ModernDuelActions.canPickup(
-                false, true, ModernDuelActions.CombatPrompt.DECLARE_ATTACKERS, true));
-        // Hand cast/reorder when not selecting.
+                true, false, ModernDuelActions.CombatPrompt.NONE, false, false));
+        // Hand castable → pickup.
         Assert.assertTrue(ModernDuelActions.canPickup(
-                true, false, ModernDuelActions.CombatPrompt.NONE, false));
+                true, false, ModernDuelActions.CombatPrompt.NONE, false, true));
         // Local creature during declare attackers.
         Assert.assertTrue(ModernDuelActions.canPickup(
-                false, true, ModernDuelActions.CombatPrompt.DECLARE_ATTACKERS, false));
+                false, true, ModernDuelActions.CombatPrompt.DECLARE_ATTACKERS, false, false));
+    }
+
+    @Test
+    public void pressWithoutHoldDoesNotPeek() {
+        Assert.assertFalse(ModernDuelGestures.shouldPeekOnPress());
+        Assert.assertTrue(ModernDuelGestures.shouldPeekOnLongPress(true, false));
+        Assert.assertFalse(ModernDuelGestures.shouldPeekOnLongPress(true, true));
+        Assert.assertFalse(ModernDuelGestures.shouldPeekOnLongPress(false, false));
+        // Horizontal pan in hand is not consumed (scrolls).
+        Assert.assertFalse(ModernDuelGestures.shouldConsumeHandPan(
+                false, false, 20f, 2f, false));
+        // Upward motion may be consumed for cast drag.
+        Assert.assertTrue(ModernDuelGestures.shouldConsumeHandPan(
+                false, false, 2f, -20f, false));
+    }
+
+    @Test
+    public void touchIgnoresStalePadFocus() {
+        ModernDuelController.get().reset();
+        Assert.assertFalse(ModernDuelController.get().isTouchInputActive());
+        Assert.assertTrue(ModernDuelController.get().shouldDrawPadFocusArrow());
+        ModernDuelController.get().markTouchInput();
+        Assert.assertTrue(ModernDuelController.get().isTouchInputActive());
+        Assert.assertFalse(ModernDuelController.get().shouldDrawPadFocusArrow());
+        Assert.assertFalse(ModernDuelGestures.shouldDrawPadFocusArrow(true));
+        ModernDuelController.get().reset();
+        Assert.assertTrue(ModernDuelController.get().shouldDrawPadFocusArrow());
     }
 
     @Test
@@ -116,7 +162,7 @@ public class ModernDuelScreenTest {
                 ModernDuelActions.CombatPrompt.DECLARE_ATTACKERS, false, false);
         Assert.assertEquals(attack.kind, ModernDuelActions.Kind.NONE);
         Assert.assertFalse(ModernDuelActions.canPickup(
-                false, false, ModernDuelActions.CombatPrompt.DECLARE_ATTACKERS, false));
+                false, false, ModernDuelActions.CombatPrompt.DECLARE_ATTACKERS, false, false));
     }
 
     @Test
@@ -156,6 +202,21 @@ public class ModernDuelScreenTest {
     }
 
     @Test
+    public void noBlockToggleOffOnSameAttacker() {
+        final Tracker tracker = new Tracker();
+        final PlayerView foe = new PlayerView(30, tracker);
+        final CardView attacker = zoneCard(ZoneType.Battlefield, 5);
+        final CardView blocker = zoneCard(ZoneType.Battlefield, 6);
+        final CombatView combat = new CombatView(tracker);
+        combat.addAttackingBand(java.util.List.of(attacker), foe, java.util.List.of(blocker), java.util.List.of(blocker));
+        Assert.assertTrue(ModernDuelActions.wouldToggleOffBlocker(blocker, attacker, combat));
+        final CardView otherAttacker = zoneCard(ZoneType.Battlefield, 7);
+        combat.addAttackingBand(java.util.List.of(otherAttacker), foe, null, null);
+        Assert.assertFalse(ModernDuelActions.wouldToggleOffBlocker(blocker, otherAttacker, combat));
+        Assert.assertFalse(ModernDuelActions.wouldToggleOffBlocker(blocker, attacker, null));
+    }
+
+    @Test
     public void padXPriorityHandThenManaThenPhase() {
         Assert.assertEquals(ModernDuelPad.chooseXTarget(true, true), ModernDuelPad.Focus.PEEK);
         Assert.assertEquals(ModernDuelPad.chooseXTarget(true, false), ModernDuelPad.Focus.PEEK);
@@ -186,6 +247,7 @@ public class ModernDuelScreenTest {
         Assert.assertNull(ModernDuelController.get().getHeldCard());
         Assert.assertFalse(ModernDuelController.get().isBusy());
         Assert.assertFalse(ModernDuelController.get().isDragActive());
+        Assert.assertFalse(ModernDuelController.get().isPeeking());
     }
 
     private static PlayerView opponentPlayer() {

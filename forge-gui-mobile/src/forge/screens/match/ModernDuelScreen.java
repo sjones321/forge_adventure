@@ -38,25 +38,28 @@ public final class ModernDuelScreen {
 
     private static Boolean cachedEnabled;
     private static String cachedMode;
+    private static boolean cachedAdventureAscendant;
 
     private ModernDuelScreen() {
     }
 
     /**
      * Whether the modern duel screen is active for the current match.
-     * Result is cached; call {@link #invalidate()} when the preference changes
-     * or a match starts (Adventure flag / Ascendant may differ).
+     * Result is cached (mode + adventure/ascendant); call {@link #invalidate()}
+     * when the preference changes or a match starts.
      */
     public static boolean enabled() {
         final String mode = FModel.getPreferences() == null
                 ? MODE_AUTO
                 : FModel.getPreferences().getPref(FPref.UI_MODERN_DUEL_SCREEN);
-        if (cachedEnabled != null && modeEquals(cachedMode, mode)) {
+        final boolean adventureAscendant = Forge.isMobileAdventureMode && Config.ascendant();
+        if (cachedEnabled != null && modeEquals(cachedMode, mode)
+                && cachedAdventureAscendant == adventureAscendant) {
             return cachedEnabled.booleanValue();
         }
-        final boolean adventureAscendant = Forge.isMobileAdventureMode && Config.ascendant();
         final boolean on = resolve(mode, adventureAscendant);
         cachedMode = mode;
+        cachedAdventureAscendant = adventureAscendant;
         cachedEnabled = Boolean.valueOf(on);
         return on;
     }

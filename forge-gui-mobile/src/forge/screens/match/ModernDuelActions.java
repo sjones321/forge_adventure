@@ -20,16 +20,14 @@ package forge.screens.match;
 import forge.game.GameEntityView;
 import forge.game.card.CardView;
 import forge.game.combat.CombatView;
-import forge.game.phase.PhaseType;
 import forge.game.player.PlayerView;
 import forge.game.zone.ZoneType;
+import forge.util.collect.FCollection;
 
 /**
  * Pure drop classification for DS1 drag-to-cast / attack / block, adapted from
  * Neo Forge {@code NeoMatchUI.onCardDropped} behaviour (not a line copy).
  * All game effects still go through {@code IGameController.selectCard/selectPlayer}.
- * <p>Combat prompt helpers avoid forcing {@link PhaseType} class-init in headless
- * tests — pass {@link CombatPrompt} directly from tests.
  */
 public final class ModernDuelActions {
     public enum Kind {
@@ -65,26 +63,49 @@ public final class ModernDuelActions {
     private ModernDuelActions() {
     }
 
-    public static CombatPrompt combatPrompt(final PhaseType phase, final boolean selecting) {
-        if (selecting || phase == null) {
+    /**
+     * Combat drag is gated on the active {@code InputAttack} / {@code InputBlock},
+     * not merely the phase. Phase alone yields {@link CombatPrompt#NONE}.
+     *
+     * @param selecting            engine card-selection prompt (not combat declare)
+     * @param inputAttackActive    {@link forge.gui.interfaces.IGuiGame#isCombatDeclareAttackersInput()}
+     * @param inputBlockActive     {@link forge.gui.interfaces.IGuiGame#isCombatDeclareBlockersInput()}
+     */
+    public static CombatPrompt combatPrompt(final boolean selecting,
+                                            final boolean inputAttackActive,
+                                            final boolean inputBlockActive) {
+        if (selecting) {
             return CombatPrompt.NONE;
         }
-        if (phase == PhaseType.COMBAT_DECLARE_ATTACKERS) {
+        if (inputAttackActive) {
             return CombatPrompt.DECLARE_ATTACKERS;
         }
-        if (phase == PhaseType.COMBAT_DECLARE_BLOCKERS) {
+        if (inputBlockActive) {
             return CombatPrompt.DECLARE_BLOCKERS;
         }
         return CombatPrompt.NONE;
     }
 
     /**
-     * Whether controller A / touch should pick the card up for a drag action.
-     * Hand: cast or reorder when not in a selection prompt. Battlefield: only
-     * local creatures during declare-attackers / declare-blockers.
+     * Whether controller A should pick the card up for a drag action.
+     * Hand: only when a cast (or other hand drag) is actually possible.
+     * Battlefield: only local creatures during declare-attackers / declare-blockers.
      */
     public static boolean canPickup(final boolean fromHand, final boolean localCreature,
-                                    final CombatPrompt combat, final boolean selecting) {
+                                    final CombatPrompt combat, final boolean selecting,
+                                    final boolean handCastable) {
+        if (selecting) {
+            return false;
+        }
+        if (fromHand) {
+            return handCastable;
+        }
+        return localCreature && combat != CombatPrompt.NONE;
+    }
+
+    /** Touch may start a hand drag for cast/reorder even when A would fall through. */
+    public static boolean canTouchDrag(final boolean fromHand, final boolean localCreature,
+                                       final CombatPrompt combat, final boolean selecting) {
         if (selecting) {
             return false;
         }
@@ -111,6 +132,26 @@ public final class ModernDuelActions {
     }
 
     /**
+     * True when dropping {@code source} on {@code target} would toggle an
+     * existing block off (blocker already assigned to that attacker).
+     */
+    public static boolean wouldToggleOffBlocker(final CardView source, final Object target,
+                                                final CombatView combat) {
+        if (combat == null || source == null || !(target instanceof CardView attacker)) {
+            return false;
+        }
+        if (!combat.isAttacking(attacker)) {
+            return false;
+        }
+        final FCollection<CardView> planned = combat.getPlannedBlockers(attacker);
+        if (planned != null && planned.contains(source)) {
+            return true;
+        }
+        final FCollection<CardView> blockers = combat.getBlockers(attacker);
+        return blockers != null && blockers.contains(source);
+    }
+
+    /**
      * @param localCreature true when {@code source} is a creature the local player controls
      *                      (callers compute this; keeps headless tests free of CardType setup)
      */
@@ -133,7 +174,6 @@ public final class ModernDuelActions {
 
         final boolean onBattlefield = source.getZone() == ZoneType.Battlefield;
         if (!onBattlefield) {
-            // Command-zone / elsewhere: treat as a click (cast commander, etc.)
             return new Decision(Kind.CAST, target);
         }
 
@@ -141,7 +181,6 @@ public final class ModernDuelActions {
         final boolean blocking = localCreature && combat == CombatPrompt.DECLARE_BLOCKERS && !selecting;
 
         if (!attacking && !blocking) {
-            // Permanent drag outside combat / opponent creature does nothing.
             return new Decision(Kind.NONE, null);
         }
         if (target == null) {
@@ -153,7 +192,6 @@ public final class ModernDuelActions {
             }
             return new Decision(Kind.NONE, null);
         }
-        // Block: any battlefield card is accepted here; applyDrop verifies combat attackers.
         if (target instanceof CardView) {
             return new Decision(Kind.BLOCK, target);
         }
@@ -169,7 +207,6 @@ public final class ModernDuelActions {
             if (ctrl == null || ctrl.getId() == p.getId()) {
                 return false;
             }
-            // Prefer tracked opponents; if the view has none yet, any other player is fine.
             if (ctrl.getOpponents() != null && !ctrl.getOpponents().isEmpty()) {
                 return ctrl.isOpponentOf(p);
             }

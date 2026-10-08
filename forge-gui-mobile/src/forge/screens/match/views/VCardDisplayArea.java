@@ -620,11 +620,16 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
 
         @Override
         public boolean longPress(float x, float y) {
-            // Active drag owns the gesture; peek alone still allows long-press zoom.
+            // Active drag owns the gesture.
             if (ModernDuelScreen.enabled() && ModernDuelController.get().isDragActive()) {
                 return true;
             }
             if (renderedCardContains(x, y)) {
+                // Peek on long-press/hold (not plain press); stock zoom still available.
+                if (ModernDuelScreen.enabled()
+                        && ModernDuelController.get().onCardLongPress(this)) {
+                    return true;
+                }
                 showZoom();
                 return true;
             }

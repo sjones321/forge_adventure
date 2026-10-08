@@ -73,6 +73,19 @@ public interface IGuiGame {
 
     void showCombat();
 
+    /**
+     * DS1: mark whether {@code InputAttack} / {@code InputBlock} is the active prompt.
+     * Combat drag must require this, not merely the phase. Default no-op for GUIs
+     * that do not track it.
+     */
+    default void setCombatDeclareInput(boolean attackers, boolean blockers) { }
+
+    /** @see #setCombatDeclareInput(boolean, boolean) */
+    default boolean isCombatDeclareAttackersInput() { return false; }
+
+    /** @see #setCombatDeclareInput(boolean, boolean) */
+    default boolean isCombatDeclareBlockersInput() { return false; }
+
     default void showPromptMessage(PlayerView playerView, String message) {
         showPromptMessage(playerView, message, null);
     }

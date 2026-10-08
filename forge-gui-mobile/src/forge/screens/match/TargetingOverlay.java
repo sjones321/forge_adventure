@@ -39,6 +39,8 @@ public class TargetingOverlay {
     private static final float ARROW_THICKNESS = Utils.scale(5);
     private static final float ARROW_SIZE = 3 * ARROW_THICKNESS;
     private static FSkinColor friendColor, foeAtkColor, foeDefColor;
+    /** Precomputed soft friend colour — avoid friendColor.alphaColor(0.85f) every frame. */
+    private static Color friendColorSoft;
     /** Neo Forge CombatOverlay palette when {@link ModernDuelScreen} is on (cached). */
     private static final Color MODERN_ATTACK = Color.valueOf("D9534F");
     private static final Color MODERN_BLOCK = Color.valueOf("4A9BE0");
@@ -61,6 +63,7 @@ public class TargetingOverlay {
         if (friendColor.getAlpha() == 0) {
             friendColor = Forge.isMobileAdventureMode ? FSkinColor.get(Colors.ADV_CLR_ACTIVE).alphaColor(153f / 255f) : FSkinColor.get(Colors.CLR_ACTIVE).alphaColor(153f / 255f);
         }
+        friendColorSoft = friendColor.alphaColor(0.85f).getColor();
 
         foeDefColor = Forge.isMobileAdventureMode ? FSkinColor.get(Colors.ADV_CLR_COMBAT_TARGETING_ARROW) : FSkinColor.get(Colors.CLR_COMBAT_TARGETING_ARROW);
         if (foeDefColor.getAlpha() == 0) {
@@ -248,9 +251,7 @@ public class TargetingOverlay {
                     case FoesAttacking -> MODERN_ATTACK_SOFT;
                     case FoesBlocking -> MODERN_BLOCK_SOFT;
                     case FriendsStackTargeting, FoesStackTargeting -> MODERN_TARGET_SOFT;
-                    default -> friendColor != null
-                            ? friendColor.alphaColor(0.85f).getColor()
-                            : MODERN_FRIEND_SOFT_FALLBACK;
+                    default -> friendColorSoft != null ? friendColorSoft : MODERN_FRIEND_SOFT_FALLBACK;
                 };
             }
         } else {

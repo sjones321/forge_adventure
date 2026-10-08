@@ -29,7 +29,6 @@ import forge.card.CardRenderer.CardStackPosition;
 import forge.game.GameView;
 import forge.game.card.CardView;
 import forge.game.combat.CombatView;
-import forge.game.phase.PhaseType;
 import forge.game.player.PlayerView;
 import forge.game.spellability.StackItemView;
 import forge.game.zone.ZoneType;
@@ -81,6 +80,8 @@ public final class ModernDuelController {
     private int phaseFocusIndex;
 
     private boolean swallowNextTap;
+    /** Once touch is used, ignore leftover gamepad focus for targeting arrows. */
+    private boolean touchInputActive;
 
     public static ModernDuelController get() {
         return INSTANCE;
@@ -96,6 +97,7 @@ public final class ModernDuelController {
         heldCard = null;
         heldFromHand = false;
         swallowNextTap = false;
+        touchInputActive = false;
     }
 
     public boolean isBusy() {
@@ -108,8 +110,33 @@ public final class ModernDuelController {
         return dragActive;
     }
 
+    public boolean isPeeking() {
+        return peekCard != null;
+    }
+
+    /** True after touch input; pad focus arrow must not be drawn. */
+    public boolean isTouchInputActive() {
+        return touchInputActive;
+    }
+
+    public boolean shouldDrawPadFocusArrow() {
+        return ModernDuelGestures.shouldDrawPadFocusArrow(touchInputActive);
+    }
+
     public ModernDuelPad.Focus getPadFocus() {
         return padFocus;
+    }
+
+    /** Mark that touch is driving input (clears stale pad focus for arrows). */
+    public void markTouchInput() {
+        touchInputActive = true;
+        if (padFocus != ModernDuelPad.Focus.NONE) {
+            clearPadFocus();
+        }
+    }
+
+    private void noteTouchInput() {
+        markTouchInput();
     }
 
     public boolean shouldSwallowTap() {
@@ -125,6 +152,7 @@ public final class ModernDuelController {
         if (!ModernDuelScreen.enabled() || panel == null || panel.getCard() == null) {
             return false;
         }
+        noteTouchInput();
         final CardView card = panel.getCard();
         pressScreenX = screenX;
         pressScreenY = screenY;
@@ -135,8 +163,8 @@ public final class ModernDuelController {
         swallowNextTap = false;
 
         final boolean fromHand = card.getZone() == ZoneType.Hand;
-        // Press-to-peek hand (stock long-press zoom still works; peek alone is not a drag).
-        if (fromHand && !MatchController.instance.isSelecting()) {
+        // Peek is long-press only — plain press must not swallow hand scrolling.
+        if (fromHand && ModernDuelGestures.shouldPeekOnPress()) {
             showPeek(panel);
             dragSource = null;
             dragFromHand = false;
@@ -144,7 +172,7 @@ public final class ModernDuelController {
             return true;
         }
 
-        if (!canPickupCard(card)) {
+        if (!canTouchDragCard(card)) {
             clearDrag();
             return false;
         }
@@ -154,10 +182,26 @@ public final class ModernDuelController {
         return false;
     }
 
+    public boolean onCardLongPress(final CardAreaPanel panel) {
+        if (!ModernDuelScreen.enabled() || panel == null || panel.getCard() == null) {
+            return false;
+        }
+        noteTouchInput();
+        final CardView card = panel.getCard();
+        final boolean fromHand = card.getZone() == ZoneType.Hand;
+        if (ModernDuelGestures.shouldPeekOnLongPress(fromHand, MatchController.instance.isSelecting())) {
+            showPeek(panel);
+            Gdx.graphics.requestRendering();
+            return true;
+        }
+        return false;
+    }
+
     public boolean onCardPan(final CardAreaPanel panel, final float screenX, final float screenY) {
         if (!ModernDuelScreen.enabled()) {
             return false;
         }
+        noteTouchInput();
         if (peekCard != null) {
             if (!isOverBoard(screenX, screenY)) {
                 final CardAreaPanel under = handCardAt(screenX);
@@ -168,7 +212,7 @@ public final class ModernDuelController {
                 return true;
             }
             // Lifted onto the board: convert peek into a drag of the shown card.
-            if (!canPickupCard(peekCard)) {
+            if (!canTouchDragCard(peekCard)) {
                 hidePeek();
                 clearDrag();
                 return false;
@@ -179,9 +223,19 @@ public final class ModernDuelController {
             dragActive = true;
         }
 
+        final float dx = screenX - pressScreenX;
+        final float dy = screenY - pressScreenY;
+        final boolean overBoard = isOverBoard(screenX, screenY);
+        if (dragFromHand || (panel != null && panel.getCard() != null
+                && panel.getCard().getZone() == ZoneType.Hand)) {
+            if (!ModernDuelGestures.shouldConsumeHandPan(peekCard != null, dragActive, dx, dy, overBoard)) {
+                // Horizontal pan in hand → scroll.
+                return false;
+            }
+        }
+
         if (dragSource == null && panel != null && panel.getCard() != null) {
-            if (!canPickupCard(panel.getCard())) {
-                // Do not swallow pans — hand/field must still scroll.
+            if (!canTouchDragCard(panel.getCard())) {
                 return false;
             }
             dragSource = panel.getCard();
@@ -191,7 +245,7 @@ public final class ModernDuelController {
             return false;
         }
         if (!dragActive) {
-            if (Math.hypot(screenX - pressScreenX, screenY - pressScreenY) < ModernDuelScreen.DRAG_SLOP_PX) {
+            if (Math.hypot(dx, dy) < ModernDuelScreen.DRAG_SLOP_PX) {
                 return false;
             }
             dragActive = true;
@@ -199,7 +253,7 @@ public final class ModernDuelController {
         dragScreenX = screenX;
         dragScreenY = screenY;
         final Object target = entityAt(screenX, screenY);
-        final boolean cancelling = dragFromHand && !isOverBoard(screenX, screenY);
+        final boolean cancelling = dragFromHand && !overBoard;
         dragValid = !cancelling && target != null;
         Gdx.graphics.requestRendering();
         return true;
@@ -251,6 +305,8 @@ public final class ModernDuelController {
         if (!ModernDuelScreen.enabled() || screen == null) {
             return false;
         }
+        // Gamepad resumes pad-focus arrows after touch.
+        touchInputActive = false;
         switch (keyCode) {
             case Keys.BUTTON_X:
                 return onPadX(focusedCard);
@@ -489,8 +545,8 @@ public final class ModernDuelController {
         if (focused == null) {
             return false;
         }
-        // Stock tap/activate (mana, abilities, loyalty) when no drag action is possible.
-        if (!canPickupCard(focused)) {
+        // Stock tap/activate (mana, abilities, loyalty, uncastable hand) when no drag.
+        if (!canControllerPickupCard(focused)) {
             return false;
         }
         heldCard = focused;
@@ -552,7 +608,11 @@ public final class ModernDuelController {
                         origin.x, origin.y, dragScreenX, dragScreenY, true);
             }
         }
-        // Held card or targeting: amber arrow only from the actual source card.
+        // Held card or targeting: amber arrow from the actual source to pad focus.
+        // Touch users must not see leftover gamepad focus arrows.
+        if (!shouldDrawPadFocusArrow()) {
+            return;
+        }
         final Vector2 targetEnd = focusArrowEnd();
         Vector2 origin = null;
         if (heldCard != null) {
@@ -570,9 +630,8 @@ public final class ModernDuelController {
     private void applyDrop(final CardView source, final boolean fromHand, final Object target,
                            final boolean overBoard, final boolean overHand, final float screenX) {
         final GameView gv = MatchController.instance.getGameView();
-        final PhaseType phase = gv == null ? null : gv.getPhase();
         final boolean selecting = MatchController.instance.isSelecting();
-        final ModernDuelActions.CombatPrompt combat = ModernDuelActions.combatPrompt(phase, selecting);
+        final ModernDuelActions.CombatPrompt combat = currentCombatPrompt(selecting);
         final PlayerView local = MatchController.instance.getCurrentPlayer();
         final boolean localCreature = isLocalCreature(source, local);
         final ModernDuelActions.Decision d = ModernDuelActions.decide(
@@ -618,6 +677,10 @@ public final class ModernDuelController {
                 if (d.target instanceof CardView attacker) {
                     final CombatView combatView = gv == null ? null : gv.getCombat();
                     if (combatView != null && !containsAttacker(combatView, attacker)) {
+                        return;
+                    }
+                    // Dropping a blocker on an attacker it already blocks must not remove the block.
+                    if (ModernDuelActions.wouldToggleOffBlocker(source, attacker, combatView)) {
                         return;
                     }
                     ThreadUtil.invokeInGameThread(() -> {
@@ -844,18 +907,52 @@ public final class ModernDuelController {
         }
     }
 
-    private static boolean canPickupCard(final CardView card) {
+    private static ModernDuelActions.CombatPrompt currentCombatPrompt(final boolean selecting) {
+        return ModernDuelActions.combatPrompt(
+                selecting,
+                MatchController.instance.isCombatDeclareAttackersInput(),
+                MatchController.instance.isCombatDeclareBlockersInput());
+    }
+
+    private static boolean canControllerPickupCard(final CardView card) {
         if (card == null) {
             return false;
         }
         final boolean selecting = MatchController.instance.isSelecting();
-        final GameView gv = MatchController.instance.getGameView();
-        final PhaseType phase = gv == null ? null : gv.getPhase();
-        final ModernDuelActions.CombatPrompt combat = ModernDuelActions.combatPrompt(phase, selecting);
+        final ModernDuelActions.CombatPrompt combat = currentCombatPrompt(selecting);
         final boolean fromHand = card.getZone() == ZoneType.Hand;
         final PlayerView local = MatchController.instance.getCurrentPlayer();
         final boolean localCreature = isLocalCreature(card, local);
-        return ModernDuelActions.canPickup(fromHand, localCreature, combat, selecting);
+        final boolean handCastable = fromHand && isHandCastable(card);
+        return ModernDuelActions.canPickup(fromHand, localCreature, combat, selecting, handCastable);
+    }
+
+    private static boolean canTouchDragCard(final CardView card) {
+        if (card == null) {
+            return false;
+        }
+        final boolean selecting = MatchController.instance.isSelecting();
+        final ModernDuelActions.CombatPrompt combat = currentCombatPrompt(selecting);
+        final boolean fromHand = card.getZone() == ZoneType.Hand;
+        final PlayerView local = MatchController.instance.getCurrentPlayer();
+        final boolean localCreature = isLocalCreature(card, local);
+        return ModernDuelActions.canTouchDrag(fromHand, localCreature, combat, selecting);
+    }
+
+    private static boolean isHandCastable(final CardView card) {
+        if (card == null || card.getZone() != ZoneType.Hand) {
+            return false;
+        }
+        try {
+            final IGameController c = MatchController.instance.getGameController();
+            if (c == null) {
+                return false;
+            }
+            final String desc = c.getActivateDescription(card);
+            return desc != null && !desc.isEmpty();
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private static boolean isLocalCreature(final CardView card, final PlayerView local) {

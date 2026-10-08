@@ -41,6 +41,9 @@ import forge.util.Utils;
  */
 public class VFloatingMana extends FDisplayObject {
     private static final FSkinFont FONT = FSkinFont.get(12);
+    /** Cached draw colours — do not allocate per frame. */
+    private static final Color BACKDROP = new Color(0f, 0f, 0f, 0.45f);
+    private static final Color FOCUS_FILL = new Color(1f, 1f, 1f, 0.25f);
     public static final byte[] COLORS = {
             ManaAtom.COLORLESS, MagicColor.WHITE, MagicColor.BLUE,
             MagicColor.BLACK, MagicColor.RED, MagicColor.GREEN
@@ -156,7 +159,7 @@ public class VFloatingMana extends FDisplayObject {
         }
         final float pipW = getWidth() / COLORS.length;
         final float h = getHeight();
-        g.fillRect(new Color(0f, 0f, 0f, 0.45f), 0, 0, getWidth(), h);
+        g.fillRect(BACKDROP, 0, 0, getWidth(), h);
         for (int i = 0; i < COLORS.length; i++) {
             final int count = player.getMana(COLORS[i]);
             if (count <= 0 && !forceVisible) {
@@ -168,7 +171,7 @@ public class VFloatingMana extends FDisplayObject {
             final float ix = i * pipW + (pipW - size) / 2f;
             final float iy = pad;
             if (i == focusedIndex) {
-                g.fillRect(new Color(1f, 1f, 1f, 0.25f), i * pipW, 0, pipW, h);
+                g.fillRect(FOCUS_FILL, i * pipW, 0, pipW, h);
                 g.drawRect(Utils.scale(2), Color.WHITE, i * pipW + 1, 1, pipW - 2, h - 2);
             }
             g.drawImage(image, ix, iy, size, size);
