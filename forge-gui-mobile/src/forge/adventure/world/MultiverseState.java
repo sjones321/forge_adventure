@@ -15,31 +15,35 @@ import java.util.Set;
 /**
  * MV1 multi-plane registry for one {@link WorldSave}.
  *
- * <p>Only the current plane is held as live world/stage/POI state on the save.
- * Inactive planes are referenced by id and loaded on demand from a
- * {@link PlaneBlobStore} (side files). Full world blobs are not kept in RAM.
- * Account-level character data lives on {@link forge.adventure.player.AdventurePlayer}.
+ * <p>Only the current plane is held as a live {@link World}. Inactive planes are
+ * stored as <strong>compressed byte blobs inside the {@code .sav}</strong> (and
+ * kept compressed in RAM). They are decompressed only when switching to them.
+ *
+ * <p>Layout inside the save's {@code multiverse} sub-data:
+ * <pre>
+ *   currentPlaneId, planeIds[], meta_&lt;id&gt;, inactivePlaneIds[],
+ *   cz_&lt;id&gt; = byte[] (Deflater-compressed PlaneBlob)
+ * </pre>
  */
 public final class MultiverseState {
     private String currentPlaneId = PlaneMeta.HOME_ID;
     private final LinkedHashMap<String, PlaneMeta> metas = new LinkedHashMap<>();
-    /** Inactive plane ids whose payloads live in {@link #blobStore}. */
+    /** Inactive plane ids with a compressed payload in {@link #compressedBlobs}. */
     private final LinkedHashSet<String> inactivePlaneIds = new LinkedHashSet<>();
+    /** Compressed payloads — never held as live {@link World} / inflated SaveFileData. */
+    private final LinkedHashMap<String, byte[]> compressedBlobs = new LinkedHashMap<>();
     private boolean multiPlaneFormat;
-    private PlaneBlobStore blobStore = new MemoryPlaneBlobStore();
-    /** Embedded blobs found while loading a pre-side-file save; flushed then cleared. */
-    private final LinkedHashMap<String, SaveFileData> pendingEmbeddedMigration = new LinkedHashMap<>();
-
-    public void setBlobStore(PlaneBlobStore store) {
-        this.blobStore = store != null ? store : new MemoryPlaneBlobStore();
-    }
-
-    public PlaneBlobStore getBlobStore() {
-        return blobStore;
-    }
 
     public String getCurrentPlaneId() {
-        return currentPlaneId != null && !currentPlaneId.isEmpty() ? currentPlaneId : PlaneMeta.HOME_ID;
+        if (currentPlaneId != null && !currentPlaneId.isEmpty()) {
+            return currentPlaneId;
+        }
+        return PlaneMeta.HOME_ID;
+    }
+
+    /** Raw field (may be null/empty before init); used by load paths that must not rename. */
+    public String getCurrentPlaneIdRaw() {
+        return currentPlaneId;
     }
 
     public boolean isMultiPlaneFormat() {
@@ -66,11 +70,16 @@ public final class MultiverseState {
         return planeId != null && metas.containsKey(planeId);
     }
 
-    /** True when a plane id is inactive (side-file / store) and not the live current plane. */
+    public boolean hasCompressedBlob(String planeId) {
+        return planeId != null && CompressedPlaneBlob.isCompressedPayload(compressedBlobs.get(planeId));
+    }
+
+    /** True when inactive and compressed payload is present (not the live plane). */
     public boolean isSerializedOnly(String planeId) {
         return planeId != null
                 && !planeId.equals(getCurrentPlaneId())
-                && inactivePlaneIds.contains(planeId);
+                && inactivePlaneIds.contains(planeId)
+                && hasCompressedBlob(planeId);
     }
 
     public int inactivePlaneCount() {
@@ -81,24 +90,31 @@ public final class MultiverseState {
         return Collections.unmodifiableSet(new LinkedHashSet<>(inactivePlaneIds));
     }
 
+    /** Test helper: payload is held compressed (not an inflated SaveFileData). */
+    public boolean isHeldCompressed(String planeId) {
+        return hasCompressedBlob(planeId);
+    }
+
+    public int compressedByteSize(String planeId) {
+        byte[] b = compressedBlobs.get(planeId);
+        return b == null ? 0 : b.length;
+    }
+
     /**
-     * Load an inactive plane blob on demand. Does not retain the payload in this registry.
+     * Decompress an inactive plane on demand. Does not retain the inflated form.
      */
     public SaveFileData readInactiveBlob(String planeId) throws IOException {
         if (planeId == null) {
             return null;
         }
-        SaveFileData pending = pendingEmbeddedMigration.get(planeId);
-        if (pending != null) {
-            return pending;
-        }
-        if (!blobStore.exists(planeId)) {
+        byte[] compressed = compressedBlobs.get(planeId);
+        if (!CompressedPlaneBlob.isCompressedPayload(compressed)) {
             return null;
         }
-        return blobStore.read(planeId);
+        return CompressedPlaneBlob.decompress(compressed);
     }
 
-    /** @deprecated use {@link #readInactiveBlob(String)}; kept for older call sites. */
+    /** @deprecated use {@link #readInactiveBlob(String)} */
     public SaveFileData getInactiveBlob(String planeId) {
         try {
             return readInactiveBlob(planeId);
@@ -107,13 +123,10 @@ public final class MultiverseState {
         }
     }
 
-    /**
-     * Bootstrap after new game or legacy load: current live world becomes home.
-     */
     public void initHomeFromLive(long seed, float posX, float posY) {
         metas.clear();
         inactivePlaneIds.clear();
-        pendingEmbeddedMigration.clear();
+        compressedBlobs.clear();
         PlaneMeta home = PlaneMeta.home(seed);
         home.setPlayerPos(posX, posY);
         metas.put(home.getId(), home);
@@ -121,12 +134,16 @@ public final class MultiverseState {
         multiPlaneFormat = true;
     }
 
-    /**
-     * Legacy save (no MV1 keys): wrap the single world as home. No data loss.
-     */
     public void migrateLegacyHome(long seed, float posX, float posY) {
         initHomeFromLive(seed, posX, posY);
         multiPlaneFormat = true;
+    }
+
+    /**
+     * NG+: drop every set plane and restart as a fresh home plane on the home template.
+     */
+    public void resetForNewGamePlus(long seed, float posX, float posY) {
+        initHomeFromLive(seed, posX, posY);
     }
 
     public void rememberCurrentPosition(float posX, float posY) {
@@ -137,9 +154,6 @@ public final class MultiverseState {
         getCurrentMeta().setSeed(seed);
     }
 
-    /**
-     * Register a new set plane meta (payload written separately to the blob store).
-     */
     public PlaneMeta registerSetPlane(String planeId, long seed, String worldConfigPath, String displayName) {
         if (planeId == null || planeId.isEmpty() || PlaneMeta.HOME_ID.equals(planeId)) {
             throw new IllegalArgumentException("Invalid set plane id: " + planeId);
@@ -162,17 +176,15 @@ public final class MultiverseState {
     }
 
     /**
-     * Persist a plane payload to the blob store without keeping it in RAM.
-     * Allowed for the current plane when stashing it during an atomic switch
-     * (it is marked inactive; {@link #selectCurrentPlane} then changes current).
+     * Compress and retain an inactive plane payload in RAM (and later in the .sav).
      */
     public void writeInactiveBlob(String planeId, SaveFileData blob) throws IOException {
         if (planeId == null || blob == null) {
             return;
         }
-        blobStore.write(planeId, blob);
+        byte[] compressed = CompressedPlaneBlob.compress(blob);
+        compressedBlobs.put(planeId, compressed);
         inactivePlaneIds.add(planeId);
-        pendingEmbeddedMigration.remove(planeId);
         PlaneMeta meta = PlaneBlob.readMeta(blob);
         if (meta != null) {
             metas.put(planeId, meta);
@@ -180,20 +192,14 @@ public final class MultiverseState {
         multiPlaneFormat = true;
     }
 
-    /** @deprecated prefer {@link #writeInactiveBlob}; swallows IO errors. */
     public void putInactiveBlob(String planeId, SaveFileData blob) {
         try {
             writeInactiveBlob(planeId, blob);
         } catch (IOException e) {
-            throw new IllegalStateException("Failed to store plane " + planeId, e);
+            throw new IllegalStateException("Failed to compress plane " + planeId, e);
         }
     }
 
-    /**
-     * After a successful staging load: mark {@code fromPlaneId} inactive (caller
-     * writes its blob), select {@code targetPlaneId} as current, drop target from inactive set.
-     * Does not load world data.
-     */
     public void selectCurrentPlane(String targetPlaneId) {
         if (targetPlaneId == null || targetPlaneId.isEmpty()) {
             throw new IllegalArgumentException("targetPlaneId required");
@@ -202,6 +208,7 @@ public final class MultiverseState {
             throw new IllegalArgumentException("Unknown plane: " + targetPlaneId);
         }
         inactivePlaneIds.remove(targetPlaneId);
+        compressedBlobs.remove(targetPlaneId);
         currentPlaneId = targetPlaneId;
         multiPlaneFormat = true;
     }
@@ -212,10 +219,6 @@ public final class MultiverseState {
         }
     }
 
-    /**
-     * Stash helper used by tests: write current blob then select target.
-     * Production switch uses staging load before calling this sequence.
-     */
     public void stashCurrentAndSelect(String targetPlaneId, SaveFileData currentBlob) {
         String from = getCurrentPlaneId();
         if (currentBlob != null && from != null) {
@@ -228,7 +231,7 @@ public final class MultiverseState {
         SaveFileData data = new SaveFileData();
         data.store("currentPlaneId", getCurrentPlaneId());
         data.store("multiPlaneFormat", multiPlaneFormat);
-        data.store("sideFiles", true);
+        data.store("compressedInSave", true);
         List<String> ids = new ArrayList<>(metas.keySet());
         data.storeObject("planeIds", ids);
         for (Map.Entry<String, PlaneMeta> e : metas.entrySet()) {
@@ -236,29 +239,39 @@ public final class MultiverseState {
         }
         List<String> inactiveIds = new ArrayList<>(inactivePlaneIds);
         data.storeObject("inactivePlaneIds", inactiveIds);
-        // Intentionally do NOT embed full blobs — side files hold them.
+        for (String planeId : inactiveIds) {
+            byte[] compressed = compressedBlobs.get(planeId);
+            if (CompressedPlaneBlob.isCompressedPayload(compressed)) {
+                data.storeObject("cz_" + planeId, compressed);
+            }
+        }
         return data;
     }
 
     /**
-     * Load MV1 registry. Returns false when the save has no multiverse block
+     * Load MV1 registry. Returns false when there is no multiverse block
      * (caller should {@link #migrateLegacyHome}).
      *
-     * <p>Embedded {@code blob_*} keys from older MV1 saves are collected into
-     * {@link #pendingEmbeddedMigration} for the caller to flush to the side store.
+     * <p>Previous side-file / uncompressed-blob formats from earlier MV1 drafts
+     * are not supported. Saves from {@code feature/set-start} without a
+     * multiverse block still migrate to home.
      */
     public boolean loadRegistry(SaveFileData data) {
         metas.clear();
         inactivePlaneIds.clear();
-        pendingEmbeddedMigration.clear();
+        compressedBlobs.clear();
         if (data == null || !data.containsKey("currentPlaneId")) {
-            currentPlaneId = PlaneMeta.HOME_ID;
+            // Do not force-rename here — leave field alone for migrateLegacyHome.
             multiPlaneFormat = false;
             return false;
         }
         multiPlaneFormat = true;
         String id = data.readString("currentPlaneId");
-        currentPlaneId = id != null && !id.isEmpty() ? id : PlaneMeta.HOME_ID;
+        if (id != null && !id.isEmpty()) {
+            currentPlaneId = id;
+        }
+        // Empty/missing value: keep the live plane id preset by the caller.
+        // Never force-rename the current plane to home here.
         @SuppressWarnings("unchecked")
         List<String> ids = (List<String>) data.readObject("planeIds");
         if (ids != null) {
@@ -288,30 +301,10 @@ public final class MultiverseState {
                 if (planeId == null || planeId.equals(currentPlaneId)) {
                     continue;
                 }
-                inactivePlaneIds.add(planeId);
-                SaveFileData embedded = data.readSubData("blob_" + planeId);
-                if (embedded != null) {
-                    pendingEmbeddedMigration.put(planeId, embedded);
-                    PlaneMeta blobMeta = PlaneBlob.readMeta(embedded);
-                    if (blobMeta != null) {
-                        metas.put(planeId, blobMeta);
-                    }
-                }
-            }
-        }
-        // Also scan for any blob_* keys not listed (defensive).
-        for (String key : data.keySet()) {
-            if (key != null && key.startsWith("blob_")) {
-                String planeId = key.substring("blob_".length());
-                if (planeId.isEmpty() || planeId.equals(currentPlaneId)) {
-                    continue;
-                }
-                if (!pendingEmbeddedMigration.containsKey(planeId)) {
-                    SaveFileData embedded = data.readSubData(key);
-                    if (embedded != null) {
-                        pendingEmbeddedMigration.put(planeId, embedded);
-                        inactivePlaneIds.add(planeId);
-                    }
+                Object raw = data.readObject("cz_" + planeId);
+                if (raw instanceof byte[] compressed && CompressedPlaneBlob.isCompressedPayload(compressed)) {
+                    compressedBlobs.put(planeId, compressed);
+                    inactivePlaneIds.add(planeId);
                 }
             }
         }
@@ -319,26 +312,8 @@ public final class MultiverseState {
     }
 
     /**
-     * Flush embedded blobs from an old in-save format into the side-file store.
-     */
-    public void flushEmbeddedMigrations() throws IOException {
-        if (pendingEmbeddedMigration.isEmpty()) {
-            return;
-        }
-        for (Map.Entry<String, SaveFileData> e : new ArrayList<>(pendingEmbeddedMigration.entrySet())) {
-            blobStore.write(e.getKey(), e.getValue());
-            inactivePlaneIds.add(e.getKey());
-            pendingEmbeddedMigration.remove(e.getKey());
-        }
-    }
-
-    public boolean hasPendingEmbeddedMigration() {
-        return !pendingEmbeddedMigration.isEmpty();
-    }
-
-    /**
-     * If {@code currentPlaneId} has no meta, synthesize one that keeps that id
-     * (home vs set by id), never forcing a rename to {@link PlaneMeta#HOME_ID}.
+     * If {@code currentPlaneId} has no meta, synthesize one that keeps that id.
+     * Never renames the current plane to {@link PlaneMeta#HOME_ID}.
      */
     public PlaneMeta ensureMetaForCurrent(long seed, String worldConfigPath) {
         String id = getCurrentPlaneId();
@@ -353,8 +328,23 @@ public final class MultiverseState {
         return meta;
     }
 
-    /** True when no inactive plane payload is retained in the registry maps (side-file mode). */
+    /** Prefer calling before {@link #loadRegistry} when the live plane id is already known. */
+    public void presetCurrentPlaneId(String planeId) {
+        if (planeId != null && !planeId.isEmpty()) {
+            currentPlaneId = planeId;
+        }
+    }
+
     public boolean onlyCurrentPlaneLive() {
-        return !inactivePlaneIds.contains(getCurrentPlaneId()) && pendingEmbeddedMigration.isEmpty();
+        return !inactivePlaneIds.contains(getCurrentPlaneId())
+                && !compressedBlobs.containsKey(getCurrentPlaneId());
+    }
+
+    /** Deep-copy compressed payloads for slot copy tests. */
+    public MultiverseState copyForSlotClone() throws IOException {
+        MultiverseState clone = new MultiverseState();
+        SaveFileData saved = saveRegistry();
+        clone.loadRegistry(saved);
+        return clone;
     }
 }

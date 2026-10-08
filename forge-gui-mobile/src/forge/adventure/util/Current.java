@@ -1,6 +1,7 @@
 package forge.adventure.util;
 
 import forge.Forge;
+import forge.adventure.coop.CoopSession;
 import forge.adventure.data.ItemData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.scene.InventoryScene;
@@ -19,14 +20,31 @@ public class Current {
     {
         return WorldSave.getCurrentSave().getPlayer();
     }
+
+    /**
+     * Live overworld for rendering / gameplay. Co-op guests see the host session
+     * world ({@link CoopSession#getActiveWorld()}); solo/host use the save world.
+     */
     public static World world()
     {
+        try {
+            World active = CoopSession.get().getActiveWorld();
+            if (active != null) {
+                return active;
+            }
+        } catch (Exception ignored) {
+            // Fall through to save world
+        }
         return WorldSave.getCurrentSave().getWorld();
     }
 
     /** MV1 current plane instance id ({@code home} or a set plane id). */
     public static String planeId() {
-        return WorldSave.getCurrentSave().getCurrentPlaneId();
+        try {
+            return CoopSession.get().getActiveWorldPlaneId();
+        } catch (Exception ignored) {
+            return WorldSave.getCurrentSave().getCurrentPlaneId();
+        }
     }
 
     static Deck deck;

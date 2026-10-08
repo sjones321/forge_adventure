@@ -10,6 +10,7 @@ import forge.adventure.world.PlaneConfigPaths;
 import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.World;
 import forge.adventure.world.WorldSave;
+import forge.adventure.stage.MapStage;
 import forge.adventure.stage.WorldStage;
 import forge.gamemodes.net.coop.CoopAddressUtil;
 import forge.gamemodes.net.coop.CoopMessageListener;
@@ -222,16 +223,22 @@ public final class CoopSession {
 
     /**
      * Host MV1: after a local plane switch, tell the guest to follow onto the
-     * host's current plane (seed + world config + hash).
+     * host's current plane (seed + world config + hash). World hash is computed
+     * on the GL thread; the wire send runs off Netty afterward.
      */
     public void offerCurrentPlaneToGuest() {
         if (role != CoopSessionRole.HOST || state != State.READY) {
             return;
         }
-        runOffNetty(() -> {
+        final String loadingMsg = Forge.getLocalizer() != null
+                ? Forge.getLocalizer().getMessage("lblLoadingWorld")
+                : "Preparing plane…";
+        runWorldOpOnGl(loadingMsg, () -> {
             final WorldSave save = WorldSave.getCurrentSave();
             final World w = save.getWorld();
-            worldHash = CoopWorldSync.hashWorld(w);
+            // Hash on the GL thread (world textures / data must not be touched off-GL).
+            final String hash = CoopWorldSync.hashWorld(w);
+            worldHash = hash;
             final String worldPath = w.getWorldConfigPath();
             if (!PlaneConfigPaths.isAllowed(worldPath, save.getMultiverse())) {
                 status("Refusing plane offer — disallowed worldConfigPath " + worldPath);
@@ -243,12 +250,14 @@ public final class CoopSession {
                     worldPath,
                     CoopWorldSync.planeConfigHash(worldPath),
                     w.getSeed(),
-                    worldHash,
+                    hash,
                     save.getPlayer().getWorldPosX(),
                     save.getPlayer().getWorldPosY());
-            send(switchEvent);
-            status("Offered plane switch → " + save.getCurrentPlaneId()
-                    + " seed " + w.getSeed());
+            runOffNetty(() -> {
+                send(switchEvent);
+                status("Offered plane switch → " + save.getCurrentPlaneId()
+                        + " seed " + w.getSeed());
+            });
         });
     }
 
@@ -558,6 +567,8 @@ public final class CoopSession {
         guestWorldBackup = null;
         guestPlayerBackup = null;
         guestMultiverseBackup = null;
+        // Drop session-world overlay so Current.world() returns the guest save again.
+        guestWorldPlaneId = PlaneMeta.HOME_ID;
 
         if (worldBak == null && playerBak == null && multiBak == null && charName == null) {
             return;
@@ -580,6 +591,11 @@ public final class CoopSession {
                         if (multiBak != null) {
                             WorldSave.getCurrentSave().getMultiverse().loadRegistry(multiBak);
                         }
+                        try {
+                            WorldStage.getInstance().load(WorldSave.emptyWorldStageData());
+                            forge.adventure.scene.GameScene.instance().enter();
+                        } catch (final Exception ignored) {
+                        }
                     } catch (final Exception e) {
                         lastError = "Failed to restore guest save: " + e.getMessage();
                         status(lastError);
@@ -592,6 +608,35 @@ public final class CoopSession {
                         }
                     }
                 });
+    }
+
+    /**
+     * Guest follow: {@link forge.adventure.util.Current#world()} already resolves to
+     * {@link #sessionWorld}; rebuild the stage, exit any POI, and move to host spawn.
+     */
+    private void applyGuestSessionWorldRender(final float spawnX, final float spawnY) {
+        try {
+            if (MapStage.getInstance().isInMap()) {
+                MapStage.getInstance().exitDungeon(false, false);
+            }
+        } catch (final Exception ignored) {
+        }
+        final AdventurePlayer ap = WorldSave.getCurrentSave().getPlayer();
+        ap.setWorldPosX(spawnX);
+        ap.setWorldPosY(spawnY);
+        WorldStage.getInstance().load(WorldSave.emptyWorldStageData());
+        WorldStage.getInstance().getPlayerSprite().setPosition(spawnX, spawnY);
+        try {
+            CoopOverworldRuntime.get().clearEntityIdMaps();
+        } catch (final Exception ignored) {
+        }
+        forge.adventure.scene.GameScene.instance().enter();
+    }
+
+    /** Test helper: guest render overlay is the session world when set. */
+    public boolean isGuestRenderingSessionWorld() {
+        return role == CoopSessionRole.GUEST && sessionWorld != null
+                && getActiveWorld() == sessionWorld;
     }
 
     private void ensureAscendant() {
@@ -1025,15 +1070,9 @@ public final class CoopSession {
                         } catch (final Exception ignored) {
                         }
                     }
-                    // Apply host spawn and rebuild the overworld stage for the new plane.
+                    // Swap rendered world (Current.world → sessionWorld) + stage; exit POI; spawn.
                     try {
-                        final AdventurePlayer ap = WorldSave.getCurrentSave().getPlayer();
-                        ap.setWorldPosX(event.getSpawnX());
-                        ap.setWorldPosY(event.getSpawnY());
-                        WorldStage.getInstance().load(WorldSave.emptyWorldStageData());
-                        WorldStage.getInstance().getPlayerSprite().setPosition(event.getSpawnX(), event.getSpawnY());
-                        CoopOverworldRuntime.get().clearEntityIdMaps();
-                        forge.adventure.scene.GameScene.instance().enter();
+                        applyGuestSessionWorldRender(event.getSpawnX(), event.getSpawnY());
                     } catch (final Exception stageEx) {
                         status("Plane applied; stage rebuild partial: " + stageEx.getMessage());
                     }

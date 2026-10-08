@@ -84,7 +84,8 @@ public class PortalActor extends EntryActor {
     }
 
     /**
-     * MV1 planar travel: eligibility checks run before leaving the interior.
+     * MV1 planar travel: eligibility + target readiness run before leaving the interior.
+     * A missing plane (or missing blob) must fail before {@code exitDungeon}.
      */
     private boolean travelToPlane(String planeId) {
         WorldSave save = WorldSave.getCurrentSave();
@@ -117,6 +118,12 @@ public class PortalActor extends EntryActor {
                     return false;
                 }
             }
+            // Fail before POI eject when the registered plane has no compressed blob.
+            if (!save.canTravelToPlane(id)) {
+                String err = save.getLastPlaneSwitchError();
+                notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
+                return false;
+            }
             if (stage != null && stage.isInMap()) {
                 stage.exitDungeon(false, false);
             }
@@ -125,10 +132,7 @@ public class PortalActor extends EntryActor {
                 notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
                 return false;
             }
-            try {
-                forge.adventure.scene.GameScene.instance().enter();
-            } catch (Exception ignored) {
-            }
+            // GameScene.enter() happens exactly once inside switchPlane.
             notifyPortal("Planeswalked to " + save.getMultiverse().getCurrentMeta().getDisplayName());
             return true;
         } catch (Exception e) {

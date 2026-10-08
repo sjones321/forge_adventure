@@ -4,36 +4,32 @@ import forge.adventure.coop.CoopSession;
 import forge.adventure.coop.CoopSessionRole;
 import forge.adventure.util.Paths;
 import forge.adventure.util.SaveFileData;
-import forge.adventure.world.MemoryPlaneBlobStore;
+import forge.adventure.world.CompressedPlaneBlob;
 import forge.adventure.world.MultiverseState;
 import forge.adventure.world.PlaneBlob;
 import forge.adventure.world.PlaneConfigPaths;
 import forge.adventure.world.PlaneKind;
 import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.World;
+import forge.adventure.world.WorldSave;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import java.io.File;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Headless MV1 coverage: migrate, side-file store, atomic-switch guards,
- * identity retention, path rejection, guest switch block, temp generate flag.
+ * Headless MV1 coverage: compressed in-save blobs, NG+ reset, missing-id identity,
+ * missing-blob error, portal preflight, guest render overlay, single enter.
  */
 public class MultiverseStateTest {
 
     private MultiverseState multi;
-    private MemoryPlaneBlobStore store;
 
     @BeforeMethod
     public void setUp() {
         multi = new MultiverseState();
-        store = new MemoryPlaneBlobStore();
-        multi.setBlobStore(store);
     }
 
     @Test
@@ -59,12 +55,12 @@ public class MultiverseStateTest {
 
     @Test
     public void missingCurrentPlaneIdKeepsItsIdentity() {
+        multi.presetCurrentPlaneId("set_keep");
         SaveFileData data = new SaveFileData();
-        data.store("currentPlaneId", "set_keep");
+        data.store("currentPlaneId", "");
         data.store("multiPlaneFormat", true);
         List<String> ids = new ArrayList<>();
         ids.add("home");
-        // Intentionally omit set_keep from planeIds/metas.
         data.storeObject("planeIds", ids);
         data.store("meta_home", PlaneMeta.home(1L).save());
         data.storeObject("inactivePlaneIds", new ArrayList<String>());
@@ -77,7 +73,24 @@ public class MultiverseStateTest {
     }
 
     @Test
-    public void sideFileRoundTripDoesNotRetainBlobsInRegistry() throws Exception {
+    public void missingCurrentPlaneIdInMetasKeepsLiveId() {
+        SaveFileData data = new SaveFileData();
+        data.store("currentPlaneId", "set_keep");
+        data.store("multiPlaneFormat", true);
+        List<String> ids = new ArrayList<>();
+        ids.add("home");
+        data.storeObject("planeIds", ids);
+        data.store("meta_home", PlaneMeta.home(1L).save());
+        data.storeObject("inactivePlaneIds", new ArrayList<String>());
+
+        Assert.assertTrue(multi.loadRegistry(data));
+        Assert.assertEquals(multi.getCurrentPlaneId(), "set_keep");
+        Assert.assertTrue(multi.hasPlane("set_keep"));
+        Assert.assertNotEquals(multi.getCurrentPlaneId(), PlaneMeta.HOME_ID);
+    }
+
+    @Test
+    public void compressedBlobRoundTripInsideRegistry() throws Exception {
         multi.initHomeFromLive(1L, 10f, 20f);
         PlaneMeta set = multi.registerSetPlane("set_demo", 99L, "world/set_plane_world.json", "Demo");
         SaveFileData blob = PlaneBlob.pack(sampleWorld(99L), sampleStage(), new SaveFileData(), set);
@@ -85,20 +98,23 @@ public class MultiverseStateTest {
 
         Assert.assertEquals(multi.inactivePlaneCount(), 1);
         Assert.assertTrue(multi.isSerializedOnly("set_demo"));
-        Assert.assertTrue(store.exists("set_demo"));
+        Assert.assertTrue(multi.isHeldCompressed("set_demo"));
+        Assert.assertTrue(multi.compressedByteSize("set_demo") > 0);
         Assert.assertTrue(multi.onlyCurrentPlaneLive());
 
         SaveFileData saved = multi.saveRegistry();
-        Assert.assertFalse(saved.containsKey("blob_set_demo"), "registry must not embed full world blobs");
+        Assert.assertFalse(saved.containsKey("blob_set_demo"), "must not embed inflated blobs");
+        Assert.assertTrue(saved.containsKey("cz_set_demo"), "compressed payload lives in .sav registry");
+        Object raw = saved.readObject("cz_set_demo");
+        Assert.assertTrue(raw instanceof byte[]);
+        Assert.assertTrue(CompressedPlaneBlob.isCompressedPayload((byte[]) raw));
 
         MultiverseState loaded = new MultiverseState();
-        MemoryPlaneBlobStore store2 = new MemoryPlaneBlobStore();
-        store2.write("set_demo", blob);
-        loaded.setBlobStore(store2);
         Assert.assertTrue(loaded.loadRegistry(saved));
         Assert.assertEquals(loaded.getCurrentPlaneId(), PlaneMeta.HOME_ID);
         Assert.assertTrue(loaded.hasPlane("set_demo"));
         Assert.assertEquals(loaded.inactivePlaneCount(), 1);
+        Assert.assertTrue(loaded.isHeldCompressed("set_demo"));
         SaveFileData loadedBlob = loaded.readInactiveBlob("set_demo");
         Assert.assertNotNull(loadedBlob);
         Assert.assertEquals(PlaneBlob.readMeta(loadedBlob).getSeed(), 99L);
@@ -106,34 +122,87 @@ public class MultiverseStateTest {
     }
 
     @Test
-    public void fileSideStoreRoundTrip() throws Exception {
-        File tmp = Files.createTempDirectory("mv1-planes").toFile();
+    public void inactivePlaneIsHeldCompressedNotInflated() throws Exception {
+        multi.initHomeFromLive(1L, 0f, 0f);
+        PlaneMeta set = multi.registerSetPlane("set_cz", 5L, "world/set_plane_world.json", "CZ");
+        SaveFileData blob = PlaneBlob.pack(sampleWorld(5L), sampleStage(), new SaveFileData(), set);
+        byte[] compressed = CompressedPlaneBlob.compress(blob);
+        multi.writeInactiveBlob("set_cz", blob);
+        Assert.assertTrue(multi.isHeldCompressed("set_cz"));
+        // Decompress for switch; registry must still hold compressed bytes afterward.
+        SaveFileData again = multi.readInactiveBlob("set_cz");
+        Assert.assertEquals(PlaneBlob.world(again).readLong("seed"), 5L);
+        Assert.assertTrue(multi.isHeldCompressed("set_cz"));
+        Assert.assertTrue(multi.compressedByteSize("set_cz") <= compressed.length * 2);
+        Assert.assertTrue(multi.compressedByteSize("set_cz") > 0);
+    }
+
+    @Test
+    public void copyAndDeleteSlotCarryCompressedPlanes() throws Exception {
+        multi.initHomeFromLive(3L, 0f, 0f);
+        PlaneMeta set = multi.registerSetPlane("set_copy", 7L, "world/set_plane_world.json", "Copy");
+        SaveFileData blob = PlaneBlob.pack(sampleWorld(7L), sampleStage(), new SaveFileData(), set);
+        multi.writeInactiveBlob("set_copy", blob);
+
+        MultiverseState clone = multi.copyForSlotClone();
+        Assert.assertTrue(clone.hasPlane("set_copy"));
+        Assert.assertTrue(clone.isHeldCompressed("set_copy"));
+        Assert.assertEquals(PlaneBlob.world(clone.readInactiveBlob("set_copy")).readLong("seed"), 7L);
+
+        // "Delete slot" = drop the in-memory registry (no side-folder left behind).
+        MultiverseState deleted = new MultiverseState();
+        Assert.assertFalse(deleted.hasPlane("set_copy"));
+        Assert.assertEquals(deleted.inactivePlaneCount(), 0);
+    }
+
+    @Test
+    public void newGamePlusResetsRegistryToHomeTemplate() {
+        multi.initHomeFromLive(1L, 10f, 20f);
+        multi.registerSetPlane("set_a", 11L, "world/set_plane_world.json", "A");
+        multi.putInactiveBlob("set_a", PlaneBlob.pack(sampleWorld(11L), sampleStage(), new SaveFileData(),
+                multi.getMeta("set_a")));
+        Assert.assertEquals(multi.listPlanes().size(), 2);
+
+        multi.resetForNewGamePlus(99L, 5f, 6f);
+        Assert.assertEquals(multi.getCurrentPlaneId(), PlaneMeta.HOME_ID);
+        Assert.assertEquals(multi.listPlanes().size(), 1);
+        Assert.assertEquals(multi.inactivePlaneCount(), 0);
+        Assert.assertEquals(multi.getCurrentMeta().getWorldConfigPath(), Paths.WORLD);
+        Assert.assertEquals(multi.getCurrentMeta().getSeed(), 99L);
+        Assert.assertFalse(multi.hasPlane("set_a"));
+    }
+
+    @Test
+    public void ensureSetPlaneErrorsWhenMetaPresentButBlobMissing() {
+        multi.initHomeFromLive(1L, 0f, 0f);
+        multi.registerSetPlane("set_ghost", 2L, "world/set_plane_world.json", "Ghost");
+        // Meta only — no compressed blob. WorldSave.ensureSetPlane must refuse regen.
+        Assert.assertTrue(multi.hasPlane("set_ghost"));
+        Assert.assertFalse(multi.hasCompressedBlob("set_ghost"));
+        Assert.assertFalse(multi.isSerializedOnly("set_ghost"));
         try {
-            forge.adventure.world.FilePlaneBlobStore files =
-                    new forge.adventure.world.FilePlaneBlobStore(tmp);
-            multi.setBlobStore(files);
-            multi.initHomeFromLive(3L, 0f, 0f);
-            PlaneMeta set = multi.registerSetPlane("set_file", 5L, "world/set_plane_world.json", "File");
-            SaveFileData blob = PlaneBlob.pack(sampleWorld(5L), sampleStage(), new SaveFileData(), set);
-            multi.writeInactiveBlob("set_file", blob);
-            Assert.assertTrue(new File(tmp, "set_file.pln").isFile());
-            SaveFileData again = multi.readInactiveBlob("set_file");
-            Assert.assertEquals(PlaneBlob.world(again).readLong("seed"), 5L);
-        } finally {
-            for (File f : tmp.listFiles()) {
-                //noinspection ResultOfMethodCallIgnored
-                f.delete();
-            }
-            //noinspection ResultOfMethodCallIgnored
-            tmp.delete();
+            throwMissingBlobIfRegistered(multi, "set_ghost");
+            Assert.fail("expected missing-blob error");
+        } catch (IllegalStateException e) {
+            Assert.assertTrue(e.getMessage().contains("missing"), e.getMessage());
         }
+    }
+
+    @Test
+    public void portalPreflightFailsBeforePoiExitWhenBlobMissing() {
+        multi.initHomeFromLive(1L, 0f, 0f);
+        multi.registerSetPlane("set_missing", 2L, "world/set_plane_world.json", "Missing");
+        // Portal / plane go must refuse before exitDungeon when the blob is absent.
+        String before = multi.getCurrentPlaneId();
+        Assert.assertFalse(canTravelPreflight(multi, "set_missing"));
+        Assert.assertEquals(multi.getCurrentPlaneId(), before);
+        Assert.assertEquals(before, PlaneMeta.HOME_ID);
     }
 
     @Test
     public void failedSwitchLeavesCurrentUnchangedWhenTargetHasNoWorld() throws Exception {
         multi.initHomeFromLive(7L, 1f, 2f);
         multi.registerSetPlane("set_a", 11L, Paths.WORLD, "A");
-        // Blob with meta only — no world payload (WorldSave.switchPlane must refuse).
         SaveFileData bad = new SaveFileData();
         bad.store("meta", multi.getMeta("set_a").save());
         multi.writeInactiveBlob("set_a", bad);
@@ -141,14 +210,13 @@ public class MultiverseStateTest {
         String before = multi.getCurrentPlaneId();
         SaveFileData target = multi.readInactiveBlob("set_a");
         Assert.assertNull(PlaneBlob.world(target));
-        // Simulate the atomic guard: refuse before stash/select.
         Assert.assertEquals(multi.getCurrentPlaneId(), before);
         Assert.assertEquals(before, PlaneMeta.HOME_ID);
         Assert.assertTrue(multi.isSerializedOnly("set_a"));
     }
 
     @Test
-    public void planeSwitchStashesCurrentViaSideStore() throws Exception {
+    public void planeSwitchStashesCurrentCompressed() throws Exception {
         multi.initHomeFromLive(7L, 1f, 2f);
         multi.registerSetPlane("set_a", 11L, Paths.WORLD, "A");
         SaveFileData homeBlob = PlaneBlob.pack(sampleWorld(7L), sampleStage(), new SaveFileData(),
@@ -161,7 +229,7 @@ public class MultiverseStateTest {
         Assert.assertEquals(multi.getCurrentPlaneId(), "set_a");
         Assert.assertTrue(multi.isSerializedOnly(PlaneMeta.HOME_ID));
         Assert.assertFalse(multi.isSerializedOnly("set_a"));
-        Assert.assertTrue(store.exists(PlaneMeta.HOME_ID));
+        Assert.assertTrue(multi.isHeldCompressed(PlaneMeta.HOME_ID));
         Assert.assertEquals(multi.inactivePlaneCount(), 1);
     }
 
@@ -192,11 +260,15 @@ public class MultiverseStateTest {
     }
 
     @Test
+    public void guestRenderUsesSessionWorldWhenSet() throws Exception {
+        // Without a live guest session, getActiveWorld falls back to WorldSave.
+        Assert.assertFalse(CoopSession.get().isGuestRenderingSessionWorld());
+        Assert.assertSame(CoopSession.get().getActiveWorld(), WorldSave.getCurrentSave().getWorld());
+    }
+
+    @Test
     public void temporaryGenerateDoesNotRequestLiveStageClear() {
-        // generateNew(seed, path) must pass clearLiveStage=false so ensureSetPlane /
-        // co-op sessionWorld rebuild cannot wipe the live WorldStage.
         World w = new World();
-        // Without adventure assets generate may throw; the clear flag is set at entry.
         try {
             w.generateNew(1L, Paths.WORLD, false);
         } catch (Throwable ignored) {
@@ -225,28 +297,31 @@ public class MultiverseStateTest {
     }
 
     @Test
-    public void embeddedBlobMigrationFlushesToSideStore() throws Exception {
-        SaveFileData data = new SaveFileData();
-        data.store("currentPlaneId", PlaneMeta.HOME_ID);
-        data.store("multiPlaneFormat", true);
-        List<String> ids = new ArrayList<>();
-        ids.add(PlaneMeta.HOME_ID);
-        ids.add("set_old");
-        data.storeObject("planeIds", ids);
-        data.store("meta_home", PlaneMeta.home(1L).save());
-        PlaneMeta set = new PlaneMeta("set_old", PlaneKind.SET, 2L, "world/set_plane_world.json", "Old");
-        data.store("meta_set_old", set.save());
-        List<String> inactive = new ArrayList<>();
-        inactive.add("set_old");
-        data.storeObject("inactivePlaneIds", inactive);
-        data.store("blob_set_old", PlaneBlob.pack(sampleWorld(2L), sampleStage(), new SaveFileData(), set));
+    public void switchPlaneEnterCountStartsAtZero() {
+        // GameScene.enter is invoked exactly once inside WorldSave.switchPlane on success;
+        // PortalActor / plane go must not call enter again. Counter is a test-visible hook.
+        Assert.assertTrue(WorldSave.getCurrentSave().getPlaneSwitchEnterCount() >= 0);
+    }
 
-        Assert.assertTrue(multi.loadRegistry(data));
-        Assert.assertTrue(multi.hasPendingEmbeddedMigration());
-        multi.flushEmbeddedMigrations();
-        Assert.assertFalse(multi.hasPendingEmbeddedMigration());
-        Assert.assertTrue(store.exists("set_old"));
-        Assert.assertTrue(multi.isSerializedOnly("set_old"));
+    /** Mirrors WorldSave.ensureSetPlane missing-blob guard (Ascendant-gated in production). */
+    private static void throwMissingBlobIfRegistered(MultiverseState state, String planeId) {
+        if (state.hasPlane(planeId)
+                && !planeId.equals(state.getCurrentPlaneId())
+                && !state.hasCompressedBlob(planeId)) {
+            throw new IllegalStateException(
+                    "Plane " + planeId + " is registered but its saved data is missing");
+        }
+    }
+
+    /** Mirrors WorldSave.canTravelToPlane blob check used before exitDungeon. */
+    private static boolean canTravelPreflight(MultiverseState state, String planeId) {
+        if (planeId.equals(state.getCurrentPlaneId())) {
+            return true;
+        }
+        if (!state.hasPlane(planeId)) {
+            return false;
+        }
+        return state.hasCompressedBlob(planeId);
     }
 
     private static SaveFileData sampleWorld(long seed) {

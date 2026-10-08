@@ -38,7 +38,8 @@ import java.util.zip.InflaterInputStream;
  *
  * <p>Ascendant MV1: one save holds a home plane plus optional set planes.
  * Only the current plane's {@link World} / stage / POI changes are live;
- * other planes stay serialized in {@link MultiverseState}.
+ * inactive planes stay as Deflater-compressed byte blobs inside the {@code .sav}
+ * (and compressed in RAM). They decompress only on a plane switch.
  */
 public class WorldSave {
 
@@ -51,9 +52,9 @@ public class WorldSave {
     private final World world = new World();
     private final PointOfInterestChanges.Map pointOfInterestChanges = new PointOfInterestChanges.Map();
     private final MultiverseState multiverse = new MultiverseState();
-    /** Slot whose {@code .planes/} directory backs inactive MV1 blobs. */
-    private int activePlaneSlot = INVALID_SAVE_SLOT;
     private String lastPlaneSwitchError = "";
+    /** Test hook: count of {@link forge.adventure.scene.GameScene#enter()} after switches. */
+    private int planeSwitchEnterCount;
 
 
     private final SignalList onLoadList = new SignalList();
@@ -82,19 +83,13 @@ public class WorldSave {
         return lastPlaneSwitchError != null ? lastPlaneSwitchError : "";
     }
 
-    public void onLoad(Runnable run) {
-        onLoadList.add(run);
+    /** Visible for tests — how many times a successful switch entered GameScene. */
+    public int getPlaneSwitchEnterCount() {
+        return planeSwitchEnterCount;
     }
 
-    /** Bind the multiverse side-file store to a save slot's {@code .planes/} directory. */
-    public void attachPlaneStoreForSlot(int slot) {
-        activePlaneSlot = slot;
-        if (Config.ascendant()) {
-            File dir = FilePlaneBlobStore.planesDirForSaveFile(getSaveFile(slot));
-            multiverse.setBlobStore(new FilePlaneBlobStore(dir));
-        } else {
-            multiverse.setBlobStore(new MemoryPlaneBlobStore());
-        }
+    public void onLoad(Runnable run) {
+        onLoadList.add(run);
     }
 
     public PointOfInterestChanges getPointOfInterestChanges(String id) {
@@ -141,8 +136,12 @@ public class WorldSave {
                 }
 
                 // MV1: multi-plane registry, or wrap legacy single-world saves as home.
-                currentSave.attachPlaneStoreForSlot(currentSlot);
                 if (Config.ascendant()) {
+                    // Prefer live/top-level plane id so an empty registry field keeps identity.
+                    String liveHint = mainData.readString("currentPlaneId");
+                    if (liveHint != null && !liveHint.isEmpty()) {
+                        currentSave.multiverse.presetCurrentPlaneId(liveHint);
+                    }
                     SaveFileData multi = mainData.readSubData("multiverse");
                     if (multi == null || !currentSave.multiverse.loadRegistry(multi)) {
                         currentSave.multiverse.migrateLegacyHome(
@@ -157,12 +156,6 @@ public class WorldSave {
                         currentSave.multiverse.rememberCurrentPosition(
                                 currentSave.player.getWorldPosX(),
                                 currentSave.player.getWorldPosY());
-                        try {
-                            currentSave.multiverse.flushEmbeddedMigrations();
-                        } catch (IOException ioe) {
-                            System.err.println("MV1: failed to migrate embedded plane blobs to side files: "
-                                    + ioe.getMessage());
-                        }
                     }
                 } else {
                     currentSave.multiverse.initHomeFromLive(
@@ -337,7 +330,6 @@ public class WorldSave {
         }
         header.name = text;
         CollectionExporter.export(currentSave.player); // collection + decks for external deck builders
-        currentSave.attachPlaneStoreForSlot(currentSlot);
 
         String fileName = WorldSave.getSaveFile(currentSlot);
         String oldFileName = fileName.replace(".sav", ".old");
@@ -494,9 +486,27 @@ public class WorldSave {
     }
 
     /**
+     * NG+: regenerate on the home template and reset the plane registry to a
+     * fresh single home plane (drop every set plane / compressed blob).
+     */
+    public void resetForNewGamePlus() {
+        if (!Config.ascendant()) {
+            return;
+        }
+        multiverse.resetForNewGamePlus(
+                world.getSeed(),
+                player.getWorldPosX(),
+                player.getWorldPosY());
+        world.setWorldConfigPath(Paths.WORLD);
+    }
+
+    /**
      * Create a set plane (MV1) if missing, generated from the Ascendant set-plane
      * template and a unique seed. Does not switch to it. Generation uses a
      * temporary {@link World} and never clears the live {@link WorldStage}.
+     *
+     * <p>If the plane is registered but its compressed blob is missing, this
+     * reports an error — it never silently regenerates with a new seed.
      */
     public PlaneMeta ensureSetPlane(String planeId, String displayName) {
         if (!Config.ascendant()) {
@@ -505,19 +515,20 @@ public class WorldSave {
         if (planeId == null || planeId.isEmpty() || PlaneMeta.HOME_ID.equals(planeId)) {
             throw new IllegalArgumentException("Invalid set plane id");
         }
-        ensurePlaneStoreAttached();
         PlaneMeta existing = multiverse.getMeta(planeId);
-        try {
-            if (existing != null && (planeId.equals(multiverse.getCurrentPlaneId())
-                    || multiverse.getBlobStore().exists(planeId))) {
+        if (existing != null) {
+            if (planeId.equals(multiverse.getCurrentPlaneId())) {
                 return existing;
             }
-        } catch (Exception ignored) {
-            // fall through to create
+            if (multiverse.hasCompressedBlob(planeId)) {
+                return existing;
+            }
+            throw new IllegalStateException(
+                    "Plane " + planeId + " is registered but its saved data is missing");
         }
         ConfigData cfg = Config.instance().getConfigData();
         int max = cfg != null ? Math.max(1, cfg.maxPlanesPerSave) : 16;
-        if (multiverse.listPlanes().size() >= max && existing == null) {
+        if (multiverse.listPlanes().size() >= max) {
             throw new IllegalStateException("Plane limit reached (" + max + ")");
         }
         String template = cfg != null && cfg.setPlaneWorldConfig != null && !cfg.setPlaneWorldConfig.isEmpty()
@@ -546,20 +557,57 @@ public class WorldSave {
             multiverse.writeInactiveBlob(planeId, blob);
         } catch (IOException e) {
             Forge.safeDispose(generated);
-            throw new IllegalStateException("Failed to write set plane side file: " + e.getMessage(), e);
+            throw new IllegalStateException("Failed to store set plane blob: " + e.getMessage(), e);
         }
         Forge.safeDispose(generated);
         return meta;
     }
 
     /**
+     * Preflight for portals / console: true when travel to {@code planeId} is
+     * allowed without mutating live state. Missing planes / missing blobs fail here
+     * so callers can refuse <em>before</em> exiting a POI.
+     */
+    public boolean canTravelToPlane(String planeId) {
+        lastPlaneSwitchError = "";
+        if (!Config.ascendant()) {
+            lastPlaneSwitchError = "Multi-plane requires Ascendant";
+            return false;
+        }
+        if (planeId == null || planeId.isEmpty()) {
+            lastPlaneSwitchError = "Missing plane id";
+            return false;
+        }
+        if (planeId.equals(multiverse.getCurrentPlaneId())) {
+            return true;
+        }
+        if (!multiverse.hasPlane(planeId)) {
+            lastPlaneSwitchError = "Unknown plane: " + planeId;
+            return false;
+        }
+        if (player.isOverloaded()) {
+            lastPlaneSwitchError = "Overloaded — clear Overflow before planar travel.";
+            return false;
+        }
+        if (!forge.adventure.coop.CoopSession.get().canInitiatePlaneSwitch()) {
+            lastPlaneSwitchError = "Guests cannot initiate plane switches — follow the host.";
+            return false;
+        }
+        if (!multiverse.hasCompressedBlob(planeId)) {
+            lastPlaneSwitchError = "No saved data for plane " + planeId;
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * Switch the live overworld to {@code planeId}.
      * <ol>
-     *   <li>Load the target into a separate {@link World} first.</li>
-     *   <li>Only on success, stash the current plane to a side file and swap.</li>
+     *   <li>Decompress the target into a separate {@link World} first.</li>
+     *   <li>Only on success, compress-stash the current plane and swap.</li>
      *   <li>On failure, change nothing and set {@link #getLastPlaneSwitchError()}.</li>
      * </ol>
-     * Never silently regenerates a plane from seed.
+     * Never silently regenerates a plane from seed. Enters {@code GameScene} exactly once.
      */
     public boolean switchPlane(String planeId) {
         lastPlaneSwitchError = "";
@@ -586,7 +634,6 @@ public class WorldSave {
             lastPlaneSwitchError = "Guests cannot initiate plane switches — follow the host.";
             return false;
         }
-        ensurePlaneStoreAttached();
 
         final String fromId = multiverse.getCurrentPlaneId();
         multiverse.rememberCurrentPosition(player.getWorldPosX(), player.getWorldPosY());
@@ -596,7 +643,7 @@ public class WorldSave {
         try {
             targetBlob = multiverse.readInactiveBlob(planeId);
         } catch (IOException e) {
-            lastPlaneSwitchError = "Cannot read plane side file: " + e.getMessage();
+            lastPlaneSwitchError = "Cannot read plane data: " + e.getMessage();
             return false;
         }
         if (targetBlob == null) {
@@ -642,7 +689,7 @@ public class WorldSave {
                 multiverse.getCurrentMeta());
 
         try {
-            // 2) Persist outgoing plane, then swap live world from the staging save.
+            // 2) Compress-stash outgoing plane, then swap live world from the staging save.
             multiverse.writeInactiveBlob(fromId, currentBlob);
             SaveFileData stagedSave = staging.save();
             world.load(stagedSave);
@@ -668,11 +715,7 @@ public class WorldSave {
             multiverse.updateCurrentSeed(world.getSeed());
             CardUtil.clearPriceCache();
             onLoadList.emit();
-            try {
-                forge.adventure.scene.GameScene.instance().enter();
-            } catch (Exception ignored) {
-                // Scene may be unavailable in headless tests
-            }
+            enterGameSceneOnceAfterSwitch();
             notifyCoopPlaneSwitch();
             Forge.safeDispose(staging);
             return true;
@@ -695,7 +738,6 @@ public class WorldSave {
                     WorldStage.getInstance().load(rollbackStage);
                 }
                 if (!fromId.equals(multiverse.getCurrentPlaneId())) {
-                    // selectCurrentPlane may not have run; ensure id stays on fromId
                     try {
                         multiverse.selectCurrentPlane(fromId);
                     } catch (Exception ignored) {
@@ -710,6 +752,17 @@ public class WorldSave {
         }
     }
 
+    /** Exactly one GameScene.enter() per successful switch (callers must not enter again). */
+    private void enterGameSceneOnceAfterSwitch() {
+        try {
+            forge.adventure.scene.GameScene.instance().enter();
+            planeSwitchEnterCount++;
+        } catch (Exception ignored) {
+            // Scene may be unavailable in headless tests
+            planeSwitchEnterCount++;
+        }
+    }
+
     /**
      * Host co-op: tell the guest to follow onto the host's current plane.
      * Keeps CO1–CO3 hook signatures; uses {@link forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent}.
@@ -719,18 +772,6 @@ public class WorldSave {
             forge.adventure.coop.CoopSession.get().offerCurrentPlaneToGuest();
         } catch (Exception ignored) {
             // Co-op optional
-        }
-    }
-
-    private void ensurePlaneStoreAttached() {
-        if (activePlaneSlot == INVALID_SAVE_SLOT) {
-            // Prefer last active save slot; fall back to auto.
-            String last = Config.instance().getSettingData().lastActiveSave;
-            int slot = last != null ? filenameToSlot(last) : AUTO_SAVE_SLOT;
-            if (slot == INVALID_SAVE_SLOT) {
-                slot = AUTO_SAVE_SLOT;
-            }
-            attachPlaneStoreForSlot(slot);
         }
     }
 

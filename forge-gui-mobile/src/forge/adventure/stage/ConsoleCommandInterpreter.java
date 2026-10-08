@@ -762,6 +762,11 @@ public class ConsoleCommandInterpreter {
                     return "Unknown plane and create failed: " + e.getMessage();
                 }
             }
+            // Fail before POI eject when the target cannot be loaded.
+            if (!save.canTravelToPlane(id)) {
+                String err = save.getLastPlaneSwitchError();
+                return err != null && !err.isEmpty() ? err : "plane go refused";
+            }
             // Exit POIs first so WorldStage owns the player before the switch.
             if (MapStage.getInstance().isInMap()) {
                 MapStage.getInstance().exitDungeon(false, false);
@@ -771,10 +776,7 @@ public class ConsoleCommandInterpreter {
                 String err = save.getLastPlaneSwitchError();
                 return err != null && !err.isEmpty() ? err : "plane go failed";
             }
-            try {
-                forge.adventure.scene.GameScene.instance().enter();
-            } catch (Exception ignored) {
-            }
+            // GameScene.enter() happens exactly once inside switchPlane.
             return "Now on plane " + save.getCurrentPlaneId();
         });
         // CO2 shared overworld — party / location invites (Ascendant co-op only).
