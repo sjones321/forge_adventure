@@ -558,6 +558,28 @@ Today the inventory is one flat list of every item (equipped ones included) unde
   `CREDITS.md`) or Steve's own art.
 - Save: bag contents and capacities saved per bag; old saves auto-sort the current flat inventory into the new bags.
 
+## Duel screen
+
+### DS1. Modern duel screen in libGDX (after INV1)
+Improve the existing libGDX match screen (`forge-gui-mobile/src/forge/screens/match/`) instead of switching UI
+toolkits, so co-op duels (`RemoteClientGuiGame`), Android and macOS keep working. Reference: **Neo Forge**
+(<https://github.com/AdrianLopez98/NeoForge>, GPLv3, JavaFX) has solved these as behaviour; study how it does each
+(`forge-gui-neo/.../ui/CombatOverlay.java`, `TableScreen.installDragGestures`, `match/NeoMatchUI.onCardDropped`),
+reimplement in libGDX, and credit Neo Forge in `CREDITS.md` for anything adapted from its code.
+All input still goes through `getGameController().selectCard/selectPlayer`, so it works over the network unchanged.
+- **Combat and target arrows**: curved arrows from card edge to card edge, colour-coded (red attacks, blue blocks,
+  amber targets), drawn on a click-through overlay that redraws while cards move.
+- **Drag to cast / drag to attack and block**: a small drag threshold (~9px) so plain clicks still work. Drop from
+  hand = cast; in combat, drop an attacker on a player/planeswalker or a blocker on an attacker; dragging a permanent
+  outside combat does nothing. The arrow follows the drag.
+- **Press-to-peek hand**: hold on a hand card to enlarge it, slide to the next card, push up onto the table to play.
+- **Phase stops**: clickable phase rail to set where the game stops for you (ties into the auto-yield fixes).
+- **Clickable floating mana**: mana pool shown as clickable symbols near your field.
+- **Drag to reorder the hand.**
+- **Controller**: every action above also has a controller path (focus cursor, A to pick up/drop, B cancel).
+- Works in solo and co-op duels and in stock Forge matches on the mobile/libGDX client; gate anything that changes
+  stock behaviour behind a preference defaulting to the new UI only in Ascendant until it's proven.
+
 ## AI opponent: bring your own
 
 The LLM opponent (`forge-ai/.../llm/LlmOpponent.java`, settings in `%APPDATA%\Forge\llm_opponent.properties`)
@@ -590,6 +612,7 @@ stays optional and never ships a key. Forge's normal AI is always the fallback.
 9. **Co-op is next**: CO1 first, then CO2 and CO3 in parallel, then CO4.
 10. Fortresses: FT1 → FT2 → FT3 and FT4.
 11. TR1 with co-op; then LG1 → LG2 → LG3; WAR1 after FT3.
+12. INV1, then DS1 (duel screen).
 
 ## Art
 
