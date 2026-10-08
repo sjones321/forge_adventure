@@ -597,6 +597,76 @@ stays optional and never ships a key. Forge's normal AI is always the fallback.
 - Use the LLM only for key decisions (attacks, blocks, main spells); Forge AI handles routine priority passes, so
   local models stay fast.
 
+## The core loop: living towns, friendship, the Archive and Bells (see `Lore.md`, `Game-Vision.md`)
+
+From the 2026-10-08 design handoff (`Handoff-2026-10-08.md`). The loop: **befriend townsfolk (mostly by playing
+Magic with them) → archive their town's culture → that knowledge earns the town a Harmonic Bell → the Nothing still
+eats the land, but not the people.** These are milestones 5-7.
+
+**Coordinate with Tiny first:** he is building a travel and communication system (research system + lore pass).
+Anything touching shipments, roads or messages between towns (LT1 shipments, LG2 supply lines) must be designed
+with him.
+
+### LT1. Living towns (milestone 5; Steve builds the first town map by hand)
+- **Hand-made town pipeline**: towns authored in Tiled with the Kenney 16px tilesets (`maps/tileset/kenney_*.tsx`)
+  and Forge's object templates (`maps/obj/*.tx`). A starter template lives at
+  `Shandalar Ascendant/maps/towns/starter_town.tmx`. Hand-made towns are referenced from Ascendant's
+  `points_of_interest.json` like any other town.
+- **Civic buildings**: homes, church or temple, town hall, tavern, school, graveyard. Every non-shop building is an
+  interactable map object that feeds the Archive (AR1). Each set plane flavours them (temples on a Theros-style
+  plane, guildhalls on a Ravnica-style plane).
+- **Townsfolk**: named NPCs (data: `world/townsfolk.json` — id, name, town, home, daily spots, portrait/sprite,
+  personality notes, deck, signature card, gift likes/dislikes). They stand at their spots on the town map and can
+  be talked to, played with (FR1) and given gifts. Daily schedules come later with Seasons.
+- **Every town has a general store.** **Shops restock by shipment**, not magic refresh: stock arrives from elsewhere
+  (towns, trade routes); a cut road means towns past it run short. Design with Tiny's travel system.
+
+### FR1. Friendship through Magic (milestone 5)
+- **Every townsperson has a deck that says who they are** (data-driven deck file per NPC; e.g. the smith's sturdy
+  artifacts, the priest's lifegain and protection, the kid's janky pile).
+- **Casual games** at the tavern or on the porch: no life loss, no loot, no penalties; a friendly match that raises
+  friendship (more for close or fun games, a little even for losses).
+- **Friendship levels** per townsperson (e.g. 0-10 hearts) from games, gifts and conversation. Levels unlock
+  dialogue, keepsakes for their alcove, Archive entries, and small favours.
+- **Top reward: their signature card**, added to your collection; a copy sits in their alcove. If their town is
+  lost, it's one of the last pieces of them.
+- Co-op: each player has their own friendships; casual games can be played by either player.
+
+### AR1. The Archive and the Hall of Remembrance (milestones 5-7)
+- **Archive** substation in the fortress (FT1). Archive entries per town: people known, culture recorded from
+  civic buildings, festivals, crafts, stories. A per-town **knowledge score** drives Bell eligibility (BL1).
+- **Hall of Remembrance** (pocket dimension reached from the fortress): the Endless Hall with one door per visited
+  plane; each plane's room has one alcove per town (procedurally generated; special towns can get hand-made
+  rooms). Alcoves fill with keepsakes, recipes, banners, voices, signature cards, and every person in the town.
+- **Fast travel = the Hall**: from the fortress, a quick menu merges you into any town you have an alcove for
+  (replaces/extends the inn waypoint travel from C). Or step into a town's **echo**: the town's real map with a
+  ghostly filter and a snapshot of its people, where you can see each relationship and then merge into reality.
+- **Lost towns**: alcove sealed (nothing more can be added), no fast travel, echo stays walkable, frozen at the
+  last moment you knew it. **Bell-saved towns** get their own mark.
+- **Co-op**: each player has their own Hall. Guest visits (look only) to a partner's Hall: feasible and clean
+  (same kind of host-world load as CO2, nothing syncs back); build after the Hall exists.
+
+### BL1. Harmonic Bells and the Watcher's warnings (milestone 7, with WAR1)
+- The Watcher reports the Nothing's approach per town ahead of time ("eight days at current pace").
+- The contingent can anchor only so many Bells per season (tunable). A town is **eligible** once its Archive
+  knowledge passes a threshold (tunable; open question in `Lore.md`). The player chooses which eligible towns get
+  Bells; Engineers anchor each at a ritual site (a short quest or event in the town).
+- When the Nothing takes a Bell town, its land is erased but its people "go home": the alcove gets the saved mark,
+  townsfolk data is preserved (whether they can be met again is an open question).
+- You can't save everyone; the choice is the point.
+
+### SE1. Seasons (milestone 6)
+- **Each Standard window is a season.** An in-game calendar with days; rotation happens at season end. Planes of
+  rotated sets drift out of alignment (MV2).
+- Seasons drive townsfolk schedules, festivals (Archive entries), the Nothing's pacing (BL1) and Bell allotments.
+
+### CH1. The Supervisor and the Watcher
+- Both nameable at character creation with default names offered (defaults still to be chosen).
+- **Supervisor**: gruff because he cares; scripted "slips" (draft lines for solo and co-op in `Lore.md`); co-op
+  players share one Supervisor (host's name).
+- **Watcher**: spy, advisor, scout; starts literal and alien and gradually talks like someone who knows you
+  (dialogue lines keyed to playtime, friendships and events). Voice of raid warnings, Nothing reports, intel.
+
 ## Suggested order
 
 1. A (materials core) alone. A2 and B2 after B lands the new material lines.
@@ -613,6 +683,7 @@ stays optional and never ships a key. Forge's normal AI is always the fallback.
 10. Fortresses: FT1 → FT2 → FT3 and FT4.
 11. TR1 with co-op; then LG1 → LG2 → LG3; WAR1 after FT3.
 12. INV1, then DS1 (duel screen).
+13. Core loop: LT1 + FR1 (first living town) → AR1 → SE1 → BL1 with WAR1; CH1 alongside.
 
 ## Art
 
