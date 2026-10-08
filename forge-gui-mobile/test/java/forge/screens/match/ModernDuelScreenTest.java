@@ -1,7 +1,6 @@
 package forge.screens.match;
 
 import forge.game.card.CardView;
-import forge.game.phase.PhaseType;
 import forge.game.zone.ZoneType;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.trackable.Tracker;
@@ -11,6 +10,8 @@ import org.testng.annotations.Test;
 /**
  * Headless DS1 coverage: preference gating and drop classification.
  * Stock path stays off when preference is Never / Auto without Ascendant.
+ * <p>Avoids {@code PhaseType} enum init (needs Localizer); hand/non-combat
+ * decisions only need a null phase.
  */
 public class ModernDuelScreenTest {
 
@@ -39,7 +40,7 @@ public class ModernDuelScreenTest {
     public void handDropOnBoardIsCast() {
         final ModernDuelActions.Decision d = ModernDuelActions.decide(
                 zoneCard(ZoneType.Hand), true, null, true, false,
-                PhaseType.MAIN1, false);
+                null, false);
         Assert.assertEquals(d.kind, ModernDuelActions.Kind.CAST);
     }
 
@@ -47,7 +48,7 @@ public class ModernDuelScreenTest {
     public void handDropOffBoardCancels() {
         final ModernDuelActions.Decision d = ModernDuelActions.decide(
                 zoneCard(ZoneType.Hand), true, null, false, false,
-                PhaseType.MAIN1, false);
+                null, false);
         Assert.assertEquals(d.kind, ModernDuelActions.Kind.NONE);
     }
 
@@ -55,7 +56,7 @@ public class ModernDuelScreenTest {
     public void handDropInHandIsReorder() {
         final ModernDuelActions.Decision d = ModernDuelActions.decide(
                 zoneCard(ZoneType.Hand), true, null, false, true,
-                PhaseType.MAIN1, false);
+                null, false);
         Assert.assertEquals(d.kind, ModernDuelActions.Kind.REORDER);
     }
 
@@ -63,7 +64,7 @@ public class ModernDuelScreenTest {
     public void permanentDragOutsideCombatIsNoop() {
         final ModernDuelActions.Decision d = ModernDuelActions.decide(
                 zoneCard(ZoneType.Battlefield), false, "someone", true, false,
-                PhaseType.MAIN1, false);
+                null, false);
         Assert.assertEquals(d.kind, ModernDuelActions.Kind.NONE);
     }
 
