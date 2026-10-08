@@ -13,7 +13,6 @@ import forge.adventure.data.SkillTreeListData;
 import forge.adventure.data.SkillTreeNodeData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.player.BanLists;
-import forge.adventure.player.PlayerSkills;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
@@ -171,6 +170,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (attached) {
             CoopHooks.setFightStartHook(null);
             CoopHooks.setGuestEnemyEncounterHandler(null);
+            CoopHooks.setPartyProximity(CoopPartyProximity.NEVER);
             try {
                 CoopSession.get().removeDuelListener(this);
             } catch (final Exception ignored) {
@@ -192,19 +192,37 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         return fightRequestValidator;
     }
 
-    /** Bind an encounter enemy under a stable id (host-local until CO2 registry lands). */
+    /** Bind an encounter enemy under its CO2 registry id when available. */
     public long bindEnemy(final EnemySprite mob) {
         if (mob == null) {
             return 0L;
         }
-        final long id = localEnemySeq.getAndIncrement();
+        long id = 0L;
+        try {
+            id = CoopOverworldRuntime.get().getEnemyId(mob);
+        } catch (final Exception ignored) {
+        }
+        if (id <= 0L) {
+            id = localEnemySeq.getAndIncrement();
+        }
         enemyById.put(id, mob);
         return id;
     }
 
     public EnemySprite resolveEnemy(final long enemyId) {
         // CO2 host registry uses positive enemy ids; 0 is never valid.
-        return enemyId != 0L ? enemyById.get(enemyId) : null;
+        if (enemyId == 0L) {
+            return null;
+        }
+        final EnemySprite cached = enemyById.get(enemyId);
+        if (cached != null) {
+            return cached;
+        }
+        try {
+            return CoopOverworldRuntime.get().getEnemyById(enemyId);
+        } catch (final Exception e) {
+            return null;
+        }
     }
 
     // ---- FightStartHook ----
@@ -284,32 +302,6 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             }
         }
         return true;
-    }
-
-    /**
-     * Feature/set-start path (no CO2 OverworldRuntime yet): host validates a raw
-     * {@link CoopEnemyEncounterRequestEvent} from the wire, then forwards to
-     * {@link #onGuestEnemyEncounter} on ACCEPT.
-     */
-    public void onEnemyEncounterRequestFromWire(final CoopEnemyEncounterRequestEvent event) {
-        if (CoopSession.get().getRole() != CoopSessionRole.HOST || event == null) {
-            return;
-        }
-        // Ensure the enemy is resolvable by id for this provisional path.
-        if (event.getEnemyId() > 0L && resolveEnemy(event.getEnemyId()) == null) {
-            final EnemySprite current = WorldStage.getInstance().getCurrentMob();
-            if (current != null) {
-                enemyById.put(event.getEnemyId(), current);
-            }
-        }
-        final CoopFightRequestResultEvent result =
-                fightRequestValidator.validateOnHost(event, true);
-        CoopSession.get().send(result);
-        if (result.getDecision() != CoopFightRequestResultEvent.Decision.ACCEPT) {
-            return;
-        }
-        final String guest = CoopSession.get().getPeerName();
-        onGuestEnemyEncounter(event.getEnemyId(), event.getEnemyDataId(), guest);
     }
 
     // ---- DuelListener ----
@@ -746,6 +738,12 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             final long enemyIdFinal = enemyId > 0L ? enemyId : pendingEnemyId;
             hostedMatch.setEndGameHook(() -> onHostGameEnded(
                     hostedMatch, hostRpFinal, mobFinal, duelIdFinal, enemyIdFinal));
+            // CO2 host pause: enemy AI / spawns / lifetimes pause for both while in duel.
+            final String encounterLabel = mob.getData() != null ? mob.getData().getName() : "a duel";
+            try {
+                CoopOverworldRuntime.get().onHostDuelStarted(encounterLabel);
+            } catch (final Exception ignored) {
+            }
             hostedMatch.startMatch(rules, variants, players, guiMap,
                     mob.getData() != null && mob.getData().boss ? MusicPlaylist.BOSS : MusicPlaylist.MATCH);
             MatchController.instance.setGameView(hostedMatch.getGameView());
@@ -830,8 +828,13 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private void applyHostLocalResult(final boolean teamWon, final EnemySprite mob) {
         if (mob != null) {
             WorldStage.getInstance().setCurrentMob(mob);
+            // setWinner also calls CoopOverworldRuntime.onHostDuelEnded().
             WorldStage.getInstance().setWinner(teamWon, false);
             return;
+        }
+        try {
+            CoopOverworldRuntime.get().onHostDuelEnded();
+        } catch (final Exception ignored) {
         }
         final AdventurePlayer ap = Current.player();
         if (ap == null) {

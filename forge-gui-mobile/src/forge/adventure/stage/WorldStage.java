@@ -387,6 +387,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
             return;
         foregroundSprites.removeActor(sprite);
         removeEnemy(sprite);
+    }
 
     /**
      * Start the normal (solo) overworld duel transition for {@code mob}.

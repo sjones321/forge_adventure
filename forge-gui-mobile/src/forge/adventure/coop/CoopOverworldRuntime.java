@@ -786,6 +786,11 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         return id == null ? -1L : id;
     }
 
+    /** Host/guest lookup of a live enemy sprite by CO2 registry id (0 / unknown → null). */
+    public EnemySprite getEnemyById(final long enemyId) {
+        return enemyId == 0L ? null : localEnemiesById.get(enemyId);
+    }
+
     public long onHostEnemySpawned(final EnemySprite enemy) {
         if (!CoopHooks.isOverworldReady() || !CoopHooks.isWorldAuthority() || authority == null || enemy == null) {
             return -1L;

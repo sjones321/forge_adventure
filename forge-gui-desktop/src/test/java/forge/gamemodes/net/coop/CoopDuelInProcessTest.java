@@ -155,9 +155,53 @@ public class CoopDuelInProcessTest {
         return rp;
     }
 
+    /** Answer one prompt for {@code remote}/{@code gui}; return true if handled. */
+    private static boolean answerOne(final RecordingRemote remote, final ProtocolGuiGame gui,
+                                     final boolean tryPlayLand) throws Exception {
+        final GuiGameEvent ub = remote.buttonPrompts.poll(300, TimeUnit.MILLISECONDS);
+        if (ub == null) {
+            return false;
+        }
+        final PlayerView owner = (PlayerView) ub.getObjects()[0];
+        if (remote.myPlayers == null || owner == null || !remote.myPlayers.contains(owner)) {
+            return false;
+        }
+        final IGameController controller = gui.getGameController(owner);
+        if (controller == null) {
+            return false;
+        }
+        final GameView gv = gui.getGameView();
+        final boolean myMain = tryPlayLand && gv != null && gv.getPlayerTurn() != null
+                && gv.getPlayerTurn().equals(owner) && gv.getPhase() == PhaseType.MAIN1;
+        if (myMain && owner.getHand() != null) {
+            for (final CardView c : owner.getHand()) {
+                final CardView toPlay = c;
+                FThreads.invokeInEdtLater(() -> controller.selectCard(toPlay, null, null));
+                return true;
+            }
+        }
+        FThreads.invokeInEdtLater(controller::selectButtonOk);
+        return true;
+    }
+
+    private static void concedeHumans(final HostedMatch match, final boolean guestOnly,
+                                      final String guestName) {
+        for (final forge.player.PlayerControllerHuman hc : match.getHumanControllers()) {
+            if (hc == null || hc.getPlayer() == null) {
+                continue;
+            }
+            final String name = hc.getPlayer().getName();
+            if (guestOnly && (name == null || !name.equalsIgnoreCase(guestName))) {
+                continue;
+            }
+            // Headless GuiDesktop.invokeInEdtNow runs inline — avoid Swing queue races.
+            FThreads.invokeInEdtNowOrLater(hc::concede);
+        }
+    }
+
     /**
-     * Drive both human remotes: play a land if possible, otherwise OK; after a few
-     * prompts force-concede the chosen side (or both).
+     * Drive both remotes briefly, then concede (guest-only or all humans) and wait
+     * for the current game to finish.
      */
     private static void driveUntilGameOver(final HostedMatch match,
                                            final RecordingRemote hostRemote,
@@ -167,60 +211,45 @@ public class CoopDuelInProcessTest {
                                            final boolean concedeGuestOnly,
                                            final long deadlineMs) throws Exception {
         int answered = 0;
-        while (System.currentTimeMillis() < deadlineMs) {
+        while (System.currentTimeMillis() < deadlineMs && answered < 6) {
             if (match.getGameView() != null && match.getGameView().isGameOver()) {
                 return;
             }
-            GuiGameEvent ub = hostRemote.buttonPrompts.poll(200, TimeUnit.MILLISECONDS);
-            RecordingRemote remote = hostRemote;
-            ProtocolGuiGame gui = hostGui;
-            if (ub == null) {
-                ub = guestRemote.buttonPrompts.poll(200, TimeUnit.MILLISECONDS);
-                remote = guestRemote;
-                gui = guestGui;
+            if (answerOne(hostRemote, hostGui, true)) {
+                answered++;
             }
-            if (ub == null) {
-                continue;
-            }
-            final PlayerView owner = (PlayerView) ub.getObjects()[0];
-            if (remote.myPlayers == null || owner == null || !remote.myPlayers.contains(owner)) {
-                continue;
-            }
-            final IGameController controller = gui.getGameController(owner);
-            final GameView gv = gui.getGameView();
-            final boolean myMain = gv != null && gv.getPlayerTurn() != null && gv.getPlayerTurn().equals(owner)
-                    && gv.getPhase() == PhaseType.MAIN1;
-            CardView land = null;
-            if (myMain && owner.getHand() != null) {
-                for (final CardView c : owner.getHand()) {
-                    land = c;
-                    break;
-                }
-            }
-            answered++;
-            if (land != null && answered < 4) {
-                final CardView toPlay = land;
-                FThreads.invokeInEdtLater(() -> controller.selectCard(toPlay, null, null));
-            } else if (answered >= 4) {
-                if (concedeGuestOnly) {
-                    if (remote == guestRemote) {
-                        FThreads.invokeInEdtLater(controller::concede);
-                        return;
-                    }
-                    FThreads.invokeInEdtLater(controller::selectButtonOk);
-                } else {
-                    FThreads.invokeInEdtLater(controller::concede);
-                }
-            } else {
-                FThreads.invokeInEdtLater(controller::selectButtonOk);
+            if (answerOne(guestRemote, guestGui, true)) {
+                answered++;
             }
         }
+        concedeHumans(match, concedeGuestOnly, "Guest");
+        if (!concedeGuestOnly) {
+            // Team-0 wipe: both humans must be gone for the AI to win the game.
+            concedeHumans(match, false, null);
+        }
+        waitGameOver(match, Math.max(5_000, deadlineMs - System.currentTimeMillis()));
     }
 
     private static void waitGameOver(final HostedMatch match, final long ms) throws InterruptedException {
+        final long end = System.currentTimeMillis() + Math.max(1_000, ms);
+        while (System.currentTimeMillis() < end) {
+            final GameView gv = match.getGameView();
+            if (gv != null && gv.isGameOver()) {
+                return;
+            }
+            if (match.getMatch() != null && match.getMatch().isMatchOver()) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+    }
+
+    private static void waitMatchOver(final HostedMatch match, final long ms) throws InterruptedException {
         final long end = System.currentTimeMillis() + ms;
-        while (match.getGameView() != null && !match.getGameView().isGameOver()
-                && System.currentTimeMillis() < end) {
+        while (System.currentTimeMillis() < end) {
+            if (match.getMatch() != null && match.getMatch().isMatchOver()) {
+                return;
+            }
             Thread.sleep(50);
         }
     }
@@ -266,13 +295,18 @@ public class CoopDuelInProcessTest {
 
         final long deadline = System.currentTimeMillis() + 90_000;
         driveUntilGameOver(match, hostRemote, hostGui, guestRemote, guestGui, false, deadline);
-        waitGameOver(match, 30_000);
+        waitMatchOver(match, 45_000);
+        // endGameHook may still be flushing — brief settle
+        final long settle = System.currentTimeMillis() + 10_000;
+        while (outcome.get() == null && System.currentTimeMillis() < settle) {
+            Thread.sleep(100);
+        }
 
         assertNotNull(hostRemote.myPlayers, "host openView");
         assertNotNull(guestRemote.myPlayers, "guest openView");
-        assertTrue(hostRemote.fullStates >= 1);
-        assertTrue(guestRemote.fullStates >= 1);
-        assertTrue(endGameCalls.get() >= 1);
+        assertTrue(hostRemote.fullStates >= 1, "host full state");
+        assertTrue(guestRemote.fullStates >= 1, "guest full state");
+        assertTrue(endGameCalls.get() >= 1, "endGameHook ran: " + endGameCalls.get());
         assertNotNull(outcome.get(), "match outcome once at match end");
         assertEquals(outcome.get().getDuelId(), 42L);
         assertEquals(outcome.get().getEnemyId(), 99L);
@@ -376,25 +410,30 @@ public class CoopDuelInProcessTest {
                 List.of(host, guest, enemy), guis, null);
 
         // Play / concede through enough games for the match to end (first to 2).
-        final long overall = System.currentTimeMillis() + 180_000;
+        final long overall = System.currentTimeMillis() + 200_000;
         int safety = 0;
-        while (System.currentTimeMillis() < overall && safety++ < 12) {
+        while (System.currentTimeMillis() < overall && safety++ < 8) {
             if (match.getMatch() != null && match.getMatch().isMatchOver()) {
                 break;
             }
             driveUntilGameOver(match, hostRemote, hostGui, guestRemote, guestGui, false,
-                    System.currentTimeMillis() + 45_000);
-            waitGameOver(match, 20_000);
-            // After a game ends, HostedMatch may wait on CONTINUE — already issued in hook.
-            Thread.sleep(500);
+                    System.currentTimeMillis() + 40_000);
+            Thread.sleep(800);
+        }
+        waitMatchOver(match, 30_000);
+        final long settle = System.currentTimeMillis() + 10_000;
+        while (outcome.get() == null && System.currentTimeMillis() < settle) {
+            Thread.sleep(100);
         }
 
-        assertTrue(endGameCalls.get() >= 1, "endGameHook ran per finished game");
+        assertTrue(endGameCalls.get() >= 1, "endGameHook ran per finished game: " + endGameCalls.get());
+        assertTrue(matchEndOutcomes.get() >= 1, "outcome at match end: calls=" + endGameCalls.get()
+                + " matchEnds=" + matchEndOutcomes.get());
+        // Exactly one outcome object (duplicate duel-id guard in hook).
         assertEquals(matchEndOutcomes.get(), 1, "outcome only once at match end");
         assertNotNull(outcome.get());
         assertEquals(outcome.get().getDuelId(), 7L);
         assertEquals(outcome.get().getEnemyId(), 55L);
-        // Host ignores guest-shaped reward payloads — outcome-only event has no gold/xp fields.
         assertTrue(outcome.get().getWinningTeam() == 0 || outcome.get().getWinningTeam() == 1
                 || outcome.get().getWinningTeam() < 0);
     }
@@ -402,7 +441,7 @@ public class CoopDuelInProcessTest {
     @Test
     public void loadoutValidatorClampsLifeAndHandAndAllowlistsCards() {
         final Set<String> allow = CoopFightLoadoutValidator.allowlistFromEffects(
-                () -> List.of(new String[]{"Plains", "Island"}));
+                () -> Collections.singletonList(new String[]{"Plains", "Island"}));
         final CoopFightLoadout raw = CoopFightLoadout.builder()
                 .playerName("Guest")
                 .avatarId("g")
