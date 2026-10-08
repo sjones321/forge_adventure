@@ -24,7 +24,7 @@ import java.util.Set;
  * <p>The prefixes below are derived from measured traffic; see the commit
  * message for the derivation and the gadget-library survey behind it.
  */
-final class WireClassFilter implements IHasForgeLog {
+public final class WireClassFilter implements IHasForgeLog {
 
     /** {@code =off} disables enforcement, so a false reject cannot strand a game. */
     private static final String ENFORCE_PROPERTY = "forge.net.classFilter";
@@ -45,9 +45,28 @@ final class WireClassFilter implements IHasForgeLog {
      * The filter's one deliberate soft spot. {@code ProtocolMethod.getChoices}
      * ships an {@code FSerializableFunction}, so real traffic carries lambdas;
      * removing this means changing that method to send rendered strings.
+     *
+     * <p>Ascendant co-op (CO1) {@code NetEvent} types are listed explicitly even
+     * though they already match the {@code forge.} prefix — keeps the co-op
+     * wire surface visible when reviewing allowlist changes, and survives a
+     * future tightening of prefixes. Do not remove without updating CO1.
      */
     private static final Set<String> ALLOWED_EXACT = unmodifiableSetOf(
-            "java.lang.invoke.SerializedLambda");
+            "java.lang.invoke.SerializedLambda",
+            // CO1 session / connection (overworld port 36744)
+            "forge.gamemodes.net.event.coop.CoopHelloEvent",
+            "forge.gamemodes.net.event.coop.CoopHelloRejectEvent",
+            "forge.gamemodes.net.event.coop.CoopWorldOfferEvent",
+            "forge.gamemodes.net.event.coop.CoopSessionReadyEvent",
+            "forge.gamemodes.net.event.coop.CoopDisconnectEvent",
+            "forge.gamemodes.net.event.coop.CoopDecklistEvent",
+            // CO2 / CO3 hooks registered early so peers on CO1 builds can ignore them safely
+            "forge.gamemodes.net.event.coop.CoopPlayerMoveEvent",
+            "forge.gamemodes.net.event.coop.CoopPartyInviteEvent",
+            "forge.gamemodes.net.event.coop.CoopPartyResponseEvent",
+            "forge.gamemodes.net.event.coop.CoopPartyResponseEvent$Action",
+            "forge.gamemodes.net.event.coop.CoopDuelInviteEvent",
+            "forge.gamemodes.net.event.coop.CoopDuelResponseEvent");
 
     private static final String JAVA_LANG = "java.lang.";
     private static final String PRIMITIVE_DESCRIPTORS = "BCDFIJSZ";
@@ -84,7 +103,7 @@ final class WireClassFilter implements IHasForgeLog {
         throw new InvalidClassException(rawName, "not permitted by the multiplayer class filter");
     }
 
-    static boolean isAllowed(final String rawName) {
+    public static boolean isAllowed(final String rawName) {
         if (rawName == null || rawName.isEmpty()) {
             return false;
         }
