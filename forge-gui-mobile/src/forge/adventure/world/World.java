@@ -61,6 +61,11 @@ public class World implements Disposable, SaveFileContent {
         return seed;
     }
 
+    /** Biome grid used by Ascendant co-op world-hash verification (CO1). */
+    public long[][] getBiomeMap() {
+        return biomeMap;
+    }
+
     static public int highestBiome(long biome) {
         return (int) (Math.log(Long.highestOneBit(biome)) / Math.log(2));
     }

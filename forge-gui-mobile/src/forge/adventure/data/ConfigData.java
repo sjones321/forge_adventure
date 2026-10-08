@@ -221,4 +221,22 @@ public class ConfigData {
     /** Overworld move-speed multiplier while standing on a road tile (Ascendant only). */
     public float roadSpeedBonus = 1.25f;
 
+    // ---- Ascendant co-op (Package CO1): session / connection. ----
+
+    /** Forge duel / lobby port (existing). Reserved for CO3 co-op duels. */
+    public int coopGamePort = 36743;
+    /** Ascendant co-op overworld session port (handshake, world sync, CO2). */
+    public int coopOverworldPort = 36744;
+    /**
+     * When true (default), hosting skips UPnP. Prefer Tailscale or manual Windows
+     * firewall rules; set false only for classic LAN experiments that add UPnP later.
+     */
+    public boolean coopSkipUPnP = true;
+    /** Seconds the guest waits for a host hello reply before giving up. */
+    public int coopHandshakeTimeoutSeconds = 30;
+    /** Party / duel-invite radius in overworld tiles (CO2/CO3; stored early for tunables). */
+    public float coopPartyRadiusTiles = 8f;
+    /** "Join the fight?" prompt timeout in seconds (CO3). */
+    public int coopDuelInviteTimeoutSeconds = 15;
+
 }

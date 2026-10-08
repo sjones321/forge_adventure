@@ -65,7 +65,7 @@
       "text": "tr(lblSettings)",
       "selectable": true,
       "width": 118,
-      "height": 48,
+      "height": 40,
       "x": 16,
       "yOffset": 8
     },
@@ -75,9 +75,29 @@
       "text": "tr(lblData)",
       "selectable": true,
       "width": 118,
-      "height": 48,
+      "height": 40,
       "x": 134,
-      "yOffset": -48
+      "yOffset": -40
+    },
+    {
+      "type": "TextButton",
+      "name": "Host",
+      "text": "Host",
+      "selectable": true,
+      "width": 118,
+      "height": 40,
+      "x": 16,
+      "yOffset": 8
+    },
+    {
+      "type": "TextButton",
+      "name": "Join",
+      "text": "Join",
+      "selectable": true,
+      "width": 118,
+      "height": 40,
+      "x": 134,
+      "yOffset": -40
     },
     {
       "type": "TextButton",
@@ -85,7 +105,7 @@
       "text": "tr(lblClassic)",
       "selectable": true,
       "width": 238,
-      "height": 48,
+      "height": 40,
       "x": 16,
       "yOffset": 8
     },
@@ -95,7 +115,7 @@
       "text": "tr(lblExit)",
       "selectable": true,
       "width": 238,
-      "height": 48,
+      "height": 40,
       "x": 16,
       "yOffset": 8
     },

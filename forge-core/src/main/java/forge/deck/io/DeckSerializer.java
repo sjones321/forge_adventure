@@ -21,6 +21,32 @@ public class DeckSerializer {
         FileUtil.writeFile(f, serializeDeck(d));
     }
 
+    /**
+     * Serialize a deck to the same text format written by {@link #writeDeck}.
+     * Used by Ascendant co-op (CO3) so decklists travel as text instead of live
+     * {@code Deck}/{@code PaperCard} graphs on the wire.
+     */
+    public static List<String> toDecklistLines(final Deck d) {
+        return serializeDeck(d);
+    }
+
+    /** Join {@link #toDecklistLines} with newlines for a single string payload. */
+    public static String toDecklistText(final Deck d) {
+        return StringUtils.join(serializeDeck(d), System.lineSeparator());
+    }
+
+    /** Parse a decklist text blob produced by {@link #toDecklistText} / {@link #writeDeck}. */
+    public static Deck fromDecklistText(final String text) {
+        if (text == null || text.isEmpty()) {
+            return null;
+        }
+        final List<String> lines = new ArrayList<>();
+        for (final String line : text.split("\\R", -1)) {
+            lines.add(line);
+        }
+        return fromSections(FileSection.parseSections(lines));
+    }
+
     static DeckFileHeader readDeckMetadata(final Map<String, List<String>> map) {
         if (map == null) {
             return null;

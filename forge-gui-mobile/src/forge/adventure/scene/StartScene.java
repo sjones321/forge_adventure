@@ -1,15 +1,18 @@
 package forge.adventure.scene;
 
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.scenes.scene2d.ui.Dialog;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
 import com.badlogic.gdx.scenes.scene2d.ui.SelectBox;
+import com.badlogic.gdx.scenes.scene2d.ui.TextField;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Timer;
 import com.github.tommyettinger.textra.TextraButton;
 import com.github.tommyettinger.textra.TextraLabel;
 import com.github.tommyettinger.textra.TypingLabel;
 import forge.Forge;
+import forge.adventure.coop.CoopSession;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.GameStage;
 import forge.adventure.stage.MapStage;
@@ -17,7 +20,10 @@ import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 import forge.adventure.world.WorldSave;
 import forge.assets.FSkinTexture;
+import forge.gamemodes.net.coop.CoopPorts;
+import forge.gamemodes.net.server.FServerManager;
 import forge.gui.GuiBase;
+import forge.gui.util.SOptionPane;
 import forge.localinstance.properties.ForgeProfileProperties;
 import forge.screens.TransitionScreen;
 import forge.sound.SoundSystem;
@@ -28,6 +34,7 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -35,8 +42,9 @@ import java.util.regex.Pattern;
  */
 public class StartScene extends UIScene {
     private static StartScene object;
-    Dialog exitDialog, backupDialog, zipDialog, unzipDialog;
-    TextraButton saveButton, resumeButton, continueButton;
+    Dialog exitDialog, backupDialog, zipDialog, unzipDialog, joinDialog;
+    TextraButton saveButton, resumeButton, continueButton, hostButton, joinButton;
+    TextField joinAddressField;
     TypingLabel version = Controls.newTypingLabel("{GRADIENT}[%80]v." + Forge.getDeviceAdapter().getVersionString() + "{ENDGRADIENT}");
 
 
@@ -50,6 +58,8 @@ public class StartScene extends UIScene {
         ui.onButtonPress("Continue", StartScene.this::Continue);
         ui.onButtonPress("Settings", StartScene.this::settings);
         ui.onButtonPress("Backup", StartScene.this::backup);
+        ui.onButtonPress("Host", StartScene.this::hostCoop);
+        ui.onButtonPress("Join", StartScene.this::joinCoop);
         ui.onButtonPress("Exit", StartScene.this::Exit);
         ui.onButtonPress("Switch", StartScene.this::switchToClassic);
 
@@ -57,9 +67,17 @@ public class StartScene extends UIScene {
         saveButton = ui.findActor("Save");
         resumeButton = ui.findActor("Resume");
         continueButton = ui.findActor("Continue");
+        hostButton = ui.findActor("Host");
+        joinButton = ui.findActor("Join");
 
         saveButton.setVisible(false);
         resumeButton.setVisible(false);
+        if (hostButton != null) {
+            hostButton.setVisible(false);
+        }
+        if (joinButton != null) {
+            joinButton.setVisible(false);
+        }
         version.setHeight(5);
         version.skipToTheEnd();
         ui.addActor(version);
@@ -133,6 +151,126 @@ public class StartScene extends UIScene {
     public boolean settings() {
         Forge.switchScene(SettingsScene.instance());
         return true;
+    }
+
+    /**
+     * Ascendant co-op Host (CO1). Requires a loaded world; starts the overworld
+     * listener and shows LAN / Tailscale addresses.
+     */
+    public boolean hostCoop() {
+        if (!Config.ascendant()) {
+            return true;
+        }
+        if (WorldSave.getCurrentSave().getWorld().getData() == null) {
+            showDialog(createGenericDialog("Co-op",
+                    "Load or Continue a game before hosting.\nThe host's save owns the world.",
+                    Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null));
+            return true;
+        }
+        final boolean skipUPnP = Config.instance().getConfigData().coopSkipUPnP;
+        new Thread(() -> {
+            try {
+                CoopSession.get().host(skipUPnP);
+                final StringBuilder msg = new StringBuilder();
+                msg.append("Hosting Ascendant co-op.\n");
+                msg.append("Overworld port: ").append(CoopSession.get().getOverworldPort()).append('\n');
+                msg.append("Game port (duels): ").append(CoopSession.get().getGamePort()).append('\n');
+                if (skipUPnP) {
+                    msg.append("UPnP skipped (Tailscale / manual firewall).\n");
+                }
+                msg.append("\nAddresses for your guest:\n");
+                for (final Map.Entry<String, String> e : FServerManager.getAllLocalAddresses().entrySet()) {
+                    msg.append(e.getKey()).append(": ")
+                            .append(e.getValue()).append(':')
+                            .append(CoopSession.get().getOverworldPort()).append('\n');
+                }
+                msg.append("\nGuest brings their own character; your save owns the world.");
+                Gdx.app.postRunnable(() -> showDialog(createGenericDialog("Co-op Host", msg.toString(),
+                        Forge.getLocalizer().getMessage("lblOK"), "Stop",
+                        this::removeDialog,
+                        () -> {
+                            CoopSession.get().disconnect();
+                            removeDialog();
+                        })));
+            } catch (final Exception e) {
+                Gdx.app.postRunnable(() -> showDialog(createGenericDialog("Co-op",
+                        "Failed to host:\n" + e.getMessage(),
+                        Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null)));
+            }
+        }, "Coop-Host").start();
+        return true;
+    }
+
+    /** Ascendant co-op Join (CO1). Address is Tailscale 100.x or LAN host[:port]. */
+    public boolean joinCoop() {
+        if (!Config.ascendant()) {
+            return true;
+        }
+        if (WorldSave.getCurrentSave().getWorld().getData() == null) {
+            showDialog(createGenericDialog("Co-op",
+                    "Load or Continue your character before joining.\nYour character stays on this PC; the host owns the world.",
+                    Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null));
+            return true;
+        }
+        if (joinAddressField == null) {
+            joinAddressField = Controls.newTextField("100.");
+        }
+        if (joinDialog == null) {
+            joinDialog = createGenericDialog("Co-op Join", null,
+                    Forge.getLocalizer().getMessage("lblOK"),
+                    Forge.getLocalizer().getMessage("lblAbort"),
+                    () -> {
+                        final String address = joinAddressField.getText();
+                        removeDialog();
+                        connectJoin(address);
+                    },
+                    this::removeDialog);
+            joinDialog.getContentTable().add(Controls.newLabel(
+                    "Host address (Tailscale 100.x or LAN).\nDefault port " + CoopPorts.OVERWORLD_PORT)).colspan(2);
+            joinDialog.getContentTable().row();
+            joinDialog.getContentTable().add(joinAddressField).fillX().expandX().colspan(2);
+            joinDialog.getContentTable().row();
+        }
+        showDialog(joinDialog);
+        return true;
+    }
+
+    private void connectJoin(final String address) {
+        if (address == null || address.trim().isEmpty()) {
+            return;
+        }
+        // Prefer SOptionPane only when the in-scene field is empty (fallback path).
+        String target = address.trim();
+        if ("100.".equals(target)) {
+            final String typed = SOptionPane.showInputDialog(
+                    "Enter host address (Tailscale 100.x.y.z or LAN IP)",
+                    "Co-op Join");
+            if (typed == null || typed.trim().isEmpty()) {
+                return;
+            }
+            target = typed.trim();
+        }
+        final String joinTarget = target;
+        new Thread(() -> {
+            try {
+                CoopSession.get().addStatusListener(msg ->
+                        System.out.println("[co-op] " + msg));
+                CoopSession.get().join(joinTarget);
+                Gdx.app.postRunnable(() -> showDialog(createGenericDialog("Co-op Join",
+                        "Connecting to " + joinTarget + "…\nWatch the console for handshake status.\n"
+                                + "On version mismatch the host refuses the connection.",
+                        Forge.getLocalizer().getMessage("lblOK"), "Disconnect",
+                        this::removeDialog,
+                        () -> {
+                            CoopSession.get().disconnect();
+                            removeDialog();
+                        })));
+            } catch (final Exception e) {
+                Gdx.app.postRunnable(() -> showDialog(createGenericDialog("Co-op",
+                        "Failed to join:\n" + e.getMessage(),
+                        Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null)));
+            }
+        }, "Coop-Join").start();
     }
 
     public boolean backup() {
@@ -342,6 +480,14 @@ public class StartScene extends UIScene {
         saveButton.setVisible(hasSaveButton);
         saveButton.setDisabled(TileMapScene.instance().currentMap().isInMap());
         updateResumeContinue();
+
+        final boolean showCoop = Config.ascendant();
+        if (hostButton != null) {
+            hostButton.setVisible(showCoop);
+        }
+        if (joinButton != null) {
+            joinButton.setVisible(showCoop);
+        }
 
         FSkinTexture.invalidateAdventureTextures();
         GuiBase.setAdventureDirectory(Config.instance().getPrefix());

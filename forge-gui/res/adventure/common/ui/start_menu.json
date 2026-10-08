@@ -78,7 +78,7 @@
       "width": 80,
       "height": 30,
       "x": 160,
-      "y": 180
+      "y": 170
     },
     {
       "type": "TextButton",
@@ -88,7 +88,27 @@
       "width": 80,
       "height": 30,
       "x": 240,
-      "y": 180
+      "y": 170
+    },
+    {
+      "type": "TextButton",
+      "name": "Host",
+      "text": "Host",
+      "selectable": true,
+      "width": 80,
+      "height": 28,
+      "x": 160,
+      "y": 200
+    },
+    {
+      "type": "TextButton",
+      "name": "Join",
+      "text": "Join",
+      "selectable": true,
+      "width": 80,
+      "height": 28,
+      "x": 240,
+      "y": 200
     },
     {
       "type": "TextButton",
@@ -96,9 +116,9 @@
       "text": "tr(lblExit)",
       "selectable": true,
       "width": 75,
-      "height": 30,
+      "height": 28,
       "x": 160,
-      "y": 220
+      "y": 232
     },
     {
       "type": "TextButton",
@@ -106,9 +126,9 @@
       "text": "tr(lblClassic)",
       "selectable": true,
       "width": 75,
-      "height": 30,
+      "height": 28,
       "x": 245,
-      "y": 220
+      "y": 232
     }
   ]
 }
