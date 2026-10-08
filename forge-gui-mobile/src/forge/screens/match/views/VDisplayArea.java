@@ -59,6 +59,21 @@ public abstract class VDisplayArea extends FScrollPane {
         return selectedChild;
     }
 
+    /** Controller: jump the focus cursor to a child index. */
+    public void selectChildAt(final int index) {
+        if (getChildCount() < 1 || index < 0 || index >= getChildCount()) {
+            return;
+        }
+        if (selectedChild != null) {
+            selectedChild.setHovered(false);
+        }
+        selectedIndex = index;
+        selectedChild = getChildAt(selectedIndex);
+        selectedChild.setHovered(true);
+        scrollIntoView(selectedChild);
+        MatchScreen.setPotentialListener(Arrays.asList(selectedChild));
+    }
+
     public void tapChild() {
         if (selectedChild instanceof FCardPanel)
             VCardDisplayArea.CardAreaPanel.get(((FCardPanel) selectedChild).getCard()).selectCard(false);

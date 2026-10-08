@@ -18,6 +18,7 @@
 package forge.screens.match;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Input.Keys;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
@@ -30,20 +31,24 @@ import forge.game.card.CardView;
 import forge.game.combat.CombatView;
 import forge.game.phase.PhaseType;
 import forge.game.player.PlayerView;
+import forge.game.spellability.StackItemView;
 import forge.game.zone.ZoneType;
 import forge.interfaces.IGameController;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.model.FModel;
 import forge.screens.match.views.VCardDisplayArea.CardAreaPanel;
+import forge.screens.match.views.VFloatingMana;
+import forge.screens.match.views.VPhaseIndicator;
 import forge.screens.match.views.VPlayerPanel;
 import forge.toolbox.FCardPanel;
 import forge.toolbox.FDisplayObject;
 import forge.util.ThreadUtil;
 import forge.util.Utils;
+import forge.util.collect.FCollectionView;
 
 /**
  * Runtime state for DS1 gestures: press-to-peek hand, drag-to-cast/attack/block,
- * hand reorder, drag arrow, and controller pick-up / drop. Behaviour studied from
+ * hand reorder, drag arrow, and full controller paths. Behaviour studied from
  * Neo Forge {@code TableScreen.installDragGestures} / {@code NeoMatchUI.onCardDropped}.
  */
 public final class ModernDuelController {
@@ -65,6 +70,10 @@ public final class ModernDuelController {
     private CardView heldCard;
     private boolean heldFromHand;
 
+    private ModernDuelPad.Focus padFocus = ModernDuelPad.Focus.NONE;
+    private int manaFocusIndex;
+    private int phaseFocusIndex;
+
     private boolean swallowNextTap;
 
     public static ModernDuelController get() {
@@ -77,13 +86,19 @@ public final class ModernDuelController {
     public void reset() {
         clearDrag();
         hidePeek();
+        clearPadFocus();
         heldCard = null;
         heldFromHand = false;
         swallowNextTap = false;
     }
 
     public boolean isBusy() {
-        return dragActive || peekCard != null || heldCard != null;
+        return dragActive || peekCard != null || heldCard != null
+                || padFocus != ModernDuelPad.Focus.NONE;
+    }
+
+    public ModernDuelPad.Focus getPadFocus() {
+        return padFocus;
     }
 
     public boolean shouldSwallowTap() {
@@ -198,6 +213,215 @@ public final class ModernDuelController {
         return false;
     }
 
+    // ------------------------------------------------------------------ controller pad routing
+    /**
+     * Handle a gamepad key for modern duel modes. Returns true if consumed.
+     * Call before stock match bindings for X / directional keys while in a mode.
+     */
+    public boolean handlePadKey(final int keyCode, final MatchScreen screen,
+                                final CardView focusedCard, final PlayerView focusedPlayer) {
+        if (!ModernDuelScreen.enabled() || screen == null) {
+            return false;
+        }
+        switch (keyCode) {
+            case Keys.BUTTON_X:
+                return onPadX(focusedCard);
+            case Keys.BUTTON_B:
+                return controllerCancel();
+            case Keys.DPAD_LEFT:
+                return onPadDpad(-1, 0, screen, focusedCard);
+            case Keys.DPAD_RIGHT:
+                return onPadDpad(1, 0, screen, focusedCard);
+            case Keys.DPAD_UP:
+                return onPadDpad(0, -1, screen, focusedCard);
+            case Keys.DPAD_DOWN:
+                return onPadDpad(0, 1, screen, focusedCard);
+            case Keys.BUTTON_A:
+                return onPadA(focusedCard, focusedPlayer);
+            default:
+                return false;
+        }
+    }
+
+    private boolean onPadX(final CardView focusedCard) {
+        if (padFocus == ModernDuelPad.Focus.PEEK || peekCard != null) {
+            hidePeek();
+            padFocus = ModernDuelPad.Focus.NONE;
+            Gdx.graphics.requestRendering();
+            return true;
+        }
+        if (padFocus == ModernDuelPad.Focus.MANA || padFocus == ModernDuelPad.Focus.PHASE) {
+            clearPadFocus();
+            Gdx.graphics.requestRendering();
+            return true;
+        }
+        final boolean handFocused = focusedCard != null && focusedCard.getZone() == ZoneType.Hand;
+        final VFloatingMana mana = localFloatingMana();
+        final boolean manaAvailable = mana != null && mana.hasManaAvailable();
+        final ModernDuelPad.Focus next = ModernDuelPad.chooseXTarget(handFocused, manaAvailable);
+        switch (next) {
+            case PEEK -> {
+                if (focusedCard == null) {
+                    return false;
+                }
+                ensureHandTab();
+                showPeek(CardAreaPanel.get(focusedCard));
+                padFocus = ModernDuelPad.Focus.PEEK;
+            }
+            case MANA -> {
+                manaFocusIndex = 0;
+                padFocus = ModernDuelPad.Focus.MANA;
+                if (mana != null) {
+                    mana.setFocusedIndex(manaFocusIndex);
+                }
+            }
+            case PHASE -> {
+                phaseFocusIndex = 0;
+                padFocus = ModernDuelPad.Focus.PHASE;
+                final VPhaseIndicator pi = localPhaseIndicator();
+                if (pi != null) {
+                    pi.setPadFocusIndex(phaseFocusIndex);
+                }
+            }
+            default -> {
+                return false;
+            }
+        }
+        Gdx.graphics.requestRendering();
+        return true;
+    }
+
+    private boolean onPadDpad(final int dx, final int dy, final MatchScreen screen,
+                             final CardView focusedCard) {
+        if (padFocus == ModernDuelPad.Focus.PEEK || peekCard != null) {
+            if (dy < 0) {
+                // Lift peeked card onto the table (held) — same as touch push-up.
+                final CardView card = peekCard;
+                hidePeek();
+                padFocus = ModernDuelPad.Focus.NONE;
+                if (card != null) {
+                    heldCard = card;
+                    heldFromHand = true;
+                }
+                Gdx.graphics.requestRendering();
+                return true;
+            }
+            if (dx != 0) {
+                return peekMove(dx);
+            }
+            return true; // swallow down while peeking
+        }
+        if (padFocus == ModernDuelPad.Focus.MANA && dx != 0) {
+            final VFloatingMana mana = localFloatingMana();
+            if (mana == null) {
+                return false;
+            }
+            manaFocusIndex = ModernDuelPad.cycle(manaFocusIndex, mana.getPipCount(), dx);
+            mana.setFocusedIndex(manaFocusIndex);
+            Gdx.graphics.requestRendering();
+            return true;
+        }
+        if (padFocus == ModernDuelPad.Focus.PHASE && dx != 0) {
+            final VPhaseIndicator pi = localPhaseIndicator();
+            if (pi == null) {
+                return false;
+            }
+            phaseFocusIndex = ModernDuelPad.cycle(phaseFocusIndex, VPhaseIndicator.PHASE_ORDER.length, dx);
+            pi.setPadFocusIndex(phaseFocusIndex);
+            Gdx.graphics.requestRendering();
+            return true;
+        }
+        // While holding a hand card, L/R still moves the normal focus cursor (fall through).
+        return false;
+    }
+
+    /**
+     * @return true if A was fully handled (caller should not fall through to tapChild);
+     *         false if stock confirm/select should run (e.g. targeting).
+     */
+    private boolean onPadA(final CardView focusedCard, final PlayerView focusedPlayer) {
+        if (padFocus == ModernDuelPad.Focus.MANA) {
+            final VFloatingMana mana = localFloatingMana();
+            if (mana != null && mana.activateFocused()) {
+                Gdx.graphics.requestRendering();
+                return true;
+            }
+            return true;
+        }
+        if (padFocus == ModernDuelPad.Focus.PHASE) {
+            final VPhaseIndicator pi = localPhaseIndicator();
+            if (pi != null) {
+                pi.togglePadFocusedStop();
+                MatchController.writeMatchPreferences();
+            }
+            Gdx.graphics.requestRendering();
+            return true;
+        }
+        if (padFocus == ModernDuelPad.Focus.PEEK || peekCard != null) {
+            final CardView card = peekCard != null ? peekCard : focusedCard;
+            hidePeek();
+            padFocus = ModernDuelPad.Focus.NONE;
+            if (MatchController.instance.isSelecting()) {
+                // Engine is asking for a choice from hand — select the peeked card.
+                if (card != null) {
+                    final IGameController c = MatchController.instance.getGameController();
+                    if (c != null) {
+                        ThreadUtil.invokeInGameThread(() -> c.selectCard(card, null, null));
+                    }
+                }
+                return true;
+            }
+            if (card != null) {
+                heldCard = card;
+                heldFromHand = true;
+                Gdx.graphics.requestRendering();
+                return true;
+            }
+            return true;
+        }
+        // Targeting: let stock tapChild select; we only draw the arrow.
+        if (MatchController.instance.isSelecting() && heldCard == null) {
+            return false;
+        }
+        if (heldCard != null && focusedPlayer != null && controllerDropOnPlayer(focusedPlayer)) {
+            return true;
+        }
+        if (controllerPickOrDrop(focusedCard)) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean peekMove(final int dx) {
+        final VPlayerPanel local = localPanel();
+        if (local == null || local.getZoneDisplay(ZoneType.Hand) == null || peekCard == null) {
+            return false;
+        }
+        ensureHandTab();
+        final java.util.List<CardAreaPanel> panels = new java.util.ArrayList<>();
+        for (final CardAreaPanel p : local.getZoneDisplay(ZoneType.Hand).getCardPanels()) {
+            panels.add(p);
+        }
+        if (panels.isEmpty()) {
+            return false;
+        }
+        int idx = 0;
+        for (int i = 0; i < panels.size(); i++) {
+            if (panels.get(i).getCard() != null && panels.get(i).getCard().getId() == peekCard.getId()) {
+                idx = i;
+                break;
+            }
+        }
+        idx = ModernDuelPad.cycle(idx, panels.size(), dx);
+        final CardAreaPanel next = panels.get(idx);
+        showPeek(next);
+        // Keep the hand tab selection in sync for A / further DPAD.
+        local.getZoneDisplay(ZoneType.Hand).selectChildAt(idx);
+        padFocus = ModernDuelPad.Focus.PEEK;
+        Gdx.graphics.requestRendering();
+        return true;
+    }
+
     // ------------------------------------------------------------------ controller pick-up / drop
     public boolean controllerPickOrDrop(final CardView focused) {
         if (!ModernDuelScreen.enabled()) {
@@ -209,23 +433,29 @@ public final class ModernDuelController {
             heldCard = null;
             heldFromHand = false;
             if (focused == null) {
-                return true; // cancel-ish drop with no target
+                Gdx.graphics.requestRendering();
+                return true;
+            }
+            // Hand → hand: reorder at the focused card's index (multi-step OK).
+            if (fromHand && focused.getZone() == ZoneType.Hand) {
+                final int heldIdx = handIndexOf(source);
+                final int targetIdx = handIndexOf(focused);
+                final int handSize = handSize();
+                final int index = ModernDuelPad.reorderIndex(heldIdx, targetIdx, handSize);
+                if (index >= 0 && !FModel.getPreferences().getPrefBoolean(FPref.UI_ORDER_HAND)) {
+                    final IGameController controller = MatchController.instance.getGameController();
+                    if (controller != null) {
+                        ThreadUtil.invokeInGameThread(() -> controller.reorderHand(source, index));
+                    }
+                }
+                Gdx.graphics.requestRendering();
+                return true;
             }
             final boolean overBoard = focused.getZone() == ZoneType.Battlefield
                     || focused.getZone() == ZoneType.Command;
             final boolean overHand = focused.getZone() == ZoneType.Hand && fromHand;
-            Object target = focused;
-            if (fromHand && overHand) {
-                target = focused;
-            } else if (fromHand) {
-                // Dropping onto a field card / player avatar focus: cast.
-                target = focused;
-            }
-            // Prefer player focus when attacking: callers pass player via selectPlayer path below.
-            final VPlayerPanel pp = MatchScreen.getPlayerPanel(
-                    MatchController.instance.getCurrentPlayer());
-            final boolean board = overBoard || (pp != null && pp.getField() != null);
-            applyDrop(source, fromHand, target, board && !overHand, overHand, -1);
+            applyDrop(source, fromHand, focused, overBoard && !overHand, overHand, -1);
+            Gdx.graphics.requestRendering();
             return true;
         }
         if (focused == null) {
@@ -246,6 +476,7 @@ public final class ModernDuelController {
         heldCard = null;
         heldFromHand = false;
         applyDrop(source, fromHand, player, true, false, -1);
+        Gdx.graphics.requestRendering();
         return true;
     }
 
@@ -253,11 +484,13 @@ public final class ModernDuelController {
         if (!ModernDuelScreen.enabled()) {
             return false;
         }
-        if (heldCard != null || dragActive || peekCard != null) {
+        if (heldCard != null || dragActive || peekCard != null
+                || padFocus != ModernDuelPad.Focus.NONE) {
             heldCard = null;
             heldFromHand = false;
             hidePeek();
             clearDrag();
+            clearPadFocus();
             Gdx.graphics.requestRendering();
             return true;
         }
@@ -289,16 +522,17 @@ public final class ModernDuelController {
                         origin.x, origin.y, dragScreenX, dragScreenY, true);
             }
         }
+        // Held card or targeting selection: amber arrow to the focus cursor.
+        final Vector2 targetEnd = focusArrowEnd();
+        Vector2 origin = null;
         if (heldCard != null) {
-            final Vector2 origin = arrowOriginFor(heldCard);
-            final CardAreaPanel focusPanel = focusedPanel();
-            if (origin != null && focusPanel != null) {
-                final Vector2 end = focusPanel.getTargetingArrowOrigin();
-                if (end != null) {
-                    g.drawCurvedArrow(Utils.scale(3), Color.valueOf("E0A63C"), Color.WHITE,
-                            origin.x, origin.y, end.x, end.y, true);
-                }
-            }
+            origin = arrowOriginFor(heldCard);
+        } else if (MatchController.instance.isSelecting()) {
+            origin = selectionArrowOrigin();
+        }
+        if (origin != null && targetEnd != null) {
+            g.drawCurvedArrow(Utils.scale(3), Color.valueOf("E0A63C"), Color.WHITE,
+                    origin.x, origin.y, targetEnd.x, targetEnd.y, true);
         }
     }
 
@@ -507,6 +741,47 @@ public final class ModernDuelController {
         return CardAreaPanel.get(card).getTargetingArrowOrigin();
     }
 
+    private Vector2 focusArrowEnd() {
+        final CardAreaPanel focusPanel = focusedPanel();
+        if (focusPanel != null) {
+            return focusPanel.getTargetingArrowOrigin();
+        }
+        try {
+            final MatchScreen screen = MatchController.getView();
+            if (screen == null) {
+                return null;
+            }
+            final VPlayerPanel panel = screen.selectedPlayerPanel();
+            if (panel != null && panel.getAvatar() != null
+                    && (panel.getSelectedTab() == null || !panel.getSelectedTab().getDisplayArea().isVisible())) {
+                // No card focused on this panel — aim at the player avatar (attack / player targets).
+                if (panel.getSelectedRow().getSelectedChild() == null) {
+                    return panel.getAvatar().getTargetingArrowOrigin();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private Vector2 selectionArrowOrigin() {
+        final GameView gv = MatchController.instance.getGameView();
+        if (gv == null) {
+            return null;
+        }
+        final FCollectionView<StackItemView> stack = gv.getStack();
+        if (stack != null && !stack.isEmpty()) {
+            final StackItemView top = stack.getLast();
+            if (top != null && top.getSourceCard() != null) {
+                final Vector2 o = arrowOriginFor(top.getSourceCard());
+                if (o != null) {
+                    return o;
+                }
+            }
+        }
+        return null;
+    }
+
     private static CardAreaPanel focusedPanel() {
         final MatchScreen screen = MatchController.getView();
         if (screen == null) {
@@ -531,6 +806,66 @@ public final class ModernDuelController {
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    private void clearPadFocus() {
+        padFocus = ModernDuelPad.Focus.NONE;
+        final VFloatingMana mana = localFloatingMana();
+        if (mana != null) {
+            mana.setFocusedIndex(-1);
+        }
+        final VPhaseIndicator pi = localPhaseIndicator();
+        if (pi != null) {
+            pi.setPadFocusIndex(-1);
+        }
+    }
+
+    private static void ensureHandTab() {
+        final VPlayerPanel local = localPanel();
+        if (local == null) {
+            return;
+        }
+        local.setSelectedZone(ZoneType.Hand);
+    }
+
+    private static int handIndexOf(final CardView card) {
+        if (card == null) {
+            return -1;
+        }
+        final VPlayerPanel local = localPanel();
+        if (local == null || local.getZoneDisplay(ZoneType.Hand) == null) {
+            return -1;
+        }
+        int i = 0;
+        for (final CardAreaPanel p : local.getZoneDisplay(ZoneType.Hand).getCardPanels()) {
+            if (p.getCard() != null && p.getCard().getId() == card.getId()) {
+                return i;
+            }
+            i++;
+        }
+        return -1;
+    }
+
+    private static int handSize() {
+        final VPlayerPanel local = localPanel();
+        if (local == null || local.getZoneDisplay(ZoneType.Hand) == null) {
+            return 0;
+        }
+        int n = 0;
+        for (final CardAreaPanel ignored : local.getZoneDisplay(ZoneType.Hand).getCardPanels()) {
+            n++;
+        }
+        return n;
+    }
+
+    private static VFloatingMana localFloatingMana() {
+        final VPlayerPanel local = localPanel();
+        return local == null ? null : local.getFloatingMana();
+    }
+
+    private static VPhaseIndicator localPhaseIndicator() {
+        final VPlayerPanel local = localPanel();
+        return local == null ? null : local.getPhaseIndicator();
     }
 
     private static VPlayerPanel localPanel() {

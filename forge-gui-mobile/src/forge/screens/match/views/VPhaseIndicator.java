@@ -23,9 +23,19 @@ public class VPhaseIndicator extends FContainer {
     public static final float PADDING_Y = Utils.scale(2);
 
     private static final Color YIELD_MARKER_COLOR = new Color(0xFFA528FF);
+    private static final Color PAD_FOCUS_BORDER = new Color(1f, 1f, 1f, 0.95f);
+
+    /** Rail order for controller cycling (matches visual left-to-right / top-to-bottom). */
+    public static final PhaseType[] PHASE_ORDER = {
+            PhaseType.UPKEEP, PhaseType.DRAW, PhaseType.MAIN1,
+            PhaseType.COMBAT_BEGIN, PhaseType.COMBAT_DECLARE_ATTACKERS, PhaseType.COMBAT_DECLARE_BLOCKERS,
+            PhaseType.COMBAT_FIRST_STRIKE_DAMAGE, PhaseType.COMBAT_DAMAGE, PhaseType.COMBAT_END,
+            PhaseType.MAIN2, PhaseType.END_OF_TURN, PhaseType.CLEANUP
+    };
 
     private final Map<PhaseType, PhaseLabel> phaseLabels = new HashMap<>();
     private FSkinFont font;
+    private int padFocusIndex = -1;
 
     public VPhaseIndicator() {
         addPhaseLabel("UP", PhaseType.UPKEEP);
@@ -40,6 +50,33 @@ public class VPhaseIndicator extends FContainer {
         addPhaseLabel("M2", PhaseType.MAIN2);
         addPhaseLabel("ET", PhaseType.END_OF_TURN);
         addPhaseLabel("CL", PhaseType.CLEANUP);
+    }
+
+    public void setPadFocusIndex(final int index) {
+        padFocusIndex = index;
+        for (int i = 0; i < PHASE_ORDER.length; i++) {
+            final PhaseLabel lbl = phaseLabels.get(PHASE_ORDER[i]);
+            if (lbl != null) {
+                lbl.setPadFocused(i == index);
+            }
+        }
+    }
+
+    public int getPadFocusIndex() {
+        return padFocusIndex;
+    }
+
+    /** Toggle stop on the pad-focused phase label. */
+    public boolean togglePadFocusedStop() {
+        if (padFocusIndex < 0 || padFocusIndex >= PHASE_ORDER.length) {
+            return false;
+        }
+        final PhaseLabel lbl = phaseLabels.get(PHASE_ORDER[padFocusIndex]);
+        if (lbl == null) {
+            return false;
+        }
+        lbl.tap(0, 0, 1);
+        return true;
     }
 
     private void addPhaseLabel(String caption, PhaseType phaseType) {
@@ -116,11 +153,16 @@ public class VPhaseIndicator extends FContainer {
         private boolean stopAtPhase = false;
         private boolean active = false;
         private boolean yieldMarked = false;
+        private boolean padFocused = false;
         private Runnable onToggled;
         private Runnable onLongPress;
 
         public PhaseLabel(String caption0) {
             caption = caption0;
+        }
+
+        public void setPadFocused(final boolean v) {
+            padFocused = v;
         }
 
         public boolean getActive() {
@@ -195,8 +237,11 @@ public class VPhaseIndicator extends FContainer {
                 else {
                     backColor = Forge.isMobileAdventureMode ? FSkinColor.get(Colors.ADV_CLR_PHASE_INACTIVE_DISABLED) : FSkinColor.get(Colors.CLR_PHASE_INACTIVE_DISABLED);
                 }
-                g.fillRect(isHovered() ? backColor.brighter() : backColor, x, 0, w, h);
+                g.fillRect(isHovered() || padFocused ? backColor.brighter() : backColor, x, 0, w, h);
                 g.drawText(caption, isHovered() && font.canIncrease() ? font.increase() : font, Color.BLACK, x, 0, w, h, false, Align.center, true);
+            }
+            if (padFocused) {
+                g.drawRect(Utils.scale(2), PAD_FOCUS_BORDER, x, 0, w, h);
             }
         }
 

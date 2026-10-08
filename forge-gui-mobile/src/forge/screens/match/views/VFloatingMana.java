@@ -36,11 +36,12 @@ import forge.util.Utils;
 
 /**
  * DS1 clickable floating mana pips near the local player's field (Neo Forge
- * PlayerBar mana behaviour, reimplemented in libGDX).
+ * PlayerBar mana behaviour, reimplemented in libGDX). Controller can focus a
+ * pip and activate it with A while paying.
  */
 public class VFloatingMana extends FDisplayObject {
     private static final FSkinFont FONT = FSkinFont.get(12);
-    private static final byte[] COLORS = {
+    public static final byte[] COLORS = {
             ManaAtom.COLORLESS, MagicColor.WHITE, MagicColor.BLUE,
             MagicColor.BLACK, MagicColor.RED, MagicColor.GREEN
     };
@@ -52,6 +53,7 @@ public class VFloatingMana extends FDisplayObject {
     private final PlayerView player;
     private boolean forceVisible;
     private int totalMana;
+    private int focusedIndex = -1;
 
     public VFloatingMana(final PlayerView player0) {
         player = player0;
@@ -61,6 +63,26 @@ public class VFloatingMana extends FDisplayObject {
     public void setForceVisible(final boolean v) {
         forceVisible = v;
         refreshVisibility();
+    }
+
+    public boolean isForceVisible() {
+        return forceVisible;
+    }
+
+    public boolean hasManaAvailable() {
+        return isVisible() && (forceVisible || totalMana > 0);
+    }
+
+    public int getPipCount() {
+        return COLORS.length;
+    }
+
+    public void setFocusedIndex(final int index) {
+        focusedIndex = index < 0 || index >= COLORS.length ? -1 : index;
+    }
+
+    public int getFocusedIndex() {
+        return focusedIndex;
     }
 
     public void update() {
@@ -73,6 +95,9 @@ public class VFloatingMana extends FDisplayObject {
 
     private void refreshVisibility() {
         setVisible(ModernDuelScreen.enabled() && (forceVisible || totalMana > 0));
+        if (!isVisible()) {
+            focusedIndex = -1;
+        }
     }
 
     @Override
@@ -83,6 +108,28 @@ public class VFloatingMana extends FDisplayObject {
         }
         activate(COLORS[idx]);
         return true;
+    }
+
+    /** Controller: spend the focused pip (or first with mana if none focused). */
+    public boolean activateFocused() {
+        int idx = focusedIndex;
+        if (idx < 0) {
+            idx = firstSpendableIndex();
+        }
+        if (idx < 0) {
+            return false;
+        }
+        activate(COLORS[idx]);
+        return true;
+    }
+
+    private int firstSpendableIndex() {
+        for (int i = 0; i < COLORS.length; i++) {
+            if (player.getMana(COLORS[i]) > 0) {
+                return i;
+            }
+        }
+        return forceVisible ? 0 : -1;
     }
 
     private void activate(final byte colorCode) {
@@ -120,6 +167,10 @@ public class VFloatingMana extends FDisplayObject {
             final float size = Math.min(pipW, h) - 2 * pad;
             final float ix = i * pipW + (pipW - size) / 2f;
             final float iy = pad;
+            if (i == focusedIndex) {
+                g.fillRect(new Color(1f, 1f, 1f, 0.25f), i * pipW, 0, pipW, h);
+                g.drawRect(Utils.scale(2), Color.WHITE, i * pipW + 1, 1, pipW - 2, h - 2);
+            }
             g.drawImage(image, ix, iy, size, size);
             g.drawText(Integer.toString(count), FONT, Color.WHITE,
                     i * pipW, iy + size - FONT.getCapHeight(), pipW, FONT.getLineHeight(),

@@ -49,7 +49,7 @@ Controls:
   - Button Y - Inventory/Rename
 
 
-- Match/Battle
+- Match/Battle (stock / modern off)
   - Left Trigger - Play/Draw/OK (Bottom Left Button)
   - Right Trigger - Keep/Mulligan/Cancel/End Turn/Alpha Strike (Bottom Right Button)
   - DPAD Up/Down/Left/Right - Selector (To select cards on the battlefield, close Zone tabs first (Button B))
@@ -61,10 +61,24 @@ Controls:
   - Button Y - Show Zoom
   - Button Back - Show Menu Tabs
 
-- Match/Battle (modern duel screen — Ascendant default, or Settings → Modern duel screen = Always)
-  - Same DPAD focus cursor as above
-  - Button A — pick up the focused card; A again drops it (cast from hand, attack/block in combat, or reorder in hand)
-  - Button A on an opponent panel with a held attacker — declare that player as the attack target
-  - Button B — cancel pick-up / drag / peek
-  - Floating mana pips near your field are focusable via the mana pool tab; A activates a pip (`useMana`)
-  - Phase rail labels remain tappable / focusable to set phase stops (unchanged engine path)
+- Match/Battle — modern duel screen (Ascendant default, or Settings → Modern duel screen = Always)
+
+  Stock bindings above still apply when you are not in a modern pad mode. Modern modes use **X** as the mode key (unused in stock match) and **B** to back out of any modern mode.
+
+  | Action | Binding |
+  | --- | --- |
+  | Pick up / drop card (cast, attack, block, reorder) | **A** on focused card; **A** again on drop target |
+  | Attack a player | Hold attacker with **A**, focus opponent panel (no card), **A** |
+  | Assign several blockers to one attacker | Hold blocker **A** → focus attacker → **A**; repeat with the next blocker |
+  | Cancel hold / peek / mana / phase mode | **B** |
+  | Press-to-peek hand | Focus a hand card, **X** — card enlarges |
+  | Move peek between neighbours | **DPAD Left/Right** while peeking |
+  | Lift peeked card to play | **DPAD Up** while peeking (then aim and **A**), or **A** while peeking to hold it |
+  | Select peeked card when the engine is asking | **A** while peeking during a selection prompt |
+  | Close peek | **X** or **B** |
+  | Reorder hand | Hold a hand card with **A**, **DPAD** to another hand slot, **A** to drop |
+  | Floating mana (while paying) | **X** when mana pips are showing (and hand is not focused) → mana mode; **DPAD Left/Right** cycle pips; **A** spends the focused pip |
+  | Phase stops | **X** when neither peek nor mana applies → phase mode on your rail; **DPAD Left/Right** cycle phases; **A** toggles stop on/off |
+  | Target spells / abilities | During a selection prompt, **DPAD** to the target; amber arrow follows focus; **A** confirms (stock select). No pick-up needed. |
+  | Zoom card | **Y** (unchanged) |
+  | Zone tabs / player panels / prompts | **R1** / **L1** / triggers (unchanged) |

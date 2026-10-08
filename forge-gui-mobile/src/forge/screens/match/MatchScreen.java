@@ -557,6 +557,21 @@ public class MatchScreen extends FScreen {
         // TODO: make the keyboard shortcuts configurable on Mobile
         if (Forge.hasGamepad() && ((FMenuBar) getHeader()).isShowingMenu(false) && (keyCode == Keys.ESCAPE || keyCode == Keys.ENTER))
             return false;
+        // DS1 modern duel: full pad path (peek / mana / phase / hold / target arrow).
+        if (ModernDuelScreen.enabled() && !((FMenuBar) getHeader()).isShowingMenu(true)) {
+            final CardView padFocused = focusedCardForController();
+            final PlayerView padPlayer = focusedPlayerForController();
+            if (keyCode == Keys.BUTTON_X || keyCode == Keys.BUTTON_A || keyCode == Keys.BUTTON_B
+                    || keyCode == Keys.DPAD_LEFT || keyCode == Keys.DPAD_RIGHT
+                    || keyCode == Keys.DPAD_UP || keyCode == Keys.DPAD_DOWN) {
+                final boolean consumed = ModernDuelController.get().handlePadKey(
+                        keyCode, this, padFocused, padPlayer);
+                if (consumed) {
+                    return true;
+                }
+                // A while targeting falls through to stock tapChild below.
+            }
+        }
         switch (keyCode) {
             case Keys.DPAD_DOWN:
                 if (!((FMenuBar) getHeader()).isShowingMenu(true)) {
@@ -650,23 +665,10 @@ public class MatchScreen extends FScreen {
             case Keys.BUTTON_A:
                 if (!((FMenuBar) getHeader()).isShowingMenu(true)) {
                     try {
-                        if (ModernDuelScreen.enabled()) {
-                            final CardView focused = focusedCardForController();
-                            final PlayerView focusedPlayer = focusedPlayerForController();
-                            if (ModernDuelController.get().getHeldCard() != null && focusedPlayer != null
-                                    && ModernDuelController.get().controllerDropOnPlayer(focusedPlayer)) {
-                                return true;
-                            }
-                            if (ModernDuelController.get().controllerPickOrDrop(focused)) {
-                                return true;
-                            }
-                        }
                         InfoTab selected = selectedPlayerPanel().getSelectedTab();
                         if (selected != null && selected.getDisplayArea().isVisible()) {
-                            //nullPotentialListener();
                             selectedPlayerPanel().getSelectedTab().getDisplayArea().tapChild();
                         } else {
-                            //nullPotentialListener();
                             selectedPlayerPanel().getSelectedRow().tapChild();
                         }
                     } catch (Exception ignored) {
@@ -674,9 +676,6 @@ public class MatchScreen extends FScreen {
                 }
                 break;
             case Keys.BUTTON_B:
-                if (ModernDuelScreen.enabled() && ModernDuelController.get().controllerCancel()) {
-                    return true;
-                }
                 break;
             case Keys.BUTTON_L1: //switch selected panels
                 if (Forge.hasGamepad()) {
