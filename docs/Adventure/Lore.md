@@ -66,6 +66,11 @@ the game needs. If the two disagree, the cosmology file wins.
 - Each Initiate has their own **Watcher**, named by the player (with a default name offered, so naming is
   optional). Narratively the Watcher is a spy, advisor and scout: it scouts ahead, gathers intelligence and advises.
   (Game use: the guide and intel voice, scouting reports, hints on where to investigate.)
+- **The Watcher's voice grows with you.** It starts precise, literal and a little alien: it reports what it sees,
+  not what it means. But you're bonded for a billion years, and it learns from you. Over the run its reports
+  shift, and nobody announces it. Early: *"Settlement erased. No survivors recovered."* Hundreds of hours later,
+  about a town you loved: *"Millbrook is gone. I'm sorry. I know you liked the smith."* One day you notice it talks
+  like someone who knows you.
 - A **Supervisor** oversees a set number of Initiates. Also nameable by the player, with a default name offered.
   In co-op, both players share one Supervisor (the host's name for the Supervisor is used).
 - **The mission**: activity of the Nothing has been detected in the Magic multiverse. You are sent in to find its

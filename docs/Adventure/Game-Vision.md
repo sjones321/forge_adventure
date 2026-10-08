@@ -62,7 +62,7 @@ Tone: **war-torn frontier, not a cozy farm.** You carve out strongholds on a con
   movement, rare nodes, delve sightings).
 
 ### The Nothing (story and stakes)
-Set in Steve's own cosmology, **the Eternal Engine** (see `Lore.md`). You are a **Deathwatch Initiate** sent into
+Set in Steve's own cosmology, **the Eternal Engine** (see `Lore.md`). You are a **Death Watch Initiate** sent into
 the Magic multiverse to find the source of **the Nothing**, which literally eats the map: land, towns and roads
 become nothingness. Its soulless minions are empowered by a hidden **Fallen**. After you master your first
 Standard set, the Nothing starts competing with you for the multiverse. You investigate plane after plane, close
@@ -141,6 +141,14 @@ lives in the places that aren't selling you anything. (See the core loop in `Lor
 - **Tavern, school, graveyard** and others each record something shops never will.
 - **Each set plane gets its own civic identity**, drawn from the plane's culture (temples to the gods on a
   Theros-style plane, guildhalls where a town hall would be on a Ravnica-style plane).
+- **Every townsperson has a deck that says who they are.** Casual games (at the tavern, on the porch) are the heart
+  of the friendship system: you learn about people by playing them, and they open up the more you play. Gifts and
+  conversation still matter. Examples: the smith's sturdy artifact deck she built herself; the priest's white
+  lifegain and protection; the school kid's janky rubber-banded pile he's very proud of.
+- **Top friendship reward: their signature card.** At the highest friendship, a townsperson gives you the one card
+  that is most *them* (the artifact the smith forged into her deck years ago; the kid's favorite beat-up creature).
+  It joins your collection, and a copy sits in their alcove in the Hall of Remembrance. If their town is lost, the
+  card is one of the last pieces of them left: playing it carries them with you.
 - **Shops restock by shipment.** Stock arrives from somewhere else (another town, a trade route), not by magic
   refresh. (Idea: shipments travel the roads, so when the Nothing cuts a road, the towns past it start running
   short. Ties into Logistics.)

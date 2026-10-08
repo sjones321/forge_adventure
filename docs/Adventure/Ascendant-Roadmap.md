@@ -505,7 +505,7 @@ Scope order: **TR1 first** (needed for co-op), then LG1, then the rest.
   speed its spread to new planes; destroying them yields clues and slows it. These are each plane's main objective.
 - **Watcher**: named at character creation; acts as guide, scout and intel voice (raid warnings, breach reports,
   investigation hints).
-- Story through the war itself, with skippable dialog. Player is a Deathwatch Initiate with a Watcher (guide) and
+- Story through the war itself, with skippable dialog. Player is a Death Watch Initiate with a Watcher (guide) and
   a Supervisor (co-op players share one).
 
 ## Inventory overhaul
