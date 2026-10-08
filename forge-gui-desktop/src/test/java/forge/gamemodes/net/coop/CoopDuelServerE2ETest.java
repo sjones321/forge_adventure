@@ -135,7 +135,9 @@ public class CoopDuelServerE2ETest {
         final AtomicReference<CoopDuelResultEvent> outcome = new AtomicReference<>();
         final AtomicInteger endGameCalls = new AtomicInteger();
         final HostedMatch match = new HostedMatch();
-        final GameRules rules = new GameRules(GameType.Adventure);
+        // Constructed rules with Adventure-style seating (team 0 host+guest, team 1 AI).
+        // GameType.Adventure needs extra plane setup that this headless path skips.
+        final GameRules rules = new GameRules(GameType.Constructed);
         rules.setGamesPerMatch(1);
         rules.setManaBurn(false);
         rules.setWarnAboutAICards(false);
@@ -185,7 +187,7 @@ public class CoopDuelServerE2ETest {
             }
         });
 
-        match.startMatch(rules, EnumSet.of(GameType.Adventure),
+        match.startMatch(rules, EnumSet.of(GameType.Constructed),
                 List.of(host, guest, enemy), guis, null);
 
         // Concede both humans so the AI wins and the match ends.
