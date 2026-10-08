@@ -1,0 +1,35 @@
+ascendant_items.png
+size: 80,32
+format: RGBA8888
+filter: Nearest,Nearest
+repeat: none
+ToolPickaxe
+  xy: 0, 0
+  size: 16, 16
+ToolAxe
+  xy: 16, 0
+  size: 16, 16
+ToolHammer
+  xy: 32, 0
+  size: 16, 16
+ToolSickle
+  xy: 48, 0
+  size: 16, 16
+ToolBucket
+  xy: 64, 0
+  size: 16, 16
+ToolBucketFull
+  xy: 0, 16
+  size: 16, 16
+DustCommon
+  xy: 16, 16
+  size: 16, 16
+DustUncommon
+  xy: 32, 16
+  size: 16, 16
+DustRare
+  xy: 48, 16
+  size: 16, 16
+DustMythic
+  xy: 64, 16
+  size: 16, 16

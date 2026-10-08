@@ -1088,22 +1088,40 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 }
                 int move = Math.min(room, e.amount);
                 bags.takeOverflow(index);
-                materials.put(e.key, getMaterial(e.key) + move);
-                onMaterialChangeList.emit();
-                if (move < e.amount) {
-                    // Put remainder back.
-                    bags.placeInOverflow(OverflowEntry.ofMaterial(e.key, e.amount - move));
+                if (move > 0) {
+                    int next = getMaterial(e.key) + move;
+                    if (next > 0)
+                        materials.put(e.key, next);
+                    else
+                        materials.remove(e.key);
+                    onMaterialChangeList.emit();
                 }
-                return true;
+                int left = e.amount - move;
+                if (left > 0)
+                    bags.placeInOverflow(OverflowEntry.ofMaterial(e.key, left));
+                return move > 0;
             }
-            case CURRENCY:
-                if (!bags.fitsContestCurrency(e.key, e.amount, contestCurrencies, inventoryItems)) {
+            case CURRENCY: {
+                // Partial retrieve like materials: move only what fits; never leave 0-amount entries.
+                int room = bags.currencyRoom(e.key, contestCurrencies, inventoryItems);
+                if (room <= 0) {
                     notifyInventory("No room in Currency pouch.");
                     return false;
                 }
+                int move = Math.min(room, e.amount);
                 bags.takeOverflow(index);
-                contestCurrencies.put(e.key, getContestCurrency(e.key) + e.amount);
-                return true;
+                if (move > 0) {
+                    int next = getContestCurrency(e.key) + move;
+                    if (next > 0)
+                        contestCurrencies.put(e.key, next);
+                    else
+                        contestCurrencies.remove(e.key);
+                }
+                int left = e.amount - move;
+                if (left > 0)
+                    bags.placeInOverflow(OverflowEntry.ofCurrency(e.key, left));
+                return move > 0;
+            }
             default:
                 return false;
         }

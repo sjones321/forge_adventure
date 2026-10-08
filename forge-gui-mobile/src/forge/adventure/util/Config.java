@@ -370,6 +370,12 @@ public class Config {
     }
 
     public Sprite getItemSprite(String itemName) {
+        // Ascendant tool/dust icons live in a separate atlas so stock items.png stays byte-identical.
+        if (ascendant()) {
+            Sprite asc = getAtlasSprite(forge.adventure.util.Paths.ASCENDANT_ITEMS_ATLAS, itemName);
+            if (asc != null)
+                return asc;
+        }
         return getAtlasSprite(forge.adventure.util.Paths.ITEMS_ATLAS, itemName);
     }
 
