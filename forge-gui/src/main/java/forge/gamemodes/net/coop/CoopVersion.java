@@ -8,7 +8,6 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -29,14 +28,15 @@ public final class CoopVersion {
         cardDataHashSupplier = supplier != null ? supplier : CoopVersion::defaultCardDataHash;
     }
 
-    /** Build identity exchanged on hello. Includes version string and build timestamp when present. */
+    /**
+     * Build identity exchanged on hello: version string plus co-op protocol version. Deliberately not the build
+     * timestamp, so two players who each build the same commit can play together; the card-data hash covers
+     * card differences.
+     */
     public static String buildHash() {
         final StringBuilder sb = new StringBuilder();
         sb.append(BuildInfo.getVersionString());
-        final Date ts = BuildInfo.getTimestamp();
-        if (ts != null) {
-            sb.append('|').append(ts.getTime());
-        }
+        sb.append("|coop-protocol-").append(CoopPorts.PROTOCOL_VERSION);
         return sha256Hex(sb.toString());
     }
 

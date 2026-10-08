@@ -3,6 +3,29 @@
 Direct, no servers. One player **hosts**; the other **joins** over LAN or Tailscale.
 Ascendant only — stock Forge / non-Ascendant Adventure worlds do not show Host / Join.
 
+## Building it on a second PC (for the guest)
+
+Both players must run the **same commit**. Builds made separately on each PC match; the check is the Forge
+version, the co-op protocol version and the loaded card data, not the build time.
+
+Requirements: **Java 17** (JDK) and **Maven 3.9+** on the PATH, plus Git.
+
+```
+git clone https://github.com/sjones321/forge_adventure.git
+cd forge_adventure
+git checkout feature/set-start
+git log -1 --format=%H        # compare this hash with the host's; they must match
+mvn -B install -DskipTests -pl forge-gui-mobile,forge-gui-mobile-dev -am
+```
+
+The first build downloads dependencies and takes a while; later builds can add `-o` (offline).
+
+Run the game with **`play-adventure.cmd`** in the repo root (Windows). It starts Forge from the `forge-gui` folder
+so it finds its `res` data, with the Java options Forge needs. In Adventure, start or load a **Shandalar Ascendant**
+game; co-op only exists in that world. Then follow **Join** below.
+
+To update later: `git pull`, check the commit hash matches the host's again, and rebuild.
+
 ## Ports
 
 | Port  | Role |
@@ -91,7 +114,7 @@ Also confirm the **Tailscale adapter's network profile is Private** (Windows Set
 Co-op uses a **hard** check (classic online only warns):
 
 - Matching **8-character session code** (5 failed attempts from one address → 5-minute lockout; host stays **HOSTING**)
-- Same Forge **build hash** (version + build timestamp)
+- Same Forge **build hash** (Forge version + co-op protocol version; building the same commit on each PC matches)
 - Same loaded **card data hash** (name + edition + art index + oracle + ability/script lines)
 
 If any differ, the host rejects and closes the guest channel. The Hosting screen stays up so you can try again. Update both installs so build and card data match, then retry with the current session code.
