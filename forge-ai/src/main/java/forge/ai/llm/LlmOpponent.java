@@ -105,9 +105,13 @@ public final class LlmOpponent {
     public static List<Card> chooseAttackers(Player ai, List<Card> legal, List<Card> forgeSuggestion) {
         StringBuilder prompt = new StringBuilder(describeState(ai));
         prompt.append("\nIt is your declare-attackers step. Creatures that can attack:\n");
-        for (int i = 0; i < legal.size(); i++)
+        for (int i = 0; i < legal.size(); i++) {
             prompt.append(i + 1).append(". ").append(describeCard(legal.get(i), true)).append('\n');
-        prompt.append("A simple heuristic suggests attacking with: ").append(names(forgeSuggestion)).append('\n');
+            prompt.append(combatOutlook(ai, legal.get(i)));
+        }
+        prompt.append("Forge's cautious default would attack with: ").append(names(forgeSuggestion)).append('\n');
+        prompt.append("\nRules reminders: summoning-sick creatures CAN still block. A creature whose death creates tokens "
+                + "or other value loses little by being blocked, so attacking with it is usually free damage or a good trade.\n");
         prompt.append("\nDecide which creatures attack. Think about the opponent's possible blocks, combat tricks, "
                 + "racing, and keeping blockers back. Reply only with JSON: {\"attackers\": [<numbers>], \"reason\": \"<one sentence>\"}");
 
@@ -201,6 +205,53 @@ public final class LlmOpponent {
         return sb.toString();
     }
 
+    /**
+     * Rough combat preview for one attacker: unblocked damage, and the result against each creature that
+     * could block it (power vs toughness only; first strike, deathtouch and tricks are not modelled).
+     */
+    private static String combatOutlook(Player ai, Card attacker) {
+        StringBuilder sb = new StringBuilder("   If it attacks: unblocked = ")
+                .append(Math.max(0, attacker.getNetCombatDamage())).append(" damage.");
+        String deathNote = diesTriggerNote(attacker);
+        for (Player opp : ai.getOpponents()) {
+            for (Card blocker : opp.getCreaturesInPlay()) {
+                if (blocker.isTapped() || !forge.game.combat.CombatUtil.canBlock(attacker, blocker))
+                    continue;
+                boolean attackerDies = blocker.getNetCombatDamage() >= attacker.getNetToughness() - attacker.getDamage();
+                boolean blockerDies = attacker.getNetCombatDamage() >= blocker.getNetToughness() - blocker.getDamage();
+                sb.append(" Blocked by ").append(blocker.getName()).append(' ')
+                        .append(blocker.getNetPower()).append('/').append(blocker.getNetToughness()).append(": ");
+                if (attackerDies && blockerDies)
+                    sb.append("both die");
+                else if (attackerDies)
+                    sb.append("yours dies");
+                else if (blockerDies)
+                    sb.append("theirs dies");
+                else
+                    sb.append("neither dies");
+                if (attackerDies && deathNote != null)
+                    sb.append(" (then ").append(deathNote).append(')');
+                sb.append('.');
+            }
+        }
+        return sb.append('\n').toString();
+    }
+
+    /** The card's own "when this dies" text, if it has one. */
+    private static String diesTriggerNote(Card c) {
+        String text = c.getOracleText();
+        if (text == null)
+            return null;
+        for (String line : text.split("\n")) {
+            String l = line.trim();
+            if (l.startsWith("When " + c.getName() + " dies") || l.startsWith("When this creature dies")) {
+                String rest = l.substring(l.indexOf("dies") + 4).trim();
+                return "its death trigger: " + (rest.startsWith(",") ? rest.substring(1).trim() : rest);
+            }
+        }
+        return null;
+    }
+
     private static String describeCard(Card c, boolean onBattlefield) {
         if (c.isFaceDown())
             return "(face-down card)";
@@ -216,7 +267,7 @@ public final class LlmOpponent {
             if (c.getDamage() > 0)
                 sb.append(", damage ").append(c.getDamage());
             if (c.isCreature() && c.isSick())
-                sb.append(", summoning sick");
+                sb.append(", summoning sick (can't attack this turn, can still block)");
             for (com.google.common.collect.Multiset.Entry<CounterType> e : c.getCounters().entrySet())
                 sb.append(", ").append(e.getCount()).append(' ').append(e.getElement().getName()).append(" counter(s)");
         }

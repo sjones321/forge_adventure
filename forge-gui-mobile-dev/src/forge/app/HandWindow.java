@@ -95,7 +95,34 @@ public final class HandWindow {
         });
     }
 
+    /** Closes the window for good. An undisposed Swing window keeps Java running after the game exits. */
+    public static void shutdown() {
+        SwingUtilities.invokeLater(() -> {
+            if (timer != null)
+                timer.stop();
+            if (frame != null) {
+                frame.dispose();
+                frame = null;
+            }
+        });
+    }
+
     private static void create() {
+        // When the game itself shuts down, take this window with it.
+        com.badlogic.gdx.Gdx.app.addLifecycleListener(new com.badlogic.gdx.LifecycleListener() {
+            @Override
+            public void pause() {
+            }
+
+            @Override
+            public void resume() {
+            }
+
+            @Override
+            public void dispose() {
+                shutdown();
+            }
+        });
         frame = new JFrame("Forge - Your Hand");
         frame.setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
         handPanel = new HandPanel();
