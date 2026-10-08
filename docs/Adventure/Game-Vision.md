@@ -109,14 +109,47 @@ against the enemy, using Forge's existing network duel code. Connection is direc
 ## Milestones
 
 1. **Co-op foundation**: session and connection (CO1), shared overworld (CO2), co-op duels (CO3).
-2. **Own identity**: name, launcher, app, separate from stock Forge.
+2. **Own identity**: name, launcher, app, separate from stock Forge. **Working title: Bellwarden: Planes of
+   Nothing** (chosen 2026-10-08). Avoid "NeoForge" (Minecraft mod loader), "___ of Eternity" (Pillars of
+   Eternity), and "Death Watch"/"Deathwatch" in the title (Star Wars / Warhammer 40K); the canon name is fine
+   inside the game.
 3. **Controller-first** outside duels.
 4. **Multiverse core**: multi-plane save, home plane, planar portals, first generated set plane.
-5. **One hand-made town** as the art test.
-6. **Delves** with depth and prestige XP.
-7. **Co-op systems** (CO4): shared home base, trading, co-op gyms and delves.
-8. **Controller support in duels.**
-9. **Stardew systems**: calendar and seasons, townsfolk friendships, farming at the home base.
+5. **The first living town**: one hand-made town as the art test, built lived-in from day one (see "Living
+   towns" below). Townsfolk, friendships and the first Archive entries are built here, along with the first
+   **Hall of Remembrance** room and alcove: the Archive, relationship screen and fast travel in one place (see
+   `Lore.md`).
+6. **Seasons**: the calendar, tied to Standard rotation (each Standard window is a season).
+7. **The Nothing**: map erasure, breaches, transit nodes, Watcher warnings, Harmonic Bell placement. Needs 4-6
+   first: it has nothing to threaten until there's a town you know and a calendar to race.
+8. **Delves** with depth and prestige XP.
+9. **Co-op systems** (CO4): shared home base, trading, co-op gyms and delves.
+10. **Controller support in duels.**
+11. **Farming** at the home base.
+
+### Living towns
+
+Towns are not shop lists. They are lived in, and **every non-shop building is a piece of the Archive**: culture
+lives in the places that aren't selling you anything. (See the core loop in `Lore.md`.)
+
+- **Homes**: where you learn who people are. Family keepsakes, kids' drawings, a grandmother's recipe. Being
+  invited into someone's home is a friendship milestone, not just a door.
+- **Church / temple**: what the town believes and how it grieves. Services, weddings, funerals. A culture's
+  beliefs about the Engine and the Between are top-tier Archive entries.
+- **Town hall**: how the town governs itself. Disputes, elections, the mayor's problems. When the Nothing
+  approaches, this is where it becomes politics.
+- **Tavern, school, graveyard** and others each record something shops never will.
+- **Each set plane gets its own civic identity**, drawn from the plane's culture (temples to the gods on a
+  Theros-style plane, guildhalls where a town hall would be on a Ravnica-style plane).
+- **Shops restock by shipment.** Stock arrives from somewhere else (another town, a trade route), not by magic
+  refresh. (Idea: shipments travel the roads, so when the Nothing cuts a road, the towns past it start running
+  short. Ties into Logistics.)
+- **Travel and communication system: Tiny is building it.** It will need a research system set up to support it,
+  and a lore pass to fit the Eternal Engine. Coordinate with Tiny before building anything that overlaps
+  (shipments, roads, messaging between towns).
+- **Every town has a general store**: some equipment, and if you're lucky, a little dust or crafting materials.
+- **Scope**: interiors and routines are a lot of content per town. Prove it on the hand-made town first, then
+  build generated towns from per-plane templates.
 
 ## Legal guardrails
 

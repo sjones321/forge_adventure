@@ -508,6 +508,32 @@ Scope order: **TR1 first** (needed for co-op), then LG1, then the rest.
 - Story through the war itself, with skippable dialog. Player is a Deathwatch Initiate with a Watcher (guide) and
   a Supervisor (co-op players share one).
 
+## Inventory overhaul
+
+### INV1. Inventory screen and bags (no hard dependency; do before more item content)
+Today the inventory is one flat list of every item (equipped ones included) under a large tooltip panel. Replace it:
+- **Layout**: keep the equipment paper doll on the left. On the right, a **tabbed bag area** takes most of the
+  space; item details shrink to a compact panel (or a hover/selection tooltip).
+- **Equipped items appear only in their slot**, never also in the bag list. Unequipping puts them back in the bag.
+- **Tool slots**: a toolbelt row on the paper doll with one slot per gathering family (axe, pickaxe, sickle,
+  chisel, bucket/still, salvage tool). Tools equip there, not in the bag.
+- **Bags by type** (tabs):
+  - **Backpack**: gear and usable items, slot-based with stacking for stackable items.
+  - **Packs**: unopened card packs and boosters, in their own storage.
+  - **Currency pouch**: gold, shards, the four dusts, and contest coins (gym, tournament and Grand Prix currency),
+    with room for future currencies.
+  - **Materials**: raw and refined materials (the existing Materials tab), stack-based.
+- **Capacity grows, no weight**: each bag has a slot count and a max stack size. Upgrades (crafted or bought, e.g.
+  bigger backpacks, pack satchels, material sacks) add slots and raise stack sizes. Nothing ever has weight.
+- **Never delete on overflow**: old saves and over-capacity bags keep everything; the bag shows as over capacity
+  and new items of that kind go to fortress storage (or are refused with a message) until there is room.
+- **Controller-first**: D-pad moves across slots and tabs, A selects/equips, X uses, Y shows details,
+  shoulder buttons switch tabs.
+- **Icons**: many items reuse unrelated sprites (a sword icon for a pickaxe, and so on). Give every tool,
+  material, pack and currency a fitting icon, starting from the Kenney/LPC packs in `A:\GameAssets` (see
+  `CREDITS.md`) or Steve's own art.
+- Save: bag contents and capacities saved per bag; old saves auto-sort the current flat inventory into the new bags.
+
 ## AI opponent: bring your own
 
 The LLM opponent (`forge-ai/.../llm/LlmOpponent.java`, settings in `%APPDATA%\Forge\llm_opponent.properties`)
