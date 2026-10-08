@@ -30,6 +30,8 @@ import forge.model.FModel;
 import forge.screens.match.CardFlightOverlay;
 import forge.screens.match.MatchController;
 import forge.screens.match.MatchScreen;
+import forge.screens.match.ModernDuelController;
+import forge.screens.match.ModernDuelScreen;
 import forge.toolbox.FCardPanel;
 import forge.toolbox.FDisplayObject;
 import forge.util.ThreadUtil;
@@ -518,9 +520,47 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
         }
 
         @Override
+        public boolean press(float x, float y) {
+            if (ModernDuelScreen.enabled() && renderedCardContains(x, y)) {
+                return ModernDuelController.get().onCardPress(this,
+                        localToScreenX(x), localToScreenY(y));
+            }
+            return super.press(x, y);
+        }
+
+        @Override
+        public boolean pan(float x, float y, float deltaX, float deltaY, boolean moreVertical) {
+            if (ModernDuelScreen.enabled()) {
+                return ModernDuelController.get().onCardPan(this,
+                        localToScreenX(x), localToScreenY(y));
+            }
+            return super.pan(x, y, deltaX, deltaY, moreVertical);
+        }
+
+        @Override
+        public boolean panStop(float x, float y) {
+            if (ModernDuelScreen.enabled()) {
+                return ModernDuelController.get().onCardPanStop(
+                        localToScreenX(x), localToScreenY(y));
+            }
+            return super.panStop(x, y);
+        }
+
+        @Override
+        public boolean release(float x, float y) {
+            if (ModernDuelScreen.enabled()) {
+                ModernDuelController.get().onCardRelease();
+            }
+            return super.release(x, y);
+        }
+
+        @Override
         public boolean tap(float x, float y, int count) {
             if (count > 1) //prevent double choice lists or activate handle
                 return false;
+            if (ModernDuelScreen.enabled() && ModernDuelController.get().shouldSwallowTap()) {
+                return true;
+            }
             if (renderedCardContains(x, y)) {
                 //must invoke in game thread in case a dialog needs to be shown
                 ThreadUtil.invokeInGameThread(() -> {
@@ -575,6 +615,9 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
 
         @Override
         public boolean longPress(float x, float y) {
+            if (ModernDuelScreen.enabled() && ModernDuelController.get().isBusy()) {
+                return true; // peek / drag owns the gesture
+            }
             if (renderedCardContains(x, y)) {
                 showZoom();
                 return true;

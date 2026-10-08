@@ -394,6 +394,11 @@ public class MatchController extends NetworkGuiGame {
     @Override
     public void showManaPool(final PlayerView player) {
         final VPlayerPanel playerPanel = view.getPlayerPanel(player);
+        if (ModernDuelScreen.enabled() && playerPanel.getFloatingMana() != null) {
+            playerPanel.getFloatingMana().setForceVisible(true);
+            playerPanel.getFloatingMana().update();
+            return; // floating pips replace the tab switch in modern mode
+        }
         final InfoTab selectedTab = playerPanel.getSelectedTab(), manaPoolTab = playerPanel.getManaPoolTab();
         if (!manaPoolTab.equals(selectedTab)) {
             //if mana pool was selected previously, we don't need to switch back to anything
@@ -405,6 +410,11 @@ public class MatchController extends NetworkGuiGame {
     @Override
     public void hideManaPool(final PlayerView player) {
         final VPlayerPanel playerPanel = view.getPlayerPanel(player);
+        if (ModernDuelScreen.enabled() && playerPanel.getFloatingMana() != null) {
+            playerPanel.getFloatingMana().setForceVisible(false);
+            playerPanel.getFloatingMana().update();
+            return;
+        }
         // value may be null so explicit containsKey call is necessary
         final boolean doRestore = zonesToRestore.containsKey(player);
         final InfoTab zoneToRestore = zonesToRestore.remove(player);

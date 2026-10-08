@@ -677,6 +677,10 @@ public class SettingsPage extends TabPage<SettingsScreen> {
             Forge.getLocalizer().getMessage("lblLaserArrowsOption"),
             Forge.getLocalizer().getMessage("nlLaserArrowsOption"),
             new String[] { "Default", "Point", "Line" }), 5);
+        lstSettings.addItem(new CustomSelectSetting(FPref.UI_MODERN_DUEL_SCREEN,
+            Forge.getLocalizer().getMessage("lblModernDuelScreen"),
+            Forge.getLocalizer().getMessage("nlModernDuelScreen"),
+            new String[] { "Auto", "Always", "Never" }), 5);
 
         // VIBRATION OPTIONS TAB
         Map<String, String> intensityOptions = new LinkedHashMap<>();

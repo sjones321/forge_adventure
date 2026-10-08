@@ -6,6 +6,9 @@ import forge.gamemodes.net.event.coop.CoopDuelInviteEvent;
 import forge.gamemodes.net.event.coop.CoopDuelResponseEvent;
 import forge.gamemodes.net.event.coop.CoopEnemyEncounterRequestEvent;
 import forge.gamemodes.net.event.coop.CoopFightRequestResultEvent;
+import forge.gamemodes.net.server.RemoteClient;
+import forge.gamemodes.net.server.RemoteClientGuiGame;
+import forge.localinstance.properties.ForgePreferences.FPref;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -273,6 +276,17 @@ public class CoopDuelTest {
         Assert.assertNotNull(invite);
         timedOut.set(state.timeout(invite.getInviteId()));
         Assert.assertTrue(timedOut.get());
+    }
+
+    /** DS1: co-op host proxy still constructs; modern-duel pref defaults leave stock off. */
+    @Test
+    public void remoteClientGuiGameStillConstructsAndModernDuelPrefDefaultsAuto() {
+        final RemoteClient client = new RemoteClient(null);
+        final RemoteClientGuiGame gui = new RemoteClientGuiGame(client);
+        Assert.assertNotNull(gui);
+        Assert.assertSame(client.getGui(), gui);
+        // Auto = Ascendant only (see ModernDuelScreen.resolve in forge-gui-mobile).
+        Assert.assertEquals(FPref.UI_MODERN_DUEL_SCREEN.getDefault(), "Auto");
     }
 
     private static String sampleDecklist(final String cardName) {

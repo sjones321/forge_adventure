@@ -55,6 +55,10 @@ public abstract class VDisplayArea extends FScrollPane {
             MatchScreen.setPotentialListener(Arrays.asList(selectedChild));
         }
     }
+    public FDisplayObject getSelectedChild() {
+        return selectedChild;
+    }
+
     public void tapChild() {
         if (selectedChild instanceof FCardPanel)
             VCardDisplayArea.CardAreaPanel.get(((FCardPanel) selectedChild).getCard()).selectCard(false);

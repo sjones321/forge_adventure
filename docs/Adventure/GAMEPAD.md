@@ -60,3 +60,11 @@ Controls:
   - Button B - Cancel/Hide
   - Button Y - Show Zoom
   - Button Back - Show Menu Tabs
+
+- Match/Battle (modern duel screen — Ascendant default, or Settings → Modern duel screen = Always)
+  - Same DPAD focus cursor as above
+  - Button A — pick up the focused card; A again drops it (cast from hand, attack/block in combat, or reorder in hand)
+  - Button A on an opponent panel with a held attacker — declare that player as the attack target
+  - Button B — cancel pick-up / drag / peek
+  - Floating mana pips near your field are focusable via the mana pool tab; A activates a pip (`useMana`)
+  - Phase rail labels remain tappable / focusable to set phase stops (unchanged engine path)

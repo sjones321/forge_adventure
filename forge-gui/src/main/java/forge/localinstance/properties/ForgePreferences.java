@@ -58,6 +58,8 @@ public class ForgePreferences extends AbstractPreferences<ForgePreferences.FPref
         UI_ENABLE_DISPOSE_TEXTURES("false"),
         UI_AUTO_CACHE_SIZE("false"),
         UI_ARROW_OPTION("Default"),
+        /** DS1 modern libGDX duel screen: Auto (Ascendant only), Always, or Never. */
+        UI_MODERN_DUEL_SCREEN("Auto"),
         UI_LOAD_UNKNOWN_CARDS("true"),
         UI_SINGLE_CARD_ZOOM("false"),
         UI_LIBGDX_TEXTURE_FILTERING("true"),

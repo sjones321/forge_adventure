@@ -430,6 +430,7 @@ public class MatchScreen extends FScreen {
         }
 
         drawArcs(g);
+        ModernDuelController.get().drawOverlay(g);
         CardFlightOverlay.draw(g, bottomPlayerPanel.getPlayer(), getHeight());
         drawMulliganAdvice(g);
         if (FModel.getPreferences().getPrefBoolean(ForgePreferences.FPref.UI_ENABLE_MAGNIFIER) && Forge.magnify && Forge.magnifyToggle) {
@@ -649,6 +650,17 @@ public class MatchScreen extends FScreen {
             case Keys.BUTTON_A:
                 if (!((FMenuBar) getHeader()).isShowingMenu(true)) {
                     try {
+                        if (ModernDuelScreen.enabled()) {
+                            final CardView focused = focusedCardForController();
+                            final PlayerView focusedPlayer = focusedPlayerForController();
+                            if (ModernDuelController.get().getHeldCard() != null && focusedPlayer != null
+                                    && ModernDuelController.get().controllerDropOnPlayer(focusedPlayer)) {
+                                return true;
+                            }
+                            if (ModernDuelController.get().controllerPickOrDrop(focused)) {
+                                return true;
+                            }
+                        }
                         InfoTab selected = selectedPlayerPanel().getSelectedTab();
                         if (selected != null && selected.getDisplayArea().isVisible()) {
                             //nullPotentialListener();
@@ -659,6 +671,11 @@ public class MatchScreen extends FScreen {
                         }
                     } catch (Exception ignored) {
                     }
+                }
+                break;
+            case Keys.BUTTON_B:
+                if (ModernDuelScreen.enabled() && ModernDuelController.get().controllerCancel()) {
+                    return true;
                 }
                 break;
             case Keys.BUTTON_L1: //switch selected panels
@@ -806,6 +823,7 @@ public class MatchScreen extends FScreen {
 
     public void resetFields() {
         CardAreaPanel.resetForNewGame();
+        ModernDuelController.get().reset();
         for (VPlayerPanel playerPanel : getPlayerPanels().values()) {
             for (CardAreaPanel p : playerPanel.getField().getCardPanels()) {
                 p.reset();
@@ -1226,6 +1244,45 @@ public class MatchScreen extends FScreen {
         if (playerPanelsList.isEmpty())
             return null;
         return playerPanelsList.get(selectedPlayer);
+    }
+
+    /** Card under the gamepad focus cursor (hand tab or field row). */
+    private CardView focusedCardForController() {
+        try {
+            final InfoTab selected = selectedPlayerPanel().getSelectedTab();
+            if (selected != null && selected.getDisplayArea() != null && selected.getDisplayArea().isVisible()) {
+                final FDisplayObject child = selected.getDisplayArea().getSelectedChild();
+                if (child instanceof FCardPanel fcp) {
+                    return fcp.getCard();
+                }
+            }
+            final FDisplayObject child = selectedPlayerPanel().getSelectedRow().getSelectedChild();
+            if (child instanceof FCardPanel fcp) {
+                return fcp.getCard();
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /** Prefer opponent avatar when focus is on the other player's panel with no card. */
+    private PlayerView focusedPlayerForController() {
+        try {
+            final VPlayerPanel panel = selectedPlayerPanel();
+            if (panel == null) {
+                return null;
+            }
+            final InfoTab selected = panel.getSelectedTab();
+            if (selected != null && selected.getDisplayArea() != null && selected.getDisplayArea().isVisible()) {
+                return null; // zone tab focused — card path handles it
+            }
+            // Left analog / panel select without a card: attack the panel's player
+            if (panel.getSelectedRow().getSelectedChild() == null) {
+                return panel.getPlayer();
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     public static void setPotentialListener(List<FDisplayObject> listener) {
