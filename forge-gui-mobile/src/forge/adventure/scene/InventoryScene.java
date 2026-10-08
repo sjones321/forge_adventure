@@ -244,7 +244,8 @@ public class InventoryScene extends UIScene {
             }
         }
         if (itemDescription != null) {
-            itemDescription.setBounds(150, 54, 320, 22);
+            // Taller detail strip so Overflow / Currency multi-line text is not clipped.
+            itemDescription.setBounds(150, 48, 320, 30);
             itemDescription.setAlignment(Align.left);
         }
 
@@ -264,7 +265,7 @@ public class InventoryScene extends UIScene {
             materialsTab.setVisible(false);
 
         capacityLabel = Controls.newTextraLabel("");
-        capacityLabel.setBounds(145, 250, 200, 16);
+        capacityLabel.setBounds(145, 250, 330, 16);
         ui.addActor(capacityLabel);
 
         compareButton = Controls.newTextButton("Compare", this::toggleComparePinMode);
@@ -478,8 +479,12 @@ public class InventoryScene extends UIScene {
         else if (activeBag == InventoryBagType.CURRENCY
                 && bags.isCurrencyOverCapacity(ap.getContestCurrencies(), ap.getItems()))
             label += " [#ff6666](over)[]";
-        capacityLabel.setText("[%80]" + activeBag.label + " " + label
-                + "  stack≤" + bags.getMaxStack(activeBag));
+        // Currency stack cap is huge (9999) — omit it so the capacity line is not clipped.
+        if (activeBag == InventoryBagType.CURRENCY)
+            capacityLabel.setText("[%80]" + activeBag.label + " " + label);
+        else
+            capacityLabel.setText("[%80]" + activeBag.label + " " + label
+                    + "  stack≤" + bags.getMaxStack(activeBag));
     }
 
     private void toggleMaterialsMode() {
@@ -1276,10 +1281,10 @@ public class InventoryScene extends UIScene {
         AdventurePlayer ap = Current.player();
         addCurrencySlot(InventoryBags.CURRENCY_GOLD, "Gold", "GoldCoin", ap.getGold());
         addCurrencySlot(InventoryBags.CURRENCY_SHARDS, "Shards", "Shards", ap.getShards());
-        addCurrencySlot(InventoryBags.CURRENCY_DUST_C, "C Dust", "Mana", ap.getDust(0));
-        addCurrencySlot(InventoryBags.CURRENCY_DUST_U, "U Dust", "Mana", ap.getDust(1));
-        addCurrencySlot(InventoryBags.CURRENCY_DUST_R, "R Dust", "Mana", ap.getDust(2));
-        addCurrencySlot(InventoryBags.CURRENCY_DUST_M, "M Dust", "Mana", ap.getDust(3));
+        addCurrencySlot(InventoryBags.CURRENCY_DUST_C, "C Dust", "DustCommon", ap.getDust(0));
+        addCurrencySlot(InventoryBags.CURRENCY_DUST_U, "U Dust", "DustUncommon", ap.getDust(1));
+        addCurrencySlot(InventoryBags.CURRENCY_DUST_R, "R Dust", "DustRare", ap.getDust(2));
+        addCurrencySlot(InventoryBags.CURRENCY_DUST_M, "M Dust", "DustMythic", ap.getDust(3));
         for (Map.Entry<String, Integer> e : ap.getContestCurrencies().entrySet()) {
             if (e.getValue() == null || e.getValue() <= 0)
                 continue;
@@ -1325,14 +1330,24 @@ public class InventoryScene extends UIScene {
                 icon = entry.item.iconName;
             else if (entry.kind == OverflowEntry.Kind.BOOSTER)
                 icon = "Deck";
-            else if (entry.kind == OverflowEntry.Kind.MATERIAL)
-                icon = "Bag";
+            else if (entry.kind == OverflowEntry.Kind.MATERIAL) {
+                MaterialData mat = MaterialListData.get(entry.key);
+                icon = mat != null && mat.iconName != null ? mat.iconName : "Item";
+            } else if (entry.kind == OverflowEntry.Kind.CURRENCY) {
+                icon = currencyIconForKey(entry.key);
+            }
             Sprite sprite = Config.instance().getItemSprite(icon);
             if (sprite != null) {
                 Image img = new Image(sprite);
                 img.setX((newActor.getWidth() - img.getWidth()) / 2);
                 img.setY((newActor.getHeight() - img.getHeight()) / 2);
                 newActor.addActor(img);
+            }
+            if (entry.amount > 1 && (entry.kind == OverflowEntry.Kind.MATERIAL
+                    || entry.kind == OverflowEntry.Kind.CURRENCY)) {
+                TextraLabel count = Controls.newTextraLabel("[%70]" + entry.amount);
+                count.setPosition(2, 2);
+                newActor.addActor(count);
             }
             // Warning tint overlay
             Image warn = new Image(Controls.getSkin(), "item_frame");
@@ -1345,7 +1360,7 @@ public class InventoryScene extends UIScene {
                     if (((Button) actor).isChecked()) {
                         setSelected((Button) actor);
                         itemDescription.setText("[#ffaa33]OVERFLOW[]\n" + entry.displayName()
-                                + "\n[%80]Cannot equip or sell here. Use Retrieve (or long-press A) when a bag has room.");
+                                + "\n[%80]Cannot equip or sell here. Retrieve (A / long-press A) when a bag has room.");
                         if (useButton != null) {
                             useButton.setDisabled(false);
                             useButton.setText("Retrieve");
@@ -1385,9 +1400,12 @@ public class InventoryScene extends UIScene {
             img.setY((newActor.getHeight() - img.getHeight()) / 2);
             newActor.addActor(img);
         }
-        TextraLabel count = Controls.newTextraLabel("[%70]" + amount);
-        count.setPosition(2, 2);
-        newActor.addActor(count);
+        // Hide the count badge at zero so empty dust slots do not show a stray "0".
+        if (amount > 0) {
+            TextraLabel count = Controls.newTextraLabel("[%70]" + amount);
+            count.setPosition(2, 2);
+            newActor.addActor(count);
+        }
         newActor.addListener(new ChangeListener() {
             @Override
             public void changed(ChangeEvent event, Actor actor) {
@@ -1395,6 +1413,27 @@ public class InventoryScene extends UIScene {
                     setSelected((Button) actor);
             }
         });
+    }
+
+    private static String currencyIconForKey(String key) {
+        if (key == null)
+            return "GoldCoin";
+        switch (key) {
+            case InventoryBags.CURRENCY_GOLD:
+                return "GoldCoin";
+            case InventoryBags.CURRENCY_SHARDS:
+                return "Shards";
+            case InventoryBags.CURRENCY_DUST_C:
+                return "DustCommon";
+            case InventoryBags.CURRENCY_DUST_U:
+                return "DustUncommon";
+            case InventoryBags.CURRENCY_DUST_R:
+                return "DustRare";
+            case InventoryBags.CURRENCY_DUST_M:
+                return "DustMythic";
+            default:
+                return "ChallengeCoin";
+        }
     }
 
     private void updateToolbeltSlots() {
@@ -1613,8 +1652,13 @@ public class InventoryScene extends UIScene {
                     && useButtonDownMs > 0) {
                 long held = System.currentTimeMillis() - useButtonDownMs;
                 useButtonDownMs = 0;
-                if (activeBag == InventoryBagType.OVERFLOW)
+                // Overflow: short or long A retrieves (tooltip documents Retrieve / long-press A).
+                if (activeBag == InventoryBagType.OVERFLOW) {
+                    if (useButton != null && !useButton.isDisabled() && useButton.isVisible()
+                            && selected != null && overflowLocation.containsKey(selected))
+                        use();
                     return true;
+                }
                 if (held >= 400) {
                     if (useButton != null && !useButton.isDisabled() && useButton.isVisible())
                         use();

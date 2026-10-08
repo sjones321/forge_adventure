@@ -65,17 +65,47 @@ public final class CoopInviteUiState {
      */
     public Prompt enqueue(final PromptKind kind, final long inviteId, final String from,
                           final String detail) {
+        return enqueue(kind, inviteId, from, detail, false);
+    }
+
+    /**
+     * Enqueue an invite. When {@code forceQueue} is true (HUD already busy, e.g.
+     * exit-dungeon), always queues without activating so a later
+     * {@link #hideAndPollNext()} can show it — never replaces an open dialog.
+     */
+    public Prompt enqueue(final PromptKind kind, final long inviteId, final String from,
+                          final String detail, final boolean forceQueue) {
         if (kind == null || kind == PromptKind.NONE) {
             return null;
         }
         final Prompt p = new Prompt(kind, inviteId, from, detail);
         synchronized (queue) {
-            if (this.kind == PromptKind.NONE) {
+            if (!forceQueue && this.kind == PromptKind.NONE) {
                 activate(p);
                 return p;
             }
             queue.addLast(p);
             return null;
+        }
+    }
+
+    /**
+     * Drop a queued or active JOIN_FIGHT prompt matching {@code inviteId}.
+     * Does not activate the next queued prompt — caller (HUD) polls via
+     * {@link #hideAndPollNext()} so the UI stays in sync.
+     */
+    public boolean removeJoinFight(final long inviteId) {
+        synchronized (queue) {
+            final boolean removedQueued = queue.removeIf(
+                    p -> p.kind == PromptKind.JOIN_FIGHT && p.inviteId == inviteId);
+            if (kind == PromptKind.JOIN_FIGHT && promptInviteId == inviteId) {
+                kind = PromptKind.NONE;
+                promptInviteId = 0L;
+                promptFrom = "";
+                promptDetail = "";
+                return true;
+            }
+            return removedQueued;
         }
     }
 
