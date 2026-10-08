@@ -17,12 +17,18 @@ license. **Add an entry here whenever a new asset, library or data source is add
   Kenney Vleugels, <https://kenney.nl>. CC0 1.0 (public domain); credited with thanks.
   License files: `LICENSE-kenney-impact-sounds.txt`, `LICENSE-kenney-rpg-audio.txt`.
 
+## Map tiles
+
+- **Kenney — Tiny Town, Tiny Battle, Tiny Dungeon** (16px tilesets in
+  `forge-gui/res/adventure/common/maps/tileset/kenney_*.png`) — Kenney Vleugels, <https://kenney.nl>. CC0 1.0;
+  credited with thanks.
+
 ## Art (downloaded, not yet in the game)
 
 These packs are kept outside the repo in `A:\GameAssets` for upcoming art work. Credit moves into the sections above
 when an asset is actually used.
 
-- **Kenney — Interface Sounds, Tiny Town, Tiny Battle, Tiny Dungeon, UI Pack** — Kenney Vleugels,
+- **Kenney — Interface Sounds, UI Pack** — Kenney Vleugels,
   <https://kenney.nl>. CC0 1.0.
 - **Liberated Pixel Cup (LPC) Base Assets** — <https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles>.
   Dual-licensed **CC BY-SA 3.0** and **GPL 3.0**. Authors (per the pack's `CREDITS.TXT`):

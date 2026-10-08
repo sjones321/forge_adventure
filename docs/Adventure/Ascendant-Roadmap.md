@@ -610,7 +610,7 @@ with him.
 ### LT1. Living towns (milestone 5; Steve builds the first town map by hand)
 - **Hand-made town pipeline**: towns authored in Tiled with the Kenney 16px tilesets (`maps/tileset/kenney_*.tsx`)
   and Forge's object templates (`maps/obj/*.tx`). A starter template lives at
-  `Shandalar Ascendant/maps/towns/starter_town.tmx`. Hand-made towns are referenced from Ascendant's
+  `common/maps/map/ascendant/starter_town.tmx`. Hand-made towns are referenced from Ascendant's
   `points_of_interest.json` like any other town.
 - **Civic buildings**: homes, church or temple, town hall, tavern, school, graveyard. Every non-shop building is an
   interactable map object that feeds the Archive (AR1). Each set plane flavours them (temples on a Theros-style
