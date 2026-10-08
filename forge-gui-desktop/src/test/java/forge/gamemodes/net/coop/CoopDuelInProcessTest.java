@@ -155,14 +155,22 @@ public class CoopDuelInProcessTest {
         return rp;
     }
 
-    /** Answer one prompt for {@code remote}/{@code gui}; return true if handled. */
+    /**
+     * Answer one {@code updateButtons} prompt. When OK is disabled (e.g. 3-player
+     * "who starts" selection), pick a player first. Concedes via the waiting
+     * controller so the input queue unblocks — same pattern as
+     * {@code ProtocolGuiGameInProcessTest}.
+     *
+     * @return {@code true} if a prompt was handled; {@code false} if none was ready
+     */
     private static boolean answerOne(final RecordingRemote remote, final ProtocolGuiGame gui,
-                                     final boolean tryPlayLand) throws Exception {
+                                     final boolean tryPlayLand, final boolean concedeNow) throws Exception {
         final GuiGameEvent ub = remote.buttonPrompts.poll(300, TimeUnit.MILLISECONDS);
         if (ub == null) {
             return false;
         }
-        final PlayerView owner = (PlayerView) ub.getObjects()[0];
+        final Object[] args = ub.getObjects();
+        final PlayerView owner = (PlayerView) args[0];
         if (remote.myPlayers == null || owner == null || !remote.myPlayers.contains(owner)) {
             return false;
         }
@@ -170,22 +178,43 @@ public class CoopDuelInProcessTest {
         if (controller == null) {
             return false;
         }
+        // updateButtons(owner, label1, label2, enableOk, enableCancel, focusOk)
+        final boolean okEnabled = args.length < 4 || Boolean.TRUE.equals(args[3]);
+        // GuiDesktop.invokeInEdtNow runs inline — avoid Swing.invokeLater races
+        // from the test thread while the game thread is blocked on input.
+        final forge.gui.interfaces.IGuiBase guiBase = forge.gui.GuiBase.getInterface();
+        if (!okEnabled) {
+            // Need an entity selection (e.g. chooseStartingPlayer with 3 seats).
+            final GameView gv = gui.getGameView();
+            if (gv != null && gv.getPlayers() != null) {
+                for (final PlayerView p : gv.getPlayers()) {
+                    final PlayerView pick = p;
+                    guiBase.invokeInEdtNow(() -> controller.selectPlayer(pick, null));
+                    return true;
+                }
+            }
+        }
+        if (concedeNow) {
+            guiBase.invokeInEdtNow(controller::concede);
+            return true;
+        }
         final GameView gv = gui.getGameView();
         final boolean myMain = tryPlayLand && gv != null && gv.getPlayerTurn() != null
                 && gv.getPlayerTurn().equals(owner) && gv.getPhase() == PhaseType.MAIN1;
         if (myMain && owner.getHand() != null) {
             for (final CardView c : owner.getHand()) {
                 final CardView toPlay = c;
-                FThreads.invokeInEdtLater(() -> controller.selectCard(toPlay, null, null));
+                guiBase.invokeInEdtNow(() -> controller.selectCard(toPlay, null, null));
                 return true;
             }
         }
-        FThreads.invokeInEdtLater(controller::selectButtonOk);
+        guiBase.invokeInEdtNow(controller::selectButtonOk);
         return true;
     }
 
-    private static void concedeHumans(final HostedMatch match, final boolean guestOnly,
-                                      final String guestName) {
+    /** Direct concede for any remaining humans (GuiDesktop.invokeInEdtNow is inline). */
+    private static void forceConcedeHumans(final HostedMatch match, final boolean guestOnly,
+                                           final String guestName) {
         for (final forge.player.PlayerControllerHuman hc : match.getHumanControllers()) {
             if (hc == null || hc.getPlayer() == null) {
                 continue;
@@ -194,14 +223,15 @@ public class CoopDuelInProcessTest {
             if (guestOnly && (name == null || !name.equalsIgnoreCase(guestName))) {
                 continue;
             }
-            // Headless GuiDesktop.invokeInEdtNow runs inline — avoid Swing queue races.
-            FThreads.invokeInEdtNowOrLater(hc::concede);
+            // invokeInEdtNow runs inline on GuiDesktop — do not use NowOrLater (that
+            // queues Swing.invokeLater from the test thread and races the game thread).
+            forge.GuiBase.getInterface().invokeInEdtNow(hc::concede);
         }
     }
 
     /**
-     * Drive both remotes briefly, then concede (guest-only or all humans) and wait
-     * for the current game to finish.
+     * Drive both remotes: answer prompts (incl. multiplayer start-player pick), then
+     * concede via the waiting controller; force-concede any stragglers and wait.
      */
     private static void driveUntilGameOver(final HostedMatch match,
                                            final RecordingRemote hostRemote,
@@ -211,23 +241,40 @@ public class CoopDuelInProcessTest {
                                            final boolean concedeGuestOnly,
                                            final long deadlineMs) throws Exception {
         int answered = 0;
-        while (System.currentTimeMillis() < deadlineMs && answered < 6) {
+        boolean guestConceded = false;
+        while (System.currentTimeMillis() < deadlineMs) {
             if (match.getGameView() != null && match.getGameView().isGameOver()) {
                 return;
             }
-            if (answerOne(hostRemote, hostGui, true)) {
-                answered++;
+            if (match.getMatch() != null && match.getMatch().isMatchOver()) {
+                return;
             }
-            if (answerOne(guestRemote, guestGui, true)) {
+            final boolean concedePhase = answered >= 4;
+            if (answerOne(hostRemote, hostGui, true, concedePhase && !concedeGuestOnly)) {
                 answered++;
+                continue;
+            }
+            if (answerOne(guestRemote, guestGui, true, concedePhase)) {
+                answered++;
+                if (concedePhase) {
+                    guestConceded = true;
+                }
+                if (concedeGuestOnly && guestConceded) {
+                    break;
+                }
+                continue;
+            }
+            if (concedePhase && answered >= 8) {
+                break;
             }
         }
-        concedeHumans(match, concedeGuestOnly, "Guest");
-        if (!concedeGuestOnly) {
-            // Team-0 wipe: both humans must be gone for the AI to win the game.
-            concedeHumans(match, false, null);
+        if (concedeGuestOnly) {
+            forceConcedeHumans(match, true, "Guest");
+        } else {
+            // Team-0 wipe: both humans must be gone for the AI to win.
+            forceConcedeHumans(match, false, null);
         }
-        waitGameOver(match, Math.max(5_000, deadlineMs - System.currentTimeMillis()));
+        waitGameOver(match, Math.max(8_000, deadlineMs - System.currentTimeMillis()));
     }
 
     private static void waitGameOver(final HostedMatch match, final long ms) throws InterruptedException {
