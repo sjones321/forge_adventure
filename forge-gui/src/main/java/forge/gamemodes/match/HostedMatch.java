@@ -370,6 +370,16 @@ public class HostedMatch {
         game = null;
 
         for (final PlayerControllerHuman humanController : humanControllers) {
+            humanController.getGui().setGameSpeed(PlaybackSpeed.NORMAL);
+            humanController.getYieldController().clearAutoYields();
+
+            // afterGameEnd may sync via ProtocolGuiGame's forwarder — call it before
+            // shutdown so CONTINUE / multi-game matches do not NPE on a null forwarder.
+            if (humanCount > 0 || !GuiBase.getInterface().isLibgdxPort() || !isMatchOver) {
+                humanController.getGui().afterGameEnd();
+            }
+            humanController.getGui().updateDayTime(null);
+
             if (humanController.getGui() instanceof forge.gamemodes.net.ProtocolGuiGame ngg) {
                 forge.gui.control.GameEventForwarder fwd = ngg.getForwarder();
                 if (fwd != null) {
@@ -379,14 +389,6 @@ public class HostedMatch {
                 }
                 ngg.shutdownForwarder();
             }
-            humanController.getGui().setGameSpeed(PlaybackSpeed.NORMAL);
-            humanController.getYieldController().clearAutoYields();
-
-            //conceded
-            if (humanCount > 0 || !GuiBase.getInterface().isLibgdxPort() || !isMatchOver) {
-                humanController.getGui().afterGameEnd();
-            }
-            humanController.getGui().updateDayTime(null);
         }
         humanControllers.clear();
 

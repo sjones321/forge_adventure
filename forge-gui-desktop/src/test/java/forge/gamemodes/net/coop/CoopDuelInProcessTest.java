@@ -464,6 +464,9 @@ public class CoopDuelInProcessTest {
                             hc.nextGameDecision(NextGameDecision.CONTINUE);
                         }
                     }
+                    // HostedMatch schedules continueMatch on the EDT — flush it now
+                    // so the next driveUntilGameOver sees the new game promptly.
+                    flushEdt();
                 } catch (final Exception ignored) {
                 }
             }
