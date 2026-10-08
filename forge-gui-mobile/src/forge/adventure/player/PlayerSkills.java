@@ -423,7 +423,15 @@ public class PlayerSkills {
         int base = Math.max(0, cfg.perkSlotsBase);
         int max = Math.max(base, cfg.perkSlotsMax);
         int step = Math.max(1, cfg.perkSlotTotalLevelsPerSlot);
-        return Math.min(max, base + getTotalLevel() / step);
+        int bonus = 0;
+        try {
+            AdventurePlayer ap = AdventurePlayer.current();
+            if (ap != null)
+                bonus = Math.max(0, ap.getDuelPerkSlotBonus());
+        } catch (Exception ignored) {
+            // Player may be unavailable in tests
+        }
+        return Math.min(max + bonus, base + getTotalLevel() / step + bonus);
     }
 
     public int respecCostGold() {

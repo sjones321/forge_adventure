@@ -16,14 +16,16 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Ascendant INV1 bag capacities and grant checks. Contents stay on {@link AdventurePlayer}
- * (inventoryItems, boosters, materials, currencies); this class tracks slot/stack limits,
- * classifies items, and never deletes on overflow.
+ * Ascendant INV1 bag capacities, Craft Pouch tiers, Overflow stash, and grant routing.
+ * Contents for backpack/packs/currency stay on {@link AdventurePlayer}; materials live in the
+ * player's materials map (Craft Pouch). Overflow entries are stored here.
  * <p>
  * Pure enough for headless tests — pass a {@link ConfigData} (or defaults).
  */
 public class InventoryBags implements Serializable {
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;
+
+    public static final String MESSAGE_OVERFLOW = "Bag full — sent to Overflow";
 
     /** Toolbelt family order matching INV1 (axe, pickaxe, sickle, chisel, bucket/probe, salvage). */
     public static final String[] TOOLBELT_FAMILIES = {
@@ -49,11 +51,23 @@ public class InventoryBags implements Serializable {
     private int packsMaxStack;
     private int currencySlots;
     private int currencyMaxStack;
+
+    /** Craft Pouch tier (Mastery Surge only). Capacities derived from config + tier. */
+    private int craftPouchTier = CraftPouchTier.SATCHEL.index;
     private int materialsSlots;
     private int materialsMaxStack;
 
+    private int overflowCap;
+    private float overflowSlowMinFactor;
+    private final ArrayList<OverflowEntry> overflow = new ArrayList<>();
+
     private transient FortressStorageHook fortressStorage = FortressStorageHook.NONE;
+    private String lastMessage;
+    /** @deprecated use {@link #getLastMessage()} — kept for older test names. */
     private String lastRefuseMessage;
+
+    // Cached config values for pouch tier tables
+    private transient ConfigData cfgCache;
 
     public InventoryBags() {
         this(new ConfigData());
@@ -65,15 +79,78 @@ public class InventoryBags implements Serializable {
 
     public void resetToDefaults(ConfigData cfg) {
         ConfigData c = cfg != null ? cfg : new ConfigData();
+        cfgCache = c;
         backpackSlots = Math.max(1, c.backpackSlots);
         backpackMaxStack = Math.max(1, c.backpackMaxStack);
         packsSlots = Math.max(1, c.packsSlots);
         packsMaxStack = Math.max(1, c.packsMaxStack);
         currencySlots = Math.max(1, c.currencySlots);
         currencyMaxStack = Math.max(1, c.currencyMaxStack);
-        materialsSlots = Math.max(1, c.materialsSlots);
-        materialsMaxStack = Math.max(1, c.materialsMaxStack);
+        craftPouchTier = CraftPouchTier.SATCHEL.index;
+        applyCraftPouchTierCapacities();
+        overflowCap = Math.max(1, c.overflowCap);
+        overflowSlowMinFactor = c.overflowSlowMinFactor > 0f && c.overflowSlowMinFactor <= 1f
+                ? c.overflowSlowMinFactor : 0.5f;
+        overflow.clear();
+        lastMessage = null;
         lastRefuseMessage = null;
+    }
+
+    private ConfigData cfg() {
+        return cfgCache != null ? cfgCache : new ConfigData();
+    }
+
+    public void setConfigCache(ConfigData cfg) {
+        cfgCache = cfg != null ? cfg : new ConfigData();
+    }
+
+    private void applyCraftPouchTierCapacities() {
+        ConfigData c = cfg();
+        CraftPouchTier tier = CraftPouchTier.fromIndex(craftPouchTier);
+        switch (tier) {
+            case SATCHEL:
+                materialsSlots = Math.max(1, c.craftPouchSatchelSlots);
+                materialsMaxStack = Math.max(1, c.craftPouchSatchelStack);
+                break;
+            case PACK:
+                materialsSlots = Math.max(1, c.craftPouchPackSlots);
+                materialsMaxStack = Math.max(1, c.craftPouchPackStack);
+                break;
+            case HAULER:
+                materialsSlots = Math.max(1, c.craftPouchHaulerSlots);
+                materialsMaxStack = Math.max(1, c.craftPouchHaulerStack);
+                break;
+            case BOTTOMLESS:
+                materialsSlots = Integer.MAX_VALUE / 4;
+                materialsMaxStack = Integer.MAX_VALUE / 4;
+                break;
+            default:
+                materialsSlots = Math.max(1, c.craftPouchSatchelSlots);
+                materialsMaxStack = Math.max(1, c.craftPouchSatchelStack);
+        }
+    }
+
+    public CraftPouchTier getCraftPouchTier() {
+        return CraftPouchTier.fromIndex(craftPouchTier);
+    }
+
+    public int getCraftPouchTierIndex() {
+        return craftPouchTier;
+    }
+
+    /** Advance Craft Pouch to the next Mastery Surge tier. Returns false if already Bottomless. */
+    public boolean upgradeCraftPouchTier() {
+        CraftPouchTier next = getCraftPouchTier().next();
+        if (next == null)
+            return false;
+        craftPouchTier = next.index;
+        applyCraftPouchTierCapacities();
+        return true;
+    }
+
+    public void setCraftPouchTier(int tierIndex) {
+        craftPouchTier = CraftPouchTier.fromIndex(tierIndex).index;
+        applyCraftPouchTierCapacities();
     }
 
     public void setFortressStorage(FortressStorageHook hook) {
@@ -84,8 +161,54 @@ public class InventoryBags implements Serializable {
         return fortressStorage;
     }
 
+    public String getLastMessage() {
+        return lastMessage;
+    }
+
+    /** Compatibility alias used by older callers/tests. */
     public String getLastRefuseMessage() {
-        return lastRefuseMessage;
+        return lastRefuseMessage != null ? lastRefuseMessage : lastMessage;
+    }
+
+    private void setMsg(String msg) {
+        lastMessage = msg;
+        lastRefuseMessage = msg;
+    }
+
+    public int getOverflowCap() {
+        return Math.max(1, overflowCap);
+    }
+
+    public void setOverflowCap(int cap) {
+        overflowCap = Math.max(1, cap);
+    }
+
+    public void addOverflowCapBonus(int bonus) {
+        if (bonus > 0)
+            overflowCap += bonus;
+    }
+
+    public List<OverflowEntry> getOverflow() {
+        return Collections.unmodifiableList(overflow);
+    }
+
+    public int overflowCount() {
+        return overflow.size();
+    }
+
+    public boolean hasOverflow() {
+        return !overflow.isEmpty();
+    }
+
+    /**
+     * Movement multiplier while overloaded: 1.0 at empty, scales down to
+     * {@code overflowSlowMinFactor} (~0.5) when overflow is full.
+     */
+    public float overflowSpeedFactor() {
+        if (overflow.isEmpty())
+            return 1f;
+        float fill = Math.min(1f, overflow.size() / (float) getOverflowCap());
+        return 1f - fill * (1f - overflowSlowMinFactor);
     }
 
     public int getSlots(InventoryBagType type) {
@@ -94,6 +217,7 @@ public class InventoryBags implements Serializable {
             case PACKS: return packsSlots;
             case CURRENCY: return currencySlots;
             case MATERIALS: return materialsSlots;
+            case OVERFLOW: return getOverflowCap();
             default: return 0;
         }
     }
@@ -104,6 +228,7 @@ public class InventoryBags implements Serializable {
             case PACKS: return packsMaxStack;
             case CURRENCY: return currencyMaxStack;
             case MATERIALS: return materialsMaxStack;
+            case OVERFLOW: return 1;
             default: return 1;
         }
     }
@@ -114,7 +239,12 @@ public class InventoryBags implements Serializable {
             case BACKPACK: backpackSlots = slots; break;
             case PACKS: packsSlots = slots; break;
             case CURRENCY: currencySlots = slots; break;
-            case MATERIALS: materialsSlots = slots; break;
+            case MATERIALS:
+                // Craft Pouch slots come from Mastery Surge tiers, not craftable upgrades.
+                if (!getCraftPouchTier().isBottomless())
+                    materialsSlots = slots;
+                break;
+            case OVERFLOW: overflowCap = slots; break;
             default: break;
         }
     }
@@ -125,7 +255,10 @@ public class InventoryBags implements Serializable {
             case BACKPACK: backpackMaxStack = maxStack; break;
             case PACKS: packsMaxStack = maxStack; break;
             case CURRENCY: currencyMaxStack = maxStack; break;
-            case MATERIALS: materialsMaxStack = maxStack; break;
+            case MATERIALS:
+                if (!getCraftPouchTier().isBottomless())
+                    materialsMaxStack = maxStack;
+                break;
             default: break;
         }
     }
@@ -134,8 +267,8 @@ public class InventoryBags implements Serializable {
         if (upgrade == null || upgrade.bagUpgrade == null || upgrade.bagUpgrade.isEmpty())
             return;
         InventoryBagType type = parseBagUpgrade(upgrade.bagUpgrade);
-        if (type == null)
-            return;
+        if (type == null || type == InventoryBagType.MATERIALS || type == InventoryBagType.OVERFLOW)
+            return; // Craft Pouch tiers are Mastery Surge only
         if (upgrade.bagBonusSlots > 0)
             setSlots(type, getSlots(type) + upgrade.bagBonusSlots);
         if (upgrade.bagBonusStack > 0)
@@ -149,7 +282,8 @@ public class InventoryBags implements Serializable {
             case "backpack": return InventoryBagType.BACKPACK;
             case "packs": case "pack": case "satchel": return InventoryBagType.PACKS;
             case "currency": case "pouch": return InventoryBagType.CURRENCY;
-            case "materials": case "material": case "sack": return InventoryBagType.MATERIALS;
+            // Materials / Craft Pouch upgrades are not craftable — ignore.
+            case "materials": case "material": case "sack": return null;
             default: return null;
         }
     }
@@ -187,6 +321,11 @@ public class InventoryBags implements Serializable {
         return classifyItem(item) == InventoryBagType.CURRENCY;
     }
 
+    /** Quest items are exempt from backpack capacity. */
+    public static boolean isCapacityExempt(ItemData item) {
+        return item != null && item.questItem;
+    }
+
     /**
      * Items that occupy backpack slots: not equipped gear, not toolbelt tools, not currency pouch items.
      */
@@ -213,9 +352,12 @@ public class InventoryBags implements Serializable {
         return out;
     }
 
-    /** Distinct backpack slots used after stacking. May exceed capacity (over-capacity display). */
+    /** Distinct backpack slots used after stacking. May exceed capacity before migration. */
     public int usedBackpackSlots(Collection<ItemData> inventory, Set<Long> equippedIds, Map<String, String> toolbelt) {
-        return stackGroups(backpackOccupants(inventory, equippedIds, toolbelt), backpackMaxStack).size();
+        List<ItemData> occ = backpackOccupants(inventory, equippedIds, toolbelt);
+        // Quest items do not count toward capacity.
+        occ.removeIf(InventoryBags::isCapacityExempt);
+        return stackGroups(occ, backpackMaxStack).size();
     }
 
     public boolean isBackpackOverCapacity(Collection<ItemData> inventory, Set<Long> equippedIds, Map<String, String> toolbelt) {
@@ -228,7 +370,6 @@ public class InventoryBags implements Serializable {
         int n = 0;
         for (Deck ignored : boosters)
             n++;
-        // Packs do not stack by identity (each Deck is unique); one slot per pack.
         return n;
     }
 
@@ -250,6 +391,8 @@ public class InventoryBags implements Serializable {
     public boolean isMaterialsOverCapacity(Map<String, Integer> materials) {
         if (materials == null)
             return false;
+        if (getCraftPouchTier().isBottomless())
+            return false;
         if (usedMaterialSlots(materials) > materialsSlots)
             return true;
         for (Integer c : materials.values()) {
@@ -259,10 +402,6 @@ public class InventoryBags implements Serializable {
         return false;
     }
 
-    /**
-     * Currency pouch slots: built-ins that are shown + contest currencies with amount &gt; 0
-     * + challenge-coin stacks in inventory.
-     */
     public int usedCurrencySlots(Map<String, Integer> contestCurrencies, Collection<ItemData> inventory) {
         int n = 6; // gold, shards, 4 dusts always reserved
         if (contestCurrencies != null) {
@@ -288,18 +427,15 @@ public class InventoryBags implements Serializable {
         return usedCurrencySlots(contestCurrencies, inventory) > currencySlots;
     }
 
-    /**
-     * Whether one more backpack item can be accepted. Over-capacity bags keep existing items;
-     * new grants are refused (or sent to fortress storage).
-     */
-    public boolean canAcceptBackpackItem(ItemData incoming, Collection<ItemData> inventory,
-                                         Set<Long> equippedIds, Map<String, String> toolbelt) {
-        lastRefuseMessage = null;
-        if (incoming == null) {
-            lastRefuseMessage = "Unknown item.";
+    /** Whether the backpack has room for one more non-quest item (stack or free slot). */
+    public boolean fitsBackpack(ItemData incoming, Collection<ItemData> inventory,
+                                Set<Long> equippedIds, Map<String, String> toolbelt) {
+        if (incoming == null)
             return false;
-        }
+        if (isCapacityExempt(incoming))
+            return true;
         List<ItemData> occ = backpackOccupants(inventory, equippedIds, toolbelt);
+        occ.removeIf(InventoryBags::isCapacityExempt);
         int used = stackGroups(occ, backpackMaxStack).size();
         if (isStackable(incoming)) {
             int have = 0;
@@ -307,76 +443,36 @@ public class InventoryBags implements Serializable {
                 if (i != null && incoming.name != null && incoming.name.equalsIgnoreCase(i.name))
                     have++;
             }
-            // Room in an existing stack?
             if (have > 0 && have % backpackMaxStack != 0)
                 return true;
-            if (used < backpackSlots)
-                return true;
-            if (fortressStorage.storeOverflow(InventoryBagType.BACKPACK, incoming.name, 1))
-                return true;
-            lastRefuseMessage = overCapacityMessage(InventoryBagType.BACKPACK);
-            return false;
+            return used < backpackSlots;
         }
-        if (used < backpackSlots)
-            return true;
-        if (fortressStorage.storeOverflow(InventoryBagType.BACKPACK, incoming.name, 1))
-            return true;
-        lastRefuseMessage = overCapacityMessage(InventoryBagType.BACKPACK);
-        return false;
+        return used < backpackSlots;
     }
 
-    public boolean canAcceptBooster(Iterable<Deck> boosters) {
-        lastRefuseMessage = null;
-        int used = usedPackSlots(boosters);
-        if (used < packsSlots)
-            return true;
-        if (fortressStorage.storeOverflow(InventoryBagType.PACKS, "booster", 1))
-            return true;
-        lastRefuseMessage = overCapacityMessage(InventoryBagType.PACKS);
-        return false;
-    }
-
-    public boolean canAcceptMaterial(String id, int amount, Map<String, Integer> materials) {
-        lastRefuseMessage = null;
-        if (id == null || id.isEmpty() || amount <= 0) {
-            lastRefuseMessage = "Invalid material.";
-            return false;
-        }
-        int have = materials != null && materials.get(id) != null ? materials.get(id) : 0;
-        boolean known = have > 0;
-        if (!known && usedMaterialSlots(materials) >= materialsSlots) {
-            if (fortressStorage.storeOverflow(InventoryBagType.MATERIALS, id, amount))
-                return true;
-            lastRefuseMessage = overCapacityMessage(InventoryBagType.MATERIALS);
-            return false;
-        }
-        if (have >= materialsMaxStack) {
-            // Already over or at cap from an old save: refuse more (never delete existing).
-            if (fortressStorage.storeOverflow(InventoryBagType.MATERIALS, id, amount))
-                return true;
-            lastRefuseMessage = "Materials sack full for this type (max " + materialsMaxStack + ").";
-            return false;
-        }
-        if (have + amount > materialsMaxStack) {
-            // Partial fill is not done here — caller should split, or we refuse whole grant.
-            if (fortressStorage.storeOverflow(InventoryBagType.MATERIALS, id, amount))
-                return true;
-            lastRefuseMessage = "Materials sack would exceed stack size (" + materialsMaxStack + ").";
-            return false;
-        }
-        return true;
+    public boolean fitsBooster(Iterable<Deck> boosters) {
+        return usedPackSlots(boosters) < packsSlots;
     }
 
     /**
-     * Challenge-coin ItemData in the currency pouch (stackable by name).
+     * How many units of {@code id} can still fit in the Craft Pouch given current contents.
+     * Bottomless → Integer.MAX_VALUE/4. New types need a free slot.
      */
-    public boolean canAcceptCurrencyItem(ItemData incoming, Map<String, Integer> contestCurrencies,
-                                         Collection<ItemData> inventory) {
-        lastRefuseMessage = null;
-        if (incoming == null) {
-            lastRefuseMessage = "Unknown currency item.";
+    public int materialRoom(String id, Map<String, Integer> materials) {
+        if (id == null || id.isEmpty())
+            return 0;
+        if (getCraftPouchTier().isBottomless())
+            return Integer.MAX_VALUE / 4;
+        int have = materials != null && materials.get(id) != null ? materials.get(id) : 0;
+        if (have <= 0 && usedMaterialSlots(materials) >= materialsSlots)
+            return 0;
+        return Math.max(0, materialsMaxStack - have);
+    }
+
+    public boolean fitsCurrencyItem(ItemData incoming, Map<String, Integer> contestCurrencies,
+                                    Collection<ItemData> inventory) {
+        if (incoming == null)
             return false;
-        }
         int used = usedCurrencySlots(contestCurrencies, inventory);
         if (isStackable(incoming)) {
             int have = 0;
@@ -388,56 +484,253 @@ public class InventoryBags implements Serializable {
             }
             if (have > 0 && have % currencyMaxStack != 0)
                 return true;
-            // Existing stack type already occupies a slot.
             if (have > 0)
                 return true;
         }
-        if (used < currencySlots)
+        return used < currencySlots;
+    }
+
+    public boolean fitsContestCurrency(String id, int amount, Map<String, Integer> contestCurrencies,
+                                       Collection<ItemData> inventory) {
+        if (id == null || id.isEmpty() || amount <= 0)
+            return false;
+        int have = contestCurrencies != null && contestCurrencies.get(id) != null ? contestCurrencies.get(id) : 0;
+        boolean known = have > 0;
+        if (!known && usedCurrencySlots(contestCurrencies, inventory) >= currencySlots)
+            return false;
+        return have + amount <= currencyMaxStack;
+    }
+
+    // ---- Legacy canAccept* (now mean "fits in bag", not "may grant") ----
+
+    public boolean canAcceptBackpackItem(ItemData incoming, Collection<ItemData> inventory,
+                                         Set<Long> equippedIds, Map<String, String> toolbelt) {
+        lastRefuseMessage = null;
+        lastMessage = null;
+        if (incoming == null) {
+            setMsg("Unknown item.");
+            return false;
+        }
+        if (fitsBackpack(incoming, inventory, equippedIds, toolbelt))
             return true;
-        if (fortressStorage.storeOverflow(InventoryBagType.CURRENCY, incoming.name, 1))
+        setMsg(MESSAGE_OVERFLOW);
+        return false;
+    }
+
+    public boolean canAcceptBooster(Iterable<Deck> boosters) {
+        lastRefuseMessage = null;
+        lastMessage = null;
+        if (fitsBooster(boosters))
             return true;
-        lastRefuseMessage = overCapacityMessage(InventoryBagType.CURRENCY);
+        setMsg(MESSAGE_OVERFLOW);
+        return false;
+    }
+
+    public boolean canAcceptMaterial(String id, int amount, Map<String, Integer> materials) {
+        lastRefuseMessage = null;
+        lastMessage = null;
+        if (id == null || id.isEmpty() || amount <= 0) {
+            setMsg("Invalid material.");
+            return false;
+        }
+        if (materialRoom(id, materials) >= amount)
+            return true;
+        setMsg(MESSAGE_OVERFLOW);
+        return false;
+    }
+
+    public boolean canAcceptCurrencyItem(ItemData incoming, Map<String, Integer> contestCurrencies,
+                                         Collection<ItemData> inventory) {
+        lastRefuseMessage = null;
+        lastMessage = null;
+        if (incoming == null) {
+            setMsg("Unknown currency item.");
+            return false;
+        }
+        if (fitsCurrencyItem(incoming, contestCurrencies, inventory))
+            return true;
+        setMsg(MESSAGE_OVERFLOW);
         return false;
     }
 
     public boolean canAcceptContestCurrency(String id, int amount, Map<String, Integer> contestCurrencies,
                                             Collection<ItemData> inventory) {
         lastRefuseMessage = null;
+        lastMessage = null;
         if (id == null || id.isEmpty() || amount <= 0) {
-            lastRefuseMessage = "Invalid currency.";
+            setMsg("Invalid currency.");
             return false;
         }
-        int have = contestCurrencies != null && contestCurrencies.get(id) != null ? contestCurrencies.get(id) : 0;
-        boolean known = have > 0;
-        if (!known && usedCurrencySlots(contestCurrencies, inventory) >= currencySlots) {
-            if (fortressStorage.storeOverflow(InventoryBagType.CURRENCY, id, amount))
-                return true;
-            lastRefuseMessage = overCapacityMessage(InventoryBagType.CURRENCY);
-            return false;
+        if (fitsContestCurrency(id, amount, contestCurrencies, inventory))
+            return true;
+        setMsg(MESSAGE_OVERFLOW);
+        return false;
+    }
+
+    // ---- Overflow placement ----
+
+    /**
+     * Place an entry into Overflow if under cap. If at cap, try fortress hook then signal
+     * auto-sell (caller performs the sale). Returns OVERFLOW or indicates AUTO_SOLD needed.
+     */
+    public GrantResult placeInOverflow(OverflowEntry entry) {
+        if (entry == null)
+            return GrantResult.accepted();
+        if (overflow.size() < getOverflowCap()) {
+            overflow.add(entry);
+            GrantResult r = GrantResult.overflow();
+            setMsg(r.message);
+            return r;
         }
-        if (have + amount > currencyMaxStack) {
-            if (fortressStorage.storeOverflow(InventoryBagType.CURRENCY, id, amount))
-                return true;
-            lastRefuseMessage = "Currency pouch stack limit (" + currencyMaxStack + ").";
-            return false;
+        if (fortressStorage.storeOverflow(InventoryBagType.OVERFLOW, entry.key, entry.amount)) {
+            GrantResult r = GrantResult.overflow();
+            r.message = "Bag full — sent to fortress storage";
+            setMsg(r.message);
+            return r;
         }
+        GrantResult r = new GrantResult();
+        r.fate = GrantResult.Fate.AUTO_SOLD;
+        r.autoSoldName = entry.displayName();
+        r.message = "Overflow full — auto-sold " + entry.displayName();
+        setMsg(r.message);
+        return r;
+    }
+
+    public boolean removeOverflow(int index) {
+        if (index < 0 || index >= overflow.size())
+            return false;
+        overflow.remove(index);
         return true;
     }
 
+    public OverflowEntry takeOverflow(int index) {
+        if (index < 0 || index >= overflow.size())
+            return null;
+        return overflow.remove(index);
+    }
+
+    public void clearOverflow() {
+        overflow.clear();
+    }
+
+    /** Restore Overflow from a save without auto-sell (cap may be raised afterward). */
+    public void loadOverflowEntries(OverflowEntry[] entries) {
+        overflow.clear();
+        if (entries == null)
+            return;
+        for (OverflowEntry e : entries) {
+            if (e != null)
+                overflow.add(e);
+        }
+    }
+
+    /**
+     * After loading an old save that is over capacity: move excess backpack/pack/currency/material
+     * units into Overflow (overflow cap still applies — remainder becomes auto-sell candidates
+     * returned to the caller).
+     *
+     * @return entries that could not fit in Overflow (caller should auto-sell)
+     */
+    public List<OverflowEntry> migrateOverCapacity(List<ItemData> inventory,
+                                                  Set<Long> equippedIds,
+                                                  Map<String, String> toolbelt,
+                                                  List<Deck> boosters,
+                                                  Map<String, Integer> materials,
+                                                  Map<String, Integer> contestCurrencies) {
+        List<OverflowEntry> autoSell = new ArrayList<>();
+        if (inventory != null) {
+            // Pull backpack occupants that exceed slot capacity into overflow (newest first).
+            List<ItemData> occ = backpackOccupants(inventory, equippedIds, toolbelt);
+            occ.removeIf(InventoryBags::isCapacityExempt);
+            while (stackGroups(occ, backpackMaxStack).size() > backpackSlots && !occ.isEmpty()) {
+                ItemData last = occ.remove(occ.size() - 1);
+                inventory.remove(last);
+                OverflowEntry e = OverflowEntry.ofItem(last);
+                GrantResult r = placeInOverflow(e);
+                if (r.wasAutoSold())
+                    autoSell.add(e);
+                occ = backpackOccupants(inventory, equippedIds, toolbelt);
+                occ.removeIf(InventoryBags::isCapacityExempt);
+            }
+            // Currency items over capacity
+            while (isCurrencyOverCapacity(contestCurrencies, inventory)) {
+                ItemData coin = null;
+                for (int i = inventory.size() - 1; i >= 0; i--) {
+                    ItemData it = inventory.get(i);
+                    if (it != null && classifyItem(it) == InventoryBagType.CURRENCY) {
+                        coin = it;
+                        break;
+                    }
+                }
+                if (coin == null)
+                    break;
+                inventory.remove(coin);
+                OverflowEntry e = OverflowEntry.ofItem(coin);
+                GrantResult r = placeInOverflow(e);
+                if (r.wasAutoSold())
+                    autoSell.add(e);
+            }
+        }
+        if (boosters != null) {
+            while (usedPackSlots(boosters) > packsSlots && !boosters.isEmpty()) {
+                Deck d = boosters.remove(boosters.size() - 1);
+                OverflowEntry e = OverflowEntry.ofBooster(d);
+                GrantResult r = placeInOverflow(e);
+                if (r.wasAutoSold())
+                    autoSell.add(e);
+            }
+        }
+        if (materials != null && !getCraftPouchTier().isBottomless()) {
+            // Trim stacks over max; overflow excess amount.
+            List<String> ids = new ArrayList<>(materials.keySet());
+            for (String id : ids) {
+                int have = materials.getOrDefault(id, 0);
+                if (have > materialsMaxStack) {
+                    int excess = have - materialsMaxStack;
+                    materials.put(id, materialsMaxStack);
+                    OverflowEntry e = OverflowEntry.ofMaterial(id, excess);
+                    GrantResult r = placeInOverflow(e);
+                    if (r.wasAutoSold())
+                        autoSell.add(e);
+                }
+            }
+            // Trim distinct types over slot count.
+            while (usedMaterialSlots(materials) > materialsSlots) {
+                String victim = null;
+                for (String id : materials.keySet()) {
+                    if (materials.getOrDefault(id, 0) > 0)
+                        victim = id;
+                }
+                if (victim == null)
+                    break;
+                int amt = materials.remove(victim);
+                OverflowEntry e = OverflowEntry.ofMaterial(victim, amt);
+                GrantResult r = placeInOverflow(e);
+                if (r.wasAutoSold())
+                    autoSell.add(e);
+            }
+        }
+        return autoSell;
+    }
+
     public String overCapacityMessage(InventoryBagType type) {
-        return type.label + " is full (" + getSlots(type) + " slots). Free space or upgrade the bag."
-                + " Fortress storage is not available yet.";
+        return MESSAGE_OVERFLOW;
     }
 
     public String capacityLabel(InventoryBagType type, int used) {
+        if (type == InventoryBagType.MATERIALS && getCraftPouchTier().isBottomless())
+            return getCraftPouchTier().label + " · " + used + " types";
         int cap = getSlots(type);
         String base = used + "/" + cap;
+        if (type == InventoryBagType.MATERIALS)
+            base = getCraftPouchTier().label + " · " + base;
+        if (type == InventoryBagType.OVERFLOW && used > 0)
+            return "[#ffaa33]⚠[] " + base;
         return used > cap ? base + " OVER" : base;
     }
 
     /**
      * Group stackable items into stacks of at most maxStack; non-stackable = one group each.
-     * Returns one entry per occupied slot.
      */
     public static List<List<ItemData>> stackGroups(List<ItemData> items, int maxStack) {
         List<List<ItemData>> groups = new ArrayList<>();
@@ -466,7 +759,7 @@ public class InventoryBags implements Serializable {
         return groups;
     }
 
-    /** Save capacities as parallel arrays for {@link forge.adventure.util.SaveFileData}. */
+    /** Save capacities + craft pouch tier + overflow for {@link forge.adventure.util.SaveFileData}. */
     public void store(Map<String, Object> out) {
         if (out == null)
             return;
@@ -476,6 +769,8 @@ public class InventoryBags implements Serializable {
         });
         out.put("bagSlots", new int[]{backpackSlots, packsSlots, currencySlots, materialsSlots});
         out.put("bagMaxStacks", new int[]{backpackMaxStack, packsMaxStack, currencyMaxStack, materialsMaxStack});
+        out.put("craftPouchTier", craftPouchTier);
+        out.put("overflowCap", overflowCap);
     }
 
     public void load(String[] types, int[] slots, int[] maxStacks, ConfigData defaults) {
@@ -489,11 +784,22 @@ public class InventoryBags implements Serializable {
             } catch (Exception e) {
                 continue;
             }
+            if (t == InventoryBagType.MATERIALS || t == InventoryBagType.OVERFLOW)
+                continue; // pouch from craftPouchTier; overflow cap separate
             if (i < slots.length && slots[i] > 0)
                 setSlots(t, slots[i]);
             if (maxStacks != null && i < maxStacks.length && maxStacks[i] > 0)
                 setMaxStack(t, maxStacks[i]);
         }
+    }
+
+    public void loadCraftPouchAndOverflow(Integer tier, Integer cap) {
+        if (tier != null)
+            setCraftPouchTier(tier);
+        else
+            applyCraftPouchTierCapacities();
+        if (cap != null && cap > 0)
+            overflowCap = cap;
     }
 
     /** Snapshot for tests / UI. */
@@ -512,12 +818,14 @@ public class InventoryBags implements Serializable {
         return backpackSlots == that.backpackSlots && backpackMaxStack == that.backpackMaxStack
                 && packsSlots == that.packsSlots && packsMaxStack == that.packsMaxStack
                 && currencySlots == that.currencySlots && currencyMaxStack == that.currencyMaxStack
-                && materialsSlots == that.materialsSlots && materialsMaxStack == that.materialsMaxStack;
+                && materialsSlots == that.materialsSlots && materialsMaxStack == that.materialsMaxStack
+                && craftPouchTier == that.craftPouchTier && overflowCap == that.overflowCap;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(backpackSlots, backpackMaxStack, packsSlots, packsMaxStack,
-                currencySlots, currencyMaxStack, materialsSlots, materialsMaxStack);
+                currencySlots, currencyMaxStack, materialsSlots, materialsMaxStack,
+                craftPouchTier, overflowCap);
     }
 }

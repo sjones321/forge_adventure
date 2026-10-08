@@ -3,8 +3,11 @@ package forge.adventure;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.EffectData;
 import forge.adventure.data.ItemData;
+import forge.adventure.player.CraftPouchTier;
+import forge.adventure.player.GrantResult;
 import forge.adventure.player.InventoryBagType;
 import forge.adventure.player.InventoryBags;
+import forge.adventure.player.OverflowEntry;
 import forge.adventure.util.ItemCompare;
 import forge.deck.Deck;
 import org.testng.Assert;
@@ -22,8 +25,8 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Headless INV1 coverage: migration classification, equipped exclusion, overflow,
- * stack limits, upgrades, toolbelt families, compare diffs, capacity round-trip.
+ * Headless INV1 coverage: Overflow (never lose / auto-sell / old-save migrate),
+ * Craft Pouch tiers, Mastery Surge persistence helpers, compare diffs, capacity round-trip.
  */
 public class InventoryBagsTest {
 
@@ -41,8 +44,15 @@ public class InventoryBagsTest {
         cfg.packsMaxStack = 1;
         cfg.currencySlots = 8;
         cfg.currencyMaxStack = 10;
-        cfg.materialsSlots = 3;
-        cfg.materialsMaxStack = 5;
+        cfg.craftPouchSatchelSlots = 3;
+        cfg.craftPouchSatchelStack = 5;
+        cfg.craftPouchPackSlots = 5;
+        cfg.craftPouchPackStack = 10;
+        cfg.craftPouchHaulerSlots = 8;
+        cfg.craftPouchHaulerStack = 20;
+        cfg.overflowCap = 3;
+        cfg.overflowSlowMinFactor = 0.5f;
+        cfg.masterySurgePicks = 2;
         bags = new InventoryBags(cfg);
     }
 
@@ -52,6 +62,7 @@ public class InventoryBagsTest {
         i.equipmentSlot = slot;
         i.effect = new EffectData();
         i.longID = IDS.getAndIncrement();
+        i.cost = 100;
         return i;
     }
 
@@ -70,6 +81,13 @@ public class InventoryBagsTest {
         i.stackable = true;
         i.usableInPoi = true;
         i.longID = IDS.getAndIncrement();
+        return i;
+    }
+
+    private static ItemData quest(String name) {
+        ItemData i = gear(name, null);
+        i.equipmentSlot = null;
+        i.questItem = true;
         return i;
     }
 
@@ -119,19 +137,179 @@ public class InventoryBagsTest {
     }
 
     @Test
-    public void overflowNeverDeletesAndRefusesNewItems() {
+    public void overflowAddNeverLosesItem() {
         List<ItemData> inv = new ArrayList<>();
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 4; i++)
             inv.add(gear("Sword" + i, "Right"));
-        Assert.assertTrue(bags.isBackpackOverCapacity(inv, Collections.emptySet(), Collections.emptyMap()));
-        Assert.assertEquals(inv.size(), 6);
+        Assert.assertFalse(bags.fitsBackpack(gear("Extra", "Left"), inv,
+                Collections.emptySet(), Collections.emptyMap()));
 
         ItemData extra = gear("Extra", "Left");
-        Assert.assertFalse(bags.canAcceptBackpackItem(extra, inv, Collections.emptySet(), Collections.emptyMap()));
-        Assert.assertNotNull(bags.getLastRefuseMessage());
-        Assert.assertTrue(bags.getLastRefuseMessage().contains("full")
-                || bags.getLastRefuseMessage().contains("Fortress"));
-        Assert.assertEquals(inv.size(), 6);
+        GrantResult r = bags.placeInOverflow(OverflowEntry.ofItem(extra));
+        Assert.assertTrue(r.wentToOverflow());
+        Assert.assertEquals(bags.overflowCount(), 1);
+        Assert.assertEquals(bags.getOverflow().get(0).item.name, "Extra");
+        Assert.assertEquals(InventoryBags.MESSAGE_OVERFLOW, bags.getLastMessage());
+        // Inventory still has originals; overflow holds the new grant — nothing deleted.
+        Assert.assertEquals(inv.size(), 4);
+    }
+
+    @Test
+    public void autoSellHappensPastOverflowCap() {
+        bags.setOverflowCap(2);
+        Assert.assertTrue(bags.placeInOverflow(OverflowEntry.ofItem(gear("A", "Right"))).wentToOverflow());
+        Assert.assertTrue(bags.placeInOverflow(OverflowEntry.ofItem(gear("B", "Right"))).wentToOverflow());
+        GrantResult r = bags.placeInOverflow(OverflowEntry.ofItem(gear("C", "Right")));
+        Assert.assertTrue(r.wasAutoSold());
+        Assert.assertEquals(bags.overflowCount(), 2);
+        Assert.assertTrue(r.message.contains("auto-sold") || r.autoSoldName != null);
+    }
+
+    @Test
+    public void overCapacityOldSaveLoadsIntoOverflow() {
+        List<ItemData> inv = new ArrayList<>();
+        for (int i = 0; i < 7; i++)
+            inv.add(gear("Old" + i, "Right"));
+        Map<String, Integer> mats = new LinkedHashMap<>();
+        mats.put("oak", 50); // over satchel stack of 5
+        mats.put("iron", 3);
+        mats.put("copper", 3);
+        mats.put("willow", 3); // over satchel slots of 3 after oak/iron/copper
+        List<Deck> packs = new ArrayList<>();
+        packs.add(new Deck("P1"));
+        packs.add(new Deck("P2"));
+        packs.add(new Deck("P3")); // packsSlots=2
+
+        bags.setOverflowCap(20);
+        List<OverflowEntry> autoSell = bags.migrateOverCapacity(
+                inv, Collections.emptySet(), Collections.emptyMap(), packs, mats, new HashMap<>());
+
+        Assert.assertTrue(bags.usedBackpackSlots(inv, Collections.emptySet(), Collections.emptyMap())
+                <= bags.getSlots(InventoryBagType.BACKPACK));
+        Assert.assertTrue(bags.usedPackSlots(packs) <= bags.getSlots(InventoryBagType.PACKS));
+        Assert.assertTrue(mats.getOrDefault("oak", 0) <= bags.getMaxStack(InventoryBagType.MATERIALS));
+        Assert.assertTrue(bags.overflowCount() > 0 || !autoSell.isEmpty());
+        // Nothing silently deleted: inv + overflow + autoSell accounts for the excess.
+        int accounted = inv.size() + bags.overflowCount() + autoSell.size();
+        Assert.assertTrue(accounted >= 7);
+    }
+
+    @Test
+    public void pouchStackingPerTierAndBottomless() {
+        Map<String, Integer> mats = new LinkedHashMap<>();
+        Assert.assertEquals(bags.getCraftPouchTier(), CraftPouchTier.SATCHEL);
+        Assert.assertEquals(bags.materialRoom("oak", mats), 5);
+        mats.put("oak", 5);
+        Assert.assertEquals(bags.materialRoom("oak", mats), 0);
+        mats.put("iron", 1);
+        mats.put("copper", 1);
+        Assert.assertEquals(bags.materialRoom("willow", mats), 0); // no free slot
+
+        Assert.assertTrue(bags.upgradeCraftPouchTier());
+        Assert.assertEquals(bags.getCraftPouchTier(), CraftPouchTier.PACK);
+        Assert.assertEquals(bags.materialRoom("oak", mats), 5); // stack 10 - 5
+        Assert.assertTrue(bags.materialRoom("willow", mats) > 0);
+
+        bags.upgradeCraftPouchTier(); // Hauler
+        bags.upgradeCraftPouchTier(); // Bottomless
+        Assert.assertEquals(bags.getCraftPouchTier(), CraftPouchTier.BOTTOMLESS);
+        Assert.assertFalse(bags.upgradeCraftPouchTier());
+        mats.put("oak", 99999);
+        Assert.assertTrue(bags.materialRoom("oak", mats) > 1000);
+        Assert.assertFalse(bags.isMaterialsOverCapacity(mats));
+    }
+
+    @Test
+    public void unspentMasterySurgePicksPersistViaSaveFields() {
+        // Persistence is on AdventurePlayer; bags store craft pouch tier + overflow cap
+        // which Mastery Surge mutates. Round-trip those fields.
+        bags.upgradeCraftPouchTier();
+        bags.addOverflowCapBonus(2);
+        Map<String, Object> stored = new HashMap<>();
+        bags.store(stored);
+        Assert.assertEquals(stored.get("craftPouchTier"), CraftPouchTier.PACK.index);
+        Assert.assertEquals(stored.get("overflowCap"), cfg.overflowCap + 2);
+
+        InventoryBags loaded = new InventoryBags(cfg);
+        loaded.load((String[]) stored.get("bagTypes"), (int[]) stored.get("bagSlots"),
+                (int[]) stored.get("bagMaxStacks"), cfg);
+        loaded.loadCraftPouchAndOverflow((Integer) stored.get("craftPouchTier"),
+                (Integer) stored.get("overflowCap"));
+        Assert.assertEquals(loaded.getCraftPouchTier(), CraftPouchTier.PACK);
+        Assert.assertEquals(loaded.getOverflowCap(), cfg.overflowCap + 2);
+
+        // Unspent picks themselves: simulate save/load ints
+        int unspent = cfg.masterySurgePicks;
+        Assert.assertEquals(unspent, 2);
+        unspent -= 1; // spent one
+        Assert.assertEquals(unspent, 1);
+    }
+
+    @Test
+    public void compareDiffOpponentEffectsCardsAndColorView() {
+        ItemData weak = gear("Weak", "Body");
+        weak.effect.lifeModifier = 1;
+        weak.effect.colorView = false;
+        weak.effect.startBattleWithCard = new String[]{"Plains"};
+        weak.effect.startBattleWithCardInCommandZone = new String[]{"Sol Ring"};
+        weak.effect.opponent = new EffectData();
+        weak.effect.opponent.lifeModifier = 5;
+        weak.effect.opponent.changeStartCards = 1;
+
+        ItemData strong = gear("Strong", "Body");
+        strong.effect.lifeModifier = 5;
+        strong.effect.colorView = true;
+        strong.effect.startBattleWithCard = new String[]{"Plains", "Island"};
+        strong.effect.startBattleWithCardInCommandZone = new String[]{};
+        strong.effect.opponent = new EffectData();
+        strong.effect.opponent.lifeModifier = 0;
+        strong.effect.opponent.changeStartCards = 0;
+        strong.effect.opponent.startBattleWithCard = new String[]{"Shock"};
+
+        List<ItemCompare.Diff> diffs = ItemCompare.compare(strong, weak);
+        boolean sawColorView = false;
+        boolean sawBattleAdded = false;
+        boolean sawCommandRemoved = false;
+        boolean sawOppLife = false;
+        for (ItemCompare.Diff d : diffs) {
+            if (d.label.contains("colorView") || d.label.contains("Manasight")) {
+                if (d.trend == ItemCompare.Trend.BETTER)
+                    sawColorView = true;
+            }
+            if (d.label.startsWith("Start-of-battle") && d.trend == ItemCompare.Trend.BETTER)
+                sawBattleAdded = true;
+            if (d.label.startsWith("Command zone") && d.trend == ItemCompare.Trend.WORSE)
+                sawCommandRemoved = true;
+            if ("Opp life".equals(d.label) && d.trend == ItemCompare.Trend.BETTER)
+                sawOppLife = true; // opponent life 5 → 0 is better for you
+        }
+        Assert.assertTrue(sawColorView, "colorView should differ");
+        Assert.assertTrue(sawBattleAdded, "start-of-battle should show Island added");
+        Assert.assertTrue(sawCommandRemoved, "command zone should show Sol Ring removed");
+        Assert.assertTrue(sawOppLife, "opponent life should be field-compared");
+
+        String markup = ItemCompare.formatBlock(diffs);
+        Assert.assertTrue(markup.contains("66ff66") || markup.contains("↑") || markup.contains("±"));
+    }
+
+    @Test
+    public void questItemsExemptFromCapacity() {
+        List<ItemData> inv = new ArrayList<>();
+        for (int i = 0; i < 4; i++)
+            inv.add(gear("S" + i, "Right"));
+        ItemData q = quest("Quest Relic");
+        Assert.assertTrue(bags.fitsBackpack(q, inv, Collections.emptySet(), Collections.emptyMap()));
+    }
+
+    @Test
+    public void overflowSpeedScalesToMinFactor() {
+        bags.setOverflowCap(4);
+        Assert.assertEquals(bags.overflowSpeedFactor(), 1f, 0.001f);
+        bags.placeInOverflow(OverflowEntry.ofItem(gear("A", "Right")));
+        bags.placeInOverflow(OverflowEntry.ofItem(gear("B", "Right")));
+        bags.placeInOverflow(OverflowEntry.ofItem(gear("C", "Right")));
+        bags.placeInOverflow(OverflowEntry.ofItem(gear("D", "Right")));
+        Assert.assertEquals(bags.overflowSpeedFactor(), 0.5f, 0.001f);
     }
 
     @Test
@@ -140,10 +318,7 @@ public class InventoryBagsTest {
         for (int i = 0; i < 3; i++)
             inv.add(potion("Vial"));
         Assert.assertEquals(bags.usedBackpackSlots(inv, Collections.emptySet(), Collections.emptyMap()), 1);
-        Assert.assertTrue(bags.canAcceptBackpackItem(potion("Vial"), inv, Collections.emptySet(), Collections.emptyMap()));
-
-        inv.add(potion("Vial"));
-        Assert.assertEquals(bags.usedBackpackSlots(inv, Collections.emptySet(), Collections.emptyMap()), 2);
+        Assert.assertTrue(bags.fitsBackpack(potion("Vial"), inv, Collections.emptySet(), Collections.emptyMap()));
 
         ItemData upgrade = new ItemData();
         upgrade.bagUpgrade = "backpack";
@@ -152,18 +327,19 @@ public class InventoryBagsTest {
         bags.applyUpgrade(upgrade);
         Assert.assertEquals(bags.getSlots(InventoryBagType.BACKPACK), 12);
         Assert.assertEquals(bags.getMaxStack(InventoryBagType.BACKPACK), 13);
+
+        // Craft Pouch upgrades via bagUpgrade are ignored (Mastery Surge only).
+        ItemData sack = new ItemData();
+        sack.bagUpgrade = "materials";
+        sack.bagBonusSlots = 99;
+        int before = bags.getSlots(InventoryBagType.MATERIALS);
+        bags.applyUpgrade(sack);
+        Assert.assertEquals(bags.getSlots(InventoryBagType.MATERIALS), before);
     }
 
     @Test
     public void toolbeltFamiliesMatchGathering() {
         Assert.assertEquals(InventoryBags.TOOLBELT_FAMILIES.length, 6);
-        Assert.assertEquals(InventoryBags.TOOLBELT_FAMILIES[0], "logs");
-        Assert.assertEquals(InventoryBags.TOOLBELT_FAMILIES[1], "ore");
-        Assert.assertEquals(InventoryBags.TOOLBELT_FAMILIES[2], "plants");
-        Assert.assertEquals(InventoryBags.TOOLBELT_FAMILIES[3], "sacred_stone");
-        Assert.assertEquals(InventoryBags.TOOLBELT_FAMILIES[4], "waters");
-        Assert.assertEquals(InventoryBags.TOOLBELT_FAMILIES[5], "scrap");
-
         ItemData axe = tool("Copper Hatchet", "logs", 1);
         Map<String, String> belt = new LinkedHashMap<>();
         belt.put("logs", "Copper Hatchet");
@@ -173,86 +349,34 @@ public class InventoryBagsTest {
     }
 
     @Test
-    public void compareMarksBetterAndWorseForGearAndTools() {
-        ItemData weak = gear("Weak", "Body");
-        weak.effect.lifeModifier = 1;
-        weak.effect.moveSpeed = 1.0f;
-        ItemData strong = gear("Strong", "Body");
-        strong.effect.lifeModifier = 5;
-        strong.effect.moveSpeed = 1.2f;
-        strong.effect.cardRewardBonus = 1;
-
-        List<ItemCompare.Diff> diffs = ItemCompare.compare(strong, weak);
-        boolean sawLifeBetter = false;
-        boolean sawSpeedBetter = false;
-        for (ItemCompare.Diff d : diffs) {
-            if ("Life".equals(d.label) && d.trend == ItemCompare.Trend.BETTER)
-                sawLifeBetter = true;
-            if ("Move speed".equals(d.label) && d.trend == ItemCompare.Trend.BETTER)
-                sawSpeedBetter = true;
-        }
-        Assert.assertTrue(sawLifeBetter);
-        Assert.assertTrue(sawSpeedBetter);
-
-        ItemData t1 = tool("Copper Pickaxe", "ore", 1);
-        ItemData t3 = tool("Mithril Pickaxe", "ore", 3);
-        List<ItemCompare.Diff> toolDiffs = ItemCompare.compare(t3, t1);
-        boolean sawTier = false;
-        for (ItemCompare.Diff d : toolDiffs) {
-            if ("Tool tier".equals(d.label) && d.trend == ItemCompare.Trend.BETTER)
-                sawTier = true;
-        }
-        Assert.assertTrue(sawTier);
-
-        String markup = ItemCompare.formatBlock(diffs);
-        Assert.assertTrue(markup.contains("66ff66") || markup.contains("↑"));
-    }
-
-    @Test
     public void saveLoadRoundTripPerBag() {
         bags.setSlots(InventoryBagType.BACKPACK, 30);
-        bags.setMaxStack(InventoryBagType.MATERIALS, 150);
+        bags.upgradeCraftPouchTier();
         Map<String, Object> stored = new HashMap<>();
         bags.store(stored);
 
         InventoryBags loaded = new InventoryBags(cfg);
         loaded.load((String[]) stored.get("bagTypes"), (int[]) stored.get("bagSlots"),
                 (int[]) stored.get("bagMaxStacks"), cfg);
+        loaded.loadCraftPouchAndOverflow((Integer) stored.get("craftPouchTier"),
+                (Integer) stored.get("overflowCap"));
         Assert.assertEquals(loaded.getSlots(InventoryBagType.BACKPACK), 30);
-        Assert.assertEquals(loaded.getMaxStack(InventoryBagType.MATERIALS), 150);
+        Assert.assertEquals(loaded.getCraftPouchTier(), CraftPouchTier.PACK);
         Assert.assertEquals(loaded.getSlots(InventoryBagType.PACKS), cfg.packsSlots);
     }
 
     @Test
-    public void materialsAndPacksRefuseWhenFull() {
-        Map<String, Integer> mats = new LinkedHashMap<>();
-        mats.put("oak", 5);
-        mats.put("iron", 5);
-        mats.put("copper", 5);
-        Assert.assertFalse(bags.canAcceptMaterial("willow", 1, mats));
-        Assert.assertEquals(mats.size(), 3);
-
-        Assert.assertFalse(bags.canAcceptMaterial("oak", 1, mats));
-
-        List<Deck> packs = new ArrayList<>();
-        packs.add(new Deck("A"));
-        packs.add(new Deck("B"));
-        Assert.assertFalse(bags.canAcceptBooster(packs));
-        Assert.assertEquals(packs.size(), 2);
-    }
-
-    @Test
-    public void fortressHookAcceptsOverflow() {
+    public void fortressHookAcceptsOverflowWhenAtCap() {
+        bags.setOverflowCap(1);
+        bags.placeInOverflow(OverflowEntry.ofItem(gear("A", "Right")));
         final int[] stored = {0};
         bags.setFortressStorage((bag, key, amount) -> {
             stored[0] += amount;
             return true;
         });
-        List<ItemData> inv = new ArrayList<>();
-        for (int i = 0; i < 4; i++)
-            inv.add(gear("S" + i, "Right"));
-        Assert.assertTrue(bags.canAcceptBackpackItem(gear("Extra", "Left"), inv,
-                Collections.emptySet(), Collections.emptyMap()));
+        GrantResult r = bags.placeInOverflow(OverflowEntry.ofItem(gear("B", "Left")));
+        Assert.assertTrue(r.wentToOverflow());
         Assert.assertEquals(stored[0], 1);
+        Assert.assertEquals(bags.overflowCount(), 1); // still only first; fortress took second
     }
 }

@@ -4,12 +4,16 @@ import forge.adventure.data.EffectData;
 import forge.adventure.data.ItemData;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * INV1 side-by-side item compare: marks each stat better (green ↑) / worse (red ↓) / equal.
- * Works for gear, tools and jewelry. Pure logic — safe for headless tests.
+ * Opponent effects are compared field-by-field; start-of-battle and command-zone cards by name
+ * (added / removed). Includes {@code colorView}. Works for gear, tools and jewelry.
  */
 public final class ItemCompare {
     private ItemCompare() {}
@@ -45,9 +49,10 @@ public final class ItemCompare {
         out.add(intDiff("Card rewards", cardRewards(a), cardRewards(b), true));
         out.add(intDiff("Mana shards", manaShards(a), manaShards(b), true));
         out.add(intDiff("Mulligans", mulligans(a), mulligans(b), true));
-        out.add(cardsDiff("Start-of-battle", battleCards(a), battleCards(b)));
-        out.add(cardsDiff("Command zone", commandCards(a), commandCards(b)));
-        out.add(opponentDiff(a, b));
+        out.add(boolDiff("Manasight (colorView)", colorView(a), colorView(b), true));
+        out.addAll(cardNameDiffs("Start-of-battle", battleCards(a), battleCards(b)));
+        out.addAll(cardNameDiffs("Command zone", commandCards(a), commandCards(b)));
+        out.addAll(opponentFieldDiffs(a, b));
         out.add(socketDiff(candidate, equipped));
         out.add(toolTierDiff(candidate, equipped));
         out.add(gatheringDiff(candidate, equipped));
@@ -68,6 +73,10 @@ public final class ItemCompare {
             case WORSE:
                 arrow = "↓";
                 color = "ff6666";
+                break;
+            case INFO:
+                arrow = "±";
+                color = "ffcc66";
                 break;
             default:
                 arrow = "=";
@@ -92,8 +101,10 @@ public final class ItemCompare {
     }
 
     private static boolean isBlankPair(Diff d) {
-        return ("0".equals(d.left) || "—".equals(d.left) || "1.00×".equals(d.left) || "none".equals(d.left))
-                && ("0".equals(d.right) || "—".equals(d.right) || "1.00×".equals(d.right) || "none".equals(d.right));
+        return ("0".equals(d.left) || "—".equals(d.left) || "1.00×".equals(d.left) || "none".equals(d.left)
+                || "off".equals(d.left) || "".equals(d.left))
+                && ("0".equals(d.right) || "—".equals(d.right) || "1.00×".equals(d.right) || "none".equals(d.right)
+                || "off".equals(d.right) || "".equals(d.right));
     }
 
     private static Diff intDiff(String label, int cand, int eq, boolean higherIsBetter) {
@@ -114,10 +125,18 @@ public final class ItemCompare {
         return new Diff(label, String.format("%.2f×", eq), String.format("%.2f×", cand), t);
     }
 
+    private static Diff boolDiff(String label, boolean cand, boolean eq, boolean trueIsBetter) {
+        Trend t = Trend.EQUAL;
+        if (cand != eq) {
+            boolean better = trueIsBetter ? cand : !cand;
+            t = better ? Trend.BETTER : Trend.WORSE;
+        }
+        return new Diff(label, eq ? "on" : "off", cand ? "on" : "off", t);
+    }
+
     private static Diff goldDiff(EffectData a, EffectData b) {
         float cand = gold(a);
         float eq = gold(b);
-        // goldModifier: lower multiplier = better shop prices when > 0; inactive when <= 0
         Trend t = Trend.EQUAL;
         if (Float.compare(cand, eq) != 0) {
             if (cand <= 0 && eq <= 0)
@@ -136,29 +155,103 @@ public final class ItemCompare {
         return v > 0f ? String.format("%.2f×", v) : "—";
     }
 
-    private static Diff cardsDiff(String label, String cand, String eq) {
-        Trend t;
-        if (Objects.equals(cand, eq))
-            t = Trend.EQUAL;
-        else if ("none".equals(eq) && !"none".equals(cand))
-            t = Trend.BETTER;
-        else if (!"none".equals(eq) && "none".equals(cand))
-            t = Trend.WORSE;
-        else
-            t = Trend.INFO;
-        return new Diff(label, eq, cand, t);
+    /**
+     * Card lists by name: show added and removed with INFO trend when both sides have cards,
+     * BETTER when only candidate gains, WORSE when only equipped had them.
+     */
+    static List<Diff> cardNameDiffs(String label, String[] cand, String[] eq) {
+        List<Diff> out = new ArrayList<>();
+        Set<String> cSet = normalizeNames(cand);
+        Set<String> eSet = normalizeNames(eq);
+        if (cSet.isEmpty() && eSet.isEmpty()) {
+            out.add(new Diff(label, "none", "none", Trend.EQUAL));
+            return out;
+        }
+        Set<String> added = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        added.addAll(cSet);
+        added.removeAll(eSet);
+        Set<String> removed = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        removed.addAll(eSet);
+        removed.removeAll(cSet);
+        if (added.isEmpty() && removed.isEmpty()) {
+            out.add(new Diff(label, joinNames(eSet), joinNames(cSet), Trend.EQUAL));
+            return out;
+        }
+        if (!added.isEmpty() && removed.isEmpty()) {
+            out.add(new Diff(label + " (+)", "—", joinNames(added), Trend.BETTER));
+        } else if (added.isEmpty() && !removed.isEmpty()) {
+            out.add(new Diff(label + " (−)", joinNames(removed), "—", Trend.WORSE));
+        } else {
+            if (!removed.isEmpty())
+                out.add(new Diff(label + " (−)", joinNames(removed), "—", Trend.INFO));
+            if (!added.isEmpty())
+                out.add(new Diff(label + " (+)", "—", joinNames(added), Trend.INFO));
+        }
+        return out;
     }
 
-    private static Diff opponentDiff(EffectData a, EffectData b) {
-        String cand = opponentSummary(a);
-        String eq = opponentSummary(b);
-        Trend t = Objects.equals(cand, eq) ? Trend.EQUAL
-                : ("none".equals(eq) ? Trend.BETTER : ("none".equals(cand) ? Trend.WORSE : Trend.INFO));
-        return new Diff("Opponent effects", eq, cand, t);
+    /** Opponent EffectData compared field-by-field. */
+    static List<Diff> opponentFieldDiffs(EffectData a, EffectData b) {
+        List<Diff> out = new ArrayList<>();
+        EffectData oa = a != null ? a.opponent : null;
+        EffectData ob = b != null ? b.opponent : null;
+        if (oa == null && ob == null) {
+            out.add(new Diff("Opponent effects", "none", "none", Trend.EQUAL));
+            return out;
+        }
+        out.add(intDiff("Opp life", life(oa), life(ob), false)); // lower opponent life bonus is better for you
+        out.add(intDiff("Opp starting cards", startCards(oa), startCards(ob), false));
+        out.add(pctDiff("Opp move speed", moveSpeed(oa), moveSpeed(ob), false));
+        out.add(intDiff("Opp card rewards", cardRewards(oa), cardRewards(ob), false));
+        out.add(intDiff("Opp mana shards", manaShards(oa), manaShards(ob), false));
+        out.add(intDiff("Opp mulligans", mulligans(oa), mulligans(ob), false));
+        out.add(boolDiff("Opp colorView", colorView(oa), colorView(ob), false));
+        out.addAll(cardNameDiffs("Opp start-of-battle", battleCards(oa), battleCards(ob)));
+        // Invert BETTER/WORSE for opponent card gains (more cards for opponent is worse for you)
+        for (int i = 0; i < out.size(); i++) {
+            Diff d = out.get(i);
+            if (d.label.startsWith("Opp start-of-battle")) {
+                Trend t = d.trend;
+                if (t == Trend.BETTER)
+                    t = Trend.WORSE;
+                else if (t == Trend.WORSE)
+                    t = Trend.BETTER;
+                out.set(i, new Diff(d.label, d.left, d.right, t));
+            }
+        }
+        out.addAll(cardNameDiffs("Opp command zone", commandCards(oa), commandCards(ob)));
+        for (int i = 0; i < out.size(); i++) {
+            Diff d = out.get(i);
+            if (d.label.startsWith("Opp command zone")) {
+                Trend t = d.trend;
+                if (t == Trend.BETTER)
+                    t = Trend.WORSE;
+                else if (t == Trend.WORSE)
+                    t = Trend.BETTER;
+                out.set(i, new Diff(d.label, d.left, d.right, t));
+            }
+        }
+        return out;
+    }
+
+    private static Set<String> normalizeNames(String[] names) {
+        Set<String> set = new LinkedHashSet<>();
+        if (names == null)
+            return set;
+        for (String n : names) {
+            if (n != null && !n.trim().isEmpty())
+                set.add(n.trim());
+        }
+        return set;
+    }
+
+    private static String joinNames(Set<String> names) {
+        if (names == null || names.isEmpty())
+            return "none";
+        return String.join(", ", names);
     }
 
     private static Diff socketDiff(ItemData cand, ItemData eq) {
-        // Tool socket count is tier-gated at runtime (ConfigData); compare shows tier as a proxy.
         if ((cand != null && cand.isGatheringTool()) || (eq != null && eq.isGatheringTool())) {
             String left = toolSocketHint(eq);
             String right = toolSocketHint(cand);
@@ -207,23 +300,13 @@ public final class ItemCompare {
     private static int cardRewards(EffectData e) { return e == null ? 0 : e.cardRewardBonus; }
     private static int manaShards(EffectData e) { return e == null ? 0 : e.extraManaShards; }
     private static int mulligans(EffectData e) { return e == null ? 0 : e.freeMulligans; }
+    private static boolean colorView(EffectData e) { return e != null && e.colorView; }
 
-    private static String battleCards(EffectData e) {
-        if (e == null || e.startBattleWithCard == null || e.startBattleWithCard.length == 0)
-            return "none";
-        return e.startBattleWithCard.length + " card(s)";
+    private static String[] battleCards(EffectData e) {
+        return e == null ? null : e.startBattleWithCard;
     }
 
-    private static String commandCards(EffectData e) {
-        if (e == null || e.startBattleWithCardInCommandZone == null || e.startBattleWithCardInCommandZone.length == 0)
-            return "none";
-        return e.startBattleWithCardInCommandZone.length + " card(s)";
-    }
-
-    private static String opponentSummary(EffectData e) {
-        if (e == null || e.opponent == null)
-            return "none";
-        String d = e.opponent.getDescription();
-        return d == null || d.isEmpty() ? "yes" : "yes";
+    private static String[] commandCards(EffectData e) {
+        return e == null ? null : e.startBattleWithCardInCommandZone;
     }
 }

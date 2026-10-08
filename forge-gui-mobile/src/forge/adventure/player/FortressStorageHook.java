@@ -1,8 +1,8 @@
 package forge.adventure.player;
 
 /**
- * INV1 overflow sink for fortress storage (FT1+). Until a fortress exists, returns false
- * so callers refuse the grant with a clear message instead of deleting items.
+ * Optional INV1 overflow sink for fortress storage (FT1+). When Overflow is at cap,
+ * {@link InventoryBags#placeInOverflow} tries this hook before auto-selling.
  */
 public interface FortressStorageHook {
     /**

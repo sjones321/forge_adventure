@@ -7,7 +7,7 @@
     "skill": "Woodcutting",
     "levelRequired": 1,
     "xp": 25,
-    "iconName": "GreenLeaf",
+    "iconName": "WoodBow",
     "biome": "forest",
     "sellPrice": 8,
     "dustRefine": {
@@ -25,7 +25,7 @@
     "skill": "Woodcutting",
     "levelRequired": 15,
     "xp": 50,
-    "iconName": "GreenLeaf2",
+    "iconName": "CompositeBow",
     "biome": "forest",
     "sellPrice": 20,
     "dustRefine": {
@@ -43,7 +43,7 @@
     "skill": "Woodcutting",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "WoodBow",
+    "iconName": "JungleShield",
     "biome": "forest",
     "sellPrice": 48,
     "dustRefine": {
@@ -61,7 +61,7 @@
     "skill": "Woodcutting",
     "levelRequired": 70,
     "xp": 200,
-    "iconName": "CompositeBow",
+    "iconName": "MithrilShield",
     "biome": "forest",
     "sellPrice": 120,
     "dustRefine": {
@@ -79,7 +79,7 @@
     "skill": "Mining",
     "levelRequired": 1,
     "xp": 25,
-    "iconName": "ToolBox",
+    "iconName": "BronzeSword",
     "biome": "mountain",
     "sellPrice": 8,
     "dustRefine": {
@@ -97,7 +97,7 @@
     "skill": "Mining",
     "levelRequired": 15,
     "xp": 50,
-    "iconName": "Clue",
+    "iconName": "IronArmor",
     "biome": "mountain",
     "sellPrice": 20,
     "dustRefine": {
@@ -115,7 +115,7 @@
     "skill": "Mining",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "Hivestone",
+    "iconName": "MithrilArmor",
     "biome": "mountain",
     "sellPrice": 48,
     "dustRefine": {
@@ -133,7 +133,7 @@
     "skill": "Mining",
     "levelRequired": 70,
     "xp": 200,
-    "iconName": "StrangeKey",
+    "iconName": "GoldArmor",
     "biome": "mountain",
     "sellPrice": 120,
     "dustRefine": {
@@ -151,7 +151,7 @@
     "skill": "Mining",
     "levelRequired": 1,
     "xp": 25,
-    "iconName": "FlameSword",
+    "iconName": "FarmersTools",
     "biome": "mountain",
     "sellPrice": 7,
     "dustRefine": {
@@ -169,7 +169,7 @@
     "skill": "Mining",
     "levelRequired": 15,
     "xp": 50,
-    "iconName": "GarrukAxe",
+    "iconName": "StrangeKey",
     "biome": "mountain",
     "sellPrice": 18,
     "dustRefine": {
@@ -187,7 +187,7 @@
     "skill": "Mining",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "Blood",
+    "iconName": "FlameSword",
     "biome": "mountain",
     "sellPrice": 42,
     "dustRefine": {
@@ -205,7 +205,7 @@
     "skill": "Mining",
     "levelRequired": 70,
     "xp": 200,
-    "iconName": "DeathRing",
+    "iconName": "GarrukAxe",
     "biome": "mountain",
     "sellPrice": 105,
     "dustRefine": {
@@ -223,7 +223,7 @@
     "skill": "Quarrying",
     "levelRequired": 1,
     "xp": 25,
-    "iconName": "SteelShield",
+    "iconName": "Hivestone",
     "biome": "plains",
     "sellPrice": 6,
     "dustRefine": {
@@ -241,7 +241,7 @@
     "skill": "Quarrying",
     "levelRequired": 15,
     "xp": 50,
-    "iconName": "IronShield",
+    "iconName": "SteelShield",
     "biome": "plains",
     "sellPrice": 16,
     "dustRefine": {
@@ -277,7 +277,7 @@
     "skill": "Quarrying",
     "levelRequired": 70,
     "xp": 200,
-    "iconName": "Hivestone",
+    "iconName": "VeilstoneAmulet",
     "biome": "plains",
     "sellPrice": 90,
     "dustRefine": {
@@ -349,7 +349,7 @@
     "skill": "Delving",
     "levelRequired": 70,
     "xp": 200,
-    "iconName": "AladdinsRing",
+    "iconName": "RingofThreeWishes",
     "biome": "island",
     "sellPrice": 105,
     "dustRefine": {
@@ -475,7 +475,7 @@
     "skill": "Foraging",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "GreenLeaf",
+    "iconName": "WildMagusStaff",
     "biome": "forest",
     "sellPrice": 42,
     "dustRefine": {
@@ -529,7 +529,7 @@
     "skill": "Salvaging",
     "levelRequired": 15,
     "xp": 50,
-    "iconName": "ToolBox",
+    "iconName": "StrangeKey",
     "biome": "wastes",
     "sellPrice": 14,
     "dustRefine": {
@@ -547,7 +547,7 @@
     "skill": "Salvaging",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "StrangeKey",
+    "iconName": "FarmersTools",
     "biome": "wastes",
     "sellPrice": 30,
     "dustRefine": {
@@ -583,7 +583,7 @@
     "skill": "Mining",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "RingofThreeWishes",
+    "iconName": "AladdinsRing",
     "biome": "",
     "sellPrice": 80,
     "dustRefine": {
@@ -600,7 +600,7 @@
     "skill": "Mining",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "RingofThreeWishes",
+    "iconName": "PrismRing",
     "biome": "",
     "sellPrice": 80,
     "dustRefine": {
@@ -617,7 +617,7 @@
     "skill": "Mining",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "RingofThreeWishes",
+    "iconName": "RingofRenewal",
     "biome": "",
     "sellPrice": 80,
     "dustRefine": {
@@ -634,7 +634,7 @@
     "skill": "Mining",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "RingofThreeWishes",
+    "iconName": "JandorsRing",
     "biome": "",
     "sellPrice": 80,
     "dustRefine": {
@@ -651,7 +651,7 @@
     "skill": "Mining",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "RingofThreeWishes",
+    "iconName": "DeathRing",
     "biome": "",
     "sellPrice": 80,
     "dustRefine": {
@@ -702,7 +702,7 @@
     "skill": "Delving",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "RingofRenewal",
+    "iconName": "RingofThreeWishes",
     "biome": "",
     "sellPrice": 60,
     "dustRefine": {
@@ -719,7 +719,7 @@
     "skill": "Delving",
     "levelRequired": 70,
     "xp": 200,
-    "iconName": "RingofThreeWishes",
+    "iconName": "AladdinsRing",
     "biome": "",
     "sellPrice": 150,
     "dustRefine": {
@@ -736,7 +736,7 @@
     "skill": "Delving",
     "levelRequired": 1,
     "xp": 25,
-    "iconName": "VeilstoneAmulet",
+    "iconName": "PrismRing",
     "biome": "",
     "sellPrice": 12,
     "dustRefine": {
@@ -753,7 +753,7 @@
     "skill": "Delving",
     "levelRequired": 15,
     "xp": 50,
-    "iconName": "PrismRing",
+    "iconName": "DeathRing",
     "biome": "",
     "sellPrice": 28,
     "dustRefine": {
@@ -770,7 +770,7 @@
     "skill": "Delving",
     "levelRequired": 40,
     "xp": 100,
-    "iconName": "RingofThreeWishes",
+    "iconName": "RingofImmortals",
     "biome": "",
     "sellPrice": 72,
     "dustRefine": {
@@ -804,7 +804,7 @@
     "skill": "",
     "levelRequired": 1,
     "xp": 0,
-    "iconName": "GreenLeaf",
+    "iconName": "WhiteStaff",
     "biome": "",
     "sellPrice": 6,
     "dustRefine": {
@@ -821,7 +821,7 @@
     "skill": "",
     "levelRequired": 15,
     "xp": 0,
-    "iconName": "CompositeBow",
+    "iconName": "WhiteStaff",
     "biome": "",
     "sellPrice": 16,
     "dustRefine": {
@@ -838,7 +838,7 @@
     "skill": "",
     "levelRequired": 40,
     "xp": 0,
-    "iconName": "SpellBook",
+    "iconName": "SunMagusStaff",
     "biome": "",
     "sellPrice": 36,
     "dustRefine": {
@@ -855,7 +855,7 @@
     "skill": "",
     "levelRequired": 70,
     "xp": 0,
-    "iconName": "LogBook",
+    "iconName": "SunMagusStaff",
     "biome": "",
     "sellPrice": 90,
     "dustRefine": {
@@ -872,7 +872,7 @@
     "skill": "",
     "levelRequired": 1,
     "xp": 0,
-    "iconName": "LogBook",
+    "iconName": "LeatherBoots",
     "biome": "",
     "sellPrice": 6,
     "dustRefine": {
@@ -889,7 +889,7 @@
     "skill": "",
     "levelRequired": 15,
     "xp": 0,
-    "iconName": "SpellBook",
+    "iconName": "LeatherBoots",
     "biome": "",
     "sellPrice": 16,
     "dustRefine": {
@@ -906,7 +906,7 @@
     "skill": "",
     "levelRequired": 40,
     "xp": 0,
-    "iconName": "PandorasBox",
+    "iconName": "IronArmor",
     "biome": "",
     "sellPrice": 36,
     "dustRefine": {
@@ -923,7 +923,7 @@
     "skill": "",
     "levelRequired": 70,
     "xp": 0,
-    "iconName": "TreasureChest",
+    "iconName": "GoldArmor",
     "biome": "",
     "sellPrice": 90,
     "dustRefine": {
@@ -957,7 +957,7 @@
     "skill": "",
     "levelRequired": 15,
     "xp": 0,
-    "iconName": "Shard",
+    "iconName": "BlueStaff",
     "biome": "",
     "sellPrice": 16,
     "dustRefine": {
@@ -974,7 +974,7 @@
     "skill": "",
     "levelRequired": 40,
     "xp": 0,
-    "iconName": "Shards",
+    "iconName": "MindMagusStaff",
     "biome": "",
     "sellPrice": 36,
     "dustRefine": {
@@ -991,7 +991,7 @@
     "skill": "",
     "levelRequired": 70,
     "xp": 0,
-    "iconName": "Mana",
+    "iconName": "RingofThreeWishes",
     "biome": "",
     "sellPrice": 90,
     "dustRefine": {
@@ -1025,7 +1025,7 @@
     "skill": "",
     "levelRequired": 15,
     "xp": 0,
-    "iconName": "RingofThreeWishes",
+    "iconName": "PrismRing",
     "biome": "",
     "sellPrice": 44,
     "dustRefine": {
@@ -1042,7 +1042,7 @@
     "skill": "",
     "levelRequired": 40,
     "xp": 0,
-    "iconName": "AladdinsRing",
+    "iconName": "PrismRing",
     "biome": "",
     "sellPrice": 120,
     "dustRefine": {
@@ -1059,7 +1059,7 @@
     "skill": "",
     "levelRequired": 70,
     "xp": 0,
-    "iconName": "FortuneCoin",
+    "iconName": "PrismRing",
     "biome": "",
     "sellPrice": 300,
     "dustRefine": {
@@ -1773,7 +1773,7 @@
     "skill": "",
     "levelRequired": 1,
     "xp": 0,
-    "iconName": "ChallengeCoin",
+    "iconName": "AWARD",
     "biome": "white",
     "sellPrice": 300,
     "dustRefine": {
@@ -1789,7 +1789,7 @@
     "skill": "",
     "levelRequired": 1,
     "xp": 0,
-    "iconName": "ChallengeCoin",
+    "iconName": "AWARD",
     "biome": "blue",
     "sellPrice": 300,
     "dustRefine": {
@@ -1805,7 +1805,7 @@
     "skill": "",
     "levelRequired": 1,
     "xp": 0,
-    "iconName": "ChallengeCoin",
+    "iconName": "AWARD",
     "biome": "black",
     "sellPrice": 300,
     "dustRefine": {
@@ -1821,7 +1821,7 @@
     "skill": "",
     "levelRequired": 1,
     "xp": 0,
-    "iconName": "ChallengeCoin",
+    "iconName": "AWARD",
     "biome": "red",
     "sellPrice": 300,
     "dustRefine": {
@@ -1837,7 +1837,7 @@
     "skill": "",
     "levelRequired": 1,
     "xp": 0,
-    "iconName": "ChallengeCoin",
+    "iconName": "AWARD",
     "biome": "green",
     "sellPrice": 300,
     "dustRefine": {
@@ -1853,7 +1853,7 @@
     "skill": "",
     "levelRequired": 1,
     "xp": 0,
-    "iconName": "ChallengeCoin",
+    "iconName": "AWARD",
     "biome": "waste",
     "sellPrice": 300,
     "dustRefine": {
@@ -1869,7 +1869,7 @@
     "skill": "",
     "levelRequired": 1,
     "xp": 0,
-    "iconName": "ChallengeCoin",
+    "iconName": "AWARD",
     "biome": "",
     "sellPrice": 300,
     "dustRefine": {
@@ -1885,7 +1885,7 @@
     "skill": "",
     "levelRequired": 1,
     "xp": 0,
-    "iconName": "ChallengeCoin",
+    "iconName": "AWARD",
     "biome": "",
     "sellPrice": 300,
     "dustRefine": {
@@ -1901,7 +1901,7 @@
     "skill": "",
     "levelRequired": 1,
     "xp": 0,
-    "iconName": "ChallengeCoin",
+    "iconName": "AWARD",
     "biome": "",
     "sellPrice": 300,
     "dustRefine": {

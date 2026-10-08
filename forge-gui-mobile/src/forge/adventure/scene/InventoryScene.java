@@ -25,6 +25,7 @@ import forge.adventure.data.MaterialListData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.player.InventoryBagType;
 import forge.adventure.player.InventoryBags;
+import forge.adventure.player.OverflowEntry;
 import forge.adventure.stage.ConsoleCommandInterpreter;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.MapStage;
@@ -83,7 +84,11 @@ public class InventoryScene extends UIScene {
     private ItemData comparePinnedB;
     private boolean comparePinMode = false;
     private long yButtonDownMs = 0;
+    /** Long-press Enter/A (≥400ms) = Use; short press on an item = Equip. */
+    private long useButtonDownMs = 0;
     private ScrollPane inventoryScroll;
+    /** Overflow tab: button → stash index. */
+    private final HashMap<Button, Integer> overflowLocation = new HashMap<>();
     private NinePatchDrawable getSlotBorderDrawable() {
         if (slotBorderDrawable == null) {
             int border = 4;
@@ -301,13 +306,13 @@ public class InventoryScene extends UIScene {
             ui.addActor(tip);
         }
 
-        // Ascendant bindings: Dispose is keyboard-only (Y is details/compare).
+        // Ascendant bindings: Dispose = Delete only (not Backspace). Use = long-press Enter/A.
         if (deleteButton instanceof TextraButton)
             ((TextraButton) deleteButton).setText("Del");
         if (equipButton instanceof TextraButton)
-            ((TextraButton) equipButton).setText("Equip/A");
+            ((TextraButton) equipButton).setText("Equip/E");
         if (useButton != null)
-            useButton.setText("Use/X");
+            useButton.setText("Use/holdA");
     }
 
     private static int indexOfFamily(String family) {
@@ -365,26 +370,31 @@ public class InventoryScene extends UIScene {
 
     private void updateAscendantChrome() {
         boolean showMats = activeBag == InventoryBagType.MATERIALS;
+        boolean showOverflow = activeBag == InventoryBagType.OVERFLOW;
+        AdventurePlayer ap = Current.player();
         for (int i = 0; i < bagTabs.size(); i++) {
             InventoryBagType t = InventoryBagType.values()[i];
-            bagTabs.get(i).setText(t == activeBag ? "[" + t.label + "]" : t.label);
+            String label = t.label;
+            if (t == InventoryBagType.OVERFLOW && ap.getBags().hasOverflow())
+                label = "[#ffaa33]⚠ " + t.label + "[]";
+            bagTabs.get(i).setText(t == activeBag ? "[" + label + "]" : label);
         }
         if (sellOneButton != null)
             sellOneButton.setVisible(showMats);
         if (sellAllButton != null)
             sellAllButton.setVisible(showMats);
         if (equipButton != null)
-            equipButton.setVisible(!showMats && activeBag != InventoryBagType.CURRENCY);
+            equipButton.setVisible(!showMats && !showOverflow && activeBag != InventoryBagType.CURRENCY);
         if (useButton != null)
             useButton.setVisible(activeBag == InventoryBagType.BACKPACK || activeBag == InventoryBagType.PACKS);
         if (deleteButton != null)
             deleteButton.setVisible(activeBag == InventoryBagType.BACKPACK);
-        if (repairButton != null && showMats)
+        if (repairButton != null && (showMats || showOverflow))
             repairButton.setVisible(false);
         for (Button slot : equipmentSlots.values())
-            slot.setVisible(activeBag != InventoryBagType.MATERIALS);
+            slot.setVisible(!showMats && !showOverflow);
         for (Button slot : toolbeltSlots.values())
-            slot.setVisible(activeBag != InventoryBagType.MATERIALS);
+            slot.setVisible(!showMats && !showOverflow);
         refreshCapacityLabel();
     }
 
@@ -408,11 +418,16 @@ public class InventoryScene extends UIScene {
             case MATERIALS:
                 used = bags.usedMaterialSlots(ap.getMaterials());
                 break;
+            case OVERFLOW:
+                used = bags.overflowCount();
+                break;
             default:
                 used = 0;
         }
         String label = bags.capacityLabel(activeBag, used);
-        if (activeBag == InventoryBagType.BACKPACK && bags.isBackpackOverCapacity(ap.getItems(),
+        if (activeBag == InventoryBagType.OVERFLOW && bags.hasOverflow())
+            label += " [#ffaa33](overloaded)[]";
+        else if (activeBag == InventoryBagType.BACKPACK && bags.isBackpackOverCapacity(ap.getItems(),
                 new java.util.HashSet<>(ap.getEquippedItems()), ap.getToolbelt()))
             label += " [#ff6666](over)[]";
         else if (activeBag == InventoryBagType.PACKS && bags.isPacksOverCapacity(ap.getBoostersOwned()))
@@ -938,6 +953,7 @@ public class InventoryScene extends UIScene {
         deckLocation.clear();
         materialLocation.clear();
         currencyLocation.clear();
+        overflowLocation.clear();
         repairButton.setVisible(false);
 
         if (Config.ascendant() && ascendantChromeBuilt) {
@@ -950,6 +966,9 @@ public class InventoryScene extends UIScene {
                     break;
                 case CURRENCY:
                     updateCurrencyInventory();
+                    break;
+                case OVERFLOW:
+                    updateOverflowInventory();
                     break;
                 case BACKPACK:
                 default:
@@ -1232,6 +1251,59 @@ public class InventoryScene extends UIScene {
         refreshEquipmentDoll();
     }
 
+    private void updateOverflowInventory() {
+        List<OverflowEntry> entries = Current.player().getBags().getOverflow();
+        for (int i = 0; i < entries.size(); i++) {
+            if (i % columns == 0)
+                inventory.row();
+            OverflowEntry entry = entries.get(i);
+            Button newActor = createInventorySlot();
+            inventory.add(newActor).top().left().space(1);
+            final int index = i;
+            addToSelectable(new Selectable(newActor) {
+                @Override
+                public void onSelect(UIScene scene) {
+                    setSelected(newActor);
+                    super.onSelect(scene);
+                }
+            });
+            inventoryButtons.add(newActor);
+            overflowLocation.put(newActor, index);
+            String icon = "Chest";
+            if (entry.kind == OverflowEntry.Kind.ITEM && entry.item != null && entry.item.iconName != null)
+                icon = entry.item.iconName;
+            else if (entry.kind == OverflowEntry.Kind.BOOSTER)
+                icon = "Deck";
+            else if (entry.kind == OverflowEntry.Kind.MATERIAL)
+                icon = "Bag";
+            Sprite sprite = Config.instance().getItemSprite(icon);
+            if (sprite != null) {
+                Image img = new Image(sprite);
+                img.setX((newActor.getWidth() - img.getWidth()) / 2);
+                img.setY((newActor.getHeight() - img.getHeight()) / 2);
+                newActor.addActor(img);
+            }
+            // Warning tint overlay
+            Image warn = new Image(Controls.getSkin(), "item_frame");
+            warn.setColor(1f, 0.7f, 0.2f, 0.35f);
+            warn.setFillParent(true);
+            newActor.addActor(warn);
+            newActor.addListener(new ChangeListener() {
+                @Override
+                public void changed(ChangeEvent event, Actor actor) {
+                    if (((Button) actor).isChecked()) {
+                        setSelected((Button) actor);
+                        itemDescription.setText("[#ffaa33]OVERFLOW[]\n" + entry.displayName()
+                                + "\n[%80]Cannot use, equip, or sell until moved to a bag with room.");
+                    }
+                }
+            });
+        }
+        if (entries.isEmpty())
+            itemDescription.setText("Overflow is empty.\n[%80]Extra loot lands here when bags are full.");
+        refreshEquipmentDoll();
+    }
+
     private void addCurrencySlot(String key, String ignoredLabel, String iconName, int amount) {
         if (inventoryButtons.size % columns == 0)
             inventory.row();
@@ -1394,24 +1466,36 @@ public class InventoryScene extends UIScene {
 
     /**
      * Ascendant INV1 controller map (does not change global KeyBinding / Party=P):
-     * A select/equip, X use, Y details (hold Y = pin compare), L1/R1 switch bags.
-     * Keyboard: Enter equip, E use, Q details, C compare, PgUp/PgDn tabs, Del dispose.
+     * Enter/A activates the focused button; on an item slot, short press equips and
+     * long-press (≥400ms) Uses. E/X equips. Y details (hold Y = pin compare).
+     * LB/RB and [ / ] switch bag tabs. PgUp/PgDn scroll the bag list.
+     * Delete disposes; Backspace does not.
      * <p>
      * Never steals A/B/X/Y/shoulders while an inventory dialog or a co-op HUD invite
      * dialog (party / location / join-fight / leave) is open — CO3 queues those and
      * GameHUD owns Left/Right + confirm/decline while {@code dialogOnlyInput}.
+     * Dialog deferral is Ascendant-only so stock inventory key handling is unchanged.
      */
     @Override
     public boolean keyPressed(int keycode) {
         if (deferInventoryKeysToDialog())
             return super.keyPressed(keycode);
         if (Config.ascendant() && ascendantChromeBuilt) {
-            if (KeyBinding.ScrollUp.isPressed(keycode)) {
+            // Tab switch: [ / ] keyboard, LB/RB (L1/R1) controller — not PgUp/PgDn.
+            if (keycode == Input.Keys.LEFT_BRACKET || keycode == Input.Keys.BUTTON_L1) {
                 cycleBag(-1);
                 return true;
             }
-            if (KeyBinding.ScrollDown.isPressed(keycode)) {
+            if (keycode == Input.Keys.RIGHT_BRACKET || keycode == Input.Keys.BUTTON_R1) {
                 cycleBag(1);
+                return true;
+            }
+            // PgUp/PgDn scroll the bag grid.
+            if (keycode == Input.Keys.PAGE_UP || keycode == Input.Keys.PAGE_DOWN) {
+                if (inventoryScroll != null) {
+                    float dy = keycode == Input.Keys.PAGE_UP ? -40 : 40;
+                    inventoryScroll.setScrollY(inventoryScroll.getScrollY() + dy);
+                }
                 return true;
             }
             if (KeyBinding.Status.isPressed(keycode) || keycode == Input.Keys.BUTTON_Y) {
@@ -1422,23 +1506,30 @@ public class InventoryScene extends UIScene {
                 toggleComparePinMode();
                 return true;
             }
-            if (keycode == Input.Keys.FORWARD_DEL || keycode == Input.Keys.DEL) {
-                if (!deleteButton.isDisabled())
+            // Dispose: Delete only — never Backspace (Keys.DEL).
+            if (keycode == Input.Keys.FORWARD_DEL) {
+                if (deleteButton != null && !deleteButton.isDisabled() && deleteButton.isVisible())
                     showConfirm();
                 return true;
             }
-            // A = equip (roadmap); X = use — only consume when acting on a selection.
-            if (selected != null && (KeyBinding.Use.isPressed(keycode) || keycode == Input.Keys.BUTTON_A)) {
-                if (!equipButton.isDisabled() && equipButton.isVisible()) {
+            if (keycode == Input.Keys.DEL)
+                return true; // swallow Backspace so it cannot open dispose
+            // E/X = Equip
+            if (selected != null && activeBag != InventoryBagType.OVERFLOW
+                    && (KeyBinding.Equip.isPressed(keycode) || keycode == Input.Keys.BUTTON_X
+                    || keycode == Input.Keys.E)) {
+                if (equipButton != null && !equipButton.isDisabled() && equipButton.isVisible()) {
                     equip();
                     return true;
                 }
             }
-            if (selected != null && (KeyBinding.Equip.isPressed(keycode) || keycode == Input.Keys.BUTTON_X)) {
-                if (!useButton.isDisabled() && useButton.isVisible()) {
-                    use();
+            // Enter/A: start long-press timer when focus is an item; otherwise let UIScene activate buttons.
+            if (KeyBinding.Use.isPressed(keycode) || keycode == Input.Keys.BUTTON_A) {
+                if (focusIsInventoryItem()) {
+                    useButtonDownMs = System.currentTimeMillis();
                     return true;
                 }
+                // Focused chrome button (Equip/Use/Compare/tabs) — fall through to super.
             }
         }
         return super.keyPressed(keycode);
@@ -1448,24 +1539,55 @@ public class InventoryScene extends UIScene {
     public boolean keyReleased(int keycode) {
         if (deferInventoryKeysToDialog())
             return super.keyReleased(keycode);
-        if (Config.ascendant() && ascendantChromeBuilt
-                && (KeyBinding.Status.isPressed(keycode) || keycode == Input.Keys.BUTTON_Y)) {
-            long held = System.currentTimeMillis() - yButtonDownMs;
-            if (held >= 400)
-                toggleComparePinMode();
-            else if (selected != null && itemLocation.containsKey(selected))
-                showItemDetails(itemLocation.get(selected).getRight(), null);
-            yButtonDownMs = 0;
-            return true;
+        if (Config.ascendant() && ascendantChromeBuilt) {
+            if (KeyBinding.Status.isPressed(keycode) || keycode == Input.Keys.BUTTON_Y) {
+                long held = System.currentTimeMillis() - yButtonDownMs;
+                if (held >= 400)
+                    toggleComparePinMode();
+                else if (selected != null && itemLocation.containsKey(selected))
+                    showItemDetails(itemLocation.get(selected).getRight(), null);
+                yButtonDownMs = 0;
+                return true;
+            }
+            if ((KeyBinding.Use.isPressed(keycode) || keycode == Input.Keys.BUTTON_A)
+                    && useButtonDownMs > 0) {
+                long held = System.currentTimeMillis() - useButtonDownMs;
+                useButtonDownMs = 0;
+                if (activeBag == InventoryBagType.OVERFLOW)
+                    return true;
+                if (held >= 400) {
+                    if (useButton != null && !useButton.isDisabled() && useButton.isVisible())
+                        use();
+                } else if (selected != null && itemLocation.containsKey(selected)
+                        && equipButton != null && !equipButton.isDisabled() && equipButton.isVisible()) {
+                    equip();
+                } else if (selected != null && deckLocation.containsKey(selected)
+                        && useButton != null && !useButton.isDisabled() && useButton.isVisible()) {
+                    use(); // short press opens packs
+                }
+                return true;
+            }
         }
         return super.keyReleased(keycode);
+    }
+
+    /** True when keyboard focus / selection is an inventory item slot (not a chrome button). */
+    private boolean focusIsInventoryItem() {
+        if (selected == null)
+            return false;
+        return itemLocation.containsKey(selected) || deckLocation.containsKey(selected)
+                || materialLocation.containsKey(selected) || currencyLocation.containsKey(selected)
+                || overflowLocation.containsKey(selected);
     }
 
     /**
      * True when Ascendant remaps must yield: local inventory dialogs, or a co-op
      * invite/exit dialog on {@link GameHUD} (invite queue / exit-dungeon guard).
+     * Stock worlds never defer here (dialog-only inventory block is Ascendant-only).
      */
     private boolean deferInventoryKeysToDialog() {
+        if (!Config.ascendant())
+            return false;
         if (dialogs != null && dialogs.size > 0)
             return true;
         try {

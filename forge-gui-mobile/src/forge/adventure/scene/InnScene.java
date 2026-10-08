@@ -164,6 +164,15 @@ public class InnScene extends UIScene {
     private void openTravel() {
         if (!Config.ascendant())
             return;
+        if (Current.player() != null && Current.player().isOverloaded()) {
+            try {
+                forge.adventure.stage.GameHUD.getInstance().addNotification(
+                        "Overloaded — clear Overflow before waypoint travel.");
+            } catch (Exception ignored) {
+                // HUD may be unavailable
+            }
+            return;
+        }
         Forge.switchScene(WaypointTravelScene.instance().prepare(localPointOfInterestId));
     }
 

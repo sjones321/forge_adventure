@@ -665,35 +665,6 @@
     "xp": 40
   },
   {
-    "id": "upgrade_material_sack",
-    "station": "workshop",
-    "result": "Material Sack",
-    "resultType": "item",
-    "materials": {
-      "oak": 8,
-      "hide": 5
-    },
-    "gold": 60,
-    "skill": "Woodworking",
-    "levelRequired": 5,
-    "xp": 40
-  },
-  {
-    "id": "upgrade_material_sack_t2",
-    "station": "workshop",
-    "result": "Deep Material Sack",
-    "resultType": "item",
-    "materials": {
-      "yew": 10,
-      "hide": 10,
-      "mithril": 2
-    },
-    "gold": 180,
-    "skill": "Woodworking",
-    "levelRequired": 25,
-    "xp": 110
-  },
-  {
     "id": "upgrade_currency_pouch",
     "station": "jeweler",
     "result": "Currency Pouch Lining",

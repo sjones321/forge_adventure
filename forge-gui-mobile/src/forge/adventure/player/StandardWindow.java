@@ -472,6 +472,12 @@ public final class StandardWindow {
             return;
         choicePending = true;
         notifyPlayer("[GOLD]Set mastered: " + setName(newestSet()) + "![]\nOpen the Skills screen to choose your next set.");
+        try {
+            if (forge.adventure.util.Config.ascendant())
+                AdventurePlayer.current().grantMasterySurgePicks();
+        } catch (Exception ignored) {
+            // Player / Config may be unavailable in tests
+        }
     }
 
     private boolean choicePending;
