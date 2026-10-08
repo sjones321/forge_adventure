@@ -60,6 +60,7 @@
   "coopOverworldPort": 36744,
   "coopSkipUPnP": true,
   "coopHandshakeTimeoutSeconds": 30,
+  "coopMaxWorldBlobBytes": 33554432,
   "coopPartyRadiusTiles": 8,
   "coopDuelInviteTimeoutSeconds": 15,
   "screenWidth": 480,

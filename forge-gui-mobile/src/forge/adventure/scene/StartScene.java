@@ -42,9 +42,9 @@ import java.util.regex.Pattern;
  */
 public class StartScene extends UIScene {
     private static StartScene object;
-    Dialog exitDialog, backupDialog, zipDialog, unzipDialog, joinDialog;
+    Dialog exitDialog, backupDialog, zipDialog, unzipDialog, joinDialog, hostingDialog;
     TextraButton saveButton, resumeButton, continueButton, hostButton, joinButton;
-    TextField joinAddressField;
+    TextField joinAddressField, joinCodeField;
     TypingLabel version = Controls.newTypingLabel("{GRADIENT}[%80]v." + Forge.getDeviceAdapter().getVersionString() + "{ENDGRADIENT}");
 
 
@@ -155,7 +155,7 @@ public class StartScene extends UIScene {
 
     /**
      * Ascendant co-op Host (CO1). Requires a loaded world; starts the overworld
-     * listener and shows LAN / Tailscale addresses.
+     * listener and shows a visible Hosting status with session code and Stop.
      */
     public boolean hostCoop() {
         if (!Config.ascendant()) {
@@ -167,31 +167,17 @@ public class StartScene extends UIScene {
                     Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null));
             return true;
         }
+        if (CoopSession.get().getState() == CoopSession.State.HOSTING
+                || CoopSession.get().getState() == CoopSession.State.READY) {
+            showHostingDialog();
+            return true;
+        }
         final boolean skipUPnP = Config.instance().getConfigData().coopSkipUPnP;
         new Thread(() -> {
             try {
+                CoopSession.get().ensureConsoleStatusListener();
                 CoopSession.get().host(skipUPnP);
-                final StringBuilder msg = new StringBuilder();
-                msg.append("Hosting Ascendant co-op.\n");
-                msg.append("Overworld port: ").append(CoopSession.get().getOverworldPort()).append('\n');
-                msg.append("Game port (duels): ").append(CoopSession.get().getGamePort()).append('\n');
-                if (skipUPnP) {
-                    msg.append("UPnP skipped (Tailscale / manual firewall).\n");
-                }
-                msg.append("\nAddresses for your guest:\n");
-                for (final Map.Entry<String, String> e : FServerManager.getAllLocalAddresses().entrySet()) {
-                    msg.append(e.getKey()).append(": ")
-                            .append(e.getValue()).append(':')
-                            .append(CoopSession.get().getOverworldPort()).append('\n');
-                }
-                msg.append("\nGuest brings their own character; your save owns the world.");
-                Gdx.app.postRunnable(() -> showDialog(createGenericDialog("Co-op Host", msg.toString(),
-                        Forge.getLocalizer().getMessage("lblOK"), "Stop",
-                        this::removeDialog,
-                        () -> {
-                            CoopSession.get().disconnect();
-                            removeDialog();
-                        })));
+                Gdx.app.postRunnable(this::showHostingDialog);
             } catch (final Exception e) {
                 Gdx.app.postRunnable(() -> showDialog(createGenericDialog("Co-op",
                         "Failed to host:\n" + e.getMessage(),
@@ -201,7 +187,38 @@ public class StartScene extends UIScene {
         return true;
     }
 
-    /** Ascendant co-op Join (CO1). Address is Tailscale 100.x or LAN host[:port]. */
+    private void showHostingDialog() {
+        final StringBuilder msg = new StringBuilder();
+        msg.append("HOSTING Ascendant co-op\n\n");
+        msg.append("Session code: ").append(CoopSession.get().getSessionCode()).append("\n");
+        msg.append("(guest must enter this code)\n\n");
+        msg.append("Overworld port: ").append(CoopSession.get().getOverworldPort()).append('\n');
+        if (Config.instance().getConfigData().coopSkipUPnP) {
+            msg.append("UPnP skipped (Tailscale / manual firewall).\n");
+        }
+        msg.append("\nAddresses for your guest:\n");
+        for (final Map.Entry<String, String> e : FServerManager.getAllLocalAddresses().entrySet()) {
+            msg.append(e.getKey()).append(": ")
+                    .append(e.getValue()).append(':')
+                    .append(CoopSession.get().getOverworldPort()).append('\n');
+        }
+        msg.append("\nGuest brings their own character; your save owns the world.");
+        if (CoopSession.get().getState() == CoopSession.State.REJECTED
+                && CoopSession.get().getLastError() != null
+                && !CoopSession.get().getLastError().isEmpty()) {
+            msg.append("\n\nLast reject: ").append(CoopSession.get().getLastError());
+        }
+        hostingDialog = createGenericDialog("Hosting", msg.toString(),
+                Forge.getLocalizer().getMessage("lblOK"), "Stop",
+                this::removeDialog,
+                () -> {
+                    CoopSession.get().disconnect();
+                    removeDialog();
+                });
+        showDialog(hostingDialog);
+    }
+
+    /** Ascendant co-op Join (CO1). Address + session code from the host screen. */
     public boolean joinCoop() {
         if (!Config.ascendant()) {
             return true;
@@ -215,31 +232,37 @@ public class StartScene extends UIScene {
         if (joinAddressField == null) {
             joinAddressField = Controls.newTextField("100.");
         }
-        if (joinDialog == null) {
-            joinDialog = createGenericDialog("Co-op Join", null,
-                    Forge.getLocalizer().getMessage("lblOK"),
-                    Forge.getLocalizer().getMessage("lblAbort"),
-                    () -> {
-                        final String address = joinAddressField.getText();
-                        removeDialog();
-                        connectJoin(address);
-                    },
-                    this::removeDialog);
-            joinDialog.getContentTable().add(Controls.newLabel(
-                    "Host address (Tailscale 100.x or LAN).\nDefault port " + CoopPorts.OVERWORLD_PORT)).colspan(2);
-            joinDialog.getContentTable().row();
-            joinDialog.getContentTable().add(joinAddressField).fillX().expandX().colspan(2);
-            joinDialog.getContentTable().row();
+        if (joinCodeField == null) {
+            joinCodeField = Controls.newTextField("");
         }
+        // Rebuild join dialog each time so fields stay current.
+        joinDialog = createGenericDialog("Co-op Join", null,
+                Forge.getLocalizer().getMessage("lblOK"),
+                Forge.getLocalizer().getMessage("lblAbort"),
+                () -> {
+                    final String address = joinAddressField.getText();
+                    final String code = joinCodeField.getText();
+                    removeDialog();
+                    connectJoin(address, code);
+                },
+                this::removeDialog);
+        joinDialog.getContentTable().add(Controls.newLabel(
+                "Host address (Tailscale 100.x or LAN).\nDefault port " + CoopPorts.OVERWORLD_PORT)).colspan(2);
+        joinDialog.getContentTable().row();
+        joinDialog.getContentTable().add(joinAddressField).fillX().expandX().colspan(2);
+        joinDialog.getContentTable().row();
+        joinDialog.getContentTable().add(Controls.newLabel("Session code from host:")).colspan(2);
+        joinDialog.getContentTable().row();
+        joinDialog.getContentTable().add(joinCodeField).fillX().expandX().colspan(2);
+        joinDialog.getContentTable().row();
         showDialog(joinDialog);
         return true;
     }
 
-    private void connectJoin(final String address) {
+    private void connectJoin(final String address, final String sessionCode) {
         if (address == null || address.trim().isEmpty()) {
             return;
         }
-        // Prefer SOptionPane only when the in-scene field is empty (fallback path).
         String target = address.trim();
         if ("100.".equals(target)) {
             final String typed = SOptionPane.showInputDialog(
@@ -250,21 +273,34 @@ public class StartScene extends UIScene {
             }
             target = typed.trim();
         }
+        String code = sessionCode != null ? sessionCode.trim() : "";
+        if (code.isEmpty()) {
+            final String typed = SOptionPane.showInputDialog(
+                    "Enter the session code shown on the host",
+                    "Co-op Join");
+            if (typed == null || typed.trim().isEmpty()) {
+                return;
+            }
+            code = typed.trim();
+        }
         final String joinTarget = target;
+        final String joinCode = code;
         new Thread(() -> {
             try {
-                CoopSession.get().addStatusListener(msg ->
-                        System.out.println("[co-op] " + msg));
-                CoopSession.get().join(joinTarget);
-                Gdx.app.postRunnable(() -> showDialog(createGenericDialog("Co-op Join",
-                        "Connecting to " + joinTarget + "…\nWatch the console for handshake status.\n"
-                                + "On version mismatch the host refuses the connection.",
-                        Forge.getLocalizer().getMessage("lblOK"), "Disconnect",
-                        this::removeDialog,
-                        () -> {
-                            CoopSession.get().disconnect();
-                            removeDialog();
-                        })));
+                CoopSession.get().ensureConsoleStatusListener();
+                CoopSession.get().join(joinTarget, joinCode);
+                Gdx.app.postRunnable(() -> {
+                    final String statusNote = CoopSession.get().getState() == CoopSession.State.REJECTED
+                            ? "Rejected: " + CoopSession.get().getLastError()
+                            : "Connecting to " + joinTarget + "…\nWrong code or version → host refuses.";
+                    showDialog(createGenericDialog("Co-op Join", statusNote,
+                            Forge.getLocalizer().getMessage("lblOK"), "Disconnect",
+                            this::removeDialog,
+                            () -> {
+                                CoopSession.get().disconnect();
+                                removeDialog();
+                            }));
+                });
             } catch (final Exception e) {
                 Gdx.app.postRunnable(() -> showDialog(createGenericDialog("Co-op",
                         "Failed to join:\n" + e.getMessage(),

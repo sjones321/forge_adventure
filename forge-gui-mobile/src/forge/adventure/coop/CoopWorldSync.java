@@ -3,20 +3,21 @@ package forge.adventure.coop;
 import forge.adventure.util.Config;
 import forge.adventure.util.SaveFileData;
 import forge.adventure.world.World;
-import forge.adventure.world.WorldSave;
+import forge.gamemodes.net.FilteredJavaObjectInputStream;
+import forge.gamemodes.net.coop.CoopPorts;
 import forge.gamemodes.net.coop.CoopVersion;
 import forge.gamemodes.net.coop.CoopWorldHash;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 
 /**
  * Guest rebuilds the host world from seed + plane config, verifies a hash, and
- * falls back to receiving the world blob on mismatch. Host remains the owner of
- * the world save going forward (CO2 mutations confirm on the host).
+ * falls back to receiving the world blob on mismatch. Network bytes are always
+ * filtered through {@link FilteredJavaObjectInputStream} / {@link WireClassFilter};
+ * the hash is verified <em>before</em> {@link World#load} runs.
  */
 public final class CoopWorldSync {
     private CoopWorldSync() {
@@ -46,13 +47,12 @@ public final class CoopWorldSync {
     }
 
     /**
-     * Guest path: regenerate from seed into the current WorldSave's world slot
-     * (player character is left alone). Returns the local hash.
+     * Regenerate into a dedicated session {@link World} (does not touch the
+     * guest's saved WorldSave). Returns the local hash.
      */
-    public static String rebuildFromSeed(final long seed) {
-        final World world = WorldSave.getCurrentSave().getWorld();
-        world.generateNew(seed);
-        return hashWorld(world);
+    public static String rebuildFromSeed(final World target, final long seed) {
+        target.generateNew(seed);
+        return hashWorld(target);
     }
 
     public static byte[] serializeWorld(final World world) throws IOException {
@@ -64,10 +64,49 @@ public final class CoopWorldSync {
         return bos.toByteArray();
     }
 
-    public static void applyWorldBytes(final byte[] bytes) throws IOException, ClassNotFoundException {
-        try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(bytes))) {
-            final SaveFileData data = (SaveFileData) ois.readObject();
-            WorldSave.getCurrentSave().getWorld().load(data);
+    /**
+     * Deserialize, verify size + hash against {@code expectedHash}, then load
+     * into {@code target}. Never uses a plain ObjectInputStream.
+     *
+     * @throws IOException if the blob is oversized, hash-mismatched, or filtered out
+     */
+    public static void applyWorldBytesVerified(final World target, final byte[] bytes,
+                                               final String expectedHash) throws IOException, ClassNotFoundException {
+        if (bytes == null) {
+            throw new IOException("Empty world blob");
         }
+        if (bytes.length > CoopPorts.MAX_WORLD_BLOB_BYTES) {
+            throw new IOException("World blob too large (" + bytes.length + " > "
+                    + CoopPorts.MAX_WORLD_BLOB_BYTES + ")");
+        }
+        final SaveFileData data;
+        try (FilteredJavaObjectInputStream ois =
+                     new FilteredJavaObjectInputStream(new ByteArrayInputStream(bytes))) {
+            final Object obj = ois.readObject();
+            if (!(obj instanceof SaveFileData)) {
+                throw new IOException("World blob was not SaveFileData");
+            }
+            data = (SaveFileData) obj;
+        }
+        // Peek maps under the wire filter to hash before mutating target.
+        final World probe = new World();
+        final IOException[] loadError = {null};
+        SaveFileData.runWithWireFilter(() -> {
+            try {
+                probe.load(data);
+            } catch (final RuntimeException e) {
+                loadError[0] = new IOException("Failed to probe-load world blob: " + e.getMessage(), e);
+            }
+        });
+        if (loadError[0] != null) {
+            throw loadError[0];
+        }
+        final String actual = hashWorld(probe);
+        if (!CoopWorldHash.matches(actual, expectedHash)) {
+            throw new IOException("World blob hash mismatch (expected "
+                    + expectedHash + ", got " + actual + ")");
+        }
+        // Hash OK — apply into the session world under the same filter.
+        SaveFileData.runWithWireFilter(() -> target.load(data));
     }
 }

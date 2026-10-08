@@ -244,10 +244,16 @@ public class WorldSave {
     }
 
     public boolean autoSave() {
+        if (forge.adventure.coop.CoopSession.get().blocksLocalWorldSave()) {
+            return false; // Guest co-op: never write host world into local slots.
+        }
         return save("auto save" + SaveLoadScene.instance().getSaveFileSuffix(), AUTO_SAVE_SLOT);
     }
 
     public boolean quickSave() {
+        if (forge.adventure.coop.CoopSession.get().blocksLocalWorldSave()) {
+            return false;
+        }
         return save("quick save" + SaveLoadScene.instance().getSaveFileSuffix(), QUICK_SAVE_SLOT);
     }
 
@@ -256,6 +262,10 @@ public class WorldSave {
     }
 
     public boolean save(String text, int currentSlot) {
+        if (forge.adventure.coop.CoopSession.get().blocksLocalWorldSave()) {
+            System.err.println("Co-op guest: refusing to write WorldSave slot " + currentSlot);
+            return false;
+        }
         header.name = text;
         CollectionExporter.export(currentSave.player); // collection + decks for external deck builders
 

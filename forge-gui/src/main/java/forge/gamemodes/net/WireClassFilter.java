@@ -24,7 +24,7 @@ import java.util.Set;
  * <p>The prefixes below are derived from measured traffic; see the commit
  * message for the derivation and the gadget-library survey behind it.
  */
-final class WireClassFilter implements IHasForgeLog {
+public final class WireClassFilter implements IHasForgeLog {
 
     /** {@code =off} disables enforcement, so a false reject cannot strand a game. */
     private static final String ENFORCE_PROPERTY = "forge.net.classFilter";
@@ -91,7 +91,11 @@ final class WireClassFilter implements IHasForgeLog {
      * @throws InvalidClassException before the class is resolved, so a gadget's
      *         static initialiser and constructor never run
      */
-    static void checkAllowed(final String rawName) throws InvalidClassException {
+    /**
+     * Public so Ascendant co-op can filter nested world-blob deserialization
+     * (and any other off-pipeline ObjectInputStream) with the same allowlist.
+     */
+    public static void checkAllowed(final String rawName) throws InvalidClassException {
         if (isAllowed(rawName)) {
             return;
         }
@@ -105,7 +109,7 @@ final class WireClassFilter implements IHasForgeLog {
         throw new InvalidClassException(rawName, "not permitted by the multiplayer class filter");
     }
 
-    static boolean isAllowed(final String rawName) {
+    public static boolean isAllowed(final String rawName) {
         if (rawName == null || rawName.isEmpty()) {
             return false;
         }

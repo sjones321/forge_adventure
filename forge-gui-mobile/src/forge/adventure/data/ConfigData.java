@@ -223,7 +223,7 @@ public class ConfigData {
 
     // ---- Ascendant co-op (Package CO1): session / connection. ----
 
-    /** Forge duel / lobby port (existing). Reserved for CO3 co-op duels. */
+    /** Forge duel / lobby port (existing). Reserved for CO3; unused in CO1. */
     public int coopGamePort = 36743;
     /** Ascendant co-op overworld session port (handshake, world sync, CO2). */
     public int coopOverworldPort = 36744;
@@ -234,6 +234,8 @@ public class ConfigData {
     public boolean coopSkipUPnP = true;
     /** Seconds the guest waits for a host hello reply before giving up. */
     public int coopHandshakeTimeoutSeconds = 30;
+    /** Max world-blob bytes accepted from the host (must match CoopPorts.MAX_WORLD_BLOB_BYTES). */
+    public int coopMaxWorldBlobBytes = 33554432;
     /** Party / duel-invite radius in overworld tiles (CO2/CO3; stored early for tunables). */
     public float coopPartyRadiusTiles = 8f;
     /** "Join the fight?" prompt timeout in seconds (CO3). */

@@ -15,6 +15,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.serialization.ClassResolvers;
+import io.netty.util.concurrent.Future;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -26,8 +27,8 @@ public final class CoopOverworldClient implements IHasForgeLog {
     private final String hostname;
     private final int port;
     private final CoopMessageListener listener;
-    private EventLoopGroup group;
-    private Channel channel;
+    private volatile EventLoopGroup group;
+    private volatile Channel channel;
     private final CountDownLatch connectLatch = new CountDownLatch(1);
     private volatile boolean connected;
     private volatile Throwable connectError;
@@ -64,25 +65,38 @@ public final class CoopOverworldClient implements IHasForgeLog {
     }
 
     public void send(final NetEvent event) {
-        if (channel != null && channel.isActive()) {
-            channel.writeAndFlush(event);
+        final Channel ch = channel;
+        if (ch != null && ch.isActive()) {
+            ch.writeAndFlush(event);
         }
     }
 
     public void disconnect() {
-        if (channel != null) {
-            channel.close();
-            channel = null;
-        }
-        if (group != null) {
-            group.shutdownGracefully();
-            group = null;
-        }
         connected = false;
+        final Channel ch = channel;
+        channel = null;
+        if (ch != null) {
+            ch.close();
+        }
+        final EventLoopGroup g = group;
+        group = null;
+        if (g != null) {
+            final Thread t = new Thread(() -> {
+                try {
+                    final Future<?> f = g.shutdownGracefully(0, 2, TimeUnit.SECONDS);
+                    f.awaitUninterruptibly(3, TimeUnit.SECONDS);
+                } catch (final Exception e) {
+                    netLog.debug("Co-op client shutdown: {}", e.toString());
+                }
+            }, "coop-overworld-client-shutdown");
+            t.setDaemon(true);
+            t.start();
+        }
     }
 
     public boolean isConnected() {
-        return connected && channel != null && channel.isActive();
+        final Channel ch = channel;
+        return connected && ch != null && ch.isActive();
     }
 
     private final class ClientHandler extends SimpleChannelInboundHandler<NetEvent> {

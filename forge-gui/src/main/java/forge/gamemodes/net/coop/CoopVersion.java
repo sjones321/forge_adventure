@@ -5,7 +5,11 @@ import forge.util.BuildInfo;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.Date;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -64,10 +68,8 @@ public final class CoopVersion {
     }
 
     /**
-     * Default card-data fingerprint. Prefers a live StaticData digest when the
-     * card DB is loaded; otherwise returns a stable placeholder so headless
-     * protocol tests can still exchange matching hashes via
-     * {@link #setCardDataHashSupplier}.
+     * Fingerprint every loaded card by name + edition + art index + oracle/script
+     * text so a script change or missing set diverges. Sorted for stability.
      */
     private static String defaultCardDataHash() {
         try {
@@ -77,23 +79,55 @@ public final class CoopVersion {
                 return sha256Hex("card-data:unavailable");
             }
             final Object common = staticData.getMethod("getCommonCards").invoke(instance);
-            final Object all = common.getClass().getMethod("getAllCards").invoke(common);
-            final int size = ((java.util.Collection<?>) all).size();
-            // Sample first/last names for a cheap but discriminating fingerprint.
-            String first = "";
-            String last = "";
-            int i = 0;
-            for (final Object card : (java.util.Collection<?>) all) {
-                final String name = String.valueOf(card.getClass().getMethod("getName").invoke(card));
-                if (i == 0) {
-                    first = name;
+            final Collection<?> all = (Collection<?>) common.getClass().getMethod("getAllCards").invoke(common);
+            final List<Object> cards = new ArrayList<>(all);
+            cards.sort(Comparator.comparing((Object c) -> safeInvoke(c, "getName"))
+                    .thenComparing(c -> safeInvoke(c, "getEdition"))
+                    .thenComparingInt(c -> {
+                        try {
+                            return (Integer) c.getClass().getMethod("getArtIndex").invoke(c);
+                        } catch (final ReflectiveOperationException e) {
+                            return 0;
+                        }
+                    }));
+            final MessageDigest md = MessageDigest.getInstance("SHA-256");
+            md.update("cards-v2".getBytes(StandardCharsets.UTF_8));
+            for (final Object card : cards) {
+                final String name = safeInvoke(card, "getName");
+                final String edition = safeInvoke(card, "getEdition");
+                String script = "";
+                try {
+                    final Object rules = card.getClass().getMethod("getRules").invoke(card);
+                    if (rules != null) {
+                        final Object oracle = rules.getClass().getMethod("getOracleText").invoke(rules);
+                        script = oracle != null ? oracle.toString() : "";
+                    }
+                } catch (final ReflectiveOperationException ignored) {
                 }
-                last = name;
-                i++;
+                md.update(name.getBytes(StandardCharsets.UTF_8));
+                md.update((byte) 0);
+                md.update(edition.getBytes(StandardCharsets.UTF_8));
+                md.update((byte) 0);
+                md.update(script.getBytes(StandardCharsets.UTF_8));
+                md.update((byte) 0);
             }
-            return sha256Hex("cards|" + size + '|' + first + '|' + last);
-        } catch (final ReflectiveOperationException | ClassCastException e) {
+            final byte[] dig = md.digest();
+            final StringBuilder sb = new StringBuilder(dig.length * 2);
+            for (final byte b : dig) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (final ReflectiveOperationException | ClassCastException | NoSuchAlgorithmException e) {
             return sha256Hex("card-data:unavailable");
+        }
+    }
+
+    private static String safeInvoke(final Object target, final String method) {
+        try {
+            final Object v = target.getClass().getMethod(method).invoke(target);
+            return v != null ? v.toString() : "";
+        } catch (final ReflectiveOperationException e) {
+            return "";
         }
     }
 
@@ -111,7 +145,6 @@ public final class CoopVersion {
             }
             return sb.toString();
         } catch (final NoSuchAlgorithmException e) {
-            // SHA-256 is required on every JDK Forge supports.
             throw new IllegalStateException(e);
         }
     }

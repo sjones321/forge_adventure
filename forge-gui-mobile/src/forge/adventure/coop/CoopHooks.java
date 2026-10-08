@@ -84,7 +84,15 @@ public final class CoopHooks {
         return CoopSession.get().getRole() == CoopSessionRole.HOST;
     }
 
-    /** Game-port handle reserved for CO3 — started by the host when a session opens. */
+    /**
+     * World the session should render/simulate. Guests use a dedicated session
+     * world so the host map never overwrites their local WorldSave.
+     */
+    public static forge.adventure.world.World activeWorld() {
+        return CoopSession.get().getActiveWorld();
+    }
+
+    /** Game-port handle reserved for CO3 — not started in CO1. */
     public static int getGamePort() {
         return CoopSession.get().getGamePort();
     }

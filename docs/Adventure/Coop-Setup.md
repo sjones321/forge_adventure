@@ -3,63 +3,87 @@
 Direct, no servers. One player **hosts**; the other **joins** over LAN or Tailscale.
 Ascendant only — stock Forge / non-Ascendant Adventure worlds do not show Host / Join.
 
-## Ports
+## Port
 
 | Port  | Role |
 |------:|------|
-| **36743** | Existing Forge game / duel lobby port. Reserved for CO3 co-op duels. |
-| **36744** | New Ascendant overworld session port (handshake, world sync, CO2). |
+| **36744** | Ascendant co-op overworld session (handshake, world sync, CO2). |
 
-Tunable in the Ascendant `config.json` as `coopGamePort` / `coopOverworldPort`.
+Tunable in the Ascendant `config.json` as `coopOverworldPort`.
+
+> The existing Forge duel port **36743** is reserved for co-op duels in **CO3** and is not used or required for CO1.
 
 ## Host
 
 1. Play **Shandalar Ascendant**, Load or Continue a save (the host's save owns the world).
 2. From the Adventure main menu, tap **Host**.
-3. Share one of the listed addresses with your guest (LAN IP or Tailscale `100.x`).
-4. Default hosting **skips UPnP** (`coopSkipUPnP: true`). Use Tailscale, or open the ports manually.
+3. Note the **session code** on the Hosting screen — the guest must type it.
+4. Share one of the listed addresses (LAN IP or Tailscale `100.x`) plus that session code.
+5. Use **Stop** on the Hosting dialog to end the session and shut down the overworld listener.
+6. Default hosting **skips UPnP** (`coopSkipUPnP: true`). Prefer Tailscale, or open the port manually.
 
 ## Join
 
 1. Load or Continue **your** character on the guest PC (collection, decks, skills stay local).
-2. Tap **Join** and enter the host address:
-   - Tailscale: `100.x.y.z` (port defaults to 36744)
-   - LAN: `192.168.x.x` or `192.168.x.x:36744`
-3. On success the guest rebuilds the world from the host's seed and plane config, verifies a hash, and falls back to receiving the world blob if the hash differs.
+2. Tap **Join** and enter:
+   - Host address: Tailscale `100.x.y.z` or LAN IP (port defaults to 36744)
+   - **Session code** from the host screen
+3. On success the guest rebuilds the world from the host's seed into a **separate session world** (your normal save slots are never overwritten), verifies a hash, and only then may request a filtered world blob if the hash differs.
+4. On disconnect your normal save is restored; your character file under `characters/` is updated.
 
 ## Windows firewall
 
-On the **host** PC, allow inbound TCP for Forge on both ports (Private networks is enough for LAN/Tailscale):
+Run these in an **Administrator** PowerShell on the **host** PC.
 
-```text
-New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Game" -Direction Inbound -Protocol TCP -LocalPort 36743 -Action Allow -Profile Private
-New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Overworld" -Direction Inbound -Protocol TCP -LocalPort 36744 -Action Allow -Profile Private
+Scope rules to the Java/Forge program and to Tailscale or the local subnet — do not open 36744 to the whole Internet.
+
+**Tailscale** (recommended):
+
+```powershell
+# Run as Administrator
+New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Overworld (Tailscale)" `
+  -Direction Inbound -Protocol TCP -LocalPort 36744 -Action Allow -Profile Private `
+  -RemoteAddress 100.64.0.0/10 `
+  -Program "C:\Path\To\java.exe"
 ```
 
-Or: Windows Security → Firewall → Advanced settings → Inbound Rules → New Rule → Port → TCP 36743,36744 → Allow.
+Replace the `-Program` path with the `java.exe` (or Forge launcher) you actually run.
+
+**LAN (local subnet only):**
+
+```powershell
+# Run as Administrator
+New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Overworld (LAN)" `
+  -Direction Inbound -Protocol TCP -LocalPort 36744 -Action Allow -Profile Private `
+  -RemoteAddress LocalSubnet `
+  -Program "C:\Path\To\java.exe"
+```
+
+Also confirm the **Tailscale adapter's network profile is Private** (Windows Settings → Network & Internet → the Tailscale connection → Private). A Public profile can still block inbound rules even when the rule exists.
 
 ## Tailscale vs LAN / UPnP
 
-- **Tailscale** (`100.64.0.0/10`, treated as any `100.x` IPv4): both PCs on the same Tailnet; **do not use UPnP**. Join with the host's Tailscale IP.
-- **LAN**: same subnet; open the firewall ports above. UPnP is skipped by default for co-op; enable only if you add a UPnP helper later.
-- **WAN without Tailscale**: not recommended for CO1; forward both ports manually if you must.
+- **Tailscale** (`100.64.0.0/10`, treated as any `100.x` IPv4): both PCs on the same Tailnet; **do not use UPnP**. Join with the host's Tailscale IP and session code.
+- **LAN**: same subnet; use the LocalSubnet firewall rule above. UPnP is skipped by default for co-op.
+- **WAN without Tailscale**: not supported for CO1.
 
-## Version mismatch
+## Version / session mismatch
 
 Co-op uses a **hard** check (classic online only warns):
 
+- Matching **session code**
 - Same Forge **build hash** (version + build timestamp)
-- Same loaded **card data hash**
+- Same loaded **card data hash** (every card name + oracle/script text)
 
-If either differs, the host sends `CoopHelloRejectEvent` and the guest disconnects. Update both installs (or regenerate card data) so they match, then try again.
+If any differ, the host rejects and closes the guest channel. The Hosting screen stays up so you can try again. Update both installs so build and card data match, then retry with the current session code.
 
 ## Character vs world
 
 | | Host | Guest |
 |---|---|---|
-| World (map, enemies, POIs, nodes) | Owns / saves | Rebuilds from seed or receives blob; host remains authority |
-| Character (collection, decks, skills, materials, items) | Local | Local — saved under `adventure/<plane>/characters/` when the session ends |
+| World (map, enemies, POIs, nodes) | Owns / saves | Held in a co-op **session world** only; normal save slots untouched |
+| Character (collection, decks, skills, materials, items) | Local | Local — loaded from / saved to `adventure/<plane>/characters/` |
 
 ## CO2 / CO3
 
-CO1 is session and connection only. See `CoopHooks` and `docs/Adventure/Ascendant-Roadmap.md` packages CO2–CO3 for shared overworld and co-op duels.
+CO1 is session and connection only. See `CoopHooks` and `docs/Adventure/Ascendant-Roadmap.md` packages CO2–CO3 for shared overworld and co-op duels (including port 36743).

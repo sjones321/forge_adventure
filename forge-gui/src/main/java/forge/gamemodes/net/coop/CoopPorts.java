@@ -12,7 +12,16 @@ public final class CoopPorts {
     public static final int OVERWORLD_PORT = 36744;
 
     /** Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change. */
-    public static final int PROTOCOL_VERSION = 1;
+    public static final int PROTOCOL_VERSION = 2;
+
+    /**
+     * Hard cap on {@code CoopWorldDataEvent} payload size (bytes). Worlds that
+     * exceed this are refused before any deserialization.
+     */
+    public static final int MAX_WORLD_BLOB_BYTES = 32 * 1024 * 1024;
+
+    /** Length of the short session code shown by the host. */
+    public static final int SESSION_CODE_LENGTH = 6;
 
     private CoopPorts() {
     }
