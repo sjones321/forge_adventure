@@ -17,6 +17,8 @@ public class ResourceNodeSprite extends CharacterSprite {
 
     private MaterialData material;
     private float channelProgress = -1f; // <0 = not channeling this node
+    private float shakeTimer = 0f;
+    private static final float SHAKE_TIME = 0.18f;
 
     public ResourceNodeSprite(MaterialData material) {
         super(DEFAULT_ATLAS);
@@ -43,6 +45,18 @@ public class ResourceNodeSprite extends CharacterSprite {
 
     public void clearChannelProgress() {
         channelProgress = -1f;
+    }
+
+    /** A gathering hit: shake the node briefly. */
+    public void hit() {
+        shakeTimer = SHAKE_TIME;
+    }
+
+    @Override
+    public void act(float delta) {
+        super.act(delta);
+        if (shakeTimer > 0f)
+            shakeTimer = Math.max(0f, shakeTimer - delta);
     }
 
     public static Color tintForFamily(String family) {
@@ -80,7 +94,14 @@ public class ResourceNodeSprite extends CharacterSprite {
 
     @Override
     public void draw(Batch batch, float parentAlpha) {
+        // Side-to-side shake that dies out over SHAKE_TIME; only shifts the drawing, not the collision box.
+        float shake = shakeTimer > 0f
+                ? com.badlogic.gdx.math.MathUtils.sin(shakeTimer * 90f) * 1.5f * (shakeTimer / SHAKE_TIME) : 0f;
+        if (shake != 0f)
+            setX(getX() + shake);
         super.draw(batch, parentAlpha);
+        if (shake != 0f)
+            setX(getX() - shake);
         if (channelProgress < 0f)
             return;
         Texture px = pixel();

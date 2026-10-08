@@ -358,8 +358,16 @@ public class WorldStage extends GameStage implements SaveFileContent {
             return;
         }
         StringBuilder msg = new StringBuilder();
+        floatMaterial = null;
+        floatAmount = 0;
         grantGatherRewards(mat, ap, msg, true);
         GameHUD.getInstance().addNotification(msg.toString());
+        // The node is already gone on the guest's screen, so the text rises from the player.
+        if (floatMaterial != null && floatAmount > 0)
+            floatGatherText(player, "+" + floatAmount + " " + floatMaterial.getDisplayName()
+                    + " (" + ap.getMaterial(floatMaterial.id) + ")");
+        floatMaterial = null;
+        floatAmount = 0;
     }
 
     /** Host READY snapshot: register any already-spawned enemies/nodes. */
@@ -737,6 +745,78 @@ public class WorldStage extends GameStage implements SaveFileContent {
         channelNode = node;
         player.stop();
         node.setChannelProgress(0f);
+        // Hits land evenly through the channel (~every 0.45s), the first one right away.
+        int hits = Math.max(2, Math.round(channelDuration / 0.45f));
+        gatherHitInterval = channelDuration / hits;
+        nextGatherHitAt = 0.08f;
+    }
+
+    private float gatherHitInterval = 0.45f;
+    private MaterialData floatMaterial;
+    private int floatAmount;
+    private float nextGatherHitAt = 0f;
+
+    /** Feedback for one gathering hit: node shake, spark puff, a swing and a family-specific sound. */
+    private void gatherHit(ResourceNodeSprite node) {
+        node.hit();
+        node.playEffect(Paths.EFFECT_SPARKS, 0.12f);
+        player.setAnimation(CharacterSprite.AnimationTypes.Attack);
+        float swing = player.getActionAnimationDuration(CharacterSprite.AnimationTypes.Attack, 0.25f);
+        Timer.schedule(new Timer.Task() {
+            @Override
+            public void run() {
+                if (!player.isMoving())
+                    player.setAnimation(CharacterSprite.AnimationTypes.Idle);
+            }
+        }, Math.min(swing, gatherHitInterval * 0.9f));
+        playGatherHitSound(node.getMaterial());
+    }
+
+    /** Kenney CC0 sounds in res/adventure/common/sound: {set name, number of variants} per material family. */
+    private static String[] gatherSoundSet(MaterialData mat) {
+        String family = mat != null && mat.family != null ? mat.family.toLowerCase(Locale.ROOT) : "";
+        switch (family) {
+            case "logs":
+                return new String[]{"gather_wood", "5", "gather_break_wood"};
+            case "plants":
+                return new String[]{"gather_plant", "2", "gather_pickup"};
+            case "dead":
+            case "herbs":
+                return new String[]{"gather_bone", "3", "gather_pickup"};
+            case "waters":
+            case "crystal":
+                return new String[]{"gather_water", "3", "gather_pickup"};
+            case "scrap":
+                return new String[]{"gather_metal", "3", "gather_break_rock"};
+            default: // ore, ash, sacred stone
+                return new String[]{"gather_mine", "5", "gather_break_rock"};
+        }
+    }
+
+    private static void playGatherHitSound(MaterialData mat) {
+        String[] set = gatherSoundSet(mat);
+        int variant = com.badlogic.gdx.math.MathUtils.random(Integer.parseInt(set[1]) - 1);
+        SoundSystem.instance.play(set[0] + "_" + variant, false);
+    }
+
+    private static void playGatherFinishSound(MaterialData mat) {
+        SoundSystem.instance.play(gatherSoundSet(mat)[2], false);
+    }
+
+    /** Floating "+2 Oak" text that rises from a gathered node and fades out. */
+    private void floatGatherText(com.badlogic.gdx.scenes.scene2d.Actor node, String text) {
+        if (text == null || text.isEmpty())
+            return;
+        com.github.tommyettinger.textra.TextraLabel label =
+                forge.adventure.util.Controls.newTextraLabel("[%60]" + text);
+        label.setPosition(node.getX() + node.getWidth() / 2f - label.getPrefWidth() / 2f,
+                node.getY() + node.getHeight() + 4f);
+        foregroundSprites.addActor(label);
+        label.addAction(com.badlogic.gdx.scenes.scene2d.actions.Actions.sequence(
+                com.badlogic.gdx.scenes.scene2d.actions.Actions.parallel(
+                        com.badlogic.gdx.scenes.scene2d.actions.Actions.moveBy(0f, 18f, 1.2f),
+                        com.badlogic.gdx.scenes.scene2d.actions.Actions.fadeOut(1.2f)),
+                com.badlogic.gdx.scenes.scene2d.actions.Actions.removeActor()));
     }
 
     /** Channel duration multiplier from Mining/Quarrying methods and faster_channel enchants. */
@@ -771,6 +851,10 @@ public class WorldStage extends GameStage implements SaveFileContent {
             return;
         }
         channelElapsed += delta;
+        if (channelElapsed >= nextGatherHitAt && channelElapsed < channelDuration) {
+            gatherHit(channelNode);
+            nextGatherHitAt += gatherHitInterval;
+        }
         channelNode.setChannelProgress(channelElapsed / channelDuration);
         if (channelElapsed >= channelDuration)
             completeGatherChannel();
@@ -816,6 +900,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
         AdventurePlayer ap = Current.player();
         StringBuilder msg = new StringBuilder();
+        floatMaterial = null;
+        floatAmount = 0;
         grantGatherRewards(mat, ap, msg, true);
 
         // B2: multi-node methods (adjacent trees / blast vein / lumber crew).
@@ -851,6 +937,13 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
         GameHUD.getInstance().addNotification(msg.toString());
         node.playEffect(Paths.EFFECT_KILL);
+        playGatherFinishSound(mat);
+        // "+2 Oak (54)": this haul, then the total now in the inventory.
+        if (floatMaterial != null && floatAmount > 0)
+            floatGatherText(node, "+" + floatAmount + " " + floatMaterial.getDisplayName()
+                    + " (" + ap.getMaterial(floatMaterial.id) + ")");
+        floatMaterial = null;
+        floatAmount = 0;
         removeNode(node);
     }
 
@@ -972,6 +1065,13 @@ public class WorldStage extends GameStage implements SaveFileContent {
         } else {
             ap.addMaterial(grantMat.id, amount);
             msg.append("Gathered ").append(amount).append("× ").append(grantMat.getDisplayName());
+            // Floating text: the main material plus any extra nodes of the same material.
+            if (primary) {
+                floatMaterial = grantMat;
+                floatAmount = amount;
+            } else if (floatMaterial != null && floatMaterial.id.equals(grantMat.id)) {
+                floatAmount += amount;
+            }
         }
         int xp = Math.max(0, mat.xp) * amount;
         ap.getSkills().onMaterialGathered(skill, xp);
