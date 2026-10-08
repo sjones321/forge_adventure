@@ -33,11 +33,11 @@ of the game.
 - You are a **Deathwatch Initiate**. By most standards, Initiates in their million years of training already count
   as ultra-elite. Once fully **blooded and tattooed**, an Initiate is **bonded with their Watcher** and sent on
   missions; missions are the training.
-- Each Initiate has their own **Watcher**, named by the player. Narratively the Watcher is a spy, advisor and
+- Each Initiate has their own **Watcher**, named by the player (with a default name offered, so naming is optional). Narratively the Watcher is a spy, advisor and
   scout: it scouts ahead, gathers intelligence and advises. (Game use: the guide and intel voice, scouting reports,
   hints on where to investigate.)
-- A **Supervisor** oversees a set number of Initiates. In co-op, both players are Initiates under the same
-  Supervisor.
+- A **Supervisor** oversees a set number of Initiates. Also nameable by the player, with a default name offered. In co-op, both players share one Supervisor (the host's name for the
+  Supervisor is used).
 - **The mission**: activity of the Nothing has been detected in the Magic multiverse. You are sent in to find its
   source. You don't know which plane it's on. You must grow strong enough, and investigate enough planes, to find
   the Fallen behind it and wreck their plans.
@@ -89,4 +89,4 @@ of the game.
 
 ## Open questions
 
-- The Supervisor's name and personality.
+- The Supervisor's personality and the default names for the Watcher and Supervisor.
