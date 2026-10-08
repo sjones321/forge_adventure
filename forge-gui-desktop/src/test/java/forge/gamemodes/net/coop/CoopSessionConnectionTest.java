@@ -317,10 +317,12 @@ public class CoopSessionConnectionTest {
 
         for (int i = 0; i < CoopPorts.SESSION_CODE_MAX_FAILURES; i++) {
             final CountDownLatch rejected = new CountDownLatch(1);
+            final AtomicReference<CoopOverworldClient> holder = new AtomicReference<>();
+            final String badCode = "WRONGCD" + i;
             final CoopOverworldClient c = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
                 @Override
                 public void onConnected() {
-                    c.send(hello("WRONGCD" + i));
+                    holder.get().send(hello(badCode));
                 }
 
                 @Override
@@ -338,6 +340,7 @@ public class CoopSessionConnectionTest {
                 public void onError(final String message, final Throwable cause) {
                 }
             });
+            holder.set(c);
             c.connect();
             Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "attempt " + i + " not rejected");
             c.disconnect();
