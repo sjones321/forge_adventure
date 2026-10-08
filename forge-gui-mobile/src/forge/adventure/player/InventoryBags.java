@@ -588,6 +588,19 @@ public class InventoryBags implements Serializable {
     public GrantResult placeInOverflow(OverflowEntry entry) {
         if (entry == null)
             return GrantResult.accepted();
+        // Merge identical material / currency stacks into one Overflow slot.
+        if (entry.kind == OverflowEntry.Kind.MATERIAL || entry.kind == OverflowEntry.Kind.CURRENCY) {
+            for (OverflowEntry existing : overflow) {
+                if (existing != null && existing.kind == entry.kind
+                        && Objects.equals(existing.key, entry.key)) {
+                    existing.amount += Math.max(1, entry.amount);
+                    overflowChanged();
+                    GrantResult r = GrantResult.overflow();
+                    setMsg(r.message);
+                    return r;
+                }
+            }
+        }
         if (overflow.size() < getOverflowCap()) {
             overflow.add(entry);
             overflowChanged();
@@ -630,14 +643,32 @@ public class InventoryBags implements Serializable {
         overflowChanged();
     }
 
-    /** Restore Overflow from a save without auto-sell (cap may be raised afterward). */
+    /**
+     * Restore Overflow from a save without auto-sell (cap may be raised afterward).
+     * Same-material / same-currency entries are merged so old saves don't keep duplicate slots.
+     */
     public void loadOverflowEntries(OverflowEntry[] entries) {
         overflow.clear();
         if (entries == null)
             return;
         for (OverflowEntry e : entries) {
-            if (e != null)
+            if (e == null)
+                continue;
+            if (e.kind == OverflowEntry.Kind.MATERIAL || e.kind == OverflowEntry.Kind.CURRENCY) {
+                boolean merged = false;
+                for (OverflowEntry existing : overflow) {
+                    if (existing != null && existing.kind == e.kind
+                            && Objects.equals(existing.key, e.key)) {
+                        existing.amount += Math.max(1, e.amount);
+                        merged = true;
+                        break;
+                    }
+                }
+                if (!merged)
+                    overflow.add(e);
+            } else {
                 overflow.add(e);
+            }
         }
     }
 

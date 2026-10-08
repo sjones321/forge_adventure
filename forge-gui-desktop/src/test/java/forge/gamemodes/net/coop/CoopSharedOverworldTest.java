@@ -597,6 +597,52 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
+    public void joinFightQueuesBehindPartyAndPreservesOrder() {
+        final CoopInviteUiState ui = new CoopInviteUiState();
+        final CoopInviteUiState.Prompt party = ui.enqueue(
+                CoopInviteUiState.PromptKind.PARTY, 1L, "Host", "");
+        Assert.assertNotNull(party);
+        Assert.assertEquals(ui.getKind(), CoopInviteUiState.PromptKind.PARTY);
+        Assert.assertEquals(ui.queueSize(), 0);
+
+        // Second invite queues (does not replace).
+        final CoopInviteUiState.Prompt join = ui.enqueue(
+                CoopInviteUiState.PromptKind.JOIN_FIGHT, 2L, "Host", "goblin");
+        Assert.assertNull(join);
+        Assert.assertEquals(ui.queueSize(), 1);
+        Assert.assertEquals(ui.getKind(), CoopInviteUiState.PromptKind.PARTY);
+
+        // Force-queue while HUD busy (exit-dungeon) — never activates while busy.
+        final CoopInviteUiState.Prompt busyJoin = ui.enqueue(
+                CoopInviteUiState.PromptKind.JOIN_FIGHT, 3L, "Host", "wolf", true);
+        Assert.assertNull(busyJoin);
+        Assert.assertEquals(ui.queueSize(), 2);
+        Assert.assertEquals(ui.getKind(), CoopInviteUiState.PromptKind.PARTY);
+
+        final CoopInviteUiState.Prompt next = ui.hideAndPollNext();
+        Assert.assertNotNull(next);
+        Assert.assertEquals(next.kind, CoopInviteUiState.PromptKind.JOIN_FIGHT);
+        Assert.assertEquals(next.inviteId, 2L);
+        Assert.assertEquals(next.detail, "goblin");
+        Assert.assertEquals(ui.queueSize(), 1);
+
+        final CoopInviteUiState.Prompt next2 = ui.hideAndPollNext();
+        Assert.assertEquals(next2.inviteId, 3L);
+        Assert.assertEquals(next2.detail, "wolf");
+        Assert.assertEquals(ui.queueSize(), 0);
+
+        // Force-queue alone (HUD busy, nothing active) still queues without activating.
+        final CoopInviteUiState empty = new CoopInviteUiState();
+        Assert.assertNull(empty.enqueue(
+                CoopInviteUiState.PromptKind.JOIN_FIGHT, 9L, "Host", "bat", true));
+        Assert.assertFalse(empty.isDialogVisible());
+        Assert.assertEquals(empty.queueSize(), 1);
+        final CoopInviteUiState.Prompt afterBusy = empty.hideAndPollNext();
+        Assert.assertEquals(afterBusy.inviteId, 9L);
+        Assert.assertEquals(afterBusy.kind, CoopInviteUiState.PromptKind.JOIN_FIGHT);
+    }
+
+    @Test
     public void multiplePendingGatherRequestsMatchedById() {
         final CoopPendingGatherQueue queue = new CoopPendingGatherQueue();
         queue.add(1L, 10L, "oak");

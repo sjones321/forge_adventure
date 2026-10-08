@@ -22,6 +22,11 @@ license. **Add an entry here whenever a new asset, library or data source is add
 - **Kenney — Tiny Town, Tiny Battle, Tiny Dungeon** (16px tilesets in
   `forge-gui/res/adventure/common/maps/tileset/kenney_*.png`) — Kenney Vleugels, <https://kenney.nl>. CC0 1.0;
   credited with thanks.
+- **Kenney Tiny Town tool icons** (local tiles 115 pickaxe, 127 axe, 128 hammer/chisel, 129 sickle,
+  130/131 buckets for probe) copied into `forge-gui/res/adventure/common/sprites/items.png` /
+  `items.atlas` as `ToolPickaxe`, `ToolAxe`, `ToolHammer`, `ToolSickle`, `ToolBucket`,
+  `ToolBucketFull`. Same CC0 1.0 source as above. Dust currency icons (`DustCommon` /
+  `DustUncommon` / `DustRare` / `DustMythic`) are tinted variants of the existing Mana sprite.
 
 ## Art (downloaded, not yet in the game)
 

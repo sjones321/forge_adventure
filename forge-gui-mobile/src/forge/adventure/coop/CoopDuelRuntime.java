@@ -471,16 +471,27 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         final String enc = event.getEncounterId() != null ? event.getEncounterId() : "";
         // Queue with party/location invites; never replace exit-dungeon.
         try {
+            // Force-queue while HUD is busy (exit-dungeon or another invite) so we do not
+            // activate JOIN_FIGHT in the model while the HUD cannot show it — that would
+            // drop the invite on the next hideAndPollNext().
+            boolean hudBusy = false;
+            try {
+                final GameHUD hud = GameHUD.getInstance();
+                hudBusy = hud != null && hud.isDialogOnlyInput();
+            } catch (final Exception ignored) {
+                // HUD unavailable in tests
+            }
             final forge.gamemodes.net.coop.CoopInviteUiState.Prompt activated =
                     CoopOverworldRuntime.get().getInviteUi().enqueue(
                             forge.gamemodes.net.coop.CoopInviteUiState.PromptKind.JOIN_FIGHT,
-                            event.getInviteId(), from, enc);
+                            event.getInviteId(), from, enc, hudBusy);
             if (activated == null) {
                 // Queued — GameHUD will show when the current dialog closes.
                 return;
             }
-            GameHUD.getInstance().showCoopJoinFightDialog(from, enc,
-                    this::acceptInvite, this::declineInvite);
+            // Accept/Decline bind to CoopDuelRuntime (same pattern as party), not HUD Runnables,
+            // so a later dequeued prompt still works.
+            GameHUD.getInstance().showCoopJoinFightDialog(from, enc);
             return;
         } catch (final Exception ignored) {
         }
@@ -493,11 +504,21 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 loc != null ? loc.getMessage("lblNo") : "No",
                 false, result -> {
                     if (Boolean.TRUE.equals(result)) {
-                        acceptInvite();
+                        acceptInviteFromUi();
                     } else {
-                        declineInvite();
+                        declineInviteFromUi();
                     }
                 });
+    }
+
+    /** HUD Accept for join-fight (including after dequeue). Hook signature stable. */
+    public void acceptInviteFromUi() {
+        acceptInvite();
+    }
+
+    /** HUD Decline for join-fight (including after dequeue). Hook signature stable. */
+    public void declineInviteFromUi() {
+        declineInvite();
     }
 
     private void acceptInvite() {
@@ -507,6 +528,10 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             return;
         }
         cancelInviteTimeout();
+        try {
+            CoopOverworldRuntime.get().getInviteUi().removeJoinFight(resp.getInviteId());
+        } catch (final Exception ignored) {
+        }
         CoopSession.get().send(resp);
         // Loadout is sent only after CoopDuelStartEvent assigns the duel id (no race with grace).
         notifyHud("Joining the fight…");
@@ -515,6 +540,13 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private void declineInvite() {
         final CoopDuelResponseEvent resp = inviteState.respond(false, "");
         cancelInviteTimeout();
+        final long inviteId = resp != null ? resp.getInviteId() : 0L;
+        if (inviteId > 0L) {
+            try {
+                CoopOverworldRuntime.get().getInviteUi().removeJoinFight(inviteId);
+            } catch (final Exception ignored) {
+            }
+        }
         if (resp != null) {
             CoopSession.get().send(resp);
         }
@@ -532,6 +564,11 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         inviteTimeoutFuture = exec.schedule(() -> {
             if (inviteState.timeout(inviteId)) {
                 postGl(() -> {
+                    try {
+                        CoopOverworldRuntime.get().getInviteUi().removeJoinFight(inviteId);
+                        GameHUD.getInstance().hideCoopInviteDialog();
+                    } catch (final Exception ignored) {
+                    }
                     if (inviteState.getStatus() == CoopDuelInviteState.Status.SOLO
                             || inviteState.getStatus() == CoopDuelInviteState.Status.WAITING_RESPONSE
                             || inviteState.getStatus() == CoopDuelInviteState.Status.PROMPT_OPEN) {

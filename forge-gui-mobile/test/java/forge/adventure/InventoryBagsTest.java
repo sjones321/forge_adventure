@@ -166,6 +166,31 @@ public class InventoryBagsTest {
     }
 
     @Test
+    public void overflowMergesSameMaterialStacks() {
+        Assert.assertTrue(bags.placeInOverflow(OverflowEntry.ofMaterial("oak", 3)).wentToOverflow());
+        Assert.assertTrue(bags.placeInOverflow(OverflowEntry.ofMaterial("oak", 5)).wentToOverflow());
+        Assert.assertTrue(bags.placeInOverflow(OverflowEntry.ofMaterial("iron", 2)).wentToOverflow());
+        Assert.assertEquals(bags.overflowCount(), 2);
+        Assert.assertEquals(bags.getOverflow().get(0).key, "oak");
+        Assert.assertEquals(bags.getOverflow().get(0).amount, 8);
+        Assert.assertEquals(bags.getOverflow().get(1).key, "iron");
+        Assert.assertEquals(bags.getOverflow().get(1).amount, 2);
+
+        // Load path also merges duplicate material slots from old saves.
+        bags.loadOverflowEntries(new OverflowEntry[] {
+                OverflowEntry.ofMaterial("oak", 4),
+                OverflowEntry.ofMaterial("oak", 6),
+                OverflowEntry.ofCurrency(InventoryBags.CURRENCY_DUST_C, 10),
+                OverflowEntry.ofCurrency(InventoryBags.CURRENCY_DUST_C, 3),
+                OverflowEntry.ofItem(gear("Sword", "Right"))
+        });
+        Assert.assertEquals(bags.overflowCount(), 3);
+        Assert.assertEquals(bags.getOverflow().get(0).amount, 10);
+        Assert.assertEquals(bags.getOverflow().get(1).amount, 13);
+        Assert.assertEquals(bags.getOverflow().get(2).kind, OverflowEntry.Kind.ITEM);
+    }
+
+    @Test
     public void overCapacityOldSaveLoadsIntoOverflow() {
         List<ItemData> inv = new ArrayList<>();
         for (int i = 0; i < 7; i++)
