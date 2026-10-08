@@ -60,11 +60,22 @@ public final class WireClassFilter implements IHasForgeLog {
             "forge.gamemodes.net.event.coop.CoopSessionReadyEvent",
             "forge.gamemodes.net.event.coop.CoopDisconnectEvent",
             "forge.gamemodes.net.event.coop.CoopDecklistEvent",
-            // CO2 / CO3 hooks registered early so peers on CO1 builds can ignore them safely
+            // CO2 shared overworld + CO3 duel hooks (exact names for review; also under forge.)
             "forge.gamemodes.net.event.coop.CoopPlayerMoveEvent",
             "forge.gamemodes.net.event.coop.CoopPartyInviteEvent",
             "forge.gamemodes.net.event.coop.CoopPartyResponseEvent",
             "forge.gamemodes.net.event.coop.CoopPartyResponseEvent$Action",
+            "forge.gamemodes.net.event.coop.CoopGatherRequestEvent",
+            "forge.gamemodes.net.event.coop.CoopGatherResultEvent",
+            "forge.gamemodes.net.event.coop.CoopNodeStateEvent",
+            "forge.gamemodes.net.event.coop.CoopNodeStateEvent$Action",
+            "forge.gamemodes.net.event.coop.CoopEnemyStateEvent",
+            "forge.gamemodes.net.event.coop.CoopEnemyStateEvent$Action",
+            "forge.gamemodes.net.event.coop.CoopPoiChangeEvent",
+            "forge.gamemodes.net.event.coop.CoopPoiChangeEvent$ChangeType",
+            "forge.gamemodes.net.event.coop.CoopLocationInviteEvent",
+            "forge.gamemodes.net.event.coop.CoopLocationResponseEvent",
+            "forge.gamemodes.net.event.coop.CoopLocationResponseEvent$Action",
             "forge.gamemodes.net.event.coop.CoopDuelInviteEvent",
             "forge.gamemodes.net.event.coop.CoopDuelResponseEvent");
 

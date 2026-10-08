@@ -20,11 +20,18 @@ import forge.gamemodes.net.event.coop.CoopDecklistEvent;
 import forge.gamemodes.net.event.coop.CoopDisconnectEvent;
 import forge.gamemodes.net.event.coop.CoopDuelInviteEvent;
 import forge.gamemodes.net.event.coop.CoopDuelResponseEvent;
+import forge.gamemodes.net.event.coop.CoopEnemyStateEvent;
+import forge.gamemodes.net.event.coop.CoopGatherRequestEvent;
+import forge.gamemodes.net.event.coop.CoopGatherResultEvent;
 import forge.gamemodes.net.event.coop.CoopHelloEvent;
 import forge.gamemodes.net.event.coop.CoopHelloRejectEvent;
+import forge.gamemodes.net.event.coop.CoopLocationInviteEvent;
+import forge.gamemodes.net.event.coop.CoopLocationResponseEvent;
+import forge.gamemodes.net.event.coop.CoopNodeStateEvent;
 import forge.gamemodes.net.event.coop.CoopPartyInviteEvent;
 import forge.gamemodes.net.event.coop.CoopPartyResponseEvent;
 import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
+import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
 import forge.gamemodes.net.event.coop.CoopSessionReadyEvent;
 import forge.gamemodes.net.event.coop.CoopWorldOfferEvent;
 import forge.screens.TransitionScreen;
@@ -181,11 +188,23 @@ public final class CoopSession {
     }
 
     public void addOverworldListener(final CoopHooks.OverworldListener listener) {
-        overworldListeners.add(listener);
+        if (listener != null && !overworldListeners.contains(listener)) {
+            overworldListeners.add(listener);
+        }
+    }
+
+    public void removeOverworldListener(final CoopHooks.OverworldListener listener) {
+        overworldListeners.remove(listener);
     }
 
     public void addDuelListener(final CoopHooks.DuelListener listener) {
-        duelListeners.add(listener);
+        if (listener != null && !duelListeners.contains(listener)) {
+            duelListeners.add(listener);
+        }
+    }
+
+    public void removeDuelListener(final CoopHooks.DuelListener listener) {
+        duelListeners.remove(listener);
     }
 
     private void status(final String msg) {
@@ -354,6 +373,11 @@ public final class CoopSession {
             sessionCode = "";
             bindAddress = "";
         }
+        // CO2: drop partner sprite / party on the GL thread without leaking listeners.
+        try {
+            CoopOverworldRuntime.get().onSessionEnded(reason);
+        } catch (final Exception ignored) {
+        }
         status("Disconnected: " + reason);
     }
 
@@ -431,6 +455,10 @@ public final class CoopSession {
     }
 
     private void handleHookMessage(final NetEvent event) {
+        // CO2/CO3 gameplay traffic only after the session is ready (authenticated).
+        if (state != State.READY && state != State.HOSTING && state != State.JOINING) {
+            return;
+        }
         if (event instanceof CoopPlayerMoveEvent) {
             for (final CoopHooks.OverworldListener l : overworldListeners) {
                 l.onPlayerMove((CoopPlayerMoveEvent) event);
@@ -444,6 +472,41 @@ public final class CoopSession {
         } else if (event instanceof CoopPartyResponseEvent) {
             for (final CoopHooks.OverworldListener l : overworldListeners) {
                 l.onPartyResponse((CoopPartyResponseEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopGatherRequestEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onGatherRequest((CoopGatherRequestEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopGatherResultEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onGatherResult((CoopGatherResultEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopNodeStateEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onNodeState((CoopNodeStateEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopEnemyStateEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onEnemyState((CoopEnemyStateEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopPoiChangeEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onPoiChange((CoopPoiChangeEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopLocationInviteEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onLocationInvite((CoopLocationInviteEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopLocationResponseEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onLocationResponse((CoopLocationResponseEvent) event);
                 l.onOverworldMessage(event);
             }
         } else if (event instanceof CoopDuelInviteEvent) {
@@ -542,12 +605,17 @@ public final class CoopSession {
                 state = State.READY;
                 peerName = ((CoopSessionReadyEvent) event).getPeerName();
                 status("Session ready with " + peerName);
+                try {
+                    CoopOverworldRuntime.get().onSessionReady();
+                } catch (final Exception ignored) {
+                }
             } else if (event instanceof CoopDisconnectEvent) {
                 peerName = "";
                 status("Guest disconnected: " + ((CoopDisconnectEvent) event).getReason());
-            } else {
+            } else if (s != null && s.isGuestAuthenticated()) {
                 handleHookMessage(event);
             }
+            // Unauthenticated co-op gameplay messages are ignored (CO1 + CO2).
         }
 
         private void onHello(final CoopHelloEvent hello) {
@@ -699,6 +767,10 @@ public final class CoopSession {
             state = State.READY;
             send(new CoopSessionReadyEvent(false, WorldSave.getCurrentSave().getPlayer().getName(), worldHash));
             status("Session ready with host " + hostName);
+            try {
+                CoopOverworldRuntime.get().onSessionReady();
+            } catch (final Exception ignored) {
+            }
         }
 
         private void endGuestSession(final String reason, final boolean restore) {

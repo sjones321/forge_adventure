@@ -860,6 +860,7 @@ public class MapStage extends GameStage {
             WorldStage.getInstance().resetPlayerLocation();
         else if (defeatedByBoss)
             WorldStage.getInstance().defeatedFromBoss();
+        forge.adventure.coop.CoopOverworldRuntime.get().onExitPoi();
         Forge.switchScene(GameScene.instance());
         isPlayerLeavingDungeon = false;
         dialogOnlyInput = false;

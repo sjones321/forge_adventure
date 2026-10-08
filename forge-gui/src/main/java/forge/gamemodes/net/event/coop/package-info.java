@@ -10,9 +10,11 @@
  * (package {@code forge.gamemodes.net.event.coop} is under the {@code forge.}
  * allowlist prefix; exact names are also listed there for documentation).
  *
- * <h2>CO2 / CO3 hooks</h2>
- * CO2 (shared overworld) and CO3 (co-op duels) should add further events in this
- * package and handle them through {@code CoopSession}'s message listeners.
- * Host remains authoritative for world state; guest sends requests only.
+ * <h2>CO2 / CO3</h2>
+ * CO2 events in this package: player move, party invite/response, gather
+ * request/result, node/enemy/POI state, location invite/response. Handled by
+ * {@code CoopOverworldRuntime} via {@code CoopSession} listeners. Host remains
+ * authoritative for world state; guest sends requests only. CO3 duel events
+ * stay stubs until the duel package lands.
  */
 package forge.gamemodes.net.event.coop;

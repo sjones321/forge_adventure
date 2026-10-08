@@ -98,4 +98,20 @@ World seed rebuild must also produce the same world hash; otherwise the guest re
 
 ## CO2 / CO3
 
-CO1 is session and connection only. See `CoopHooks` and `docs/Adventure/Ascendant-Roadmap.md` packages CO2–CO3 for shared overworld and co-op duels (including port 36743).
+**CO2 (shared overworld)** builds on this session: position sync, partner sprite,
+host-authoritative nodes/enemies/POI, party invites, and location-enter invites.
+Tunables live in Ascendant `config.json` (`coopPositionSendHz`,
+`coopPartnerInterpRate`, `coopInteractRangePx`, `coopLocationInviteTimeoutSeconds`, …).
+
+**Interior rule (v1):** both roam freely on the overworld. Entering a town,
+dungeon or delve invites a nearby party partner. Accept → enter the same
+interior; decline / timeout → wait outside. Only one shared interior at a time —
+a different interior is blocked while the partner is inside. Console helpers:
+`coop party invite|accept|decline|leave`, `coop location accept|decline`.
+
+**Menus:** inventory / deck editor do **not** pause the shared overworld in co-op.
+
+**CO3** (co-op duels, port 36743) can land in parallel; CO2 leaves a
+`CoopHooks.notifyFightAboutToStart` hook and does not touch duel match code.
+
+See `CoopHooks` / `CoopOverworldRuntime` and `docs/Adventure/Ascendant-Roadmap.md`.
