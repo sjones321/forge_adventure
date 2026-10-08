@@ -729,6 +729,8 @@ public class ConsoleCommandInterpreter {
         registerCommand(new String[]{"plane", "create"}, s -> {
             if (!Config.ascendant())
                 return "Multi-plane is Ascendant-only";
+            if (!forge.adventure.coop.CoopSession.get().canInitiatePlaneSwitch())
+                return "Guests cannot create planes — host owns the shared world.";
             if (s.length < 1 || s[0] == null || s[0].isEmpty())
                 return "Usage: plane create <id>";
             String id = s[0].trim();
