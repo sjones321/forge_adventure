@@ -442,12 +442,15 @@ public class CoopSessionConnectionTest {
             @Override
             public void onMessage(final NetEvent event) {
                 if (event instanceof CoopWorldOfferEvent) {
-                    gotOffer.countDown();
                     final CoopWorldOfferEvent offer = (CoopWorldOfferEvent) event;
                     // Mirror CoopSession guest policy: hash mismatch → exact message + disconnect.
                     final String local = guestHash;
                     if (!CoopWorldHash.matches(local, offer.getWorldHash())) {
                         refuseMsg.set(CoopPorts.WORLD_HASH_MISMATCH_MESSAGE);
+                    }
+                    // Signal only after the refusal is recorded (the test thread reads it right away).
+                    gotOffer.countDown();
+                    if (refuseMsg.get() != null) {
                         client.send(new CoopDisconnectEvent(CoopPorts.WORLD_HASH_MISMATCH_MESSAGE));
                         client.disconnect();
                     }

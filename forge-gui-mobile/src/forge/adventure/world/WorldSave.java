@@ -688,6 +688,8 @@ public class WorldSave {
                 pointOfInterestChanges.save(),
                 multiverse.getCurrentMeta());
 
+        final float fromPosX = player.getWorldPosX();
+        final float fromPosY = player.getWorldPosY();
         try {
             // 2) Compress-stash outgoing plane, then swap live world from the staging save.
             multiverse.writeInactiveBlob(fromId, currentBlob);
@@ -737,13 +739,16 @@ public class WorldSave {
                 if (rollbackStage != null) {
                     WorldStage.getInstance().load(rollbackStage);
                 }
-                if (!fromId.equals(multiverse.getCurrentPlaneId())) {
-                    try {
-                        multiverse.selectCurrentPlane(fromId);
-                    } catch (Exception ignored) {
-                    }
+                // Back on the source plane (this also drops its now-stale stashed blob).
+                try {
+                    multiverse.selectCurrentPlane(fromId);
+                } catch (Exception ignored) {
                 }
                 multiverse.markInactive(planeId);
+                // selectCurrentPlane(planeId) may already have dropped the target's only copy: put it back.
+                multiverse.putInactiveBlob(planeId, targetBlob);
+                player.setWorldPosX(fromPosX);
+                player.setWorldPosY(fromPosY);
             } catch (Exception rollbackEx) {
                 rollbackEx.printStackTrace();
             }
