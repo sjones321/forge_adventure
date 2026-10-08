@@ -224,7 +224,7 @@ public class CoopDuelInProcessTest {
             }
             // invokeInEdtNow runs inline on GuiDesktop — do not use NowOrLater (that
             // queues Swing.invokeLater from the test thread and races the game thread).
-            forge.GuiBase.getInterface().invokeInEdtNow(hc::concede);
+            forge.gui.GuiBase.getInterface().invokeInEdtNow(hc::concede);
         }
     }
 
