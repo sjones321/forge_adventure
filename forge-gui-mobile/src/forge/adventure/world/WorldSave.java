@@ -35,6 +35,10 @@ import java.util.zip.InflaterInputStream;
 
 /**
  * Represents everything that will be saved, like the player and the world.
+ *
+ * <p>Ascendant MV1: one save holds a home plane plus optional set planes.
+ * Only the current plane's {@link World} / stage / POI changes are live;
+ * other planes stay serialized in {@link MultiverseState}.
  */
 public class WorldSave {
 
@@ -46,6 +50,7 @@ public class WorldSave {
     private final AdventurePlayer player = new AdventurePlayer();
     private final World world = new World();
     private final PointOfInterestChanges.Map pointOfInterestChanges = new PointOfInterestChanges.Map();
+    private final MultiverseState multiverse = new MultiverseState();
 
 
     private final SignalList onLoadList = new SignalList();
@@ -59,6 +64,15 @@ public class WorldSave {
 
     public AdventurePlayer getPlayer() {
         return player;
+    }
+
+    public MultiverseState getMultiverse() {
+        return multiverse;
+    }
+
+    /** MV1 current plane instance id ({@link PlaneMeta#HOME_ID} for legacy / home). */
+    public String getCurrentPlaneId() {
+        return multiverse.getCurrentPlaneId();
     }
 
     public void onLoad(Runnable run) {
@@ -106,6 +120,27 @@ public class WorldSave {
                     System.err.println("Generating New World");
                     if (!currentSave.world.generateNew(0))
                         return false;
+                }
+
+                // MV1: multi-plane registry, or wrap legacy single-world saves as home.
+                if (Config.ascendant()) {
+                    SaveFileData multi = mainData.readSubData("multiverse");
+                    if (multi == null || !currentSave.multiverse.loadRegistry(multi)) {
+                        currentSave.multiverse.migrateLegacyHome(
+                                currentSave.world.getSeed(),
+                                currentSave.player.getWorldPosX(),
+                                currentSave.player.getWorldPosY());
+                    } else {
+                        currentSave.multiverse.updateCurrentSeed(currentSave.world.getSeed());
+                        currentSave.multiverse.rememberCurrentPosition(
+                                currentSave.player.getWorldPosX(),
+                                currentSave.player.getWorldPosY());
+                    }
+                } else {
+                    currentSave.multiverse.initHomeFromLive(
+                            currentSave.world.getSeed(),
+                            currentSave.player.getWorldPosX(),
+                            currentSave.player.getWorldPosY());
                 }
 
                 currentSave.onLoadList.emit();
@@ -168,6 +203,12 @@ public class WorldSave {
 
         currentSave.player.setWorldPosY((int) (currentSave.world.getData().playerStartPosY * currentSave.world.getData().height * currentSave.world.getTileSize()));
         currentSave.player.setWorldPosX((int) (currentSave.world.getData().playerStartPosX * currentSave.world.getData().width * currentSave.world.getTileSize()));
+        if (Config.ascendant()) {
+            currentSave.multiverse.initHomeFromLive(
+                    currentSave.world.getSeed(),
+                    currentSave.player.getWorldPosX(),
+                    currentSave.player.getWorldPosY());
+        }
         currentSave.onLoadList.emit();
         return currentSave;
     }
@@ -281,12 +322,20 @@ public class WorldSave {
             try (FileOutputStream fos = new FileOutputStream(fileName);
                  DeflaterOutputStream def = new DeflaterOutputStream(fos);
                  ObjectOutputStream oos = new ObjectOutputStream(def)) {
+                currentSave.multiverse.rememberCurrentPosition(
+                        currentSave.player.getWorldPosX(), currentSave.player.getWorldPosY());
+                currentSave.multiverse.updateCurrentSeed(currentSave.world.getSeed());
+
                 SaveFileData player = currentSave.player.save();
                 SaveFileData world = currentSave.world.save();
                 SaveFileData worldStage = WorldStage.getInstance().save();
                 SaveFileData poiChanges = currentSave.pointOfInterestChanges.save();
+                SaveFileData multi = Config.ascendant() ? currentSave.multiverse.saveRegistry() : null;
 
                 String message = getExceptionMessage(player, world, worldStage, poiChanges);
+                if (multi != null) {
+                    message = message + getExceptionMessage(multi);
+                }
                 if (!message.isEmpty()) {
                     oos.close();
                     fos.close();
@@ -300,6 +349,10 @@ public class WorldSave {
                 mainData.store("world", world);
                 mainData.store("worldStage", worldStage);
                 mainData.store("pointOfInterestChanges", poiChanges);
+                if (multi != null) {
+                    mainData.store("multiverse", multi);
+                    mainData.store("currentPlaneId", currentSave.multiverse.getCurrentPlaneId());
+                }
 
                 if (mainData.readString("IOException") != null) {
                     oos.close();
@@ -409,5 +462,161 @@ public class WorldSave {
 
     public static void dispose() {
         Forge.safeDispose(currentSave.world);
+    }
+
+    /**
+     * Create a set plane (MV1) if missing, generated from the Ascendant set-plane
+     * template and a unique seed. Does not switch to it.
+     */
+    public PlaneMeta ensureSetPlane(String planeId, String displayName) {
+        if (!Config.ascendant()) {
+            throw new IllegalStateException("Multi-plane saves require Ascendant");
+        }
+        if (planeId == null || planeId.isEmpty() || PlaneMeta.HOME_ID.equals(planeId)) {
+            throw new IllegalArgumentException("Invalid set plane id");
+        }
+        PlaneMeta existing = multiverse.getMeta(planeId);
+        if (existing != null && multiverse.getInactiveBlob(planeId) != null) {
+            return existing;
+        }
+        if (existing != null && planeId.equals(multiverse.getCurrentPlaneId())) {
+            return existing;
+        }
+        ConfigData cfg = Config.instance().getConfigData();
+        int max = cfg != null ? Math.max(1, cfg.maxPlanesPerSave) : 16;
+        if (multiverse.listPlanes().size() >= max && existing == null) {
+            throw new IllegalStateException("Plane limit reached (" + max + ")");
+        }
+        String template = cfg != null && cfg.setPlaneWorldConfig != null && !cfg.setPlaneWorldConfig.isEmpty()
+                ? cfg.setPlaneWorldConfig : "world/set_plane_world.json";
+        long seed = System.nanoTime() ^ planeId.hashCode() ^ world.getSeed();
+        PlaneMeta meta = multiverse.registerSetPlane(planeId, seed, template,
+                displayName != null ? displayName : planeId);
+
+        // Generate into a temporary World, pack as inactive blob, dispose grids.
+        World generated = new World();
+        if (!generated.generateNew(seed, template)) {
+            throw new IllegalStateException("Failed to generate set plane " + planeId);
+        }
+        meta.setSeed(generated.getSeed());
+        float startX = (float) (generated.getData().playerStartPosX * generated.getData().width
+                * generated.getTileSize());
+        float startY = (float) (generated.getData().playerStartPosY * generated.getData().height
+                * generated.getTileSize());
+        meta.setPlayerPos(startX, startY);
+        SaveFileData emptyPoi = new PointOfInterestChanges.Map().save();
+        SaveFileData blob = PlaneBlob.pack(generated.save(), emptyWorldStageData(), emptyPoi, meta);
+        multiverse.putInactiveBlob(planeId, blob);
+        Forge.safeDispose(generated);
+        return meta;
+    }
+
+    /**
+     * Switch the live overworld to {@code planeId}. Only the target plane is
+     * loaded; the previous plane is serialized into the multiverse registry.
+     *
+     * @return true on success
+     */
+    public boolean switchPlane(String planeId) {
+        if (!Config.ascendant()) {
+            return false;
+        }
+        if (planeId == null || planeId.isEmpty()) {
+            return false;
+        }
+        if (planeId.equals(multiverse.getCurrentPlaneId())) {
+            return true;
+        }
+        if (!multiverse.hasPlane(planeId)) {
+            return false;
+        }
+        if (player.isOverloaded()) {
+            return false;
+        }
+
+        multiverse.rememberCurrentPosition(player.getWorldPosX(), player.getWorldPosY());
+        multiverse.updateCurrentSeed(world.getSeed());
+
+        SaveFileData currentBlob = PlaneBlob.pack(
+                world.save(),
+                WorldStage.getInstance().save(),
+                pointOfInterestChanges.save(),
+                multiverse.getCurrentMeta());
+
+        SaveFileData targetBlob = multiverse.getInactiveBlob(planeId);
+        if (targetBlob == null && !planeId.equals(PlaneMeta.HOME_ID)) {
+            return false;
+        }
+
+        multiverse.stashCurrentAndSelect(planeId, currentBlob);
+
+        try {
+            SaveFileData worldData = PlaneBlob.world(targetBlob);
+            SaveFileData stageData = PlaneBlob.worldStage(targetBlob);
+            SaveFileData poiData = PlaneBlob.poiChanges(targetBlob);
+            PlaneMeta targetMeta = PlaneBlob.readMeta(targetBlob);
+            if (targetMeta == null) {
+                targetMeta = multiverse.getMeta(planeId);
+            }
+            if (worldData == null) {
+                // Should not happen for registered planes; regenerate as last resort.
+                String path = targetMeta != null ? targetMeta.getWorldConfigPath() : Paths.WORLD;
+                long seed = targetMeta != null ? targetMeta.getSeed() : 0L;
+                if (!world.generateNew(seed, path)) {
+                    return false;
+                }
+            } else {
+                world.load(worldData);
+            }
+            pointOfInterestChanges.clear();
+            if (poiData != null) {
+                pointOfInterestChanges.load(poiData);
+            }
+            if (stageData != null) {
+                WorldStage.getInstance().load(stageData);
+            } else {
+                WorldStage.getInstance().load(emptyWorldStageData());
+            }
+            float px = targetMeta != null ? targetMeta.getPlayerPosX() : player.getWorldPosX();
+            float py = targetMeta != null ? targetMeta.getPlayerPosY() : player.getWorldPosY();
+            if (px == 0f && py == 0f && world.getData() != null) {
+                px = (float) (world.getData().playerStartPosX * world.getData().width * world.getTileSize());
+                py = (float) (world.getData().playerStartPosY * world.getData().height * world.getTileSize());
+            }
+            player.setWorldPosX(px);
+            player.setWorldPosY(py);
+            multiverse.rememberCurrentPosition(px, py);
+            multiverse.updateCurrentSeed(world.getSeed());
+            CardUtil.clearPriceCache();
+            onLoadList.emit();
+            notifyCoopPlaneSwitch();
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
+     * Host co-op: tell the guest to follow onto the host's current plane.
+     * Keeps CO1–CO3 hook signatures; uses {@link forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent}.
+     */
+    private void notifyCoopPlaneSwitch() {
+        try {
+            forge.adventure.coop.CoopSession.get().offerCurrentPlaneToGuest();
+        } catch (Exception ignored) {
+            // Co-op optional
+        }
+    }
+
+    static SaveFileData emptyWorldStageData() {
+        SaveFileData emptyStage = new SaveFileData();
+        emptyStage.storeObject("timeouts", new ArrayList<Float>());
+        emptyStage.storeObject("names", new ArrayList<String>());
+        emptyStage.storeObject("x", new ArrayList<Float>());
+        emptyStage.storeObject("y", new ArrayList<Float>());
+        emptyStage.storeObject("questStageIDs", new ArrayList<String>());
+        emptyStage.store("globalTimer", 0f);
+        return emptyStage;
     }
 }

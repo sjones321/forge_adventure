@@ -4,7 +4,9 @@ import com.badlogic.gdx.Gdx;
 import forge.Forge;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.Config;
+import forge.adventure.util.Paths;
 import forge.adventure.util.SaveFileData;
+import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.World;
 import forge.adventure.world.WorldSave;
 import forge.gamemodes.net.coop.CoopAddressUtil;
@@ -39,6 +41,7 @@ import forge.gamemodes.net.event.coop.CoopPartyInviteEvent;
 import forge.gamemodes.net.event.coop.CoopPartyResponseEvent;
 import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
+import forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent;
 import forge.gamemodes.net.event.coop.CoopSessionReadyEvent;
 import forge.gamemodes.net.event.coop.CoopWorldOfferEvent;
 import forge.screens.TransitionScreen;
@@ -91,6 +94,8 @@ public final class CoopSession {
     private volatile SaveFileData guestWorldBackup;
     private volatile SaveFileData guestPlayerBackup;
     private volatile String guestCharacterName;
+    /** MV1: plane instance id the guest last accepted from the host. */
+    private volatile String guestWorldPlaneId = PlaneMeta.HOME_ID;
     /** Guards against double {@link #restoreGuestSave()} on REJECTED + disconnect. */
     private final AtomicBoolean guestRestoreDone = new AtomicBoolean(false);
 
@@ -184,6 +189,63 @@ public final class CoopSession {
             return sw;
         }
         return WorldSave.getCurrentSave().getWorld();
+    }
+
+    /** MV1 plane instance id for the shared overworld (host's current plane). */
+    public String getActiveWorldPlaneId() {
+        if (role == CoopSessionRole.GUEST && guestWorldPlaneId != null && !guestWorldPlaneId.isEmpty()) {
+            return guestWorldPlaneId;
+        }
+        try {
+            return WorldSave.getCurrentSave().getCurrentPlaneId();
+        } catch (final Exception e) {
+            return PlaneMeta.HOME_ID;
+        }
+    }
+
+    /**
+     * Host MV1: after a local plane switch, tell the guest to follow onto the
+     * host's current plane (seed + world config + hash).
+     */
+    public void offerCurrentPlaneToGuest() {
+        if (role != CoopSessionRole.HOST || state != State.READY) {
+            return;
+        }
+        runOffNetty(() -> {
+            final WorldSave save = WorldSave.getCurrentSave();
+            final World w = save.getWorld();
+            worldHash = CoopWorldSync.hashWorld(w);
+            final String worldPath = w.getWorldConfigPath();
+            final CoopPlaneSwitchEvent switchEvent = new CoopPlaneSwitchEvent(
+                    Config.instance().getPlane(),
+                    save.getCurrentPlaneId(),
+                    worldPath,
+                    CoopWorldSync.planeConfigHash(worldPath),
+                    w.getSeed(),
+                    worldHash,
+                    save.getPlayer().getWorldPosX(),
+                    save.getPlayer().getWorldPosY());
+            send(switchEvent);
+            status("Offered plane switch → " + save.getCurrentPlaneId()
+                    + " seed " + w.getSeed());
+        });
+    }
+
+    private CoopWorldOfferEvent buildWorldOffer() {
+        final WorldSave save = WorldSave.getCurrentSave();
+        final World w = save.getWorld();
+        worldHash = CoopWorldSync.hashWorld(w);
+        final String worldPath = w.getWorldConfigPath();
+        return new CoopWorldOfferEvent(
+                save.getPlayer().getName(),
+                Config.instance().getPlane(),
+                CoopWorldSync.planeConfigHash(worldPath),
+                w.getSeed(),
+                worldHash,
+                gamePort,
+                overworldPort,
+                save.getCurrentPlaneId(),
+                worldPath);
     }
 
     public void addStatusListener(final Consumer<String> listener) {
@@ -746,17 +808,10 @@ public final class CoopSession {
             }
             peerName = hello.getCharacterName() != null ? hello.getCharacterName() : hello.getPlayerName();
             runOffNetty(() -> {
-                worldHash = CoopWorldSync.hashWorld(WorldSave.getCurrentSave().getWorld());
-                final CoopWorldOfferEvent offer = new CoopWorldOfferEvent(
-                        WorldSave.getCurrentSave().getPlayer().getName(),
-                        Config.instance().getPlane(),
-                        CoopWorldSync.planeConfigHash(),
-                        WorldSave.getCurrentSave().getWorld().getSeed(),
-                        worldHash,
-                        gamePort,
-                        overworldPort);
+                final CoopWorldOfferEvent offer = buildWorldOffer();
                 send(offer);
-                status("Authenticated — offered world seed " + offer.getWorldSeed()
+                status("Authenticated — offered plane " + offer.getWorldPlaneId()
+                        + " seed " + offer.getWorldSeed()
                         + " hash " + worldHash.substring(0, Math.min(8, worldHash.length())) + "…");
             });
         }
@@ -830,6 +885,8 @@ public final class CoopSession {
                 endGuestSession(lastError, true);
             } else if (event instanceof CoopWorldOfferEvent) {
                 onWorldOffer((CoopWorldOfferEvent) event);
+            } else if (event instanceof CoopPlaneSwitchEvent) {
+                onPlaneSwitch((CoopPlaneSwitchEvent) event);
             } else if (event instanceof CoopDisconnectEvent) {
                 endGuestSession(((CoopDisconnectEvent) event).getReason(), true);
             } else {
@@ -840,7 +897,9 @@ public final class CoopSession {
         private void onWorldOffer(final CoopWorldOfferEvent offer) {
             peerName = offer.getHostPlayerName();
             gamePort = offer.getGamePort();
-            final String localPlaneHash = CoopWorldSync.planeConfigHash();
+            final String worldPath = offer.getWorldConfigPath() != null && !offer.getWorldConfigPath().isEmpty()
+                    ? offer.getWorldConfigPath() : Paths.WORLD;
+            final String localPlaneHash = CoopWorldSync.planeConfigHash(worldPath);
             if (!localPlaneHash.equals(offer.getPlaneConfigHash())) {
                 status("Plane config hash differs — will verify world hash");
             }
@@ -854,11 +913,14 @@ public final class CoopSession {
                         target = new World();
                         sessionWorld = target;
                     }
-                    final String localHash = CoopWorldSync.rebuildFromSeed(target, offer.getWorldSeed());
+                    final String localHash = CoopWorldSync.rebuildFromSeed(target, offer.getWorldSeed(), worldPath);
                     if (CoopWorldHash.matches(localHash, offer.getWorldHash())) {
                         worldHash = localHash;
+                        guestWorldPlaneId = offer.getWorldPlaneId() != null && !offer.getWorldPlaneId().isEmpty()
+                                ? offer.getWorldPlaneId() : PlaneMeta.HOME_ID;
                         finishReady(offer.getHostPlayerName());
-                        status("World hash matched after seed rebuild (session world)");
+                        status("World hash matched after seed rebuild (plane "
+                                + guestWorldPlaneId + ")");
                     } else {
                         lastError = CoopPorts.WORLD_HASH_MISMATCH_MESSAGE;
                         state = State.REJECTED;
@@ -870,6 +932,41 @@ public final class CoopSession {
                     state = State.REJECTED;
                     status(lastError);
                     endGuestSession(lastError, true);
+                }
+            });
+        }
+
+        private void onPlaneSwitch(final CoopPlaneSwitchEvent event) {
+            if (state != State.READY) {
+                return;
+            }
+            final String worldPath = event.getWorldConfigPath() != null && !event.getWorldConfigPath().isEmpty()
+                    ? event.getWorldConfigPath() : Paths.WORLD;
+            final String loadingMsg = Forge.getLocalizer() != null
+                    ? Forge.getLocalizer().getMessage("lblGeneratingWorld")
+                    : "Generating world…";
+            runWorldOpOnGl(loadingMsg, () -> {
+                try {
+                    World target = sessionWorld;
+                    if (target == null) {
+                        target = new World();
+                        sessionWorld = target;
+                    }
+                    final String localHash = CoopWorldSync.rebuildFromSeed(target, event.getWorldSeed(), worldPath);
+                    if (!CoopWorldHash.matches(localHash, event.getWorldHash())) {
+                        status("Plane switch hash mismatch — staying on prior plane");
+                        return;
+                    }
+                    worldHash = localHash;
+                    guestWorldPlaneId = event.getWorldPlaneId() != null && !event.getWorldPlaneId().isEmpty()
+                            ? event.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                    try {
+                        CoopOverworldRuntime.get().clearEntityIdMaps();
+                    } catch (final Exception ignored) {
+                    }
+                    status("Followed host to plane " + guestWorldPlaneId);
+                } catch (final Exception e) {
+                    status("Plane switch failed: " + e.getMessage());
                 }
             });
         }

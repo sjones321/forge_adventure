@@ -52,6 +52,8 @@ public class World implements Disposable, SaveFileContent {
     private final ArrayList<DrawingInformation> drawingInfoCache = new ArrayList<>(32);
     private Pixmap globalTileDrawing = null;
     private Pixmap emptyTile = null;
+    /** Relative path under the adventure plane (MV1 set planes may use a template). */
+    private String worldConfigPath = Paths.WORLD;
 
     public Random getRandom() {
         return random;
@@ -59,6 +61,25 @@ public class World implements Disposable, SaveFileContent {
 
     public long getSeed() {
         return seed;
+    }
+
+    /** World JSON used for generation / co-op hash (MV1). Defaults to {@link Paths#WORLD}. */
+    public String getWorldConfigPath() {
+        return worldConfigPath != null && !worldConfigPath.isEmpty() ? worldConfigPath : Paths.WORLD;
+    }
+
+    /**
+     * Drop cached world.json so the next generate/load reads {@code path}.
+     * Call before generating a set plane from a template.
+     */
+    public void setWorldConfigPath(String path) {
+        String next = path != null && !path.isEmpty() ? path : Paths.WORLD;
+        if (!next.equals(getWorldConfigPath()) || !worldDataLoaded) {
+            worldConfigPath = next;
+            worldDataLoaded = false;
+        } else {
+            worldConfigPath = next;
+        }
     }
 
     /** Biome grid used by Ascendant co-op world-hash verification (CO1). */
@@ -93,7 +114,7 @@ public class World implements Disposable, SaveFileContent {
         if (worldDataLoaded)
             return;
 
-        FileHandle handle = Config.instance().getFile(Paths.WORLD);
+        FileHandle handle = Config.instance().getFile(getWorldConfigPath());
         String rawJson = handle.readString();
         this.data = (new Json()).fromJson(WorldData.class, rawJson);
         biomeTexture = new BiomeTexture[data.GetBiomes().size() + 1];
@@ -115,6 +136,10 @@ public class World implements Disposable, SaveFileContent {
             biomeImage.dispose();
             biomeImage = null;
         }
+
+        // MV1: pick the plane's world.json before loading biome definitions.
+        String savedPath = saveFileData != null ? saveFileData.readString("worldConfigPath") : null;
+        setWorldConfigPath(savedPath != null && !savedPath.isEmpty() ? savedPath : Paths.WORLD);
 
         loadWorldData();
 
@@ -149,6 +174,7 @@ public class World implements Disposable, SaveFileContent {
         data.store("mapObjectIds", mapObjectIds.save());
         data.store("mapPoiIds", mapPoiIds.save());
         data.store("seed", seed);
+        data.store("worldConfigPath", getWorldConfigPath());
         return data;
     }
 
@@ -318,6 +344,14 @@ public class World implements Disposable, SaveFileContent {
                 return true;
         }
         return false;
+    }
+
+    /**
+     * Generate using an alternate world.json (MV1 set-plane template).
+     */
+    public boolean generateNew(long seed, String configPath) {
+        setWorldConfigPath(configPath);
+        return generateNew(seed);
     }
 
     public boolean generateNew(long seed) {

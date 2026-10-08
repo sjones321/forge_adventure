@@ -3,12 +3,15 @@ package forge.adventure.character;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.*;
 import com.badlogic.gdx.utils.Array;
+import forge.adventure.data.ConfigData;
 import forge.adventure.scene.TileMapScene;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.MapStage;
 import forge.adventure.util.Config;
 import forge.adventure.util.Current;
 import forge.adventure.util.Paths;
+import forge.adventure.world.PlaneMeta;
+import forge.adventure.world.WorldSave;
 
 import java.util.HashMap;
 
@@ -57,6 +60,13 @@ public class PortalActor extends EntryActor {
                 }
                 return;
             }
+            if (Config.ascendant() && targetPlane != null && !targetPlane.isEmpty()) {
+                if (travelToPlane(targetPlane)) {
+                    stage.getPlayerSprite().playEffect(Paths.EFFECT_TELEPORT, 0.5f);
+                    stage.startPause(1.5f);
+                }
+                return;
+            }
             if (targetMap == null || targetMap.isEmpty()) {
                 stage.exitDungeon(false, false);
             } else {
@@ -70,6 +80,55 @@ public class PortalActor extends EntryActor {
                     stage.getPlayerSprite().playEffect(Paths.EFFECT_TELEPORT, 0.5f);
                 }
             }
+        }
+    }
+
+    /**
+     * MV1 planar travel: leave the interior (if any) and switch the live overworld plane.
+     */
+    private boolean travelToPlane(String planeId) {
+        WorldSave save = WorldSave.getCurrentSave();
+        if (save == null) {
+            return false;
+        }
+        String id = planeId.trim();
+        if (id.isEmpty()) {
+            return false;
+        }
+        if (PlaneMeta.HOME_ID.equalsIgnoreCase(id)) {
+            id = PlaneMeta.HOME_ID;
+        }
+        try {
+            if (!save.getMultiverse().hasPlane(id)) {
+                ConfigData cfg = Config.instance().getConfigData();
+                if (cfg != null && cfg.planarPortalAutoCreate && !PlaneMeta.HOME_ID.equals(id)) {
+                    save.ensureSetPlane(id, id);
+                } else {
+                    notifyPortal("Unknown plane: " + id);
+                    return false;
+                }
+            }
+            // Exit dungeon/town first so WorldStage owns the player on the new overworld.
+            if (stage != null && stage.isInMap()) {
+                stage.exitDungeon(false, false);
+            }
+            if (!save.switchPlane(id)) {
+                notifyPortal("Could not travel to " + id);
+                return false;
+            }
+            notifyPortal("Planeswalked to " + save.getMultiverse().getCurrentMeta().getDisplayName());
+            return true;
+        } catch (Exception e) {
+            notifyPortal("Portal failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private void notifyPortal(String msg) {
+        try {
+            GameHUD.getInstance().addNotification(msg);
+        } catch (Exception ignored) {
+            // HUD may be unavailable
         }
     }
 

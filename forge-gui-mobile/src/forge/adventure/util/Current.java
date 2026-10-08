@@ -24,6 +24,11 @@ public class Current {
         return WorldSave.getCurrentSave().getWorld();
     }
 
+    /** MV1 current plane instance id ({@code home} or a set plane id). */
+    public static String planeId() {
+        return WorldSave.getCurrentSave().getCurrentPlaneId();
+    }
+
     static Deck deck;
     public static Deck latestDeck() {
         return deck;

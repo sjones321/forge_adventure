@@ -1,7 +1,9 @@
 package forge.adventure.coop;
 
 import forge.adventure.util.Config;
+import forge.adventure.util.Paths;
 import forge.adventure.world.World;
+import forge.adventure.world.WorldSave;
 import forge.gamemodes.net.coop.CoopVersion;
 import forge.gamemodes.net.coop.CoopWorldHash;
 
@@ -12,17 +14,32 @@ import forge.gamemodes.net.coop.CoopWorldHash;
  *
  * <p>{@link World#generateNew} / {@link World#load} must be called on the GL
  * thread (see {@link CoopSession}).
+ *
+ * <p>MV1: hashes and rebuilds use the host's <em>current</em> plane world.json
+ * (home or set-plane template), not only {@link Paths#WORLD}.
  */
 public final class CoopWorldSync {
     private CoopWorldSync() {
     }
 
     public static String planeConfigHash() {
+        String worldPath = Paths.WORLD;
+        try {
+            worldPath = WorldSave.getCurrentSave().getWorld().getWorldConfigPath();
+        } catch (final Exception ignored) {
+            // Solo / early init
+        }
+        return planeConfigHash(worldPath);
+    }
+
+    public static String planeConfigHash(final String worldConfigPath) {
         try {
             final String plane = Config.instance().getPlane();
             final String raw = Config.instance().getFile("config.json").readString();
-            final String worldRaw = Config.instance().getFile("world/world.json").readString();
-            return CoopVersion.sha256Hex(plane + '|' + raw + '|' + worldRaw);
+            final String path = worldConfigPath != null && !worldConfigPath.isEmpty()
+                    ? worldConfigPath : Paths.WORLD;
+            final String worldRaw = Config.instance().getFile(path).readString();
+            return CoopVersion.sha256Hex(plane + '|' + path + '|' + raw + '|' + worldRaw);
         } catch (final Exception e) {
             return CoopVersion.sha256Hex("plane-config:error:" + e.getMessage());
         }
@@ -45,7 +62,11 @@ public final class CoopWorldSync {
      * guest's saved WorldSave). Returns the local hash. Call on the GL thread.
      */
     public static String rebuildFromSeed(final World target, final long seed) {
-        if (!target.generateNew(seed)) {
+        return rebuildFromSeed(target, seed, Paths.WORLD);
+    }
+
+    public static String rebuildFromSeed(final World target, final long seed, final String worldConfigPath) {
+        if (!target.generateNew(seed, worldConfigPath)) {
             throw new IllegalStateException("World generation failed");
         }
         return hashWorld(target);
