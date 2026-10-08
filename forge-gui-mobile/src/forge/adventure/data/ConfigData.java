@@ -261,8 +261,11 @@ public class ConfigData {
     /** Host enemy-position broadcast rate (Hz). Lower than player move rate. */
     public float coopEnemyBroadcastHz = 5f;
     /**
-     * Max accepted peer travel speed in world pixels/sec. Samples implying a
-     * higher speed (× {@code CoopWireLimits.MOVE_SPEED_MARGIN}) are rejected as teleports.
+     * Initial / fallback max peer walk speed in world pixels/sec before the peer
+     * reports their actual max (base × road × equipment/skill). Hard-capped by
+     * {@code CoopWireLimits.HARD_MAX_MOVE_SPEED_PX}. Walk samples above
+     * {@code max × MOVE_SPEED_MARGIN} are rejected; explicit teleport samples
+     * bypass the check when armed by an allowing action.
      */
     public float coopMaxMoveSpeedPx = 120f;
 

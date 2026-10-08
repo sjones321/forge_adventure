@@ -703,6 +703,9 @@ public abstract class GameStage extends Stage {
     public void setPosition(Vector2 position) {
         getPlayerSprite().setPosition(position);
         teleported(position);
+        if (Config.ascendant()) {
+            forge.adventure.coop.CoopOverworldRuntime.get().notifyLocalTeleport();
+        }
     }
 
     public void resetPlayerLocation() {

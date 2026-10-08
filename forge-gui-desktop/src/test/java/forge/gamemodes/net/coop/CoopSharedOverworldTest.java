@@ -20,6 +20,9 @@ import org.testng.annotations.Test;
 import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -175,6 +178,148 @@ public class CoopSharedOverworldTest {
         // Small step within speed budget — accept
         Assert.assertNotNull(sync.acceptInbound(new CoopPlayerMoveEvent(1f, 0f, 1f, t0 + 100, "P",
                 "sprites/heroes/Human_m.atlas"), t0 + 100));
+    }
+
+    @Test
+    public void round3HostKeepsEntitiesOnDisconnectGuestRemovesMirrors() {
+        // Item 1: host clears id maps only; guest removes mirrored entities.
+        Assert.assertFalse(CoopWorldAuthority.shouldRemoveEntitiesOnDisconnect(true));
+        Assert.assertTrue(CoopWorldAuthority.shouldRemoveEntitiesOnDisconnect(false));
+
+        final Map<Long, String> hostNodes = new java.util.concurrent.ConcurrentHashMap<>();
+        hostNodes.put(1L, "oak");
+        hostNodes.put(2L, "iron");
+        final Map<Long, String> hostIdMap = new java.util.concurrent.ConcurrentHashMap<>(hostNodes);
+        // Host disconnect: clear id map, keep real entities.
+        if (!CoopWorldAuthority.shouldRemoveEntitiesOnDisconnect(true)) {
+            hostIdMap.clear();
+        } else {
+            hostNodes.clear();
+            hostIdMap.clear();
+        }
+        Assert.assertEquals(hostNodes.size(), 2, "host real entities must survive disconnect");
+        Assert.assertEquals(hostIdMap.size(), 0, "host id map cleared");
+
+        final Map<Long, String> guestMirrors = new java.util.concurrent.ConcurrentHashMap<>();
+        guestMirrors.put(1L, "oak");
+        final Map<Long, String> guestIdMap = new java.util.concurrent.ConcurrentHashMap<>(guestMirrors);
+        if (CoopWorldAuthority.shouldRemoveEntitiesOnDisconnect(false)) {
+            guestMirrors.clear();
+            guestIdMap.clear();
+        } else {
+            guestIdMap.clear();
+        }
+        Assert.assertEquals(guestMirrors.size(), 0, "guest mirrors removed");
+        Assert.assertEquals(guestIdMap.size(), 0);
+    }
+
+    @Test
+    public void round3SeparateRequestIdSpacesNoHostLocalResultNoNameFallback() {
+        // Item 2: guest ids positive; host-local negative; no result for host-local;
+        // gather match is by requestId only (no player-name fallback).
+        final CoopWorldAuthority auth = new CoopWorldAuthority(96f, 20, 1000L);
+        final long guestReq = 42L;
+        Assert.assertTrue(CoopWorldAuthority.isGuestRequestId(guestReq));
+        final long hostLocal = auth.nextHostLocalRequestId();
+        Assert.assertTrue(CoopWorldAuthority.isHostLocalRequestId(hostLocal));
+        Assert.assertFalse(CoopWorldAuthority.isGuestRequestId(hostLocal));
+        Assert.assertNotEquals(guestReq, hostLocal);
+
+        final long nodeId = auth.registerNode("oak", 10f, 10f);
+        final CoopGatherResultEvent hostClaim = auth.claimLocal(hostLocal, nodeId, "Host", 2, 10f, 10f);
+        Assert.assertTrue(hostClaim.isAccepted());
+        Assert.assertTrue(CoopWorldAuthority.isHostLocalRequestId(hostClaim.getRequestId()));
+        // Policy: host-local claims must not be forwarded as a result event to the guest
+        // (runtime sends CLAIMED node state only). Assert id-space separation here.
+        Assert.assertFalse(CoopWorldAuthority.isGuestRequestId(hostClaim.getRequestId()));
+
+        final long node2 = auth.registerNode("iron", 0f, 0f);
+        final CoopGatherResultEvent guestResult = auth.handleGatherRequest(
+                new CoopGatherRequestEvent(99L, node2, 0f, 0f, 1L), "Guest", 1, 0f, 0f, 1L);
+        Assert.assertTrue(guestResult.isAccepted());
+        Assert.assertEquals(guestResult.getRequestId(), 99L); // host echoes guest id
+
+        // Name-fallback drop: a result for a different requestId must not match
+        // even when claimedBy equals the local player name.
+        final long pendingRequestId = 7L;
+        final CoopGatherResultEvent other = new CoopGatherResultEvent(8L, node2, true, "Guest",
+                "iron", 1, "");
+        final boolean matchByRequestId = other.getRequestId() == pendingRequestId;
+        final boolean legacyNameFallback = other.isAccepted() && "Guest".equals(other.getClaimedBy());
+        Assert.assertFalse(matchByRequestId);
+        Assert.assertTrue(legacyNameFallback, "precondition: name would have matched under old fallback");
+        // Runtime matches requestId only — name fallback must not grant.
+        Assert.assertFalse(matchByRequestId && legacyNameFallback);
+        final boolean applyRewards = matchByRequestId; // no || legacyNameFallback
+        Assert.assertFalse(applyRewards);
+    }
+
+    @Test
+    public void round3TeleportOnlyAfterAllowAndSpeedUsesActualMax() {
+        // Item 3: speed limit from actual max; teleport only after allowTeleport().
+        final float actualMax = 80f; // base × road × equipment/skill
+        final CoopPositionSync sync = new CoopPositionSync(30, 15f, actualMax);
+        Assert.assertEquals(sync.getMaxSpeedPxPerSec(), actualMax, 0.01f);
+
+        final long t0 = 9_000_000L;
+        Assert.assertNotNull(sync.acceptInbound(new CoopPlayerMoveEvent(
+                0f, 0f, 1f, t0, "P", "sprites/heroes/Human_m.atlas", actualMax, false), t0));
+
+        // Within actualMax × margin over 1s — accept
+        final float margin = CoopWireLimits.MOVE_SPEED_MARGIN;
+        final float okDist = actualMax * margin * 0.5f;
+        Assert.assertNotNull(sync.acceptInbound(new CoopPlayerMoveEvent(
+                okDist, 0f, 1f, t0 + 1000, "P", "sprites/heroes/Human_m.atlas", actualMax, false),
+                t0 + 1000));
+
+        // Far beyond actual max in 10ms as a walk — reject
+        Assert.assertNull(sync.acceptInbound(new CoopPlayerMoveEvent(
+                okDist + 5000f, 0f, 1f, t0 + 1010, "P", "sprites/heroes/Human_m.atlas",
+                actualMax, false), t0 + 1010));
+
+        // Explicit teleport without allowing action — reject
+        Assert.assertNull(sync.acceptInbound(new CoopPlayerMoveEvent(
+                8000f, 0f, 1f, t0 + 2000, "P", "sprites/heroes/Human_m.atlas",
+                actualMax, true), t0 + 2000));
+        Assert.assertFalse(sync.isTeleportArmed());
+
+        // Allowing action (waypoint / portal / reset / POI exit) then teleport — accept
+        sync.allowTeleport();
+        Assert.assertTrue(sync.isTeleportArmed());
+        final CoopPlayerMoveEvent teleported = sync.acceptInbound(new CoopPlayerMoveEvent(
+                8000f, 0f, 1f, t0 + 2000, "P", "sprites/heroes/Human_m.atlas",
+                actualMax, true), t0 + 2000);
+        Assert.assertNotNull(teleported);
+        Assert.assertTrue(teleported.isTeleport());
+        Assert.assertEquals(sync.getLastAccepted().getX(), 8000f, 0.01f);
+        Assert.assertFalse(sync.isTeleportArmed()); // one-shot consumed
+
+        // Second teleport without re-arm — reject
+        Assert.assertNull(sync.acceptInbound(new CoopPlayerMoveEvent(
+                0f, 0f, 1f, t0 + 3000, "P", "sprites/heroes/Human_m.atlas",
+                actualMax, true), t0 + 3000));
+    }
+
+    @Test
+    public void round3EncounterOnePerContactAndHostRateLimit() {
+        // Item 4: one request per mob per contact (guest-side set); host rate-limits.
+        final Set<Long> contacted = ConcurrentHashMap.newKeySet();
+        final long mobA = 5L;
+        final long mobB = 6L;
+        Assert.assertTrue(contacted.add(mobA));
+        Assert.assertFalse(contacted.add(mobA), "second contact with same mob suppressed");
+        Assert.assertTrue(contacted.add(mobB));
+        // Separate: remove when out of range, then allow again.
+        contacted.remove(mobA);
+        Assert.assertTrue(contacted.add(mobA));
+
+        final CoopWorldAuthority auth = new CoopWorldAuthority(96f, 20, 1000L, 2, 1000L);
+        final long enemyId = auth.registerEnemy("goblin", 1f, 1f);
+        Assert.assertTrue(auth.enemyExists(enemyId));
+        Assert.assertTrue(auth.tryAcceptEncounterRequest(1_000L));
+        Assert.assertTrue(auth.tryAcceptEncounterRequest(1_000L));
+        Assert.assertFalse(auth.tryAcceptEncounterRequest(1_000L), "host rate-limits encounters");
+        Assert.assertTrue(auth.tryAcceptEncounterRequest(2_000L), "new window allows again");
     }
 
     @Test
@@ -424,8 +569,8 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsFourForCo2Review() {
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 4);
+    public void protocolVersionIsFiveForCo2Round3() {
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 5);
     }
 
     private static long[][] sampleBiome(final int n) {

@@ -52,6 +52,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
     private static final float spawnInterval = 4;//todo config
     private PointOfInterestMapSprite collidingPoint;
     protected ArrayList<Pair<Float, EnemySprite>> enemies = new ArrayList<>();
+    /** Guest co-op: locally saved enemies held aside while mirroring the host. */
+    private final ArrayList<Pair<Float, EnemySprite>> stashedCoopEnemies = new ArrayList<>();
     /** Ascendant resource nodes (Package B); parallel to {@link #enemies}. */
     protected ArrayList<Pair<Float, ResourceNodeSprite>> nodes = new ArrayList<>();
     private final static Float dieTimer = 20f;//todo config
@@ -274,12 +276,61 @@ public class WorldStage extends GameStage implements SaveFileContent {
             if (pair.getValue() == currentMob)
                 continue; // never despawn the mob being fought
             if (globalTimer >= pair.getKey() + pair.getValue().getLifetime()) {
+                AdventureQuestController.instance().updateDespawn(pair.getValue());
                 foregroundSprites.removeActor(pair.getValue());
                 CoopOverworldRuntime.get().onHostEnemyRemoved(pair.getValue());
                 enemies.remove(i);
                 i--;
             }
         }
+    }
+
+    /**
+     * Guest session start: stash locally saved enemies so the host mirror is the
+     * only enemy set. Restored on {@link #coopRestoreStashedEnemies()}.
+     */
+    public void coopStashAndClearLocalEnemies() {
+        stashedCoopEnemies.clear();
+        for (Pair<Float, EnemySprite> pair : enemies) {
+            if (pair != null && pair.getValue() != null
+                    && !CoopOverworldRuntime.get().isMirroredActor(pair.getValue())) {
+                stashedCoopEnemies.add(pair);
+                foregroundSprites.removeActor(pair.getValue());
+            }
+        }
+        enemies.clear();
+    }
+
+    public void coopRestoreStashedEnemies() {
+        for (Pair<Float, EnemySprite> pair : stashedCoopEnemies) {
+            if (pair == null || pair.getValue() == null) {
+                continue;
+            }
+            enemies.add(pair);
+            foregroundSprites.addActor(pair.getValue());
+        }
+        stashedCoopEnemies.clear();
+    }
+
+    /**
+     * Guest: apply the normal solo gather reward path after the host confirms
+     * the claim (item 6 — guest rolls with local skills, matching solo).
+     */
+    public void coopApplyGuestGatherRewards(String materialId) {
+        if (materialId == null || materialId.isEmpty()) {
+            return;
+        }
+        MaterialData mat = MaterialListData.get(materialId);
+        if (mat == null) {
+            return;
+        }
+        AdventurePlayer ap = Current.player();
+        if (ap == null) {
+            return;
+        }
+        StringBuilder msg = new StringBuilder();
+        grantGatherRewards(mat, ap, msg, true);
+        GameHUD.getInstance().addNotification(msg.toString());
     }
 
     /** Host READY snapshot: register any already-spawned enemies/nodes. */
@@ -1214,8 +1265,10 @@ public class WorldStage extends GameStage implements SaveFileContent {
         for (Pair<Float, ResourceNodeSprite> node : nodes)
             foregroundSprites.removeActor(node.getValue());
         nodes.clear();
+        stashedCoopEnemies.clear();
         background.clear();
         player = null;
+        CoopOverworldRuntime.get().clearEntityIdMaps();
     }
 
     @Override

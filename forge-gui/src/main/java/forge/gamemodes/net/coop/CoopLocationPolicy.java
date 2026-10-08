@@ -62,8 +62,13 @@ public final class CoopLocationPolicy {
 
     public void markPartnerEntered(final String poiId) {
         final String id = CoopWireLimits.clampString(poiId, CoopWireLimits.MAX_POI_ID_LEN);
-        activePoiId = id;
         partnerAcceptedPending = false;
+        // Do not overwrite activePoiId when the local player is already in a different POI.
+        if ((occupancy == InteriorOccupancy.LOCAL || occupancy == InteriorOccupancy.BOTH)
+                && !activePoiId.isEmpty() && !id.equals(activePoiId)) {
+            return;
+        }
+        activePoiId = id;
         if (occupancy == InteriorOccupancy.LOCAL || occupancy == InteriorOccupancy.BOTH) {
             occupancy = InteriorOccupancy.BOTH;
         } else {

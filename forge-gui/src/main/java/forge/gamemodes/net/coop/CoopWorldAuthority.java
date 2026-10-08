@@ -45,11 +45,29 @@ public final class CoopWorldAuthority {
         }
     }
 
+    /**
+     * Guest gather / encounter request ids are positive and guest-generated;
+     * the host echoes them on results. Host-local claims use a separate
+     * negative id space and never produce a wire result for the guest.
+     */
+    public static final long HOST_LOCAL_REQUEST_ID_START = -1L;
+
+    /**
+     * On disconnect: only the guest removes mirrored sprites from the stage.
+     * The host merely clears id maps — its {@code localNodesById} /
+     * {@code localEnemiesById} entries are real world entities.
+     */
+    public static boolean shouldRemoveEntitiesOnDisconnect(final boolean isWorldAuthority) {
+        return !isWorldAuthority;
+    }
+
     private final AtomicLong nextNodeId = new AtomicLong(1L);
     private final AtomicLong nextEnemyId = new AtomicLong(1L);
+    private final AtomicLong nextHostLocalRequestId = new AtomicLong(HOST_LOCAL_REQUEST_ID_START);
     private final Map<Long, NodeRecord> nodes = new ConcurrentHashMap<>();
     private final Map<Long, EnemyRecord> enemies = new ConcurrentHashMap<>();
     private final CoopRateLimiter gatherRequestLimiter;
+    private final CoopRateLimiter encounterRequestLimiter;
     private final float interactRangePx;
 
     public CoopWorldAuthority() {
@@ -58,12 +76,47 @@ public final class CoopWorldAuthority {
 
     public CoopWorldAuthority(final float interactRangePx, final int maxGatherRequestsPerWindow,
                               final long gatherWindowMs) {
+        this(interactRangePx, maxGatherRequestsPerWindow, gatherWindowMs,
+                CoopWireLimits.DEFAULT_ENCOUNTER_MAX_PER_WINDOW,
+                CoopWireLimits.DEFAULT_ENCOUNTER_WINDOW_MS);
+    }
+
+    public CoopWorldAuthority(final float interactRangePx, final int maxGatherRequestsPerWindow,
+                              final long gatherWindowMs, final int maxEncounterRequestsPerWindow,
+                              final long encounterWindowMs) {
         this.interactRangePx = interactRangePx > 0f ? interactRangePx : CoopWireLimits.DEFAULT_INTERACT_RANGE_PX;
         this.gatherRequestLimiter = new CoopRateLimiter(Math.max(1, maxGatherRequestsPerWindow), gatherWindowMs);
+        this.encounterRequestLimiter = new CoopRateLimiter(
+                Math.max(1, maxEncounterRequestsPerWindow), Math.max(1L, encounterWindowMs));
     }
 
     public CoopRateLimiter getGatherRequestLimiter() {
         return gatherRequestLimiter;
+    }
+
+    public CoopRateLimiter getEncounterRequestLimiter() {
+        return encounterRequestLimiter;
+    }
+
+    /** Next id for a host-local claim (negative; never sent as a gather result). */
+    public long nextHostLocalRequestId() {
+        return nextHostLocalRequestId.getAndDecrement();
+    }
+
+    public static boolean isGuestRequestId(final long requestId) {
+        return requestId > 0L;
+    }
+
+    public static boolean isHostLocalRequestId(final long requestId) {
+        return requestId < 0L;
+    }
+
+    /**
+     * Host rate-limit for guest encounter requests. Does not mutate enemy state.
+     * @return true if the request is allowed under the current budget
+     */
+    public boolean tryAcceptEncounterRequest(final long nowMs) {
+        return encounterRequestLimiter.tryAcquire(nowMs);
     }
 
     public float getInteractRangePx() {
@@ -241,6 +294,7 @@ public final class CoopWorldAuthority {
         nodes.clear();
         enemies.clear();
         gatherRequestLimiter.reset();
+        encounterRequestLimiter.reset();
     }
 
     public int nodeCount() {

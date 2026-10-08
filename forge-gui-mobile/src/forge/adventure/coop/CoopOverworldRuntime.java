@@ -22,6 +22,7 @@ import forge.adventure.util.Current;
 import forge.gamemodes.net.coop.CoopLocationPolicy;
 import forge.gamemodes.net.coop.CoopPartyState;
 import forge.gamemodes.net.coop.CoopPositionSync;
+import forge.gamemodes.net.coop.CoopRateLimiter;
 import forge.gamemodes.net.coop.CoopWireLimits;
 import forge.gamemodes.net.coop.CoopWorldAuthority;
 import forge.gamemodes.net.event.NetEvent;
@@ -39,6 +40,8 @@ import forge.gamemodes.net.event.coop.CoopPartyResponseEvent;
 import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -59,8 +62,12 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
     private volatile CoopPartnerSprite partnerSprite;
     private volatile float partnerX = Float.NaN;
     private volatile float partnerY = Float.NaN;
+    /** Local player position cached on the GL thread for {@link #partnersNearby()}. */
+    private volatile float localPlayerX = Float.NaN;
+    private volatile float localPlayerY = Float.NaN;
     private volatile long lastEnemyBroadcastMs;
     private final AtomicLong locationInviteSeq = new AtomicLong(1L);
+    /** Guest-generated positive request ids (host echoes them). */
     private final AtomicLong gatherRequestSeq = new AtomicLong(1L);
     private final AtomicLong encounterRequestSeq = new AtomicLong(1L);
     private final Map<Long, ResourceNodeSprite> localNodesById = new ConcurrentHashMap<>();
@@ -72,9 +79,19 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
     private volatile boolean pendingGatherAwaitingHost;
     private volatile long pendingGatherRequestId = -1L;
     private volatile long pendingGatherNodeId = -1L;
+    private volatile String pendingGatherMaterialId = "";
     private volatile boolean hostWorldPaused;
     private volatile String hostPresenceLabel = "";
     private volatile CoopHostPresenceEvent.Presence localPresence = CoopHostPresenceEvent.Presence.OVERWORLD;
+    /** Enemy ids the guest already requested this contact (cleared when separated). */
+    private final Set<Long> encounterContactedIds = ConcurrentHashMap.newKeySet();
+    /** Host SPAWN events queued while world sim is paused; flushed on resume. */
+    private final List<NetEvent> pausedSpawnQueue = new ArrayList<>();
+    /**
+     * Inbound teleport samples from the peer (waypoint / portal / reset) that
+     * were not pre-armed by a location-exit. Caps abuse of the teleport flag.
+     */
+    private final CoopRateLimiter teleportAcceptLimiter = new CoopRateLimiter(2, 10_000L);
 
     private CoopOverworldRuntime() {
     }
@@ -131,32 +148,61 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         pendingGatherAwaitingHost = false;
         pendingGatherRequestId = -1L;
         pendingGatherNodeId = -1L;
+        pendingGatherMaterialId = "";
         hostWorldPaused = false;
         hostPresenceLabel = "";
         localPresence = CoopHostPresenceEvent.Presence.OVERWORLD;
-        postGl(this::ensurePartnerSprite);
-        if (CoopHooks.isWorldAuthority()) {
-            postGl(this::sendReadySnapshot);
+        encounterContactedIds.clear();
+        teleportAcceptLimiter.reset();
+        synchronized (pausedSpawnQueue) {
+            pausedSpawnQueue.clear();
         }
-        notifyHud("Co-op overworld ready");
+        postGl(() -> {
+            ensurePartnerSprite();
+            if (!CoopHooks.isWorldAuthority()) {
+                WorldStage.getInstance().coopStashAndClearLocalEnemies();
+            }
+            if (CoopHooks.isWorldAuthority()) {
+                sendReadySnapshot();
+            }
+        });
+        notifyHud(capHud("Co-op overworld ready"));
     }
 
     public void onSessionEnded(final String reason) {
+        final boolean removeEntities = CoopWorldAuthority.shouldRemoveEntitiesOnDisconnect(
+                CoopHooks.isWorldAuthority());
         party.clearParty();
         locationPolicy.reset();
         pendingGatherAwaitingHost = false;
         pendingGatherRequestId = -1L;
         pendingGatherNodeId = -1L;
+        pendingGatherMaterialId = "";
         hostWorldPaused = false;
         hostPresenceLabel = "";
+        encounterContactedIds.clear();
+        teleportAcceptLimiter.reset();
+        synchronized (pausedSpawnQueue) {
+            pausedSpawnQueue.clear();
+        }
         if (authority != null) {
             authority.clear();
         }
         if (positionSync != null) {
             positionSync.clear();
         }
-        final Map<Long, ResourceNodeSprite> nodesCopy = new ConcurrentHashMap<>(localNodesById);
-        final Map<Long, EnemySprite> enemiesCopy = new ConcurrentHashMap<>(localEnemiesById);
+
+        final Map<Long, ResourceNodeSprite> nodesCopy;
+        final Map<Long, EnemySprite> enemiesCopy;
+        if (removeEntities) {
+            // Guest: remove mirrored sprites from the stage.
+            nodesCopy = new ConcurrentHashMap<>(localNodesById);
+            enemiesCopy = new ConcurrentHashMap<>(localEnemiesById);
+        } else {
+            // Host: real entities stay in the world — only clear id maps.
+            nodesCopy = Map.of();
+            enemiesCopy = Map.of();
+        }
         localNodesById.clear();
         localEnemiesById.clear();
         enemyIds.clear();
@@ -164,6 +210,9 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         mirroredActors.clear();
         partnerX = Float.NaN;
         partnerY = Float.NaN;
+        localPlayerX = Float.NaN;
+        localPlayerY = Float.NaN;
+        final boolean restoreGuestEnemies = removeEntities;
         postGl(() -> {
             removePartnerSprite();
             for (final ResourceNodeSprite n : nodesCopy.values()) {
@@ -176,8 +225,24 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
                     WorldStage.getInstance().coopRemoveRemoteEnemy(e);
                 }
             }
+            if (restoreGuestEnemies) {
+                WorldStage.getInstance().coopRestoreStashedEnemies();
+            }
             clearHostBanner();
         });
+    }
+
+    /** Called from {@link WorldStage#clearCache()} so id maps cannot go stale. */
+    public void clearEntityIdMaps() {
+        localNodesById.clear();
+        localEnemiesById.clear();
+        enemyIds.clear();
+        nodeIds.clear();
+        mirroredActors.clear();
+        encounterContactedIds.clear();
+        synchronized (pausedSpawnQueue) {
+            pausedSpawnQueue.clear();
+        }
     }
 
     private void ensureAttached() {
@@ -195,13 +260,15 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         final long now = System.currentTimeMillis();
         final long timeout = inviteTimeoutMs();
         if (party.expireIfNeeded(now, timeout)) {
-            notifyHud("Party invite expired");
+            notifyHud(capHud("Party invite expired"));
         }
         if (locationPolicy.expireIfNeeded(now, timeout)) {
-            notifyHud("Location invite expired");
+            notifyHud(capHud("Location invite expired"));
         }
         final ConfigData cfg = Config.instance().getConfigData();
+        cacheLocalPlayerPosition();
         sendLocalPosition();
+        updateEncounterSeparation();
         final CoopPartnerSprite sprite = partnerSprite;
         if (sprite != null) {
             sprite.interpolate(delta, cfg.coopPartnerInterpRate > 0f ? cfg.coopPartnerInterpRate : 12f);
@@ -232,6 +299,21 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         tick(delta);
     }
 
+    private void cacheLocalPlayerPosition() {
+        try {
+            final PlayerSprite player = WorldStage.getInstance().getPlayerSprite();
+            if (player != null) {
+                localPlayerX = player.getX();
+                localPlayerY = player.getY();
+                final CoopPositionSync sync = positionSync;
+                if (sync != null) {
+                    sync.setMaxSpeedPxPerSec(player.getMaxSpeedPxPerSec());
+                }
+            }
+        } catch (final Exception ignored) {
+        }
+    }
+
     private void sendLocalPosition() {
         final CoopPositionSync sync = positionSync;
         if (sync == null) {
@@ -250,6 +332,8 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         if (player == null) {
             return;
         }
+        localPlayerX = player.getX();
+        localPlayerY = player.getY();
         final AdventurePlayer ap = Current.player();
         final String name = ap != null ? ap.getName() : "";
         String avatar = ap != null ? ap.spriteName() : player.getAtlasPath();
@@ -258,10 +342,68 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         }
         final float facing = player.getDirection() != null ? player.getDirection().ordinal() : 0f;
         final String safeName = CoopWireLimits.acceptPlayerName(name);
+        final float maxSpeed = player.getMaxSpeedPxPerSec();
+        sync.setMaxSpeedPxPerSec(maxSpeed);
         CoopSession.get().send(new CoopPlayerMoveEvent(
                 player.getX(), player.getY(), facing, now,
-                safeName == null ? "" : safeName, avatar));
+                safeName == null ? "" : safeName, avatar, maxSpeed, false));
         sync.markSent(now);
+    }
+
+    /**
+     * Waypoint / portal / resetPlayerLocation / POI exit: send an explicit
+     * teleport sample and reset local last-accepted. Peer must have armed
+     * teleport (location exit arms the partner; local allowing actions arm
+     * before send for the peer via {@link #armPeerTeleport()}).
+     */
+    public void notifyLocalTeleport() {
+        if (!CoopHooks.isOverworldReady()) {
+            return;
+        }
+        final CoopPositionSync sync = positionSync;
+        if (sync == null) {
+            return;
+        }
+        PlayerSprite player = null;
+        try {
+            player = WorldStage.getInstance().getPlayerSprite();
+        } catch (final Exception ignored) {
+        }
+        if (player == null) {
+            return;
+        }
+        localPlayerX = player.getX();
+        localPlayerY = player.getY();
+        final AdventurePlayer ap = Current.player();
+        final String name = ap != null ? ap.getName() : "";
+        String avatar = ap != null ? ap.spriteName() : player.getAtlasPath();
+        if (avatar == null || !CoopWireLimits.isAllowedAvatarId(avatar)) {
+            avatar = "sprites/heroes/Human_m.atlas";
+        }
+        final float facing = player.getDirection() != null ? player.getDirection().ordinal() : 0f;
+        final String safeName = CoopWireLimits.acceptPlayerName(name);
+        final float maxSpeed = player.getMaxSpeedPxPerSec();
+        final long now = System.currentTimeMillis();
+        sync.setMaxSpeedPxPerSec(maxSpeed);
+        sync.resetLastAccepted(player.getX(), player.getY(), facing, now,
+                safeName == null ? "" : safeName, avatar);
+        // Peer will accept this only if they have armed teleport.
+        armPeerTeleport();
+        CoopSession.get().send(new CoopPlayerMoveEvent(
+                player.getX(), player.getY(), facing, now,
+                safeName == null ? "" : safeName, avatar, maxSpeed, true));
+        sync.markSent(now);
+    }
+
+    /**
+     * Tell the peer (via a local arm before they validate our next teleport)
+     * is handled on receive of location-exit / by allowing the next inbound
+     * teleport after we perform an allowing action that the peer mirrors.
+     * For inbound: arm when partner exits a POI or when we exit (they may move).
+     */
+    private void armPeerTeleport() {
+        // No-op on wire: peer arms on CoopLocationExitEvent / local allowing paths.
+        // Local sync is already reset via resetLastAccepted.
     }
 
     private void maybeBroadcastEnemies(final ConfigData cfg) {
@@ -311,6 +453,15 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         if (sync == null || !CoopHooks.isOverworldReady()) {
             return;
         }
+        // Teleport samples are accepted only after an allowing action:
+        // location-exit arms the peer, or a rate-limited grant for waypoint /
+        // portal / reset (sender only emits teleport after those actions).
+        if (event != null && event.isTeleport() && !sync.isTeleportArmed()) {
+            if (!teleportAcceptLimiter.tryAcquire(System.currentTimeMillis())) {
+                return;
+            }
+            sync.allowTeleport();
+        }
         final CoopPlayerMoveEvent accepted = sync.acceptInbound(event);
         if (accepted == null) {
             return;
@@ -331,9 +482,8 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         if (!CoopHooks.isOverworldReady()) {
             return;
         }
-        // Receiving-side distance check.
         if (!partnersNearby()) {
-            notifyHud("Party invite ignored — too far away");
+            notifyHud(capHud("Party invite ignored — too far away"));
             return;
         }
         final CoopPartyState.InviteOutcome outcome =
@@ -344,10 +494,10 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         if (outcome == CoopPartyState.InviteOutcome.MUTUAL_ACCEPT) {
             CoopSession.get().send(new CoopPartyResponseEvent(event.getInviteId(),
                     CoopPartyResponseEvent.Action.ACCEPT));
-            notifyHud("Party formed (mutual invite) with " + event.getFromPlayer());
+            notifyHud(capHud("Party formed (mutual invite) with " + capName(event.getFromPlayer())));
             return;
         }
-        notifyHud(event.getFromPlayer() + " invited you to a party (Accept / Decline)");
+        notifyHud(capHud(capName(event.getFromPlayer()) + " invited you to a party (Accept / Decline)"));
         postGl(() -> promptPartyInvite(event));
     }
 
@@ -361,11 +511,11 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
             return;
         }
         if (event.getAction() == CoopPartyResponseEvent.Action.ACCEPT) {
-            notifyHud("Party formed with " + peer);
+            notifyHud(capHud("Party formed with " + capName(peer)));
         } else if (event.getAction() == CoopPartyResponseEvent.Action.DECLINE) {
-            notifyHud(peer + " declined the party invite");
+            notifyHud(capHud(capName(peer) + " declined the party invite"));
         } else if (event.getAction() == CoopPartyResponseEvent.Action.LEAVE) {
-            notifyHud("Party disbanded");
+            notifyHud(capHud("Party disbanded"));
         }
     }
 
@@ -374,10 +524,14 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         if (!CoopHooks.isOverworldReady() || !CoopHooks.isWorldAuthority() || authority == null) {
             return;
         }
+        if (event == null || !CoopWorldAuthority.isGuestRequestId(event.getRequestId())) {
+            return; // host-local id space must never arrive on the wire
+        }
         final String guest = CoopSession.get().getPeerName();
         final CoopPlayerMoveEvent last = positionSync != null ? positionSync.getLastAccepted() : null;
         final float ax = last != null ? last.getX() : Float.NaN;
         final float ay = last != null ? last.getY() : Float.NaN;
+        // Amount is echoed for acknowledgement only; guest applies solo rewards locally.
         final CoopGatherResultEvent result = authority.handleGatherRequest(
                 event, guest, 1, ax, ay, System.currentTimeMillis());
         CoopSession.get().send(result);
@@ -421,13 +575,16 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         if (authority == null || !authority.enemyExists(event.getEnemyId())) {
             return;
         }
+        // Host rate-limit; no HUD message per request.
+        if (!authority.tryAcceptEncounterRequest(System.currentTimeMillis())) {
+            return;
+        }
         final String guest = CoopSession.get().getPeerName();
         // CO3 hook — if a handler is registered it owns the fight start.
         if (CoopHooks.notifyGuestEnemyEncounter(event.getEnemyId(), event.getEnemyDataId(), guest)) {
             return;
         }
-        // CO2: no co-op duel yet — acknowledge only (guest stays on overworld).
-        notifyHud(guest + " bumped enemy " + event.getEnemyDataId() + " (solo fight on host later / CO3)");
+        // CO2: no co-op duel yet — acknowledge silently (guest stays on overworld).
     }
 
     @Override
@@ -435,12 +592,12 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         if (!CoopHooks.isOverworldReady() || event == null) {
             return;
         }
-        // Partner actually entered this POI (accepter path marks inside only on enter).
         if (event.getChangeType() == CoopPoiChangeEvent.ChangeType.VISITED) {
             locationPolicy.markPartnerEntered(event.getPoiId());
         }
         if (!CoopHooks.isWorldAuthority()) {
-            notifyHud("World update: " + event.getChangeType() + " @ " + event.getPoiId());
+            notifyHud(capHud("World update: " + event.getChangeType() + " @ "
+                    + CoopWireLimits.clampString(event.getPoiId(), CoopWireLimits.MAX_POI_ID_LEN)));
         }
     }
 
@@ -450,7 +607,7 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
             return;
         }
         if (!partnersNearby()) {
-            notifyHud("Location invite ignored — too far away");
+            notifyHud(capHud("Location invite ignored — too far away"));
             return;
         }
         locationPolicy.setPendingInvite(event.getInviteId(), event.getPoiId(), System.currentTimeMillis());
@@ -463,11 +620,10 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
             return;
         }
         if (event.getAction() == CoopLocationResponseEvent.Action.ACCEPT) {
-            // Do NOT mark partner inside until they actually enter.
             locationPolicy.markPartnerAcceptedInvite();
-            notifyHud("Partner accepted — they will enter when ready");
+            notifyHud(capHud("Partner accepted — they will enter when ready"));
         } else {
-            notifyHud("Partner will wait outside");
+            notifyHud(capHud("Partner will wait outside"));
         }
         locationPolicy.clearPending();
     }
@@ -478,8 +634,13 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
             return;
         }
         locationPolicy.markPartnerExited();
-        notifyHud((event.getFromPlayer() == null || event.getFromPlayer().isEmpty()
-                ? "Partner" : event.getFromPlayer()) + " returned to the overworld");
+        // Partner left an interior — arm teleport acceptance for their exit reposition.
+        if (positionSync != null) {
+            positionSync.allowTeleport();
+        }
+        final String who = event.getFromPlayer() == null || event.getFromPlayer().isEmpty()
+                ? "Partner" : capName(event.getFromPlayer());
+        notifyHud(capHud(who + " returned to the overworld"));
     }
 
     @Override
@@ -487,14 +648,19 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         if (!CoopHooks.isOverworldReady() || CoopHooks.isWorldAuthority() || event == null) {
             return;
         }
+        final boolean wasPaused = hostWorldPaused;
         hostWorldPaused = event.isWorldPaused();
-        hostPresenceLabel = event.getPlaceLabel() == null ? "" : event.getPlaceLabel();
+        hostPresenceLabel = event.getPlaceLabel() == null ? ""
+                : CoopWireLimits.clampString(event.getPlaceLabel(), CoopWireLimits.MAX_DISPLAY_NAME_LEN);
         postGl(() -> {
             if (hostWorldPaused) {
                 final String label = hostPresenceLabel.isEmpty() ? "somewhere" : hostPresenceLabel;
-                showHostBanner("Host is in " + label);
+                showHostBanner(capHud("Host is in " + label));
             } else {
                 clearHostBanner();
+                if (wasPaused) {
+                    flushPausedSpawns();
+                }
             }
         });
     }
@@ -510,18 +676,18 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
             return;
         }
         if (!partnersNearby()) {
-            notifyHud("Partner is too far away to invite");
+            notifyHud(capHud("Partner is too far away to invite"));
             return;
         }
         final AdventurePlayer ap = Current.player();
         final CoopPartyInviteEvent invite = party.createInvite(
                 ap != null ? ap.getName() : "Player", System.currentTimeMillis());
         if (invite == null) {
-            notifyHud("Cannot invite right now");
+            notifyHud(capHud("Cannot invite right now"));
             return;
         }
         CoopSession.get().send(invite);
-        notifyHud("Party invite sent");
+        notifyHud(capHud("Party invite sent"));
     }
 
     public void acceptParty() {
@@ -529,7 +695,7 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
                 CoopPartyResponseEvent.Action.ACCEPT, System.currentTimeMillis(), inviteTimeoutMs());
         if (resp != null) {
             CoopSession.get().send(resp);
-            notifyHud("Joined party");
+            notifyHud(capHud("Joined party"));
         }
     }
 
@@ -538,7 +704,7 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
                 CoopPartyResponseEvent.Action.DECLINE, System.currentTimeMillis(), inviteTimeoutMs());
         if (resp != null) {
             CoopSession.get().send(resp);
-            notifyHud("Declined party invite");
+            notifyHud(capHud("Declined party invite"));
         }
     }
 
@@ -546,24 +712,25 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         final CoopPartyResponseEvent resp = party.respond(CoopPartyResponseEvent.Action.LEAVE);
         if (resp != null) {
             CoopSession.get().send(resp);
-            notifyHud("Left party");
+            notifyHud(capHud("Left party"));
         }
     }
 
+    /**
+     * Distance check using positions cached on the GL thread (never reads
+     * {@link PlayerSprite} off-thread).
+     */
     public boolean partnersNearby() {
         if (!CoopHooks.isOverworldReady()) {
             return false;
         }
-        if (Float.isNaN(partnerX) || Float.isNaN(partnerY)) {
-            return false;
-        }
-        final PlayerSprite player = WorldStage.getInstance().getPlayerSprite();
-        if (player == null) {
+        if (Float.isNaN(partnerX) || Float.isNaN(partnerY)
+                || Float.isNaN(localPlayerX) || Float.isNaN(localPlayerY)) {
             return false;
         }
         final float tile = CoopHooks.activeWorld() != null ? CoopHooks.activeWorld().getTileSize() : 16f;
         final float radius = Config.instance().getConfigData().coopPartyRadiusTiles;
-        return CoopPartyState.withinRadius(player.getX(), player.getY(), partnerX, partnerY, tile, radius);
+        return CoopPartyState.withinRadius(localPlayerX, localPlayerY, partnerX, partnerY, tile, radius);
     }
 
     public long onHostNodeSpawned(final ResourceNodeSprite node, final String materialId) {
@@ -576,9 +743,12 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         }
         nodeIds.put(node, id);
         localNodesById.put(id, node);
-        if (!hostWorldPaused) {
-            CoopSession.get().send(new CoopNodeStateEvent(id, CoopNodeStateEvent.Action.SPAWN,
-                    materialId, node.getX(), node.getY(), ""));
+        final CoopNodeStateEvent spawn = new CoopNodeStateEvent(id, CoopNodeStateEvent.Action.SPAWN,
+                materialId, node.getX(), node.getY(), "");
+        if (hostWorldPaused) {
+            queuePausedSpawn(spawn);
+        } else {
+            CoopSession.get().send(spawn);
         }
         return id;
     }
@@ -604,10 +774,13 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         }
         enemyIds.put(enemy, id);
         localEnemiesById.put(id, enemy);
-        if (!hostWorldPaused) {
-            final float facing = enemy.getDirection() != null ? enemy.getDirection().ordinal() : 0f;
-            CoopSession.get().send(new CoopEnemyStateEvent(id, CoopEnemyStateEvent.Action.SPAWN,
-                    dataId, enemy.getX(), enemy.getY(), facing));
+        final float facing = enemy.getDirection() != null ? enemy.getDirection().ordinal() : 0f;
+        final CoopEnemyStateEvent spawn = new CoopEnemyStateEvent(id, CoopEnemyStateEvent.Action.SPAWN,
+                dataId, enemy.getX(), enemy.getY(), facing);
+        if (hostWorldPaused) {
+            queuePausedSpawn(spawn);
+        } else {
+            CoopSession.get().send(spawn);
         }
         return id;
     }
@@ -664,33 +837,34 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
                     localNodesById.put(nodeId, node);
                 }
             }
-            final long reqId = gatherRequestSeq.getAndIncrement();
+            // Host-local id space — never produce a gather-result event for the guest.
+            final long reqId = authority.nextHostLocalRequestId();
             final CoopGatherResultEvent result = authority.claimLocal(reqId, nodeId, who, amount, px, py);
             if (result.isAccepted()) {
-                CoopSession.get().send(result);
                 CoopSession.get().send(new CoopNodeStateEvent(result.getNodeId(),
                         CoopNodeStateEvent.Action.CLAIMED, result.getMaterialId(), 0f, 0f, who));
                 removeLocalNode(result.getNodeId());
                 return true;
             }
-            notifyHud("Could not claim node: " + result.getReason());
+            notifyHud(capHud("Could not claim node: " + result.getReason()));
             return false;
         }
         if (id < 0L) {
-            notifyHud("That node is not in the shared world");
+            notifyHud(capHud("That node is not in the shared world"));
             return false;
         }
         final long reqId = gatherRequestSeq.getAndIncrement();
         pendingGatherAwaitingHost = true;
         pendingGatherRequestId = reqId;
         pendingGatherNodeId = id;
+        pendingGatherMaterialId = node != null && node.getMaterialId() != null ? node.getMaterialId() : "";
         CoopSession.get().send(new CoopGatherRequestEvent(reqId, id, px, py, System.currentTimeMillis()));
         return false;
     }
 
     /**
-     * Guest collided with a mirrored host enemy — send encounter request; never
-     * start a local duel on the guest.
+     * Guest collided with a mirrored host enemy — one request per mob per
+     * contact; cooldown until they separate. Never starts a local duel.
      */
     public void onGuestEnemyCollision(final EnemySprite mob) {
         if (!CoopHooks.isOverworldReady() || CoopHooks.isWorldAuthority() || mob == null) {
@@ -700,13 +874,37 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         if (id < 0L) {
             return;
         }
+        if (!encounterContactedIds.add(id)) {
+            return; // already requested this contact
+        }
         final PlayerSprite player = WorldStage.getInstance().getPlayerSprite();
         final String dataId = mob.getData() != null ? mob.getData().getName() : "";
         CoopSession.get().send(new CoopEnemyEncounterRequestEvent(
                 encounterRequestSeq.getAndIncrement(), id, dataId,
                 player != null ? player.getX() : 0f,
                 player != null ? player.getY() : 0f));
-        notifyHud("Waiting for host…");
+        // No per-request HUD spam on guest either.
+    }
+
+    private void updateEncounterSeparation() {
+        if (encounterContactedIds.isEmpty() || Float.isNaN(localPlayerX)) {
+            return;
+        }
+        final float range = authority != null ? authority.getInteractRangePx()
+                : CoopWireLimits.DEFAULT_INTERACT_RANGE_PX;
+        final float rangeSq = range * range;
+        for (final Long id : new ArrayList<>(encounterContactedIds)) {
+            final EnemySprite sprite = localEnemiesById.get(id);
+            if (sprite == null) {
+                encounterContactedIds.remove(id);
+                continue;
+            }
+            final float dx = localPlayerX - sprite.getX();
+            final float dy = localPlayerY - sprite.getY();
+            if (dx * dx + dy * dy > rangeSq) {
+                encounterContactedIds.remove(id);
+            }
+        }
     }
 
     public boolean beforeEnterPoi(final PointOfInterest poi) {
@@ -715,7 +913,7 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         }
         final String poiId = poi.getID() != null ? poi.getID() : poi.getData() != null ? poi.getData().name : "";
         if (!locationPolicy.canEnter(poiId)) {
-            notifyHud("Partner is inside another location — wait outside (v1 rule)");
+            notifyHud(capHud("Partner is inside another location — wait outside (v1 rule)"));
             return false;
         }
         if (party.inParty() && partnersNearby()) {
@@ -726,12 +924,12 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
             locationPolicy.setPendingInvite(inviteId, poiId, System.currentTimeMillis());
             CoopSession.get().send(new CoopLocationInviteEvent(inviteId, name, poiId, display,
                     timeout > 0 ? timeout : 12));
-            notifyHud("Asked partner to come along to " + display);
+            notifyHud(capHud("Asked partner to come along to "
+                    + CoopWireLimits.clampString(display, CoopWireLimits.MAX_DISPLAY_NAME_LEN)));
         }
         locationPolicy.markLocalEntered(poiId);
         setLocalPresence(CoopHostPresenceEvent.Presence.INTERIOR,
                 poi.getData() != null ? poi.getData().name : poiId);
-        // Tell the peer we actually entered (marks accepter inside on their side).
         CoopSession.get().send(new CoopPoiChangeEvent(poiId, CoopPoiChangeEvent.ChangeType.VISITED, "", 0L));
         return true;
     }
@@ -745,6 +943,11 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         final String name = Current.player() != null ? Current.player().getName() : "Player";
         CoopSession.get().send(new CoopLocationExitEvent(poiId, name));
         setLocalPresence(CoopHostPresenceEvent.Presence.OVERWORLD, "");
+        // Arm our own inbound for partner follow-up, and send teleport for exit reposition.
+        if (positionSync != null) {
+            positionSync.allowTeleport();
+        }
+        notifyLocalTeleport();
     }
 
     /** Host enters a duel — pause shared world sim for both. */
@@ -768,14 +971,39 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
     }
 
     private void setLocalPresence(final CoopHostPresenceEvent.Presence presence, final String label) {
+        final boolean wasPaused = hostWorldPaused;
         localPresence = presence;
         if (!CoopHooks.isWorldAuthority()) {
             return;
         }
         hostWorldPaused = presence == CoopHostPresenceEvent.Presence.INTERIOR
                 || presence == CoopHostPresenceEvent.Presence.DUEL;
-        hostPresenceLabel = label == null ? "" : label;
+        hostPresenceLabel = label == null ? ""
+                : CoopWireLimits.clampString(label, CoopWireLimits.MAX_DISPLAY_NAME_LEN);
         CoopSession.get().send(new CoopHostPresenceEvent(presence, hostPresenceLabel));
+        if (wasPaused && !hostWorldPaused) {
+            flushPausedSpawns();
+        }
+    }
+
+    private void queuePausedSpawn(final NetEvent spawn) {
+        synchronized (pausedSpawnQueue) {
+            pausedSpawnQueue.add(spawn);
+        }
+    }
+
+    private void flushPausedSpawns() {
+        final List<NetEvent> copy;
+        synchronized (pausedSpawnQueue) {
+            if (pausedSpawnQueue.isEmpty()) {
+                return;
+            }
+            copy = new ArrayList<>(pausedSpawnQueue);
+            pausedSpawnQueue.clear();
+        }
+        for (final NetEvent e : copy) {
+            CoopSession.get().send(e);
+        }
     }
 
     public boolean guestShouldSkipLocalSpawns() {
@@ -798,9 +1026,8 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
             return;
         }
         CoopSession.get().send(new CoopLocationResponseEvent(id, CoopLocationResponseEvent.Action.ACCEPT));
-        // Accepter is marked inside only when they actually enter (beforeEnterPoi).
         locationPolicy.clearPending();
-        notifyHud("Accepted — enter the same location when ready");
+        notifyHud(capHud("Accepted — enter the same location when ready"));
     }
 
     public void declineLocationInvite() {
@@ -810,7 +1037,7 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         }
         CoopSession.get().send(new CoopLocationResponseEvent(id, CoopLocationResponseEvent.Action.DECLINE));
         locationPolicy.clearPending();
-        notifyHud("Waiting outside");
+        notifyHud(capHud("Waiting outside"));
     }
 
     // ---- GL helpers ----
@@ -838,36 +1065,27 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         if (event == null) {
             return;
         }
+        // Match by guest-generated request id only — no player-name fallback.
         final boolean matchRequest = pendingGatherAwaitingHost
-                && event.getRequestId() == pendingGatherRequestId;
-        final AdventurePlayer ap = Current.player();
-        final String me = ap != null ? ap.getName() : "";
-        final boolean matchClaimedBy = event.isAccepted() && me.equals(event.getClaimedBy());
-        if (matchRequest || (pendingGatherAwaitingHost && matchClaimedBy
-                && event.getNodeId() == pendingGatherNodeId)) {
+                && event.getRequestId() == pendingGatherRequestId
+                && CoopWorldAuthority.isGuestRequestId(event.getRequestId());
+        if (matchRequest) {
             pendingGatherAwaitingHost = false;
+            final String materialId = pendingGatherMaterialId.isEmpty()
+                    ? event.getMaterialId() : pendingGatherMaterialId;
             pendingGatherRequestId = -1L;
             pendingGatherNodeId = -1L;
+            pendingGatherMaterialId = "";
             if (event.isAccepted()) {
-                applyLocalLoot(event.getMaterialId(), event.getAmount());
-                notifyHud("Gathered " + event.getAmount() + " " + event.getMaterialId());
+                // Item 6: guest applies the normal solo reward path on confirmed claim.
+                WorldStage.getInstance().coopApplyGuestGatherRewards(materialId);
             } else {
-                notifyHud("Gather denied: " + event.getReason());
+                notifyHud(capHud("Gather denied: " + event.getReason()));
             }
-        } else if (event.isAccepted()) {
-            notifyHud(event.getClaimedBy() + " claimed a node");
+        } else if (event.isAccepted() && CoopWorldAuthority.isGuestRequestId(event.getRequestId())) {
+            notifyHud(capHud(capName(event.getClaimedBy()) + " claimed a node"));
         }
         removeLocalNode(event.getNodeId());
-    }
-
-    private void applyLocalLoot(final String materialId, final int amount) {
-        if (materialId == null || materialId.isEmpty() || amount <= 0) {
-            return;
-        }
-        final AdventurePlayer ap = Current.player();
-        if (ap != null) {
-            ap.addMaterial(materialId, amount);
-        }
     }
 
     private void applyNodeState(final CoopNodeStateEvent event) {
@@ -876,6 +1094,8 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         }
         switch (event.getAction()) {
             case SPAWN: {
+                // Replace any existing sprite for this id (ghost fix).
+                removeLocalNode(event.getNodeId());
                 if (!authority.putNode(event.getNodeId(), event.getMaterialId(), event.getX(), event.getY())) {
                     return;
                 }
@@ -906,6 +1126,13 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         }
         switch (event.getAction()) {
             case SPAWN: {
+                // Replace any existing sprite for this id (ghost fix).
+                final EnemySprite old = localEnemiesById.remove(event.getEnemyId());
+                if (old != null) {
+                    enemyIds.remove(old);
+                    mirroredActors.remove(old);
+                    WorldStage.getInstance().coopRemoveRemoteEnemy(old);
+                }
                 if (!authority.putEnemy(event.getEnemyId(), event.getEnemyDataId(), event.getX(), event.getY())) {
                     return;
                 }
@@ -937,6 +1164,7 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
                     WorldStage.getInstance().coopRemoveRemoteEnemy(sprite);
                 }
                 authority.removeEnemy(event.getEnemyId());
+                encounterContactedIds.remove(event.getEnemyId());
                 break;
             }
             default:
@@ -958,31 +1186,35 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
 
     private void promptPartyInvite(final CoopPartyInviteEvent event) {
         try {
-            GameHUD.getInstance().addNotification(event.getFromPlayer()
-                    + " invited you to party — use Party Accept / Decline");
+            GameHUD.getInstance().addNotification(capHud(capName(event.getFromPlayer())
+                    + " invited you to party — use Party Accept / Decline"));
         } catch (final Exception ignored) {
         }
     }
 
     private void promptLocationInvite(final CoopLocationInviteEvent event) {
         try {
-            GameHUD.getInstance().addNotification(event.getFromPlayer()
-                    + " is entering " + event.getDisplayName()
-                    + " — Come along? (Location Accept / Decline)");
+            GameHUD.getInstance().addNotification(capHud(capName(event.getFromPlayer())
+                    + " is entering "
+                    + CoopWireLimits.clampString(event.getDisplayName(), CoopWireLimits.MAX_DISPLAY_NAME_LEN)
+                    + " — Come along? (Location Accept / Decline)"));
         } catch (final Exception ignored) {
         }
     }
 
     private void showHostBanner(final String msg) {
         try {
-            GameHUD.getInstance().addNotification(msg);
+            GameHUD.getInstance().setCoopStatusBanner(msg);
         } catch (final Exception e) {
             System.out.println("[co-op] " + msg);
         }
     }
 
     private void clearHostBanner() {
-        // Notifications are fire-and-forget; next OVERWORLD presence clears the conceptual banner.
+        try {
+            GameHUD.getInstance().clearCoopStatusBanner();
+        } catch (final Exception ignored) {
+        }
     }
 
     private void notifyHud(final String msg) {
@@ -993,6 +1225,14 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
                 System.out.println("[co-op] " + msg);
             }
         });
+    }
+
+    private static String capHud(final String msg) {
+        return CoopWireLimits.clampString(msg, CoopWireLimits.MAX_TEXT_LEN);
+    }
+
+    private static String capName(final String name) {
+        return CoopWireLimits.clampString(name, CoopWireLimits.MAX_PLAYER_NAME_LEN);
     }
 
     private static void postGl(final Runnable r) {

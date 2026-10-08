@@ -1172,6 +1172,39 @@ public class GameHUD extends Stage {
         notificationPane.getColor().a = 0f;
     }
 
+    /**
+     * CO2: show a persistent status banner (e.g. "Host is in Town") that does
+     * not auto-fade until {@link #clearCoopStatusBanner()} is called.
+     */
+    public void setCoopStatusBanner(String text) {
+        if (text == null || text.isEmpty()) {
+            clearCoopStatusBanner();
+            return;
+        }
+        notificationPane.clearActions();
+        notificationText.setWrap(false);
+        notificationText.setText(text);
+        notificationText.setColor(Color.BLACK);
+        notificationText.setWidth(Math.min(notificationText.getPrefWidth(),
+                Forge.isLandscapeMode() ? getWidth() * 0.25f : getWidth() - 25));
+        notificationText.setWrap(true);
+        notificationText.layout();
+        notificationPane.setSize(notificationText.getWidth() + 10, notificationText.getPrefHeight() + 20);
+        if (Forge.isLandscapeMode()) {
+            notificationPane.setPosition(5, 0);
+        } else {
+            notificationPane.setPosition(5, getHeight() - notificationPane.getHeight());
+        }
+        notificationPane.getColor().a = 1f;
+        notificationPane.layout();
+        notificationText.layout();
+    }
+
+    public void clearCoopStatusBanner() {
+        notificationPane.clearActions();
+        clearNotifications();
+    }
+
     public Batch getBatch() {
         return gameStage.getBatch();
     }

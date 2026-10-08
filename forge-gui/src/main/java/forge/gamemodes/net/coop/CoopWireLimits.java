@@ -26,10 +26,18 @@ public final class CoopWireLimits {
     public static final int MAX_FACING_ORDINAL = 8;
     /** Gather / interact range in world pixels (host validates guest distance). */
     public static final float DEFAULT_INTERACT_RANGE_PX = 96f;
-    /** Default max travel speed (px/s) for teleport rejection (+ margin). */
+    /** Default max travel speed (px/s) when peer has not reported one yet. */
     public static final float DEFAULT_MAX_MOVE_SPEED_PX = 120f;
-    /** Multiplier on max speed for network jitter / road/sprint bonuses. */
+    /**
+     * Hard ceiling on reported peer walk speed (px/s). Actual limit is
+     * {@code min(reported, this)} × {@link #MOVE_SPEED_MARGIN}.
+     */
+    public static final float HARD_MAX_MOVE_SPEED_PX = 600f;
+    /** Multiplier on max speed for network jitter. */
     public static final float MOVE_SPEED_MARGIN = 1.75f;
+    /** Encounter requests per peer per window (host rate limit). */
+    public static final int DEFAULT_ENCOUNTER_MAX_PER_WINDOW = 4;
+    public static final long DEFAULT_ENCOUNTER_WINDOW_MS = 1000L;
     /** Hard ceiling on gather amount reported on the wire. */
     public static final int MAX_GATHER_AMOUNT = 99;
 
