@@ -3,12 +3,13 @@ package forge.gamemodes.net.event.coop;
 import forge.gamemodes.net.event.NetEvent;
 
 /**
- * CO2: host → guest gather confirmation or denial. On accept the guest applies
- * their own loot/XP locally; the host already claimed the node.
+ * CO2: host → guest gather confirmation or denial. Matched by
+ * {@link #getRequestId()} (and {@code claimedBy}); hosts ignore inbound results.
  */
 public class CoopGatherResultEvent implements NetEvent {
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;
 
+    private final long requestId;
     private final long nodeId;
     private final boolean accepted;
     private final String claimedBy;
@@ -16,14 +17,20 @@ public class CoopGatherResultEvent implements NetEvent {
     private final int amount;
     private final String reason;
 
-    public CoopGatherResultEvent(final long nodeId, final boolean accepted, final String claimedBy,
-                                 final String materialId, final int amount, final String reason) {
+    public CoopGatherResultEvent(final long requestId, final long nodeId, final boolean accepted,
+                                 final String claimedBy, final String materialId, final int amount,
+                                 final String reason) {
+        this.requestId = requestId;
         this.nodeId = nodeId;
         this.accepted = accepted;
         this.claimedBy = claimedBy == null ? "" : claimedBy;
         this.materialId = materialId == null ? "" : materialId;
         this.amount = amount;
         this.reason = reason == null ? "" : reason;
+    }
+
+    public long getRequestId() {
+        return requestId;
     }
 
     public long getNodeId() {

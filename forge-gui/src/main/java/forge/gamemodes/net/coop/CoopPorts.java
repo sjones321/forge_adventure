@@ -12,7 +12,7 @@ public final class CoopPorts {
     public static final int OVERWORLD_PORT = 36744;
 
     /** Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change. */
-    public static final int PROTOCOL_VERSION = 3;
+    public static final int PROTOCOL_VERSION = 4;
 
     /** Length of the short session code shown by the host. */
     public static final int SESSION_CODE_LENGTH = 8;

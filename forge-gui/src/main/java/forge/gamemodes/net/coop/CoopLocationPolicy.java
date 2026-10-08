@@ -1,15 +1,11 @@
 package forge.gamemodes.net.coop;
 
 /**
- * CO2 interior / location rule (v1).
+ * CO2 interior / location rule (v1) with invite expiry.
  *
- * <p><b>Rule:</b> both players roam the overworld freely. Entering a town,
- * dungeon or delve invites a nearby party partner. Accept → the partner enters
- * the <em>same</em> interior. Decline / timeout → the partner stays outside.
- * Only one shared interior is active at a time: while either player is inside,
- * the other cannot open a <em>different</em> interior (they may wait on the
- * overworld, or enter the same one if still invited). Different interiors at
- * once are deferred past v1.
+ * <p>Accept only marks the partner as "accepted invite" — they are marked
+ * inside when they actually enter ({@link #markLocalEntered} /
+ * {@link #markPartnerEntered}).
  */
 public final class CoopLocationPolicy {
     public enum InteriorOccupancy { NONE, LOCAL, PARTNER, BOTH }
@@ -18,6 +14,9 @@ public final class CoopLocationPolicy {
     private volatile String activePoiId = "";
     private volatile long pendingInviteId;
     private volatile String pendingPoiId = "";
+    private volatile long pendingSinceMs;
+    /** Peer accepted the come-along invite but has not entered yet. */
+    private volatile boolean partnerAcceptedPending;
 
     public InteriorOccupancy getOccupancy() {
         return occupancy;
@@ -35,10 +34,10 @@ public final class CoopLocationPolicy {
         return pendingPoiId;
     }
 
-    /**
-     * Whether the local player may begin entering {@code poiId}. Blocked when
-     * the partner is already inside a different POI.
-     */
+    public boolean isPartnerAcceptedPending() {
+        return partnerAcceptedPending;
+    }
+
     public boolean canEnter(final String poiId) {
         final String id = CoopWireLimits.clampString(poiId, CoopWireLimits.MAX_POI_ID_LEN);
         if (id.isEmpty()) {
@@ -47,7 +46,6 @@ public final class CoopLocationPolicy {
         if (occupancy == InteriorOccupancy.NONE) {
             return true;
         }
-        // Same interior is always fine (re-entry / accept path).
         return id.equals(activePoiId);
     }
 
@@ -65,11 +63,17 @@ public final class CoopLocationPolicy {
     public void markPartnerEntered(final String poiId) {
         final String id = CoopWireLimits.clampString(poiId, CoopWireLimits.MAX_POI_ID_LEN);
         activePoiId = id;
+        partnerAcceptedPending = false;
         if (occupancy == InteriorOccupancy.LOCAL || occupancy == InteriorOccupancy.BOTH) {
             occupancy = InteriorOccupancy.BOTH;
         } else {
             occupancy = InteriorOccupancy.PARTNER;
         }
+    }
+
+    /** Peer accepted the invite; do not mark inside until they enter. */
+    public void markPartnerAcceptedInvite() {
+        partnerAcceptedPending = true;
     }
 
     public void markLocalExited() {
@@ -82,6 +86,7 @@ public final class CoopLocationPolicy {
     }
 
     public void markPartnerExited() {
+        partnerAcceptedPending = false;
         if (occupancy == InteriorOccupancy.BOTH) {
             occupancy = InteriorOccupancy.LOCAL;
         } else if (occupancy == InteriorOccupancy.PARTNER) {
@@ -90,20 +95,37 @@ public final class CoopLocationPolicy {
         }
     }
 
-    public void setPendingInvite(final long inviteId, final String poiId) {
+    public void setPendingInvite(final long inviteId, final String poiId, final long nowMs) {
         pendingInviteId = inviteId;
         pendingPoiId = CoopWireLimits.clampString(poiId, CoopWireLimits.MAX_POI_ID_LEN);
+        pendingSinceMs = nowMs;
+    }
+
+    public void setPendingInvite(final long inviteId, final String poiId) {
+        setPendingInvite(inviteId, poiId, System.currentTimeMillis());
+    }
+
+    public boolean expireIfNeeded(final long nowMs, final long timeoutMs) {
+        if (timeoutMs <= 0L || pendingInviteId <= 0L || pendingSinceMs <= 0L) {
+            return false;
+        }
+        if (nowMs - pendingSinceMs < timeoutMs) {
+            return false;
+        }
+        clearPending();
+        return true;
     }
 
     public void clearPending() {
         pendingInviteId = 0L;
         pendingPoiId = "";
+        pendingSinceMs = 0L;
     }
 
-    /** Disconnect / session end. */
     public void reset() {
         occupancy = InteriorOccupancy.NONE;
         activePoiId = "";
+        partnerAcceptedPending = false;
         clearPending();
     }
 }

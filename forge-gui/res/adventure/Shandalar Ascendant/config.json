@@ -70,6 +70,7 @@
   "coopInteractRangePx": 96,
   "coopLocationInviteTimeoutSeconds": 12,
   "coopEnemyBroadcastHz": 5,
+  "coopMaxMoveSpeedPx": 120,
   "screenWidth": 480,
   "screenHeight": 270,
   "skin": "skin/ui_skin.json",

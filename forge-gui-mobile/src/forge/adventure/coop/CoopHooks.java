@@ -4,9 +4,12 @@ import forge.gamemodes.net.event.NetEvent;
 import forge.gamemodes.net.event.coop.CoopDecklistEvent;
 import forge.gamemodes.net.event.coop.CoopDuelInviteEvent;
 import forge.gamemodes.net.event.coop.CoopDuelResponseEvent;
+import forge.gamemodes.net.event.coop.CoopEnemyEncounterRequestEvent;
 import forge.gamemodes.net.event.coop.CoopEnemyStateEvent;
 import forge.gamemodes.net.event.coop.CoopGatherRequestEvent;
 import forge.gamemodes.net.event.coop.CoopGatherResultEvent;
+import forge.gamemodes.net.event.coop.CoopHostPresenceEvent;
+import forge.gamemodes.net.event.coop.CoopLocationExitEvent;
 import forge.gamemodes.net.event.coop.CoopLocationInviteEvent;
 import forge.gamemodes.net.event.coop.CoopLocationResponseEvent;
 import forge.gamemodes.net.event.coop.CoopNodeStateEvent;
@@ -14,41 +17,21 @@ import forge.gamemodes.net.event.coop.CoopPartyInviteEvent;
 import forge.gamemodes.net.event.coop.CoopPartyResponseEvent;
 import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
+import forge.gamemodes.net.coop.CoopPartyState;
 
 /**
  * Extension points for CO2 (shared overworld) and CO3 (co-op duels).
  *
- * <p>CO1 owns the session, version check, character ownership and world
- * handshake. CO2 registers {@link OverworldListener} and sends the reserved
- * NetEvent types — it must not invent a second connection.
- *
- * <h2>World-state ownership</h2>
- * The host is authoritative for enemies, nodes, POI changes and loot. Guests
- * send requests; the host confirms. Character state (collection, decks, skills,
- * materials, items) stays on each peer's disk.
- *
- * <h2>CO2 — Shared overworld</h2>
+ * <h2>CO3-stable entry points</h2>
+ * Keep these signatures stable — the parallel CO3 agent depends on them:
  * <ul>
- *   <li>Send {@link CoopPlayerMoveEvent} at 10–20 Hz; each peer draws a partner
- *       sprite with name tag (avatar id, never textures).</li>
- *   <li>Party: {@link CoopPartyInviteEvent} / {@link CoopPartyResponseEvent}
- *       (opt-in; never move or pull a player without ACCEPT).</li>
- *   <li>World mutations: {@link CoopGatherRequestEvent} /
- *       {@link CoopGatherResultEvent}, {@link CoopNodeStateEvent},
- *       {@link CoopEnemyStateEvent}, {@link CoopPoiChangeEvent}.</li>
- *   <li>Locations: {@link CoopLocationInviteEvent} /
- *       {@link CoopLocationResponseEvent}.</li>
- * </ul>
- *
- * <h2>CO3 — Co-op duels</h2>
- * <ul>
- *   <li>Opt-in fight join via {@link CoopDuelInviteEvent} /
- *       {@link CoopDuelResponseEvent} when party partners are nearby.</li>
- *   <li>Exchange decks only as text ({@link CoopDecklistEvent} /
- *       {@link forge.deck.io.DeckSerializer}).</li>
- *   <li>Host builds the match with both humans on team 0 using the existing
- *       game port ({@link forge.gamemodes.net.coop.CoopPorts#GAME_PORT}) and
- *       {@code FServerManager} / {@code RemoteClientGuiGame}.</li>
+ *   <li>{@link #notifyFightAboutToStart(String)} — host about to start a local fight</li>
+ *   <li>{@link #notifyGuestEnemyEncounter(long, String, String)} /
+ *       {@link GuestEnemyEncounterHandler} — guest collided with a mirrored
+ *       host enemy; host/CO3 decides (guest never starts a local fight)</li>
+ *   <li>{@link CoopPartyState#inParty()} and
+ *       {@link CoopPartyState#withinRadius(float, float, float, float, float, float)}
+ *       — whether the partner is in party and nearby</li>
  * </ul>
  */
 public final class CoopHooks {
@@ -78,6 +61,9 @@ public final class CoopHooks {
         default void onEnemyState(CoopEnemyStateEvent event) {
         }
 
+        default void onEnemyEncounterRequest(CoopEnemyEncounterRequestEvent event) {
+        }
+
         default void onPoiChange(CoopPoiChangeEvent event) {
         }
 
@@ -87,7 +73,12 @@ public final class CoopHooks {
         default void onLocationResponse(CoopLocationResponseEvent event) {
         }
 
-        /** Catch-all for future CO2 world-authority events. */
+        default void onLocationExit(CoopLocationExitEvent event) {
+        }
+
+        default void onHostPresence(CoopHostPresenceEvent event) {
+        }
+
         default void onOverworldMessage(NetEvent event) {
         }
     }
@@ -107,29 +98,19 @@ public final class CoopHooks {
         }
     }
 
-    /**
-     * Whether the local peer may mutate shared world state. Always true for the
-     * host; guests must send requests instead.
-     */
     public static boolean isWorldAuthority() {
         return CoopSession.get().getRole() == CoopSessionRole.HOST;
     }
 
-    /** True when an authenticated co-op session is ready for overworld traffic. */
     public static boolean isOverworldReady() {
         return forge.adventure.util.Config.ascendant()
                 && CoopSession.get().getState() == CoopSession.State.READY;
     }
 
-    /**
-     * World the session should render/simulate. Guests use a dedicated session
-     * world so the host map never overwrites their local WorldSave.
-     */
     public static forge.adventure.world.World activeWorld() {
         return CoopSession.get().getActiveWorld();
     }
 
-    /** Game-port handle reserved for CO3 — not started in CO1/CO2. */
     public static int getGamePort() {
         return CoopSession.get().getGamePort();
     }
@@ -138,15 +119,13 @@ public final class CoopHooks {
         return CoopSession.get().getOverworldPort();
     }
 
+    // ---- CO3-stable fight hooks ----
+
     /**
-     * Clean hook for CO3: called when a local overworld fight is about to start.
-     * CO2 leaves this as a no-op registration point so duel code stays untouched.
+     * Called when a local overworld fight is about to start (host path).
+     * @return true if the fight start was deferred (e.g. waiting on a join prompt)
      */
     public interface FightStartHook {
-        /**
-         * @return true if the fight start was deferred (e.g. waiting on a join
-         *         prompt); false to proceed with a normal solo fight.
-         */
         boolean onFightAboutToStart(String encounterId);
     }
 
@@ -160,7 +139,6 @@ public final class CoopHooks {
         return fightStartHook;
     }
 
-    /** @return true if CO3 (or a stub) deferred the fight */
     public static boolean notifyFightAboutToStart(final String encounterId) {
         final FightStartHook hook = fightStartHook;
         if (hook == null || !isOverworldReady()) {
@@ -171,5 +149,50 @@ public final class CoopHooks {
         } catch (final Exception ignored) {
             return false;
         }
+    }
+
+    /**
+     * CO3 hook: guest collided with a host-authoritative enemy. Guest is a pure
+     * mirror and never starts a local duel — it sends
+     * {@link CoopEnemyEncounterRequestEvent}; the host (or this handler) decides.
+     *
+     * @return true if CO3 handled / deferred the encounter
+     */
+    public interface GuestEnemyEncounterHandler {
+        boolean onGuestEnemyEncounter(long enemyId, String enemyDataId, String guestName);
+    }
+
+    private static volatile GuestEnemyEncounterHandler guestEnemyEncounterHandler;
+
+    public static void setGuestEnemyEncounterHandler(final GuestEnemyEncounterHandler handler) {
+        guestEnemyEncounterHandler = handler;
+    }
+
+    public static GuestEnemyEncounterHandler getGuestEnemyEncounterHandler() {
+        return guestEnemyEncounterHandler;
+    }
+
+    /**
+     * @param enemyId host-assigned coop enemy id
+     * @param enemyDataId enemy data name/id (not a deck or texture)
+     * @param guestName claiming guest
+     * @return true if a registered CO3 handler consumed the encounter
+     */
+    public static boolean notifyGuestEnemyEncounter(final long enemyId, final String enemyDataId,
+                                                    final String guestName) {
+        final GuestEnemyEncounterHandler handler = guestEnemyEncounterHandler;
+        if (handler == null || !isOverworldReady() || !isWorldAuthority()) {
+            return false;
+        }
+        try {
+            return handler.onGuestEnemyEncounter(enemyId, enemyDataId, guestName);
+        } catch (final Exception ignored) {
+            return false;
+        }
+    }
+
+    /** Party state for CO3 nearby / in-party checks. */
+    public static CoopPartyState partyState() {
+        return CoopOverworldRuntime.get().getParty();
     }
 }

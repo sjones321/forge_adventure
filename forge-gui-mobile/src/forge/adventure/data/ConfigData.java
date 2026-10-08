@@ -260,5 +260,10 @@ public class ConfigData {
     public int coopLocationInviteTimeoutSeconds = 12;
     /** Host enemy-position broadcast rate (Hz). Lower than player move rate. */
     public float coopEnemyBroadcastHz = 5f;
+    /**
+     * Max accepted peer travel speed in world pixels/sec. Samples implying a
+     * higher speed (× {@code CoopWireLimits.MOVE_SPEED_MARGIN}) are rejected as teleports.
+     */
+    public float coopMaxMoveSpeedPx = 120f;
 
 }

@@ -118,9 +118,11 @@ public class WorldStage extends GameStage implements SaveFileContent {
         // Enemies keep chasing while the player channels so a touch can cancel gathering.
         boolean updateEnemies = moving || channeling;
 
-        final boolean guestSkipSpawns = CoopOverworldRuntime.get().guestShouldSkipLocalSpawns();
+        final CoopOverworldRuntime coop = CoopOverworldRuntime.get();
+        final boolean guestMirror = coop.guestIsPureMirror();
+        final boolean worldPaused = coop.shouldPauseWorldSim();
         if (moving) {
-            if (!guestSkipSpawns) {
+            if (!guestMirror && !worldPaused) {
                 handleMonsterSpawn(delta);
                 handleNodeSpawn(delta);
             }
@@ -129,7 +131,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
         if (moving || channeling)
             globalTimer += delta;
 
-        tickNodeLifetimes();
+        if (!guestMirror && !worldPaused)
+            tickNodeLifetimes();
 
         if (channeling) {
             if (moving) {
@@ -140,13 +143,28 @@ public class WorldStage extends GameStage implements SaveFileContent {
             }
         }
 
-        if (updateEnemies) {
+        if (guestMirror) {
+            // Pure mirror: no AI / lifetime; collision → encounter request (CO3 hook).
+            for (int i = 0; i < enemies.size(); i++) {
+                EnemySprite mob = enemies.get(i).getValue();
+                if (player.collideWith(mob)) {
+                    if (channelNode != null)
+                        cancelGatherChannel("An enemy interrupted you!");
+                    if (collided)
+                        break;
+                    collided = true;
+                    coop.onGuestEnemyCollision(mob);
+                    break;
+                }
+            }
+        } else if (updateEnemies && !worldPaused) {
             for (int i = 0; i < enemies.size(); i++) {
                 Pair<Float, EnemySprite> pair = enemies.get(i);
                 if (globalTimer >= pair.getKey() + pair.getValue().getLifetime()) {
                     AdventureQuestController.instance().updateDespawn(pair.getValue());
                     AdventureQuestController.instance().showQuestDialogs(MapStage.getInstance());
                     foregroundSprites.removeActor(pair.getValue());
+                    CoopOverworldRuntime.get().onHostEnemyRemoved(pair.getValue());
                     enemies.remove(i);
                     i--; // index pointer after index reduction step
                     continue;
@@ -202,6 +220,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
                         FThreads.invokeInEdtNowOrLater(() -> {
                             Forge.setTransitionScreen(new TransitionScreen(() -> {
                                 collided = false;
+                                CoopOverworldRuntime.get().onHostDuelStarted(encounterId);
                                 duelScene.initDuels(player, mob);
                                 Forge.switchScene(duelScene);
                             }, ScreenUtil.getInstance().takeScreenshot(), true, false, false, false, "", Current.player().avatar(), mob.getAtlasPath(), Current.player().getName(), mob.getName()));
@@ -230,32 +249,51 @@ public class WorldStage extends GameStage implements SaveFileContent {
     /**
      * CO2: keep enemies / nodes / gather timers advancing while inventory or
      * deck-editor menus are open so pausing UI does not pause the shared world.
-     * Does not process local player input.
+     * Never runs during a duel and never despawns {@link #currentMob}.
      */
     public void coopBackgroundTick(float delta) {
         if (!CoopHooks.isOverworldReady())
             return;
-        if (isPaused() && !Config.ascendant())
+        if (Forge.getCurrentScene() instanceof DuelScene)
             return;
-        // Advance enemy chase toward the local player (or freeze in place if none).
+        if (CoopOverworldRuntime.get().shouldPauseWorldSim())
+            return;
+        if (CoopOverworldRuntime.get().guestIsPureMirror())
+            return;
         boolean channeling = channelNode != null;
         if (channeling)
             tickGatherChannel(delta);
         tickNodeLifetimes();
-        final boolean guestSkipSpawns = CoopOverworldRuntime.get().guestShouldSkipLocalSpawns();
-        if (!guestSkipSpawns && CoopHooks.isWorldAuthority()) {
+        if (CoopHooks.isWorldAuthority()) {
             handleMonsterSpawn(delta);
             handleNodeSpawn(delta);
         }
         globalTimer += delta;
         for (int i = 0; i < enemies.size(); i++) {
             Pair<Float, EnemySprite> pair = enemies.get(i);
+            if (pair.getValue() == currentMob)
+                continue; // never despawn the mob being fought
             if (globalTimer >= pair.getKey() + pair.getValue().getLifetime()) {
                 foregroundSprites.removeActor(pair.getValue());
                 CoopOverworldRuntime.get().onHostEnemyRemoved(pair.getValue());
                 enemies.remove(i);
                 i--;
             }
+        }
+    }
+
+    /** Host READY snapshot: register any already-spawned enemies/nodes. */
+    public void coopRegisterExistingForSnapshot() {
+        if (!CoopHooks.isWorldAuthority())
+            return;
+        for (Pair<Float, EnemySprite> pair : enemies) {
+            if (pair.getValue() != null && CoopOverworldRuntime.get().getEnemyId(pair.getValue()) < 0L)
+                CoopOverworldRuntime.get().onHostEnemySpawned(pair.getValue());
+        }
+        for (Pair<Float, ResourceNodeSprite> pair : nodes) {
+            if (pair.getValue() != null && CoopOverworldRuntime.get().getNodeId(pair.getValue()) < 0L
+                    && pair.getValue().getMaterialId() != null)
+                CoopOverworldRuntime.get().onHostNodeSpawned(pair.getValue(), pair.getValue().getMaterialId());
         }
     }
 
@@ -302,6 +340,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
     @Override
     public void setWinner(boolean playerIsWinner, boolean isArena) {
+        CoopOverworldRuntime.get().onHostDuelEnded();
         Current.player().getSkills().onDuelFinished(playerIsWinner, currentMob);
         if (playerIsWinner) {
             currentMob.clearCollisionHeight();
@@ -442,6 +481,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
             if (globalTimer >= pair.getKey() + life) {
                 if (channelNode == pair.getValue())
                     cancelGatherChannel(null);
+                CoopOverworldRuntime.get().onHostNodeRemoved(pair.getValue());
                 foregroundSprites.removeActor(pair.getValue());
                 nodes.remove(i);
                 i--;
@@ -1190,6 +1230,9 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
         for (int i = 0; i < enemies.size(); i++) {
             Pair<Float, EnemySprite> enemy = enemies.get(i);
+            // Never persist mirrored co-op guest sprites into any save.
+            if (CoopOverworldRuntime.get().isMirroredActor(enemy.getValue()))
+                continue;
             cachedSaveTimeouts.add(enemy.getKey());
             cachedSaveNames.add(enemy.getValue().getData().getName());
             cachedSaveXCoords.add(enemy.getValue().getX());
@@ -1210,6 +1253,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
         cachedNodeYCoords.clear();
         for (int i = 0; i < nodes.size(); i++) {
             Pair<Float, ResourceNodeSprite> node = nodes.get(i);
+            if (CoopOverworldRuntime.get().isMirroredActor(node.getValue()))
+                continue;
             String mid = node.getValue().getMaterialId();
             if (mid == null || mid.isEmpty())
                 continue;

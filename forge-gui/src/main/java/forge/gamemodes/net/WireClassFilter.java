@@ -71,11 +71,15 @@ public final class WireClassFilter implements IHasForgeLog {
             "forge.gamemodes.net.event.coop.CoopNodeStateEvent$Action",
             "forge.gamemodes.net.event.coop.CoopEnemyStateEvent",
             "forge.gamemodes.net.event.coop.CoopEnemyStateEvent$Action",
+            "forge.gamemodes.net.event.coop.CoopEnemyEncounterRequestEvent",
             "forge.gamemodes.net.event.coop.CoopPoiChangeEvent",
             "forge.gamemodes.net.event.coop.CoopPoiChangeEvent$ChangeType",
             "forge.gamemodes.net.event.coop.CoopLocationInviteEvent",
             "forge.gamemodes.net.event.coop.CoopLocationResponseEvent",
             "forge.gamemodes.net.event.coop.CoopLocationResponseEvent$Action",
+            "forge.gamemodes.net.event.coop.CoopLocationExitEvent",
+            "forge.gamemodes.net.event.coop.CoopHostPresenceEvent",
+            "forge.gamemodes.net.event.coop.CoopHostPresenceEvent$Presence",
             "forge.gamemodes.net.event.coop.CoopDuelInviteEvent",
             "forge.gamemodes.net.event.coop.CoopDuelResponseEvent");
 

@@ -105,13 +105,22 @@ Tunables live in Ascendant `config.json` (`coopPositionSendHz`,
 
 **Interior rule (v1):** both roam freely on the overworld. Entering a town,
 dungeon or delve invites a nearby party partner. Accept → enter the same
-interior; decline / timeout → wait outside. Only one shared interior at a time —
-a different interior is blocked while the partner is inside. Console helpers:
+interior when ready (accepter marked inside only on actual enter); decline /
+timeout → wait outside. Only one shared interior at a time. While the **host**
+is in an interior or a duel, enemy AI / spawns / lifetimes pause for both; the
+guest keeps free movement and sees a "Host is in …" banner. Console:
 `coop party invite|accept|decline|leave`, `coop location accept|decline`.
 
-**Menus:** inventory / deck editor do **not** pause the shared overworld in co-op.
+**Guest is a pure mirror:** no local enemy AI, spawns, lifetime expiry, or local
+fights against mirrored enemies. Guest collisions send
+`CoopEnemyEncounterRequestEvent` for the host / CO3 to decide.
 
-**CO3** (co-op duels, port 36743) can land in parallel; CO2 leaves a
-`CoopHooks.notifyFightAboutToStart` hook and does not touch duel match code.
+**Menus:** inventory / deck editor do **not** pause the shared overworld in co-op
+(but duels do — background tick never despawns the fought mob).
+
+**CO3-stable hooks:** `CoopHooks.notifyFightAboutToStart(String)`,
+`CoopHooks.notifyGuestEnemyEncounter(long, String, String)` /
+`GuestEnemyEncounterHandler`, and `CoopPartyState.inParty()` /
+`withinRadius(...)`.
 
 See `CoopHooks` / `CoopOverworldRuntime` and `docs/Adventure/Ascendant-Roadmap.md`.

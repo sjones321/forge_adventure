@@ -20,11 +20,14 @@ import forge.gamemodes.net.event.coop.CoopDecklistEvent;
 import forge.gamemodes.net.event.coop.CoopDisconnectEvent;
 import forge.gamemodes.net.event.coop.CoopDuelInviteEvent;
 import forge.gamemodes.net.event.coop.CoopDuelResponseEvent;
+import forge.gamemodes.net.event.coop.CoopEnemyEncounterRequestEvent;
 import forge.gamemodes.net.event.coop.CoopEnemyStateEvent;
 import forge.gamemodes.net.event.coop.CoopGatherRequestEvent;
 import forge.gamemodes.net.event.coop.CoopGatherResultEvent;
 import forge.gamemodes.net.event.coop.CoopHelloEvent;
 import forge.gamemodes.net.event.coop.CoopHelloRejectEvent;
+import forge.gamemodes.net.event.coop.CoopHostPresenceEvent;
+import forge.gamemodes.net.event.coop.CoopLocationExitEvent;
 import forge.gamemodes.net.event.coop.CoopLocationInviteEvent;
 import forge.gamemodes.net.event.coop.CoopLocationResponseEvent;
 import forge.gamemodes.net.event.coop.CoopNodeStateEvent;
@@ -494,6 +497,11 @@ public final class CoopSession {
                 l.onEnemyState((CoopEnemyStateEvent) event);
                 l.onOverworldMessage(event);
             }
+        } else if (event instanceof CoopEnemyEncounterRequestEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onEnemyEncounterRequest((CoopEnemyEncounterRequestEvent) event);
+                l.onOverworldMessage(event);
+            }
         } else if (event instanceof CoopPoiChangeEvent) {
             for (final CoopHooks.OverworldListener l : overworldListeners) {
                 l.onPoiChange((CoopPoiChangeEvent) event);
@@ -507,6 +515,16 @@ public final class CoopSession {
         } else if (event instanceof CoopLocationResponseEvent) {
             for (final CoopHooks.OverworldListener l : overworldListeners) {
                 l.onLocationResponse((CoopLocationResponseEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopLocationExitEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onLocationExit((CoopLocationExitEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopHostPresenceEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onHostPresence((CoopHostPresenceEvent) event);
                 l.onOverworldMessage(event);
             }
         } else if (event instanceof CoopDuelInviteEvent) {

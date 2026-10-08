@@ -3,14 +3,17 @@ package forge.gamemodes.net.coop;
 import forge.gamemodes.net.event.coop.CoopGatherRequestEvent;
 import forge.gamemodes.net.event.coop.CoopGatherResultEvent;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Host-side authoritative bookkeeping for shared overworld entities (CO2):
- * resource nodes (first claim wins), enemy existence checks, and gather
- * validation. Pure Java — no LibGDX / textures / saves.
+ * resource nodes (first claim wins via atomic {@code nodes.remove}), enemy
+ * existence checks, and gather validation. Pure Java — no LibGDX.
  */
 public final class CoopWorldAuthority {
     public static final class NodeRecord {
@@ -18,8 +21,6 @@ public final class CoopWorldAuthority {
         public final String materialId;
         public final float x;
         public final float y;
-        public volatile boolean claimed;
-        public volatile String claimedBy = "";
 
         public NodeRecord(final long id, final String materialId, final float x, final float y) {
             this.id = id;
@@ -65,6 +66,10 @@ public final class CoopWorldAuthority {
         return gatherRequestLimiter;
     }
 
+    public float getInteractRangePx() {
+        return interactRangePx;
+    }
+
     public long registerNode(final String materialId, final float x, final float y) {
         if (!CoopWireLimits.coordsInBounds(x, y)) {
             return -1L;
@@ -78,7 +83,6 @@ public final class CoopWorldAuthority {
         return id;
     }
 
-    /** Register a node with a pre-assigned id (guest applying a host SPAWN). */
     public boolean putNode(final long id, final String materialId, final float x, final float y) {
         if (id <= 0L || !CoopWireLimits.coordsInBounds(x, y)) {
             return false;
@@ -93,6 +97,10 @@ public final class CoopWorldAuthority {
 
     public NodeRecord getNode(final long id) {
         return nodes.get(id);
+    }
+
+    public Collection<NodeRecord> snapshotNodes() {
+        return new ArrayList<>(nodes.values());
     }
 
     public void removeNode(final long id) {
@@ -128,6 +136,16 @@ public final class CoopWorldAuthority {
         return enemies.get(id);
     }
 
+    public Collection<EnemyRecord> snapshotEnemies() {
+        final List<EnemyRecord> out = new ArrayList<>();
+        for (final EnemyRecord e : enemies.values()) {
+            if (e != null && e.alive) {
+                out.add(e);
+            }
+        }
+        return out;
+    }
+
     public void removeEnemy(final long id) {
         enemies.remove(id);
     }
@@ -145,68 +163,71 @@ public final class CoopWorldAuthority {
     }
 
     /**
-     * Host validates a guest gather request. First claim wins; out-of-range,
-     * unknown node, already claimed, or rate-limited → denied.
+     * Shared atomic claim used by host-local and guest-request paths.
+     * {@code nodes.remove(id)} is the claim — whoever removes wins.
+     *
+     * @param posX/posY last accepted move sample (or host player pos); used for range
+     * @param checkRange when true, deny (without claiming) if out of interact range
      */
-    public CoopGatherResultEvent handleGatherRequest(final CoopGatherRequestEvent request,
-                                                     final String requesterName,
-                                                     final int lootAmount) {
-        return handleGatherRequest(request, requesterName, lootAmount, System.currentTimeMillis());
-    }
-
-    public CoopGatherResultEvent handleGatherRequest(final CoopGatherRequestEvent request,
-                                                     final String requesterName,
-                                                     final int lootAmount,
-                                                     final long nowMs) {
-        final String who = CoopWireLimits.clampString(requesterName, CoopWireLimits.MAX_PLAYER_NAME_LEN);
-        if (request == null) {
-            return deny(-1L, who, "invalid request");
+    public CoopGatherResultEvent tryClaim(final long requestId, final long nodeId,
+                                          final String claimant, final int lootAmount,
+                                          final float posX, final float posY,
+                                          final boolean checkRange) {
+        final String who = CoopWireLimits.clampString(claimant, CoopWireLimits.MAX_PLAYER_NAME_LEN);
+        if (nodeId <= 0L) {
+            return deny(requestId, nodeId, who, "node does not exist");
         }
-        if (!gatherRequestLimiter.tryAcquire(nowMs)) {
-            return deny(request.getNodeId(), who, "rate limited");
+        final NodeRecord peek = nodes.get(nodeId);
+        if (peek == null) {
+            return deny(requestId, nodeId, who, "node does not exist");
         }
-        if (!CoopWireLimits.coordsInBounds(request.getRequesterX(), request.getRequesterY())) {
-            return deny(request.getNodeId(), who, "invalid coordinates");
+        if (checkRange) {
+            if (!CoopWireLimits.coordsInBounds(posX, posY)) {
+                return deny(requestId, nodeId, who, "invalid coordinates");
+            }
+            final float dx = posX - peek.x;
+            final float dy = posY - peek.y;
+            if (dx * dx + dy * dy > interactRangePx * interactRangePx) {
+                return deny(requestId, nodeId, who, "out of range");
+            }
         }
-        final NodeRecord node = nodes.get(request.getNodeId());
-        if (node == null) {
-            return deny(request.getNodeId(), who, "node does not exist");
-        }
-        if (node.claimed) {
-            return deny(request.getNodeId(), who, "already claimed");
-        }
-        final float dx = request.getRequesterX() - node.x;
-        final float dy = request.getRequesterY() - node.y;
-        if (dx * dx + dy * dy > interactRangePx * interactRangePx) {
-            return deny(request.getNodeId(), who, "out of range");
+        // Atomic claim: remove wins the race between host and guest.
+        final NodeRecord claimed = nodes.remove(nodeId);
+        if (claimed == null) {
+            return deny(requestId, nodeId, who, "already claimed");
         }
         final int amount = Math.max(0, Math.min(CoopWireLimits.MAX_GATHER_AMOUNT, lootAmount));
-        node.claimed = true;
-        node.claimedBy = who;
-        nodes.remove(node.id);
-        return new CoopGatherResultEvent(node.id, true, who, node.materialId, amount, "");
+        return new CoopGatherResultEvent(requestId, claimed.id, true, who, claimed.materialId, amount, "");
     }
 
     /**
-     * Host claims a node for the local (host) player. Same first-wins semantics.
+     * Host validates a guest gather request using the guest's last accepted
+     * move sample for range (not the request's self-reported coords).
      */
-    public CoopGatherResultEvent claimLocal(final long nodeId, final String claimant, final int lootAmount) {
-        final String who = CoopWireLimits.clampString(claimant, CoopWireLimits.MAX_PLAYER_NAME_LEN);
-        final NodeRecord node = nodes.get(nodeId);
-        if (node == null) {
-            return deny(nodeId, who, "node does not exist");
+    public CoopGatherResultEvent handleGatherRequest(final CoopGatherRequestEvent request,
+                                                     final String requesterName,
+                                                     final int lootAmount,
+                                                     final float lastAcceptedX,
+                                                     final float lastAcceptedY,
+                                                     final long nowMs) {
+        final String who = CoopWireLimits.clampString(requesterName, CoopWireLimits.MAX_PLAYER_NAME_LEN);
+        if (request == null) {
+            return deny(-1L, -1L, who, "invalid request");
         }
-        if (node.claimed) {
-            return deny(nodeId, who, "already claimed");
+        if (!gatherRequestLimiter.tryAcquire(nowMs)) {
+            return deny(request.getRequestId(), request.getNodeId(), who, "rate limited");
         }
-        final int amount = Math.max(0, Math.min(CoopWireLimits.MAX_GATHER_AMOUNT, lootAmount));
-        node.claimed = true;
-        node.claimedBy = who;
-        nodes.remove(node.id);
-        return new CoopGatherResultEvent(node.id, true, who, node.materialId, amount, "");
+        return tryClaim(request.getRequestId(), request.getNodeId(), who, lootAmount,
+                lastAcceptedX, lastAcceptedY, true);
     }
 
-    /** Guest request for a non-existent / dead enemy — always deny (CO2 validation). */
+    /** Host claims a node for the local player — same atomic remove. */
+    public CoopGatherResultEvent claimLocal(final long requestId, final long nodeId,
+                                            final String claimant, final int lootAmount,
+                                            final float posX, final float posY) {
+        return tryClaim(requestId, nodeId, claimant, lootAmount, posX, posY, true);
+    }
+
     public boolean enemyExists(final long enemyId) {
         final EnemyRecord e = enemies.get(enemyId);
         return e != null && e.alive;
@@ -230,8 +251,9 @@ public final class CoopWorldAuthority {
         return enemies.size();
     }
 
-    private static CoopGatherResultEvent deny(final long nodeId, final String who, final String reason) {
-        return new CoopGatherResultEvent(nodeId, false, who, "", 0,
+    private static CoopGatherResultEvent deny(final long requestId, final long nodeId,
+                                              final String who, final String reason) {
+        return new CoopGatherResultEvent(requestId, nodeId, false, who, "", 0,
                 CoopWireLimits.clampString(reason, CoopWireLimits.MAX_REASON_LEN));
     }
 }

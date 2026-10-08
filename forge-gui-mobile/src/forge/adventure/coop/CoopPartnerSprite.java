@@ -47,8 +47,11 @@ public final class CoopPartnerSprite extends CharacterSprite {
         if (sample.getPlayerName() != null && !sample.getPlayerName().isEmpty()) {
             displayName = sample.getPlayerName();
         }
+        // Reload atlas only when the whitelisted avatar id actually changes.
         final String avatar = sample.getAvatarId();
-        if (avatar != null && !avatar.isEmpty() && !avatar.equals(getAtlasPath())) {
+        if (avatar != null && !avatar.isEmpty()
+                && forge.gamemodes.net.coop.CoopWireLimits.isAllowedAvatarId(avatar)
+                && !avatar.equals(getAtlasPath())) {
             load(avatar);
         }
         setVisible(true);
