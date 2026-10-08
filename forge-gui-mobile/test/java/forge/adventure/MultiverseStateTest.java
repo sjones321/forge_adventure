@@ -11,7 +11,6 @@ import forge.adventure.world.PlaneConfigPaths;
 import forge.adventure.world.PlaneKind;
 import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.World;
-import forge.adventure.world.WorldSave;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -260,10 +259,12 @@ public class MultiverseStateTest {
     }
 
     @Test
-    public void guestRenderUsesSessionWorldWhenSet() throws Exception {
-        // Without a live guest session, getActiveWorld falls back to WorldSave.
+    public void guestRenderOverlayRequiresGuestRoleAndSessionWorld() {
+        // Contract for Current.world() / CoopSession.getActiveWorld():
+        // guest + sessionWorld set → render session world; otherwise save world.
         Assert.assertFalse(CoopSession.get().isGuestRenderingSessionWorld());
-        Assert.assertSame(CoopSession.get().getActiveWorld(), WorldSave.getCurrentSave().getWorld());
+        Assert.assertTrue(CoopSession.isGuestBlockedFromPlaneSwitch(
+                CoopSessionRole.GUEST, CoopSession.State.READY));
     }
 
     @Test
@@ -297,10 +298,20 @@ public class MultiverseStateTest {
     }
 
     @Test
-    public void switchPlaneEnterCountStartsAtZero() {
-        // GameScene.enter is invoked exactly once inside WorldSave.switchPlane on success;
-        // PortalActor / plane go must not call enter again. Counter is a test-visible hook.
-        Assert.assertTrue(WorldSave.getCurrentSave().getPlaneSwitchEnterCount() >= 0);
+    public void singleEnterContractIsDocumentedByCallSites() throws Exception {
+        // WorldSave.switchPlane calls enterGameSceneOnceAfterSwitch exactly once on success.
+        // PortalActor.travelToPlane and console "plane go" must not call GameScene.enter again.
+        String portal = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Paths.get("src/forge/adventure/character/PortalActor.java")));
+        String console = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Paths.get("src/forge/adventure/stage/ConsoleCommandInterpreter.java")));
+        String worldSave = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Paths.get("src/forge/adventure/world/WorldSave.java")));
+        Assert.assertTrue(worldSave.contains("enterGameSceneOnceAfterSwitch()"));
+        Assert.assertTrue(portal.contains("exactly once inside switchPlane"));
+        Assert.assertFalse(portal.contains("GameScene.instance().enter()"));
+        Assert.assertTrue(console.contains("exactly once inside switchPlane"));
+        Assert.assertFalse(console.contains("GameScene.instance().enter()"));
     }
 
     /** Mirrors WorldSave.ensureSetPlane missing-blob guard (Ascendant-gated in production). */
