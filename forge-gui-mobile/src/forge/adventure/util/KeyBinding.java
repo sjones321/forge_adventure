@@ -22,7 +22,7 @@ public enum KeyBinding {
     ExitToWorldMap("ExitToWorldMap", new int[]{Input.Keys.F4, Input.Keys.BUTTON_L2}),
     Bookmark("Bookmark", new int[]{Input.Keys.B, Input.Keys.BUTTON_R2}),
     /** Ascendant co-op party invite / leave (overworld HUD). */
-    Party("Party", new int[]{Input.Keys.F5, Input.Keys.BUTTON_THUMBL}),
+    Party("Party", new int[]{Input.Keys.P, Input.Keys.BUTTON_THUMBL}),
     Use("Use", new int[]{Input.Keys.ENTER, Input.Keys.BUTTON_A}),
     Enter("Enter", new int[]{Input.Keys.ENTER, Input.Keys.BUTTON_START}),
     Back("Back", new int[]{Input.Keys.ESCAPE, Input.Keys.BUTTON_B, Input.Keys.BACK}),
