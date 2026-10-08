@@ -222,14 +222,17 @@ public class InventoryBags implements Serializable {
         return usedBackpackSlots(inventory, equippedIds, toolbelt) > backpackSlots;
     }
 
-    public int usedPackSlots(Collection<Deck> boosters) {
-        if (boosters == null || boosters.isEmpty())
+    public int usedPackSlots(Iterable<Deck> boosters) {
+        if (boosters == null)
             return 0;
+        int n = 0;
+        for (Deck ignored : boosters)
+            n++;
         // Packs do not stack by identity (each Deck is unique); one slot per pack.
-        return boosters.size();
+        return n;
     }
 
-    public boolean isPacksOverCapacity(Collection<Deck> boosters) {
+    public boolean isPacksOverCapacity(Iterable<Deck> boosters) {
         return usedPackSlots(boosters) > packsSlots;
     }
 
@@ -322,7 +325,7 @@ public class InventoryBags implements Serializable {
         return false;
     }
 
-    public boolean canAcceptBooster(Collection<Deck> boosters) {
+    public boolean canAcceptBooster(Iterable<Deck> boosters) {
         lastRefuseMessage = null;
         int used = usedPackSlots(boosters);
         if (used < packsSlots)

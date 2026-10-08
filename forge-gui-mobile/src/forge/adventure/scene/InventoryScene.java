@@ -302,8 +302,8 @@ public class InventoryScene extends UIScene {
         }
 
         // Ascendant bindings: Dispose is keyboard-only (Y is details/compare).
-        if (deleteButton != null)
-            deleteButton.setText("Del");
+        if (deleteButton instanceof TextraButton)
+            ((TextraButton) deleteButton).setText("Del");
         if (equipButton instanceof TextraButton)
             ((TextraButton) equipButton).setText("Equip/A");
         if (useButton != null)
