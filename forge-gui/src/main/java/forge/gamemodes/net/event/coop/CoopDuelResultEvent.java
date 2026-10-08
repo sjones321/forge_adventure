@@ -3,28 +3,24 @@ package forge.gamemodes.net.event.coop;
 import forge.gamemodes.net.event.NetEvent;
 
 /**
- * Host → guest: match ended. Each peer applies rewards / XP / penalties to their
- * own character (CO1 isolation on the guest).
+ * Host → guest: match ended (once per MATCH, not per game). Outcome only —
+ * winning team, duel id, enemy id. Each peer runs its own local reward /
+ * DuelScene result path; the host never applies guest-supplied reward numbers.
  */
 public class CoopDuelResultEvent implements NetEvent {
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;
 
     private final long duelId;
-    private final boolean teamWon;
-    private final int gold;
-    private final int xp;
-    private final int lifePenalty;
-    private final boolean boss;
+    /** 0 = humans (team 0) won; 1 = enemies won; negative = unknown / draw. */
+    private final int winningTeam;
+    private final long enemyId;
     private final String encounterId;
 
-    public CoopDuelResultEvent(final long duelId, final boolean teamWon, final int gold, final int xp,
-                               final int lifePenalty, final boolean boss, final String encounterId) {
+    public CoopDuelResultEvent(final long duelId, final int winningTeam, final long enemyId,
+                               final String encounterId) {
         this.duelId = duelId;
-        this.teamWon = teamWon;
-        this.gold = gold;
-        this.xp = xp;
-        this.lifePenalty = lifePenalty;
-        this.boss = boss;
+        this.winningTeam = winningTeam;
+        this.enemyId = enemyId;
         this.encounterId = encounterId != null ? encounterId : "";
     }
 
@@ -32,24 +28,16 @@ public class CoopDuelResultEvent implements NetEvent {
         return duelId;
     }
 
+    public int getWinningTeam() {
+        return winningTeam;
+    }
+
     public boolean isTeamWon() {
-        return teamWon;
+        return winningTeam == 0;
     }
 
-    public int getGold() {
-        return gold;
-    }
-
-    public int getXp() {
-        return xp;
-    }
-
-    public int getLifePenalty() {
-        return lifePenalty;
-    }
-
-    public boolean isBoss() {
-        return boss;
+    public long getEnemyId() {
+        return enemyId;
     }
 
     public String getEncounterId() {

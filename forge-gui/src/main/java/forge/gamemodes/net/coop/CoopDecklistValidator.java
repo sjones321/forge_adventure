@@ -24,7 +24,9 @@ public final class CoopDecklistValidator {
         PARSE_FAILED,
         TOO_MANY_MAIN,
         TOO_MANY_SIDEBOARD,
+        TOO_SMALL_MAIN,
         BAD_CARD_NAME,
+        BANNED_CARD,
         EMPTY_MAIN
     }
 
@@ -52,6 +54,15 @@ public final class CoopDecklistValidator {
      *                   (tests may accept any non-empty name or an allowlist)
      */
     public static Result validate(final String decklistText, final Predicate<String> cardNameOk) {
+        return validate(decklistText, cardNameOk, 0, null);
+    }
+
+    /**
+     * @param minMainSize Adventure min deck size (0 to skip)
+     * @param banned returns true when the card is on the Adventure ban / restricted list
+     */
+    public static Result validate(final String decklistText, final Predicate<String> cardNameOk,
+                                  final int minMainSize, final Predicate<String> banned) {
         if (decklistText == null || decklistText.isEmpty()) {
             return new Result(RejectReason.NULL_OR_EMPTY, null, "empty");
         }
@@ -62,6 +73,9 @@ public final class CoopDecklistValidator {
         final SectionCounts counts = countSections(decklistText);
         if (counts.mainCards <= 0) {
             return new Result(RejectReason.EMPTY_MAIN, null, "empty main");
+        }
+        if (minMainSize > 0 && counts.mainCards < minMainSize) {
+            return new Result(RejectReason.TOO_SMALL_MAIN, null, "main " + counts.mainCards);
         }
         if (counts.mainCards > CoopDuelWireLimits.MAX_DECK_CARDS) {
             return new Result(RejectReason.TOO_MANY_MAIN, null, "main " + counts.mainCards);
@@ -77,6 +91,9 @@ public final class CoopDecklistValidator {
             }
             if (!check.test(name)) {
                 return new Result(RejectReason.BAD_CARD_NAME, null, name);
+            }
+            if (banned != null && banned.test(name)) {
+                return new Result(RejectReason.BANNED_CARD, null, name);
             }
         }
 

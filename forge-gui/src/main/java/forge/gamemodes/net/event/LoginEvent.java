@@ -7,12 +7,26 @@ public class LoginEvent implements NetEvent {
     private final int avatarIndex, sleeveIndex;
     private final String version;
     private final boolean libgdx;
-    public LoginEvent(final String username, final int avatarIndex, final int sleeveIndex, final String version, final boolean libgdx) {
+    /**
+     * Ascendant co-op (CO3): session code from the authenticated overworld session.
+     * Empty for stock online play. Older peers omit this field on the wire (Java
+     * serialization default).
+     */
+    private final String sessionCode;
+
+    public LoginEvent(final String username, final int avatarIndex, final int sleeveIndex,
+                      final String version, final boolean libgdx) {
+        this(username, avatarIndex, sleeveIndex, version, libgdx, "");
+    }
+
+    public LoginEvent(final String username, final int avatarIndex, final int sleeveIndex,
+                      final String version, final boolean libgdx, final String sessionCode) {
         this.username = username;
         this.avatarIndex = avatarIndex;
         this.sleeveIndex = sleeveIndex;
         this.version = version;
         this.libgdx = libgdx;
+        this.sessionCode = sessionCode != null ? sessionCode : "";
     }
 
     public String getUsername() {
@@ -33,5 +47,10 @@ public class LoginEvent implements NetEvent {
 
     public boolean isLibgdx() {
         return libgdx;
+    }
+
+    /** Co-op session code; empty for stock online. */
+    public String getSessionCode() {
+        return sessionCode != null ? sessionCode : "";
     }
 }

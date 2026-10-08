@@ -1,12 +1,18 @@
 package forge.adventure.coop;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.utils.Array;
 import forge.Forge;
 import forge.adventure.character.EnemySprite;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.EffectData;
 import forge.adventure.data.ItemData;
+import forge.adventure.data.ItemListData;
+import forge.adventure.data.SkillTreeData;
+import forge.adventure.data.SkillTreeListData;
+import forge.adventure.data.SkillTreeNodeData;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.player.BanLists;
 import forge.adventure.player.PlayerSkills;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.WorldStage;
@@ -16,17 +22,20 @@ import forge.deck.Deck;
 import forge.deck.io.DeckSerializer;
 import forge.game.GameRules;
 import forge.game.GameType;
+import forge.game.Match;
 import forge.game.player.RegisteredPlayer;
 import forge.gamemodes.match.HostedMatch;
+import forge.gamemodes.match.NextGameDecision;
 import forge.gamemodes.net.client.FGameClient;
 import forge.gamemodes.net.coop.CoopDecklistValidator;
 import forge.gamemodes.net.coop.CoopDuelDisconnectPolicy;
+import forge.gamemodes.net.coop.CoopDuelIdentity;
 import forge.gamemodes.net.coop.CoopDuelInviteState;
 import forge.gamemodes.net.coop.CoopDuelMatchPlan;
 import forge.gamemodes.net.coop.CoopDuelRateLimiter;
-import forge.gamemodes.net.coop.CoopDuelRewards;
 import forge.gamemodes.net.coop.CoopDuelWireLimits;
 import forge.gamemodes.net.coop.CoopFightLoadout;
+import forge.gamemodes.net.coop.CoopFightLoadoutValidator;
 import forge.gamemodes.net.coop.CoopFightRequestValidator;
 import forge.gamemodes.net.coop.CoopPartyProximity;
 import forge.gamemodes.net.coop.CoopPorts;
@@ -38,11 +47,13 @@ import forge.gamemodes.net.event.coop.CoopEnemyEncounterRequestEvent;
 import forge.gamemodes.net.event.coop.CoopFightLoadoutEvent;
 import forge.gamemodes.net.event.coop.CoopFightRequestResultEvent;
 import forge.gamemodes.net.server.FServerManager;
+import forge.gamemodes.net.server.ServerGameLobby;
 import forge.gui.FThreads;
 import forge.gui.interfaces.IGuiGame;
 import forge.item.PaperCard;
 import forge.model.FModel;
 import forge.player.GamePlayerUtil;
+import forge.player.PlayerControllerHuman;
 import forge.screens.match.MatchController;
 import forge.sound.MusicPlaylist;
 import forge.toolbox.FOptionPane;
@@ -51,9 +62,11 @@ import forge.util.Localizer;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -64,11 +77,17 @@ import java.util.function.Predicate;
 /**
  * Ascendant co-op duels (CO3). Opt-in join prompts, host match building with
  * team-0 humans + team-1 enemies, FServerManager on the game port for joined
- * fights only, per-side rewards, and non-blocking guest disconnect handling.
+ * fights only, per-side local result paths, and non-blocking guest disconnect.
  *
  * <p>Party / proximity is read through {@link CoopHooks#getPartyProximity()} so
  * this class does not touch CO2 overworld / party / gather code. Default is
- * never-in-party → solo fight.
+ * never-in-party → solo fight. After #18 merges, wire
+ * {@link CoopHooks#setPartyProximity} to {@code CoopPartyState.inParty()} /
+ * {@code withinRadius(...)}.
+ *
+ * <p><b>Trust model:</b> card ownership on the guest cannot be verified — the
+ * partner is trusted. The host still clamps loadout stats, allowlists effect
+ * card names from items.json / skill perks, and enforces min deck + ban list.
  */
 public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.FightStartHook,
         CoopHooks.GuestEnemyEncounterHandler {
@@ -80,19 +99,22 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private final CoopDuelRateLimiter inboundLimiter =
             CoopDuelRateLimiter.perSecond(CoopDuelWireLimits.MAX_DUEL_REQUESTS_PER_SECOND);
     private final AtomicLong duelSeq = new AtomicLong(1L);
-    private final ScheduledExecutorService timers = Executors.newSingleThreadScheduledExecutor(r -> {
-        final Thread t = new Thread(r, "coop-duel-timer");
-        t.setDaemon(true);
-        return t;
-    });
+    private final AtomicLong localEnemySeq = new AtomicLong(1L);
+    private final Map<Long, EnemySprite> enemyById = new ConcurrentHashMap<>();
+    private final Set<Long> processedResultDuelIds = ConcurrentHashMap.newKeySet();
+    private volatile ScheduledExecutorService timers = newTimerExecutor();
 
     private volatile ScheduledFuture<?> inviteTimeoutFuture;
     private volatile long activeDuelId;
+    private volatile long pendingEnemyId;
     private volatile boolean gameServerStartedByUs;
     private volatile FGameClient guestClient;
     private volatile CoopFightLoadout pendingGuestLoadout;
     private volatile Deck pendingGuestDeck;
     private volatile EnemySprite pendingEnemy;
+    private volatile HostedMatch activeHostedMatch;
+    private volatile RegisteredPlayer guestRegisteredPlayer;
+    private volatile ServerGameLobby coopLobby;
     private volatile boolean attached;
 
     private CoopDuelRuntime() {
@@ -102,6 +124,14 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         return INSTANCE;
     }
 
+    private static ScheduledExecutorService newTimerExecutor() {
+        return Executors.newSingleThreadScheduledExecutor(r -> {
+            final Thread t = new Thread(r, "coop-duel-timer");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
     /** Idempotent attach for Ascendant co-op sessions. */
     public synchronized void attach() {
         if (attached) {
@@ -109,6 +139,9 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         }
         if (!Config.ascendant()) {
             return;
+        }
+        if (timers == null || timers.isShutdown()) {
+            timers = newTimerExecutor();
         }
         CoopSession.get().addDuelListener(this);
         CoopHooks.setFightStartHook(this);
@@ -131,10 +164,10 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         disconnectGuestClient();
         inviteState.clear();
         disconnectPolicy.endDuel();
-        pendingEnemy = null;
-        pendingGuestLoadout = null;
-        pendingGuestDeck = null;
+        clearPendingEncounter();
         activeDuelId = 0L;
+        activeHostedMatch = null;
+        guestRegisteredPlayer = null;
         if (attached) {
             CoopHooks.setFightStartHook(null);
             CoopHooks.setGuestEnemyEncounterHandler(null);
@@ -144,6 +177,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             }
             attached = false;
         }
+        shutdownTimers();
     }
 
     public CoopDuelInviteState getInviteState() {
@@ -158,6 +192,21 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         return fightRequestValidator;
     }
 
+    /** Bind an encounter enemy under a stable id (host-local until CO2 registry lands). */
+    public long bindEnemy(final EnemySprite mob) {
+        if (mob == null) {
+            return 0L;
+        }
+        final long id = localEnemySeq.getAndIncrement();
+        enemyById.put(id, mob);
+        return id;
+    }
+
+    public EnemySprite resolveEnemy(final long enemyId) {
+        // CO2 host registry uses positive enemy ids; 0 is never valid.
+        return enemyId != 0L ? enemyById.get(enemyId) : null;
+    }
+
     // ---- FightStartHook ----
 
     @Override
@@ -165,40 +214,40 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (!Config.ascendant() || !CoopHooks.isOverworldReady()) {
             return false;
         }
-        // Guests never start a fight against a mirrored enemy locally (host-owned).
-        // On feature/set-start without CO2 mirrors, guests still fight local enemies solo.
         if (CoopSession.get().getRole() == CoopSessionRole.GUEST && !CoopHooks.isWorldAuthority()) {
-            // Guest local collision with a mirrored enemy should go through
-            // CoopEnemyEncounterRequestEvent (CO2), not this host-side join prompt.
             return false;
         }
         final CoopPartyProximity proximity = CoopHooks.getPartyProximity();
         if (!CoopDuelInviteState.shouldOfferJoin(proximity)) {
             inviteState.markSolo();
             inviteState.clear();
-            return false; // normal solo fight
+            return false;
         }
         final AdventurePlayer ap = Current.player();
-        final String hostName = ap != null ? ap.getName() : "Player";
+        final String hostName = CoopDuelIdentity.normalizeUsername(ap != null ? ap.getName() : "Player");
         final int timeout = Math.max(5, Config.instance().getConfigData().coopDuelInviteTimeoutSeconds);
         final CoopDuelInviteEvent invite = inviteState.beginInvite(hostName, encounterId, timeout, proximity);
         if (invite == null) {
             inviteState.clear();
             return false;
         }
-        pendingEnemy = WorldStage.getInstance().getCurrentMob();
+        final EnemySprite mob = pendingEnemy != null
+                ? pendingEnemy
+                : WorldStage.getInstance().getCurrentMob();
+        pendingEnemy = mob;
+        if (pendingEnemyId <= 0L || resolveEnemy(pendingEnemyId) != mob) {
+            pendingEnemyId = bindEnemy(mob);
+        }
         CoopSession.get().send(invite);
         scheduleInviteTimeout(invite.getInviteId(), timeout);
         notifyHud("Waiting for partner to join the fight…");
-        return true; // deferred
+        return true;
     }
 
     /**
      * CO2 calls {@link CoopHooks#notifyGuestEnemyEncounter} when the guest's
      * {@link CoopEnemyEncounterRequestEvent} arrives (after host enemy-exists check).
-     * Host decides; guest is a mirror and never starts a local duel.
-     *
-     * @return true when CO3 consumed the encounter (join prompt and/or host fight start)
+     * Uses the encounter's {@code enemyId}, never {@code getCurrentMob()}.
      */
     @Override
     public boolean onGuestEnemyEncounter(final long enemyId, final String enemyDataId, final String guestName) {
@@ -206,24 +255,32 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             return false;
         }
         if (!inboundLimiter.tryAcquire()) {
-            return true; // consumed / rate-limited
+            return true;
         }
-        if (enemyId <= 0L) {
+        if (enemyId == 0L) {
+            return true;
+        }
+        final EnemySprite mob = resolveEnemy(enemyId);
+        if (mob == null) {
             return true;
         }
         final String enc = CoopDuelWireLimits.clampString(
-                enemyDataId != null ? enemyDataId : "enemy", CoopDuelWireLimits.MAX_NAME_LEN);
+                enemyDataId != null ? enemyDataId
+                        : (mob.getData() != null ? mob.getData().getName() : "enemy"),
+                CoopDuelWireLimits.MAX_NAME_LEN);
         if (enc.isEmpty()) {
             return true;
         }
+        pendingEnemy = mob;
+        pendingEnemyId = enemyId;
+        WorldStage.getInstance().setCurrentMob(mob);
         notifyHud((guestName != null ? guestName : "Guest") + " engaged " + enc);
-        // CO2 already validated enemy existence before calling this. Offer the
-        // party partner a join prompt when nearby; otherwise host solos.
         final boolean deferred = onFightAboutToStart(enc);
         if (!deferred) {
-            final EnemySprite mob = WorldStage.getInstance().getCurrentMob();
-            if (mob != null) {
-                postGl(() -> WorldStage.getInstance().beginEncounterDuel(mob));
+            final EnemySprite toFight = pendingEnemy;
+            clearPendingEncounter();
+            if (toFight != null) {
+                postGl(() -> WorldStage.getInstance().beginEncounterDuel(toFight));
             }
         }
         return true;
@@ -237,6 +294,13 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     public void onEnemyEncounterRequestFromWire(final CoopEnemyEncounterRequestEvent event) {
         if (CoopSession.get().getRole() != CoopSessionRole.HOST || event == null) {
             return;
+        }
+        // Ensure the enemy is resolvable by id for this provisional path.
+        if (event.getEnemyId() > 0L && resolveEnemy(event.getEnemyId()) == null) {
+            final EnemySprite current = WorldStage.getInstance().getCurrentMob();
+            if (current != null) {
+                enemyById.put(event.getEnemyId(), current);
+            }
         }
         final CoopFightRequestResultEvent result =
                 fightRequestValidator.validateOnHost(event, true);
@@ -255,7 +319,6 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (!inboundLimiter.tryAcquire()) {
             return;
         }
-        // Only the non-initiator (partner) should open a prompt.
         if (CoopSession.get().getRole() == CoopSessionRole.NONE) {
             return;
         }
@@ -274,13 +337,9 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (!inboundLimiter.tryAcquire()) {
             return;
         }
-        // Host (invite sender) applies peer response. Guest ignores responses it didn't wait for.
-        if (CoopSession.get().getRole() != CoopSessionRole.HOST
-                && inviteState.getStatus() != CoopDuelInviteState.Status.WAITING_RESPONSE) {
-            // Guest may also be WAITING if they started the fight — allow either role when waiting.
-            if (inviteState.getStatus() != CoopDuelInviteState.Status.WAITING_RESPONSE) {
-                return;
-            }
+        if (inviteState.getStatus() != CoopDuelInviteState.Status.WAITING_RESPONSE
+                && CoopSession.get().getRole() != CoopSessionRole.HOST) {
+            return;
         }
         if (!inviteState.applyPeerResponse(event)) {
             return;
@@ -288,8 +347,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         cancelInviteTimeout();
         postGl(() -> {
             if (inviteState.isJoined()) {
-                final CoopDecklistValidator.Result validated = CoopDecklistValidator.validate(
-                        event.getDecklistText(), cardNameOk());
+                final CoopDecklistValidator.Result validated = validateGuestDeck(event.getDecklistText());
                 if (!validated.ok()) {
                     notifyHud("Partner deck rejected — fighting solo");
                     proceedSolo();
@@ -326,19 +384,22 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (!inboundLimiter.tryAcquire()) {
             return;
         }
-        if (event == null || event.getDuelId() != activeDuelId) {
+        if (event == null || event.getDuelId() != activeDuelId || activeDuelId <= 0L) {
             return;
         }
-        final CoopFightLoadout loadout = CoopFightLoadout.validateOrNull(event.getLoadout());
-        if (loadout == null) {
+        final CoopFightLoadoutValidator.Result loadoutResult = CoopFightLoadoutValidator.validate(
+                event.getLoadout(),
+                maxKnownLifeBonus(),
+                effectCardAllowlist(),
+                () -> 20);
+        if (!loadoutResult.ok) {
             return;
         }
-        final CoopDecklistValidator.Result validated =
-                CoopDecklistValidator.validate(event.getDecklistText(), cardNameOk());
+        final CoopDecklistValidator.Result validated = validateGuestDeck(event.getDecklistText());
         if (!validated.ok()) {
             return;
         }
-        pendingGuestLoadout = loadout;
+        pendingGuestLoadout = loadoutResult.loadout;
         pendingGuestDeck = validated.deck;
     }
 
@@ -350,11 +411,11 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (event == null || event.getGamePort() <= 0) {
             return;
         }
-        // Require matching session code from the authenticated overworld session.
         final String localCode = CoopSession.get().getSessionCode();
         if (event.getSessionCode() != null && !event.getSessionCode().isEmpty()
                 && localCode != null && !localCode.isEmpty()
-                && !event.getSessionCode().equalsIgnoreCase(localCode)) {
+                && !CoopDuelIdentity.normalizeSessionCode(event.getSessionCode())
+                .equals(CoopDuelIdentity.normalizeSessionCode(localCode))) {
             return;
         }
         activeDuelId = event.getDuelId();
@@ -367,16 +428,23 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (event == null) {
             return;
         }
-        postGl(() -> applyLocalRewards(event));
+        // Host already applied its local DuelScene path; ignore guest-shaped or duplicate results.
+        if (CoopSession.get().getRole() != CoopSessionRole.GUEST) {
+            return;
+        }
+        if (!processedResultDuelIds.add(event.getDuelId())) {
+            return;
+        }
+        postGl(() -> applyGuestLocalResult(event));
     }
 
-    /** Session peer disconnected — host continues, guest abandons. */
+    /** Session peer disconnected — host continues (guest concedes), guest abandons. */
     public void onSessionPeerDisconnected() {
         final CoopSessionRole role = CoopSession.get().getRole();
         if (role == CoopSessionRole.HOST) {
             final CoopDuelDisconnectPolicy.Outcome out = disconnectPolicy.onGuestDisconnected();
             if (out == CoopDuelDisconnectPolicy.Outcome.CONTINUE_HOST_MATCH) {
-                // Guest concedes; match keeps running. Do not hang.
+                concedeGuestSeat();
                 notifyHud("Partner disconnected — continuing");
             }
             cancelInviteTimeout();
@@ -393,8 +461,9 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 Forge.advFreezePlayerControls = false;
                 notifyHud("Disconnected from co-op duel");
             });
+            // Guest does not stop a host-owned game server.
+            return;
         }
-        stopGameServerIfOurs();
     }
 
     // ---- Internals ----
@@ -407,7 +476,6 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 + (event.getEncounterId() != null && !event.getEncounterId().isEmpty()
                 ? " (" + event.getEncounterId() + ")" : "")
                 + ". Join?";
-        // FOptionPane supports keyboard, mouse and controller.
         FOptionPane.showConfirmDialog(msg, title,
                 loc != null ? loc.getMessage("lblYes") : "Yes",
                 loc != null ? loc.getMessage("lblNo") : "No",
@@ -422,16 +490,13 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
 
     private void acceptInvite() {
         final String deckText = currentDecklistText();
-        final CoopFightLoadout loadout = buildLocalLoadout();
         final CoopDuelResponseEvent resp = inviteState.respond(true, deckText);
         if (resp == null) {
             return;
         }
         cancelInviteTimeout();
         CoopSession.get().send(resp);
-        // Also send structured loadout for adventure setup on the host.
-        final long duelId = duelSeq.get();
-        CoopSession.get().send(new CoopFightLoadoutEvent(duelId, loadout, deckText));
+        // Loadout is sent only after CoopDuelStartEvent assigns the duel id (no race with grace).
         notifyHud("Joining the fight…");
     }
 
@@ -447,20 +512,20 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
 
     private void scheduleInviteTimeout(final long inviteId, final int timeoutSeconds) {
         cancelInviteTimeout();
-        // Generous timeout; never block the host with sendAndWait.
+        final ScheduledExecutorService exec = timers;
+        if (exec == null || exec.isShutdown()) {
+            return;
+        }
         final int sec = Math.max(5, Math.min(timeoutSeconds, 120));
-        inviteTimeoutFuture = timers.schedule(() -> {
+        inviteTimeoutFuture = exec.schedule(() -> {
             if (inviteState.timeout(inviteId)) {
                 postGl(() -> {
                     if (inviteState.getStatus() == CoopDuelInviteState.Status.SOLO
                             || inviteState.getStatus() == CoopDuelInviteState.Status.WAITING_RESPONSE
                             || inviteState.getStatus() == CoopDuelInviteState.Status.PROMPT_OPEN) {
-                        // If we were the invitee with an open prompt, auto-decline on the wire.
                         if (CoopSession.get().getRole() != CoopSessionRole.HOST
                                 || inviteState.getStatus() == CoopDuelInviteState.Status.PROMPT_OPEN) {
-                            final CoopDuelResponseEvent auto =
-                                    new CoopDuelResponseEvent(inviteId, false, "");
-                            CoopSession.get().send(auto);
+                            CoopSession.get().send(new CoopDuelResponseEvent(inviteId, false, ""));
                         }
                         notifyHud("Fight invite timed out — solo fight");
                         proceedSolo();
@@ -480,8 +545,9 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
 
     private void proceedSolo() {
         inviteState.clear();
-        final EnemySprite mob = pendingEnemy != null ? pendingEnemy : WorldStage.getInstance().getCurrentMob();
-        pendingEnemy = null;
+        final EnemySprite mob = pendingEnemy != null ? pendingEnemy
+                : resolveEnemy(pendingEnemyId);
+        clearPendingEncounter();
         if (mob != null) {
             WorldStage.getInstance().beginEncounterDuel(mob);
         } else {
@@ -490,20 +556,14 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     }
 
     private void beginCoopDuelAsHost(final Deck guestDeck) {
-        final EnemySprite mob = pendingEnemy != null ? pendingEnemy : WorldStage.getInstance().getCurrentMob();
+        final EnemySprite mob = pendingEnemy != null ? pendingEnemy : resolveEnemy(pendingEnemyId);
         if (mob == null) {
             proceedSolo();
             return;
         }
         activeDuelId = duelSeq.getAndIncrement();
         pendingGuestDeck = guestDeck;
-        if (pendingGuestLoadout == null) {
-            pendingGuestLoadout = CoopFightLoadout.builder()
-                    .playerName(CoopSession.get().getPeerName())
-                    .avatarId("guest")
-                    .startingLife(20)
-                    .build();
-        }
+        pendingGuestLoadout = null; // wait for post-start loadout from guest
         disconnectPolicy.beginDuel(CoopDuelDisconnectPolicy.GuestDisconnectAction.CONCEDE);
         try {
             startGameServerForDuel();
@@ -521,9 +581,20 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 bind != null ? bind : "",
                 inviteState.getEncounterId(),
                 CoopSession.get().getSessionCode()));
-        // Build and start the match on the GL thread after a short grace for guest connect.
         final int grace = Math.max(2, Math.min(30, cfg.coopDuelGuestConnectGraceSeconds));
-        timers.schedule(() -> postGl(() -> startHostedCoopMatch(mob)), grace, TimeUnit.SECONDS);
+        final long duelIdAtStart = activeDuelId;
+        final long enemyIdAtStart = pendingEnemyId;
+        final ScheduledExecutorService exec = timers;
+        if (exec == null || exec.isShutdown()) {
+            postGl(() -> startHostedCoopMatch(mob, enemyIdAtStart));
+        } else {
+            exec.schedule(() -> postGl(() -> {
+                if (activeDuelId != duelIdAtStart) {
+                    return;
+                }
+                startHostedCoopMatch(mob, enemyIdAtStart);
+            }), grace, TimeUnit.SECONDS);
+        }
         inviteState.clear();
     }
 
@@ -536,10 +607,12 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         final int port = CoopSession.get().getGamePort() > 0
                 ? CoopSession.get().getGamePort()
                 : CoopPorts.GAME_PORT;
-        final String peer = CoopSession.get().getPeerName();
-        final String code = CoopSession.get().getSessionCode();
+        final String peer = CoopDuelIdentity.normalizeUsername(CoopSession.get().getPeerName());
+        final String code = CoopDuelIdentity.normalizeSessionCode(CoopSession.get().getSessionCode());
+        // Lobby must exist before LoginEvent so getGui(slot) can resolve the guest remote.
+        coopLobby = new ServerGameLobby();
+        server.setLobby(coopLobby);
         server.setCoopSessionGate(peer, code);
-        // Skip UPnP for co-op (same as overworld). Stock online play unchanged.
         server.startServer(port, bind, Boolean.FALSE);
         gameServerStartedByUs = true;
     }
@@ -554,13 +627,39 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             if (server != null) {
                 server.clearCoopSessionGate();
                 server.stopServer();
+                server.setLobby(null);
             }
         } catch (final Exception ignored) {
         }
+        coopLobby = null;
     }
 
-    private void startHostedCoopMatch(final EnemySprite mob) {
+    private void startHostedCoopMatch(final EnemySprite mob, final long enemyId) {
         try {
+            final FServerManager server = FServerManager.getInstance();
+            final IGuiGame remoteGui = server != null ? server.getGui(1) : null;
+            if (remoteGui == null) {
+                notifyHud("Partner did not connect — fighting solo");
+                stopGameServerIfOurs();
+                disconnectPolicy.endDuel();
+                proceedSolo();
+                return;
+            }
+            if (pendingGuestLoadout == null) {
+                pendingGuestLoadout = CoopFightLoadout.builder()
+                        .playerName(CoopDuelIdentity.normalizeUsername(CoopSession.get().getPeerName()))
+                        .avatarId("guest")
+                        .startingLife(20)
+                        .build();
+            }
+            if (pendingGuestDeck == null) {
+                notifyHud("Partner deck missing — fighting solo");
+                stopGameServerIfOurs();
+                disconnectPolicy.endDuel();
+                proceedSolo();
+                return;
+            }
+
             final AdventurePlayer advPlayer = Current.player();
             final Deck hostDeck = advPlayer.getSelectedDeck() != null
                     ? (Deck) advPlayer.getSelectedDeck().copyTo("HostDeckCopy")
@@ -586,7 +685,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             }
 
             final CoopDuelMatchPlan plan = CoopDuelMatchPlan.build(
-                    advPlayer.getName(),
+                    CoopDuelIdentity.normalizeUsername(advPlayer.getName()),
                     "host",
                     hostDeck,
                     advPlayer.getLife(),
@@ -604,6 +703,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             final List<RegisteredPlayer> players = new ArrayList<>();
             final Map<RegisteredPlayer, IGuiGame> guiMap = new HashMap<>();
             RegisteredPlayer hostRp = null;
+            RegisteredPlayer guestRp = null;
 
             for (final CoopDuelMatchPlan.Seat seat : plan.getSeats()) {
                 final RegisteredPlayer rp = RegisteredPlayer.forVariants(
@@ -617,37 +717,35 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 }
                 if (seat.kind == CoopDuelMatchPlan.SeatKind.HOST_HUMAN) {
                     rp.setPlayer(GamePlayerUtil.getGuiPlayer());
-                    // Host adventure effects (equipment, perks, badges, shards).
                     applyHostAdventureEffects(rp, advPlayer);
                     guiMap.put(rp, MatchController.instance);
                     hostRp = rp;
                 } else if (seat.kind == CoopDuelMatchPlan.SeatKind.GUEST_HUMAN) {
-                    rp.setPlayer(GamePlayerUtil.getGuiPlayer(seat.displayName, 0, 0, false));
+                    rp.setPlayer(GamePlayerUtil.getGuiPlayer(
+                            CoopDuelIdentity.normalizeUsername(seat.displayName), 0, 0, false));
                     applyGuestLoadoutEffects(rp, pendingGuestLoadout);
-                    final IGuiGame remote = FServerManager.getInstance() != null
-                            ? FServerManager.getInstance().getGui(seat.lobbySlot)
-                            : null;
-                    if (remote != null) {
-                        guiMap.put(rp, remote);
-                    } else {
-                        // Guest not connected yet — still register; RemoteClientGuiGame attaches on login.
-                        guiMap.put(rp, MatchController.instance);
-                    }
+                    // Never give the guest seat to MatchController — remote or abort.
+                    guiMap.put(rp, remoteGui);
+                    guestRp = rp;
                 } else {
                     rp.setPlayer(GamePlayerUtil.createAiPlayer(seat.displayName, null));
-                    // Co-op scaling already applied in the plan's starting life / hand bonus.
                 }
                 players.add(rp);
             }
 
             final HostedMatch hostedMatch = MatchController.hostMatch();
+            activeHostedMatch = hostedMatch;
+            guestRegisteredPlayer = guestRp;
             final GameRules rules = new GameRules(GameType.Adventure);
             rules.setGamesPerMatch(mob.getData() != null ? mob.getData().gamesPerMatch : 1);
             rules.setManaBurn(false);
             rules.setWarnAboutAICards(false);
             final RegisteredPlayer hostRpFinal = hostRp;
             final EnemySprite mobFinal = mob;
-            hostedMatch.setEndGameHook(() -> onHostMatchEnded(hostedMatch, hostRpFinal, mobFinal));
+            final long duelIdFinal = activeDuelId;
+            final long enemyIdFinal = enemyId > 0L ? enemyId : pendingEnemyId;
+            hostedMatch.setEndGameHook(() -> onHostGameEnded(
+                    hostedMatch, hostRpFinal, mobFinal, duelIdFinal, enemyIdFinal));
             hostedMatch.startMatch(rules, variants, players, guiMap,
                     mob.getData() != null && mob.getData().boss ? MusicPlaylist.BOSS : MusicPlaylist.MATCH);
             MatchController.instance.setGameView(hostedMatch.getGameView());
@@ -657,98 +755,111 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             notifyHud("Co-op match failed — fighting solo");
             stopGameServerIfOurs();
             disconnectPolicy.endDuel();
+            activeHostedMatch = null;
+            guestRegisteredPlayer = null;
             proceedSolo();
         }
     }
 
-    private void onHostMatchEnded(final HostedMatch match, final RegisteredPlayer hostRp,
-                                  final EnemySprite mob) {
-        boolean teamWon = false;
+    /**
+     * Runs after each game. Only emits match outcome when the match is over
+     * (gamesPerMatch &gt; 1). Character changes / server stop happen on the GL
+     * thread after HostedMatch's flush.
+     */
+    private void onHostGameEnded(final HostedMatch hostedMatch, final RegisteredPlayer hostRp,
+                                 final EnemySprite mob, final long duelId, final long enemyId) {
+        final Match match = hostedMatch != null ? hostedMatch.getMatch() : null;
+        if (match == null || !match.isMatchOver()) {
+            autoContinueHumans(hostedMatch);
+            return;
+        }
+        // Defer past HostedMatch's ProtocolGuiGame flush on this game thread.
+        postGl(() -> finishHostMatch(hostedMatch, hostRp, mob, duelId, enemyId));
+    }
+
+    private void autoContinueHumans(final HostedMatch hostedMatch) {
+        if (hostedMatch == null) {
+            return;
+        }
         try {
-            if (match != null && match.getGame() != null && match.getGame().getMatch() != null) {
-                final forge.game.player.RegisteredPlayer winner =
-                        match.getGame().getMatch().getWinner();
-                // Team win if winner is on team 0.
-                if (winner != null && winner.getTeamNumber() == 0) {
-                    teamWon = true;
-                } else if (hostRp != null && winner == hostRp) {
-                    teamWon = true;
+            for (final PlayerControllerHuman hc : hostedMatch.getHumanControllers()) {
+                if (hc != null) {
+                    hc.nextGameDecision(NextGameDecision.CONTINUE);
                 }
             }
         } catch (final Exception ignored) {
         }
-        final boolean boss = mob != null && mob.getData() != null && mob.getData().boss;
-        final int gold = teamWon ? 25 : 0;
-        final int xp = teamWon ? 50 : 0;
-        final int lifePenalty = teamWon ? 0 : 1;
-        final CoopDuelResultEvent result = new CoopDuelResultEvent(
-                activeDuelId, teamWon, gold, xp, lifePenalty, boss,
-                mob != null && mob.getData() != null ? mob.getData().getName() : "");
+    }
+
+    private void finishHostMatch(final HostedMatch hostedMatch, final RegisteredPlayer hostRp,
+                                 final EnemySprite mob, final long duelId, final long enemyId) {
+        if (duelId <= 0L || !processedResultDuelIds.add(duelId)) {
+            return;
+        }
+        int winningTeam = -1;
+        try {
+            if (hostedMatch != null && hostedMatch.getMatch() != null) {
+                final RegisteredPlayer winner = hostedMatch.getMatch().getWinner();
+                if (winner != null) {
+                    winningTeam = winner.getTeamNumber();
+                } else if (hostRp != null && hostedMatch.getMatch().isWonBy(hostRp.getPlayer())) {
+                    winningTeam = 0;
+                }
+            }
+        } catch (final Exception ignored) {
+        }
+        final boolean teamWon = winningTeam == 0;
+        final String encounterId = mob != null && mob.getData() != null ? mob.getData().getName() : "";
+        final CoopDuelResultEvent result = new CoopDuelResultEvent(duelId, winningTeam, enemyId, encounterId);
         CoopSession.get().send(result);
-        applyLocalRewards(result);
+
+        // Local DuelScene / WorldStage result path (loot, removeEnemy, XP, penalties).
+        applyHostLocalResult(teamWon, mob);
+
         disconnectPolicy.endDuel();
         stopGameServerIfOurs();
+        disconnectGuestClient();
+        clearPendingEncounter();
+        activeHostedMatch = null;
+        guestRegisteredPlayer = null;
         pendingGuestDeck = null;
         pendingGuestLoadout = null;
-        pendingEnemy = null;
         activeDuelId = 0L;
     }
 
-    private void applyLocalRewards(final CoopDuelResultEvent event) {
+    private void applyHostLocalResult(final boolean teamWon, final EnemySprite mob) {
+        if (mob != null) {
+            WorldStage.getInstance().setCurrentMob(mob);
+            WorldStage.getInstance().setWinner(teamWon, false);
+            return;
+        }
+        final AdventurePlayer ap = Current.player();
+        if (ap == null) {
+            return;
+        }
+        if (teamWon) {
+            ap.win(false);
+        } else {
+            ap.defeated();
+        }
+    }
+
+    private void applyGuestLocalResult(final CoopDuelResultEvent event) {
         final AdventurePlayer ap = Current.player();
         if (ap == null || event == null) {
             return;
         }
-        final boolean isGuest = CoopSession.get().getRole() == CoopSessionRole.GUEST;
-        final CoopDuelRewards.CharacterSink sink = new CoopDuelRewards.CharacterSink() {
-            @Override
-            public void addGold(final int amount) {
-                ap.giveGold(amount);
-            }
-
-            @Override
-            public void addXp(final int amount) {
-                ap.getSkills().addXp(PlayerSkills.Skill.DUELING, amount);
-            }
-
-            @Override
-            public void applyLifePenalty(final int amount) {
-                ap.setLife(Math.max(0, ap.getLife() - amount));
-            }
-
-            @Override
-            public void recordWin(final boolean boss) {
-                ap.win(boss);
-            }
-
-            @Override
-            public void recordLoss() {
+        // Never apply host character changes from wire numbers — outcome only.
+        final boolean teamWon = event.isTeamWon();
+        final EnemySprite mob = WorldStage.getInstance().getCurrentMob();
+        if (mob != null) {
+            WorldStage.getInstance().setWinner(teamWon, false);
+        } else {
+            if (teamWon) {
+                ap.win(false);
+            } else {
                 ap.defeated();
             }
-
-            @Override
-            public int getGold() {
-                return ap.getGold();
-            }
-
-            @Override
-            public int getXp() {
-                return ap.getSkills().getLevel(PlayerSkills.Skill.DUELING);
-            }
-
-            @Override
-            public int getLife() {
-                return ap.getLife();
-            }
-        };
-        final CoopDuelRewards.ResultPayload payload = new CoopDuelRewards.ResultPayload(
-                event.getDuelId(), event.isTeamWon(), event.getGold(), event.getXp(),
-                event.getLifePenalty(), event.isBoss(), event.getEncounterId());
-        // Guest: apply to live character / character file only — never break CO1 restore.
-        CoopDuelRewards.applyToOwnCharacter(
-                isGuest ? CoopDuelRewards.Side.GUEST : CoopDuelRewards.Side.HOST,
-                sink, payload, !isGuest);
-        if (isGuest) {
             try {
                 CoopCharacterStore.savePlayer(ap);
             } catch (final Exception ignored) {
@@ -756,6 +867,25 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         }
         disconnectPolicy.endDuel();
         disconnectGuestClient();
+        activeDuelId = 0L;
+    }
+
+    private void concedeGuestSeat() {
+        final HostedMatch match = activeHostedMatch;
+        final RegisteredPlayer guestRp = guestRegisteredPlayer;
+        if (match == null || guestRp == null) {
+            return;
+        }
+        try {
+            for (final PlayerControllerHuman hc : match.getHumanControllers()) {
+                if (hc != null && hc.getPlayer() != null
+                        && hc.getPlayer().getRegisteredPlayer() == guestRp) {
+                    hc.concede();
+                    return;
+                }
+            }
+        } catch (final Exception ignored) {
+        }
     }
 
     private void connectGuestGameClient(final CoopDuelStartEvent event) {
@@ -763,12 +893,12 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         try {
             final String host = resolveGameHost(event);
             final AdventurePlayer ap = Current.player();
-            final String name = ap != null ? ap.getName() : "Guest";
+            final String name = CoopDuelIdentity.normalizeUsername(ap != null ? ap.getName() : "Guest");
+            final String code = CoopDuelIdentity.normalizeSessionCode(CoopSession.get().getSessionCode());
             final IGuiGame gui = MatchController.instance;
-            guestClient = new FGameClient(name, gui, host, event.getGamePort());
-            // Session code is enforced by FServerManager.setCoopSessionGate on the host.
+            guestClient = new FGameClient(name, gui, host, event.getGamePort(), code);
             guestClient.connect();
-            // Send loadout for adventure setup.
+            // Loadout AFTER duel id assignment (this event).
             final CoopFightLoadout loadout = buildLocalLoadout();
             CoopSession.get().send(new CoopFightLoadoutEvent(
                     event.getDuelId(), loadout, currentDecklistText()));
@@ -800,6 +930,11 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             } catch (final Exception ignored) {
             }
         }
+    }
+
+    private void clearPendingEncounter() {
+        pendingEnemy = null;
+        pendingEnemyId = 0L;
     }
 
     private CoopFightLoadout buildLocalLoadout() {
@@ -862,13 +997,17 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             shardsExtra += ap.getBlessing().extraManaShards;
             accumulateCardNames(ap.getBlessing(), startCards, commandCards);
         }
+        // Clamp locally before send (host re-validates).
+        handMod = Math.max(CoopFightLoadoutValidator.MIN_HAND_DELTA,
+                Math.min(handMod, CoopFightLoadoutValidator.MAX_HAND_DELTA));
+        final int cappedLife = Math.min(ap.getLife() + lifeMod, ap.getLife() + maxKnownLifeBonus());
         return CoopFightLoadout.builder()
-                .playerName(ap.getName())
-                .avatarId(ap.getName()) // name/id only — never textures
-                .startingLife(ap.getLife())
+                .playerName(CoopDuelIdentity.normalizeUsername(ap.getName()))
+                .avatarId(ap.getName())
+                .startingLife(Math.max(1, cappedLife))
                 .manaShards(ap.getShards())
                 .freeMulligans(freeMull)
-                .lifeModifier(lifeMod)
+                .lifeModifier(0)
                 .changeStartCards(handMod)
                 .extraManaShards(shardsExtra)
                 .startBattleCardNames(startCards)
@@ -898,8 +1037,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     }
 
     private void applyHostAdventureEffects(final RegisteredPlayer rp, final AdventurePlayer ap) {
-        // Mirrors DuelScene.addEffects for the local host character.
-        final com.badlogic.gdx.utils.Array<EffectData> effects = new com.badlogic.gdx.utils.Array<>();
+        final Array<EffectData> effects = new Array<>();
         for (final Long id : ap.getEquippedItems()) {
             final ItemData item = ap.getEquippedItem(id);
             if (item != null && item.effect != null) {
@@ -939,7 +1077,6 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (loadout == null) {
             return;
         }
-        // Resolve card names against the host's card DB — never trust objects from the wire.
         final List<forge.item.IPaperCard> start = new ArrayList<>();
         final List<forge.item.IPaperCard> command = new ArrayList<>();
         for (final String name : loadout.getStartBattleCardNames()) {
@@ -956,9 +1093,6 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         }
         rp.addExtraCardsOnBattlefield(start);
         rp.addExtraCardsInCommandZone(command);
-        if (loadout.getOpponentLifeModifier() != 0) {
-            // Opponent effects applied to enemies separately when building AI seats if needed.
-        }
         rp.setEnableETBCountersEffect(true);
     }
 
@@ -968,6 +1102,12 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             return "";
         }
         return DeckSerializer.toDecklistText(ap.getSelectedDeck());
+    }
+
+    private CoopDecklistValidator.Result validateGuestDeck(final String decklistText) {
+        final ConfigData cfg = Config.instance().getConfigData();
+        final int minMain = Math.max(0, cfg.minDeckSize);
+        return CoopDecklistValidator.validate(decklistText, cardNameOk(), minMain, adventureBanned());
     }
 
     private static Predicate<String> cardNameOk() {
@@ -982,6 +1122,89 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 return false;
             }
         };
+    }
+
+    private static Predicate<String> adventureBanned() {
+        return name -> BanLists.isBanned("standard", name)
+                || BanLists.isBanned("historic", name)
+                || BanLists.isBanned("commander", name);
+    }
+
+    /** Largest lifeModifier any known item or skill-perk effect can grant. */
+    static int maxKnownLifeBonus() {
+        int max = 0;
+        try {
+            for (final ItemData item : new Array.ArrayIterator<>(ItemListData.getAllItems())) {
+                if (item != null && item.effect != null) {
+                    max = Math.max(max, item.effect.lifeModifier);
+                    if (item.effect.opponent != null) {
+                        max = Math.max(max, item.effect.opponent.lifeModifier);
+                    }
+                }
+            }
+            for (final SkillTreeData tree : SkillTreeListData.allTrees()) {
+                if (tree == null || tree.nodes == null) {
+                    continue;
+                }
+                for (final SkillTreeNodeData node : tree.nodes) {
+                    if (node == null || node.effect == null) {
+                        continue;
+                    }
+                    final int ranks = Math.max(1, node.maxRanks);
+                    max = Math.max(max, node.effect.lifeModifier * ranks);
+                }
+            }
+        } catch (final Exception ignored) {
+        }
+        return Math.max(0, max);
+    }
+
+    /** Card names grantable by items.json or skill-perk effects. */
+    static Set<String> effectCardAllowlist() {
+        final Set<String> out = new HashSet<>();
+        try {
+            final List<String[]> arrays = new ArrayList<>();
+            for (final ItemData item : new Array.ArrayIterator<>(ItemListData.getAllItems())) {
+                collectEffectCardArrays(item != null ? item.effect : null, arrays);
+            }
+            for (final SkillTreeData tree : SkillTreeListData.allTrees()) {
+                if (tree == null || tree.nodes == null) {
+                    continue;
+                }
+                for (final SkillTreeNodeData node : tree.nodes) {
+                    collectEffectCardArrays(node != null ? node.effect : null, arrays);
+                }
+            }
+            out.addAll(CoopFightLoadoutValidator.allowlistFromEffects(() -> arrays));
+        } catch (final Exception ignored) {
+        }
+        return out;
+    }
+
+    private static void collectEffectCardArrays(final EffectData effect, final List<String[]> out) {
+        if (effect == null) {
+            return;
+        }
+        if (effect.startBattleWithCard != null) {
+            out.add(effect.startBattleWithCard);
+        }
+        if (effect.startBattleWithCardInCommandZone != null) {
+            out.add(effect.startBattleWithCardInCommandZone);
+        }
+        if (effect.opponent != null) {
+            collectEffectCardArrays(effect.opponent, out);
+        }
+    }
+
+    private void shutdownTimers() {
+        final ScheduledExecutorService exec = timers;
+        if (exec == null) {
+            return;
+        }
+        try {
+            exec.shutdownNow();
+        } catch (final Exception ignored) {
+        }
     }
 
     private static void postGl(final Runnable r) {

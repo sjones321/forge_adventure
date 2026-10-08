@@ -195,6 +195,10 @@ public final class CoopHooks {
     }
 
     /**
+     * CO2 sends one encounter request per mob per contact and rate-limits on the
+     * host. Guest-local request ids are positive; host-local ids are negative and
+     * stay off the wire.
+     *
      * @param enemyId host-assigned coop enemy id (CO2 registry; positive)
      * @param enemyDataId enemy data name/id (not a deck or texture)
      * @param guestName claiming guest

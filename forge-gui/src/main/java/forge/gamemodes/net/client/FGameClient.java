@@ -59,6 +59,8 @@ public class FGameClient implements IToServer, IHasForgeLog {
     private final String hostname;
     private final Integer port;
     private final String username;
+    /** Ascendant co-op (CO3): overworld session code echoed in LoginEvent. Empty for stock. */
+    private final String coopSessionCode;
     private final List<ILobbyListener> lobbyListeners = Lists.newArrayList();
     private IDraftEventHandler draftHandler;
     private final ReplyPool replies = new ReplyPool();
@@ -77,14 +79,25 @@ public class FGameClient implements IToServer, IHasForgeLog {
     private volatile ScheduledFuture<?> pendingAttempt;
 
     public FGameClient(String username, IGuiGame clientGui, String hostname, int port) {
+        this(username, clientGui, hostname, port, "");
+    }
+
+    public FGameClient(String username, IGuiGame clientGui, String hostname, int port,
+                       String coopSessionCode) {
         this.username = username;
         this.clientGui = clientGui;
         this.hostname = hostname;
         this.port = port;
+        this.coopSessionCode = coopSessionCode != null ? coopSessionCode : "";
     }
 
     public String getUsername() {
         return username;
+    }
+
+    /** Co-op session code for LoginEvent; empty for stock online. */
+    public String getCoopSessionCode() {
+        return coopSessionCode;
     }
 
     final IGuiGame getGui() {

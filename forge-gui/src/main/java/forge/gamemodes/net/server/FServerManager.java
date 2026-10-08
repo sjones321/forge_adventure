@@ -319,28 +319,31 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
      * strings to clear (stock online / after duel).
      */
     public void setCoopSessionGate(final String expectedGuestName, final String sessionCode) {
-        this.coopExpectedGuestName = expectedGuestName != null ? expectedGuestName.trim() : "";
-        this.coopExpectedSessionCode = sessionCode != null ? sessionCode.trim() : "";
+        this.coopExpectedGuestName = forge.gamemodes.net.coop.CoopDuelIdentity.normalizeUsername(expectedGuestName);
+        this.coopExpectedSessionCode = forge.gamemodes.net.coop.CoopDuelIdentity.normalizeSessionCode(sessionCode);
     }
 
     public void clearCoopSessionGate() {
         setCoopSessionGate("", "");
     }
 
-    boolean coopGateAllows(final String username, final String versionField) {
+    boolean coopGateAllows(final String username, final String versionField, final String sessionCodeField) {
         final String expected = coopExpectedGuestName;
         if (expected == null || expected.isEmpty()) {
             return true; // stock online — no gate
         }
-        if (username == null || !expected.equalsIgnoreCase(username.trim())) {
+        if (!forge.gamemodes.net.coop.CoopDuelIdentity.usernamesMatch(expected, username)) {
             return false;
         }
-        final String code = coopExpectedSessionCode;
+        final String code = forge.gamemodes.net.coop.CoopDuelIdentity.normalizeSessionCode(coopExpectedSessionCode);
         if (code == null || code.isEmpty()) {
             return true;
         }
-        // Optional: callers may embed the session code in the LoginEvent version string
-        // as a suffix ";coop=<code>" so the game port requires the same session.
+        final String fromEvent = forge.gamemodes.net.coop.CoopDuelIdentity.normalizeSessionCode(sessionCodeField);
+        if (code.equals(fromEvent)) {
+            return true;
+        }
+        // Back-compat: session code embedded in the LoginEvent version string.
         if (versionField != null && versionField.contains(";coop=" + code)) {
             return true;
         }
@@ -1138,9 +1141,10 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
                 // key for disconnectedClients, so cleaning it at the single
                 // point of intake keeps the parked key and the reconnect
                 // lookup in agreement.
-                final String username = LogSafe.forDisplay(event.getUsername(), maxNameLength());
+                final String username = forge.gamemodes.net.coop.CoopDuelIdentity.normalizeUsername(
+                        event.getUsername());
                 // Ascendant co-op (CO3): require the same authenticated guest / session.
-                if (!coopGateAllows(username, event.getVersion())) {
+                if (!coopGateAllows(username, event.getVersion(), event.getSessionCode())) {
                     netLog.warn("Refusing LoginEvent from {} — co-op session gate mismatch", username);
                     ctx.close();
                     return;

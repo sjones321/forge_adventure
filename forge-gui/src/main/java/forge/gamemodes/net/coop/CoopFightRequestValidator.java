@@ -61,6 +61,8 @@ public final class CoopFightRequestValidator {
         if (!rateLimiter.tryAcquire()) {
             return deny(request.getRequestId(), "rate limited");
         }
+        // CO2: guest-local request ids are positive; host-local ids are negative and
+        // must never arrive on the wire. Enemy ids from the host registry are positive.
         if (request.getRequestId() <= 0L || request.getEnemyId() <= 0L) {
             return deny(request.getRequestId(), "bad ids");
         }

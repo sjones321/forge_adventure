@@ -23,9 +23,9 @@ public class CoopDuelTest {
 
     @Test
     public void protocolVersionIsPastCo2() {
-        // CO2 (PR #18) = 4; CO3 = 5. Expected merge order: CO2 first, then rebase CO3.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 5);
-        Assert.assertTrue(CoopPorts.PROTOCOL_VERSION > 4);
+        // CO2 (PR #18 round 3) = 5; CO3 = 6. Expected merge order: CO2 first, then rebase CO3.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 6);
+        Assert.assertTrue(CoopPorts.PROTOCOL_VERSION > 5);
     }
 
     @Test
