@@ -862,9 +862,9 @@ public class GameHUD extends Stage {
     private void exitDungeonCallback() {
         coopDialogKind = CoopDialogKind.NONE;
         MapStage.getInstance().onBeginLeavingDungeon();
+        // The queued party / location / join-fight prompt is shown from the end of the hide animation, after the
+        // exit has run; showing it now would cancel that animation and leave the player in the dungeon.
         hideDialog(true);
-        // Advance queued party / location / join-fight prompts that waited behind exit-dungeon.
-        showNextQueuedCoopInvite();
     }
 
     private void hideDialog() {
@@ -1109,6 +1109,7 @@ public class GameHUD extends Stage {
                     MapStage.getInstance().exitDungeon(false, false);
                     setDisabled(exitToWorldMapActor, true, "[%120][+ExitToWorldMap]", "\u2613");
                     setDisabled(bookmarkActor, true, "[%120][+Bookmark]", "\u2613");
+                    showNextQueuedCoopInvite();
                 }
                 return true;
             }
