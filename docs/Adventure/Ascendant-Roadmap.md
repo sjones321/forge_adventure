@@ -186,7 +186,7 @@ Upgrades and camps are data (`world/gathering_methods.json`).
 - Town boards post material delivery requests through the existing quest system: deliver N of a material for gold,
   skill XP and town reputation.
 
-### I. Homestead (last; depends on E)
+### I. Homestead (superseded by the Fortress packages FT1-FT4)
 - A player-owned plot with buildings made from bulk logs and stone: stations, a storage chest, the vault, a trophy
   room for badges. RuneScape's Construction, as the main long-term material sink.
 
@@ -354,9 +354,9 @@ These packages turn the single big map into a home plane plus an endless chain o
 - **Alignment**: planes of the sets in the Standard window are reachable by a normal portal. Mastering a set
   (existing mastery) unlocks the next set's plane. Rotated-out planes stay reachable through a costlier portal.
 
-### MV3. Home plane and homestead (depends on MV1, E; replaces I)
-- The home plane carries the homestead: stations, storage chest, vault, trophy room, outposts and (later) farm.
-  It never resets except by prestige.
+### MV3. Home fortress (depends on MV1, FT1)
+- The first fortress is the home base: stations, storage, vault, trophy room, outposts. It never resets except by
+  prestige. See the FT packages.
 
 ### MV4. Delves (depends on MV1, B; absorbs N)
 - Temporary **pocket-plane portals** spawn at random in set planes. A delve is a chain of small instanced floors.
@@ -422,6 +422,92 @@ remote human can be added through `guiMap`. Nothing in Adventure knows about a s
 - Trading cards, materials and items between players.
 - Co-op gyms and League (both must win), co-op delves, shared quest progress.
 
+## Fortresses (see `Game-Vision.md`)
+
+Replaces the homestead. War-torn frontier strongholds, built and defended.
+
+### FT1. Claim a site and the fortress instance (depends on E)
+- **Construction** skill added to `PlayerSkills.Skill`, with a talent tree.
+- **Banner** item: on the overworld, valid only on walkable land at least N tiles from towns and other POIs. Planting
+  it creates a fortress POI (new `type: fortress`), saved in the world's POI data. Max fortresses per plane is
+  tunable (start with 1 per plane).
+- Entering loads an **instanced map**: a template `.tmx` per biome (open ground, a buildable zone marked by an
+  object layer, an entry/exit). The template is the base; player structures are stored separately in the save and
+  added on load.
+- **Build mode**: a grid cursor (keyboard, mouse and controller), a structure picker, footprint preview (green/red),
+  rotate, demolish with partial refund. Structures are data (`world/structures_fortress.json`: id, footprint,
+  sprite/tiles, cost, Construction level, tier, effects, station type).
+- Stations built here are the same stations as in towns (Forge, Workshop, Apothecary, Jeweler, Spell Smith,
+  outposts' storage).
+
+### FT2. Tiers and structures (depends on FT1)
+- Fortress tiers: Camp, Palisade, Keep, Castle, Citadel. Upgrading costs bulk materials and needs Construction
+  levels; each tier enlarges the buildable zone and unlocks structure tiers.
+- Structure set (first pass): wooden/stone walls and gates, watchtower, barracks, storage, war room (quests and
+  contracts), training yard (Dueling XP), library (deck tools), shrine (blessings), vault, trophy hall.
+- Art: start with existing town tiles and sprites; replace with original art later.
+
+### FT3. Raids and sieges (depends on FT2)
+- Warbands raid fortresses on an in-game timer, scaled by fortress tier and stored wealth, announced in advance.
+  Raids only happen when the player is online, and a raid can be fought from anywhere on the same plane (travel
+  there or accept at a distance with a penalty).
+- A raid is a series of duels. Defenses change the duels: walls add starting life, towers add starting creatures or
+  damage, gates reduce the number of waves, barracks garrison adds an AI ally (team 0).
+- Big sieges use the Archenemy format.
+- Losing damages structures (repairable with materials) and takes a capped share of stored goods. Never total loss.
+- Co-op: both players can defend a shared fortress together (uses CO3).
+
+### FT4. Territory (depends on FT1, B2)
+- Each fortress has a control radius on the overworld: more gathering nodes, weaker roaming enemies, linked
+  outposts, and a fast-travel anchor. On other planes (MV1) a fortress is the plane's portal anchor.
+
+## Logistics, trade and the Invasion (see `Game-Vision.md`)
+
+Scope order: **TR1 first** (needed for co-op), then LG1, then the rest.
+
+### TR1. Player trading (depends on CO1)
+- Trade window between connected players: each side offers cards, materials, items and gold; both confirm; the
+  exchange is applied on both characters at once. Vaulted cards and cards in decks can't be offered.
+- Later: offline trade codes (export an offer, the other player imports and accepts).
+
+### LG1. Auto-sorting storage and workers (depends on FT1)
+- All storage in a fortress forms one sorted stockpile; stations and crafting read from it directly.
+- Workers are hired NPCs assigned to buildings: haulers (move goods between fortress, outposts and linked towns),
+  refiners (turn raw materials into refined or dust on a standing rule), smiths (craft standing orders).
+  Worker count and speed grow with fortress tier and a new skill or Construction perks.
+
+### LG2. Supply lines and town relations (depends on LG1, MV1)
+- **Town relations**: reputation per town; allied towns trade and accept supply lines; conquered towns (via a
+  siege of their defenders) pay tribute and can rebel if neglected.
+- **Supply lines**: assign caravans between your fortress, outposts and allied or conquered towns, on any plane you
+  have a portal anchor on. They move goods on in-game time and can be raided (by the Invasion, see WAR1).
+- **Far-plane stock**: a supply line to a town on another plane stocks your fortress shop with that plane's cards.
+
+### LG3. Outpost network and intel (depends on B2, LG2)
+- Linking outposts (a road or courier between them) lets them trade stock with each other and with your fortress.
+- Linked outposts report intel to the war room: raid warnings, invasion front movement, rare node and delve
+  sightings.
+
+### WAR1. The Nothing (depends on FT3, MV1; lore in `Lore.md`)
+- **Trigger**: the Nothing starts appearing after the player masters their **first Standard set**.
+- **It eats the map**: a per-plane **void mask** (chunks or tiles) saved with the plane. Voided land is drawn as
+  nothingness, blocks movement, removes nodes, roads and POIs, and erases towns (shops and quests gone). The
+  `WorldBackground` chunk renderer and spawn code must respect the mask.
+- **Breaches** spread the void on in-game days while playing (never while away); fortresses and outposts resist
+  or slow it nearby.
+- **Soulless minions** with their own enemy decks and look; **commanders** per front; **breaches** to close.
+- **Investigation**: each plane holds clues (from commanders, closed breaches, intel from linked outposts). Enough
+  clues across planes reveal where the source is. Endgame: expose the Fallen's operation.
+- **Erasure is permanent**: voided land, nodes, roads and towns never return. Closing a breach stops its spread.
+  **Fortresses are never erased**, only besieged (FT3); the land around them can be.
+  Pace is a tunable so permanence stays fair.
+- **Transit nodes**: the Nothing builds nodes near planar portals to link planes (the Fallen's plan). Linked nodes
+  speed its spread to new planes; destroying them yields clues and slows it. These are each plane's main objective.
+- **Watcher**: named at character creation; acts as guide, scout and intel voice (raid warnings, breach reports,
+  investigation hints).
+- Story through the war itself, with skippable dialog. Player is a Deathwatch Initiate with a Watcher (guide) and
+  a Supervisor (co-op players share one).
+
 ## AI opponent: bring your own
 
 The LLM opponent (`forge-ai/.../llm/LlmOpponent.java`, settings in `%APPDATA%\Forge\llm_opponent.properties`)
@@ -452,6 +538,8 @@ stays optional and never ships a key. Forge's normal AI is always the fallback.
 7. AA (story) last.
 8. Multiverse: MV1 → MV2 and MV3 → MV4. See `Game-Vision.md` for milestone order.
 9. **Co-op is next**: CO1 first, then CO2 and CO3 in parallel, then CO4.
+10. Fortresses: FT1 → FT2 → FT3 and FT4.
+11. TR1 with co-op; then LG1 → LG2 → LG3; WAR1 after FT3.
 
 ## Art
 

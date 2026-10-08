@@ -1,6 +1,7 @@
 # Game Vision — a co-op Magic adventure built on Forge
 
 Working title: **TBD** (must not include "Magic" or Wizards of the Coast branding).
+Setting: **the Eternal Engine**, Steve's original cosmology (`Lore.md`).
 
 ## The pitch
 
@@ -33,9 +34,44 @@ Stay on **libGDX / Java**: same language as the engine (no bridge), and one code
 
 ## World structure: the Multiverse
 
-### Home plane
-- Your **home base** (the homestead) lives on a persistent home plane: stations, storage, vault, trophy room,
-  farm and outposts. You always come back here; nothing on it resets except by prestige.
+### Fortresses (the heart of the game)
+Tone: **war-torn frontier, not a cozy farm.** You carve out strongholds on a contested map and hold them.
+- **Claim a site**: walk to an open spot on the world map (away from towns) and plant a banner. The site becomes a
+  fortress marker; entering it loads its own **instanced map**, like a town or dungeon.
+- **Build inside**: place structures on a grid (walls, gates, towers, stations, storage, barracks, war room,
+  shrine, training yard, vault) using gathered materials. A **Construction** skill (1-99) gates what you can build.
+- **Grow it**: Camp → Palisade → Keep → Castle → Citadel. Each tier opens more build space and structure tiers.
+- **Defend it**: warbands **raid** your fortresses. Defenses become duel advantages (walls = extra life, towers =
+  starting creatures or damage, gates = fewer waves). Big sieges are Archenemy fights. A lost raid damages
+  structures and takes part of the stored goods, never everything.
+- **Territory**: a fortress controls the land around it: more resource nodes, weaker roaming enemies, outposts
+  linked to it, and a fast-travel anchor. On other planes, a fortress is your portal anchor.
+- **Garrison**: recruited companions defend raids alongside you.
+- Your **first fortress is your home** and never resets except by prestige.
+
+### Logistics, not conveyors
+- **Auto-sorting storage**: every fortress chest feeds one sorted stockpile; stations pull from it directly.
+- **Workers** staff buildings (haulers, quartermasters, smiths) to run simple automation: refine raw materials,
+  restock stations, craft standing orders.
+- **Supply lines** replace conveyor belts: caravans run between your fortress, your outposts and the towns you have
+  allied with or conquered, including towns on far planes. A supply line from a far plane stocks your fortress
+  shop with that plane's cards.
+- **Towns**: ally with a town through trade and quests, or conquer it. Allied towns trade; conquered towns pay
+  tribute but resist and can rebel.
+- **Outpost network**: linked outposts trade with each other and report intelligence (raid warnings, invasion
+  movement, rare nodes, delve sightings).
+
+### The Nothing (story and stakes)
+Set in Steve's own cosmology, **the Eternal Engine** (see `Lore.md`). You are a **Deathwatch Initiate** sent into
+the Magic multiverse to find the source of **the Nothing**, which literally eats the map: land, towns and roads
+become nothingness. Its soulless minions are empowered by a hidden **Fallen**. After you master your first
+Standard set, the Nothing starts competing with you for the multiverse. You investigate plane after plane, close
+breaches, defeat commanders and finally expose the Fallen's operation, making it too messy to hide from the other
+Firstborn. Losses are real; dialog stays skippable; the stakes live in the world.
+
+### Trading between players
+- Trade cards, materials and items with your co-op partner face to face (trade window, both confirm).
+- Later: trade by code or file between players who aren't connected.
 
 ### Set planes
 - **Each set is a plane**: its own instanced map, like a large dungeon. Its enemies, rewards and shops draw from that
