@@ -17,18 +17,28 @@ Tunable in the Ascendant `config.json` as `coopOverworldPort`.
 
 1. Play **Shandalar Ascendant**, Load or Continue a save (the host's save owns the world).
 2. From the Adventure main menu, tap **Host**.
-3. Note the **session code** on the Hosting screen — the guest must type it.
+3. Note the **8-character session code** on the Hosting screen — the guest must type it.
 4. Share one of the listed addresses (LAN IP or Tailscale `100.x`) plus that session code.
 5. Use **Stop** on the Hosting dialog to end the session and shut down the overworld listener.
 6. Default hosting **skips UPnP** (`coopSkipUPnP: true`). Prefer Tailscale, or open the port manually.
+
+### Optional bind address
+
+By default the host listens on **all interfaces**. To bind only to a specific address (recommended for Tailscale), set in Ascendant `config.json`:
+
+```json
+"coopBindAddress": "100.x.y.z"
+```
+
+Use your Tailscale IPv4 (`100.x`). Leave empty (`""`) for all interfaces.
 
 ## Join
 
 1. Load or Continue **your** character on the guest PC (collection, decks, skills stay local).
 2. Tap **Join** and enter:
    - Host address: Tailscale `100.x.y.z` or LAN IP (port defaults to 36744)
-   - **Session code** from the host screen
-3. On success the guest rebuilds the world from the host's seed into a **separate session world** (your normal save slots are never overwritten), verifies a hash, and only then may request a filtered world blob if the hash differs.
+   - **8-character session code** from the host screen
+3. On success the guest rebuilds the world from the host's seed into a **separate session world** (your normal save slots are never overwritten) and verifies a hash. If the hash does not match, co-op refuses with *"Builds or world data differ; update both copies"* and disconnects — there is no world-blob fallback.
 4. On disconnect your normal save is restored; your character file under `characters/` is updated.
 
 ## Windows firewall
@@ -63,7 +73,7 @@ Also confirm the **Tailscale adapter's network profile is Private** (Windows Set
 
 ## Tailscale vs LAN / UPnP
 
-- **Tailscale** (`100.64.0.0/10`, treated as any `100.x` IPv4): both PCs on the same Tailnet; **do not use UPnP**. Join with the host's Tailscale IP and session code.
+- **Tailscale** (`100.64.0.0/10`, treated as any `100.x` IPv4): both PCs on the same Tailnet; **do not use UPnP**. Join with the host's Tailscale IP and session code. Prefer binding the host to that `100.x` address via `coopBindAddress`.
 - **LAN**: same subnet; use the LocalSubnet firewall rule above. UPnP is skipped by default for co-op.
 - **WAN without Tailscale**: not supported for CO1.
 
@@ -71,11 +81,13 @@ Also confirm the **Tailscale adapter's network profile is Private** (Windows Set
 
 Co-op uses a **hard** check (classic online only warns):
 
-- Matching **session code**
+- Matching **8-character session code** (5 failed attempts from one address → 5-minute lockout; host stays **HOSTING**)
 - Same Forge **build hash** (version + build timestamp)
-- Same loaded **card data hash** (every card name + oracle/script text)
+- Same loaded **card data hash** (name + edition + art index + oracle + ability/script lines)
 
 If any differ, the host rejects and closes the guest channel. The Hosting screen stays up so you can try again. Update both installs so build and card data match, then retry with the current session code.
+
+World seed rebuild must also produce the same world hash; otherwise the guest refuses with *"Builds or world data differ; update both copies"* and disconnects.
 
 ## Character vs world
 

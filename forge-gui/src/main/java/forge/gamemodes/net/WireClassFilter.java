@@ -57,8 +57,6 @@ public final class WireClassFilter implements IHasForgeLog {
             "forge.gamemodes.net.event.coop.CoopHelloEvent",
             "forge.gamemodes.net.event.coop.CoopHelloRejectEvent",
             "forge.gamemodes.net.event.coop.CoopWorldOfferEvent",
-            "forge.gamemodes.net.event.coop.CoopWorldRequestEvent",
-            "forge.gamemodes.net.event.coop.CoopWorldDataEvent",
             "forge.gamemodes.net.event.coop.CoopSessionReadyEvent",
             "forge.gamemodes.net.event.coop.CoopDisconnectEvent",
             "forge.gamemodes.net.event.coop.CoopDecklistEvent",
@@ -91,11 +89,7 @@ public final class WireClassFilter implements IHasForgeLog {
      * @throws InvalidClassException before the class is resolved, so a gadget's
      *         static initialiser and constructor never run
      */
-    /**
-     * Public so Ascendant co-op can filter nested world-blob deserialization
-     * (and any other off-pipeline ObjectInputStream) with the same allowlist.
-     */
-    public static void checkAllowed(final String rawName) throws InvalidClassException {
+    static void checkAllowed(final String rawName) throws InvalidClassException {
         if (isAllowed(rawName)) {
             return;
         }

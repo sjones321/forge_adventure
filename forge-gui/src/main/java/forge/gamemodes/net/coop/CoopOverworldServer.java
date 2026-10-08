@@ -20,6 +20,8 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.serialization.ClassResolvers;
 import io.netty.util.concurrent.Future;
 
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,12 +33,14 @@ import java.util.concurrent.atomic.AtomicReference;
  * stock online play on the game port is unchanged.
  *
  * <p>One guest only. Until hello (+ session code + version) is accepted, only
- * {@link CoopHelloEvent} is forwarded to the listener; everything else is dropped.
- * UPnP is never started here.
+ * {@link CoopHelloEvent} is forwarded to the listener. UPnP is never started here.
  */
 public final class CoopOverworldServer implements IHasForgeLog {
     private final int port;
+    /** Empty / null = bind all interfaces; otherwise a specific host (e.g. Tailscale 100.x). */
+    private final String bindAddress;
     private final CoopMessageListener listener;
+    private final CoopAuthGuard authGuard = new CoopAuthGuard();
     private volatile EventLoopGroup bossGroup;
     private volatile EventLoopGroup workerGroup;
     private volatile Channel serverChannel;
@@ -46,8 +50,17 @@ public final class CoopOverworldServer implements IHasForgeLog {
     private volatile boolean bound;
 
     public CoopOverworldServer(final int port, final CoopMessageListener listener) {
+        this(port, null, listener);
+    }
+
+    public CoopOverworldServer(final int port, final String bindAddress, final CoopMessageListener listener) {
         this.port = port;
+        this.bindAddress = bindAddress == null || bindAddress.trim().isEmpty() ? null : bindAddress.trim();
         this.listener = listener;
+    }
+
+    public CoopAuthGuard getAuthGuard() {
+        return authGuard;
     }
 
     public void start() throws InterruptedException {
@@ -66,11 +79,17 @@ public final class CoopOverworldServer implements IHasForgeLog {
                                 new GuestHandler());
                     }
                 });
-        final ChannelFuture future = b.bind(port).sync();
+        final ChannelFuture future;
+        if (bindAddress == null) {
+            future = b.bind(port).sync();
+        } else {
+            future = b.bind(bindAddress, port).sync();
+        }
         serverChannel = future.channel();
         bound = true;
         bindLatch.countDown();
-        netLog.info("Co-op overworld server listening on {}", port);
+        netLog.info("Co-op overworld server listening on {}:{}",
+                bindAddress != null ? bindAddress : "*", port);
     }
 
     public boolean awaitBound(final long timeoutMs) throws InterruptedException {
@@ -79,6 +98,10 @@ public final class CoopOverworldServer implements IHasForgeLog {
 
     public int getPort() {
         return port;
+    }
+
+    public String getBindAddress() {
+        return bindAddress;
     }
 
     public boolean hasGuest() {
@@ -92,6 +115,22 @@ public final class CoopOverworldServer implements IHasForgeLog {
 
     public void markGuestAuthenticated() {
         guestAuthenticated.set(true);
+        final String ip = getGuestRemoteAddress();
+        if (ip != null) {
+            authGuard.recordSuccess(ip);
+        }
+    }
+
+    public String getGuestRemoteAddress() {
+        final Channel ch = guestChannel.get();
+        if (ch == null) {
+            return null;
+        }
+        final SocketAddress ra = ch.remoteAddress();
+        if (ra instanceof InetSocketAddress) {
+            return ((InetSocketAddress) ra).getAddress().getHostAddress();
+        }
+        return ra != null ? ra.toString() : null;
     }
 
     public void send(final NetEvent event) {
@@ -172,6 +211,16 @@ public final class CoopOverworldServer implements IHasForgeLog {
                 }
             }
             guestAuthenticated.set(false);
+            final String ip = remoteIp(ctx);
+            if (authGuard.isLockedOut(ip)) {
+                final long rem = authGuard.lockoutRemainingMs(ip);
+                ctx.writeAndFlush(new CoopHelloRejectEvent(
+                        "Too many failed attempts; try again in "
+                                + Math.max(1L, (rem + 59999L) / 60000L) + " minute(s)."))
+                        .addListener(f -> ctx.close());
+                guestChannel.compareAndSet(ctx.channel(), null);
+                return;
+            }
             if (listener != null) {
                 listener.onConnected();
             }
@@ -182,7 +231,6 @@ public final class CoopOverworldServer implements IHasForgeLog {
             if (listener == null) {
                 return;
             }
-            // Until hello + session code + version pass, ignore everything else.
             if (!guestAuthenticated.get() && !(msg instanceof CoopHelloEvent)) {
                 netLog.warn("Dropping {} before co-op authentication", msg.getClass().getSimpleName());
                 return;
@@ -205,6 +253,14 @@ public final class CoopOverworldServer implements IHasForgeLog {
                 listener.onError("overworld server error", cause);
             }
             ctx.close();
+        }
+
+        private String remoteIp(final ChannelHandlerContext ctx) {
+            final SocketAddress ra = ctx.channel().remoteAddress();
+            if (ra instanceof InetSocketAddress) {
+                return ((InetSocketAddress) ra).getAddress().getHostAddress();
+            }
+            return ra != null ? ra.toString() : "";
         }
     }
 }

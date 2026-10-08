@@ -14,14 +14,18 @@ public final class CoopPorts {
     /** Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change. */
     public static final int PROTOCOL_VERSION = 2;
 
-    /**
-     * Hard cap on {@code CoopWorldDataEvent} payload size (bytes). Worlds that
-     * exceed this are refused before any deserialization.
-     */
-    public static final int MAX_WORLD_BLOB_BYTES = 32 * 1024 * 1024;
-
     /** Length of the short session code shown by the host. */
-    public static final int SESSION_CODE_LENGTH = 6;
+    public static final int SESSION_CODE_LENGTH = 8;
+
+    /** Failed session-code attempts from one address before lockout. */
+    public static final int SESSION_CODE_MAX_FAILURES = 5;
+
+    /** Lockout duration after too many bad session codes (milliseconds). */
+    public static final long SESSION_CODE_LOCKOUT_MS = 5L * 60L * 1000L;
+
+    /** Exact guest-side refusal when seed rebuild hash does not match the host. */
+    public static final String WORLD_HASH_MISMATCH_MESSAGE =
+            "Builds or world data differ; update both copies";
 
     private CoopPorts() {
     }

@@ -16,7 +16,11 @@ public final class CoopSessionCode {
     }
 
     public static String generate() {
-        final char[] out = new char[CoopPorts.SESSION_CODE_LENGTH];
+        return generate(CoopPorts.SESSION_CODE_LENGTH);
+    }
+
+    public static String generate(final int length) {
+        final char[] out = new char[length];
         for (int i = 0; i < out.length; i++) {
             out[i] = ALPHABET[RANDOM.nextInt(ALPHABET.length)];
         }

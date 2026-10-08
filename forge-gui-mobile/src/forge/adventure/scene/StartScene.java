@@ -191,8 +191,15 @@ public class StartScene extends UIScene {
         final StringBuilder msg = new StringBuilder();
         msg.append("HOSTING Ascendant co-op\n\n");
         msg.append("Session code: ").append(CoopSession.get().getSessionCode()).append("\n");
-        msg.append("(guest must enter this code)\n\n");
+        msg.append("(guest must enter this ").append(CoopPorts.SESSION_CODE_LENGTH)
+                .append("-character code)\n\n");
         msg.append("Overworld port: ").append(CoopSession.get().getOverworldPort()).append('\n');
+        final String bind = CoopSession.get().getBindAddress();
+        if (bind != null && !bind.isEmpty()) {
+            msg.append("Bound to: ").append(bind).append('\n');
+        } else {
+            msg.append("Bound to: all interfaces\n");
+        }
         if (Config.instance().getConfigData().coopSkipUPnP) {
             msg.append("UPnP skipped (Tailscale / manual firewall).\n");
         }
@@ -203,8 +210,7 @@ public class StartScene extends UIScene {
                     .append(CoopSession.get().getOverworldPort()).append('\n');
         }
         msg.append("\nGuest brings their own character; your save owns the world.");
-        if (CoopSession.get().getState() == CoopSession.State.REJECTED
-                && CoopSession.get().getLastError() != null
+        if (CoopSession.get().getLastError() != null
                 && !CoopSession.get().getLastError().isEmpty()) {
             msg.append("\n\nLast reject: ").append(CoopSession.get().getLastError());
         }

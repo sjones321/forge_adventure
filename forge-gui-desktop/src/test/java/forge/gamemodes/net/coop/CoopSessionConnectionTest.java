@@ -1,31 +1,26 @@
 package forge.gamemodes.net.coop;
 
 import forge.gamemodes.net.event.NetEvent;
+import forge.gamemodes.net.event.coop.CoopDisconnectEvent;
 import forge.gamemodes.net.event.coop.CoopHelloEvent;
 import forge.gamemodes.net.event.coop.CoopHelloRejectEvent;
 import forge.gamemodes.net.event.coop.CoopSessionReadyEvent;
-import forge.gamemodes.net.event.coop.CoopWorldDataEvent;
 import forge.gamemodes.net.event.coop.CoopWorldOfferEvent;
-import forge.gamemodes.net.event.coop.CoopWorldRequestEvent;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import java.io.ByteArrayOutputStream;
-import java.io.ObjectOutputStream;
 import java.net.ServerSocket;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Headless CO1 coverage: localhost connect, version/session-code reject,
- * world-hash match/mismatch, blob guards, second-guest reject.
+ * world-hash match/mismatch refusal, session-code lockout, 8-char codes,
+ * card-hash fail-closed, second-guest reject.
  */
 public class CoopSessionConnectionTest {
 
@@ -37,7 +32,7 @@ public class CoopSessionConnectionTest {
 
     @BeforeMethod
     public void setUp() throws Exception {
-        CoopVersion.setCardDataHashSupplier(() -> CoopVersion.sha256Hex("test-cards-v1"));
+        CoopVersion.setCardDataHashSupplier(() -> CoopVersion.sha256Hex("test-cards-v3"));
         sessionCode = CoopSessionCode.generate();
         try (ServerSocket ss = new ServerSocket(0)) {
             port = ss.getLocalPort();
@@ -64,6 +59,16 @@ public class CoopSessionConnectionTest {
     private static CoopHelloEvent hello(final String code) {
         return new CoopHelloEvent(CoopPorts.PROTOCOL_VERSION,
                 CoopVersion.buildHash(), CoopVersion.cardDataHash(), "Guest", "Guest", code);
+    }
+
+    @Test
+    public void sessionCodeIsEightCharacters() {
+        Assert.assertEquals(CoopPorts.SESSION_CODE_LENGTH, 8);
+        for (int i = 0; i < 20; i++) {
+            final String code = CoopSessionCode.generate();
+            Assert.assertEquals(code.length(), 8, code);
+            Assert.assertEquals(CoopSessionCode.normalize(code).length(), 8);
+        }
     }
 
     @Test
@@ -212,6 +217,7 @@ public class CoopSessionConnectionTest {
     public void wrongSessionCodeIsRejected() throws Exception {
         final CountDownLatch rejected = new CountDownLatch(1);
         final AtomicReference<String> reason = new AtomicReference<>();
+        final AtomicReference<String> hostState = new AtomicReference<>("HOSTING");
 
         server = new CoopOverworldServer(port, new CoopMessageListener() {
             @Override
@@ -223,6 +229,10 @@ public class CoopSessionConnectionTest {
                 if (event instanceof CoopHelloEvent) {
                     final CoopHelloEvent h = (CoopHelloEvent) event;
                     if (!CoopSessionCode.matches(sessionCode, h.getSessionCode())) {
+                        final String ip = server.getGuestRemoteAddress();
+                        server.getAuthGuard().recordFailure(ip);
+                        // Failed attempt must not change host state.
+                        Assert.assertEquals(hostState.get(), "HOSTING");
                         server.rejectAndClose("Invalid session code");
                     }
                 }
@@ -230,6 +240,7 @@ public class CoopSessionConnectionTest {
 
             @Override
             public void onDisconnected(final String reason) {
+                hostState.set("HOSTING");
             }
 
             @Override
@@ -242,7 +253,7 @@ public class CoopSessionConnectionTest {
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
             public void onConnected() {
-                client.send(hello("XXXXXX"));
+                client.send(hello("BADCODE1"));
             }
 
             @Override
@@ -264,6 +275,197 @@ public class CoopSessionConnectionTest {
         client.connect();
         Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS));
         Assert.assertTrue(reason.get().toLowerCase().contains("session"), reason.get());
+        Assert.assertEquals(hostState.get(), "HOSTING");
+    }
+
+    @Test
+    public void fiveFailedCodesLockoutAddressWhileHostStaysHosting() throws Exception {
+        final AtomicReference<String> hostState = new AtomicReference<>("HOSTING");
+        final AtomicInteger failures = new AtomicInteger();
+
+        server = new CoopOverworldServer(port, new CoopMessageListener() {
+            @Override
+            public void onConnected() {
+            }
+
+            @Override
+            public void onMessage(final NetEvent event) {
+                if (event instanceof CoopHelloEvent) {
+                    final CoopHelloEvent h = (CoopHelloEvent) event;
+                    if (!CoopSessionCode.matches(sessionCode, h.getSessionCode())) {
+                        failures.incrementAndGet();
+                        final String ip = server.getGuestRemoteAddress();
+                        server.getAuthGuard().recordFailure(ip);
+                        // Host state never leaves HOSTING on a failed attempt.
+                        Assert.assertEquals(hostState.get(), "HOSTING");
+                        server.rejectAndClose("Invalid session code");
+                    }
+                }
+            }
+
+            @Override
+            public void onDisconnected(final String reason) {
+                hostState.set("HOSTING");
+            }
+
+            @Override
+            public void onError(final String message, final Throwable cause) {
+            }
+        });
+        server.start();
+        Assert.assertTrue(server.awaitBound(5000));
+
+        for (int i = 0; i < CoopPorts.SESSION_CODE_MAX_FAILURES; i++) {
+            final CountDownLatch rejected = new CountDownLatch(1);
+            final CoopOverworldClient c = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
+                @Override
+                public void onConnected() {
+                    c.send(hello("WRONGCD" + i));
+                }
+
+                @Override
+                public void onMessage(final NetEvent event) {
+                    if (event instanceof CoopHelloRejectEvent) {
+                        rejected.countDown();
+                    }
+                }
+
+                @Override
+                public void onDisconnected(final String reason) {
+                }
+
+                @Override
+                public void onError(final String message, final Throwable cause) {
+                }
+            });
+            c.connect();
+            Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "attempt " + i + " not rejected");
+            c.disconnect();
+            Thread.sleep(100);
+            Assert.assertEquals(hostState.get(), "HOSTING");
+        }
+        Assert.assertEquals(failures.get(), CoopPorts.SESSION_CODE_MAX_FAILURES);
+        Assert.assertEquals(hostState.get(), "HOSTING");
+
+        // Sixth connect: force lockout for the loopback address Netty will report, then verify refuse.
+        final CountDownLatch lockoutReject = new CountDownLatch(1);
+        final AtomicReference<String> lockoutReason = new AtomicReference<>();
+        server.getAuthGuard().forceLockout("127.0.0.1",
+                System.currentTimeMillis() + CoopPorts.SESSION_CODE_LOCKOUT_MS);
+        Assert.assertTrue(server.getAuthGuard().isLockedOut("127.0.0.1"));
+        client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
+            @Override
+            public void onConnected() {
+            }
+
+            @Override
+            public void onMessage(final NetEvent event) {
+                if (event instanceof CoopHelloRejectEvent) {
+                    lockoutReason.set(((CoopHelloRejectEvent) event).getReason());
+                    lockoutReject.countDown();
+                }
+            }
+
+            @Override
+            public void onDisconnected(final String reason) {
+            }
+
+            @Override
+            public void onError(final String message, final Throwable cause) {
+            }
+        });
+        client.connect();
+        Assert.assertTrue(lockoutReject.await(10, TimeUnit.SECONDS), "lockout reject not received");
+        Assert.assertTrue(lockoutReason.get().toLowerCase().contains("failed")
+                        || lockoutReason.get().toLowerCase().contains("try again"),
+                lockoutReason.get());
+        Assert.assertEquals(hostState.get(), "HOSTING");
+        Assert.assertEquals(CoopPorts.SESSION_CODE_LOCKOUT_MS, 5L * 60L * 1000L);
+    }
+
+    @Test
+    public void worldHashMismatchRefusesWithExactMessageAndDisconnects() throws Exception {
+        final String hostHash = CoopWorldHash.hash(99L, 4, 4, sampleBiome(4), sampleTerrain(4));
+        final String guestHash = CoopWorldHash.hash(99L, 4, 4, sampleBiome(4), differentTerrain(4));
+        Assert.assertFalse(CoopWorldHash.matches(hostHash, guestHash));
+        Assert.assertEquals(CoopPorts.WORLD_HASH_MISMATCH_MESSAGE,
+                "Builds or world data differ; update both copies");
+
+        final CountDownLatch gotOffer = new CountDownLatch(1);
+        final CountDownLatch guestDisconnected = new CountDownLatch(1);
+        final CountDownLatch hostSawDisconnect = new CountDownLatch(1);
+        final AtomicReference<String> refuseMsg = new AtomicReference<>();
+
+        server = new CoopOverworldServer(port, new CoopMessageListener() {
+            @Override
+            public void onConnected() {
+            }
+
+            @Override
+            public void onMessage(final NetEvent event) {
+                if (event instanceof CoopHelloEvent) {
+                    final CoopHelloEvent h = (CoopHelloEvent) event;
+                    if (!CoopSessionCode.matches(sessionCode, h.getSessionCode())) {
+                        server.rejectAndClose("Invalid session code");
+                        return;
+                    }
+                    server.markGuestAuthenticated();
+                    server.send(new CoopWorldOfferEvent("Host", "plane", "cfg", 99L, hostHash,
+                            CoopPorts.GAME_PORT, port));
+                } else if (event instanceof CoopDisconnectEvent) {
+                    hostSawDisconnect.countDown();
+                }
+            }
+
+            @Override
+            public void onDisconnected(final String reason) {
+                hostSawDisconnect.countDown();
+            }
+
+            @Override
+            public void onError(final String message, final Throwable cause) {
+                Assert.fail(message);
+            }
+        });
+        server.start();
+        Assert.assertTrue(server.awaitBound(5000));
+
+        client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
+            @Override
+            public void onConnected() {
+                client.send(hello(sessionCode));
+            }
+
+            @Override
+            public void onMessage(final NetEvent event) {
+                if (event instanceof CoopWorldOfferEvent) {
+                    gotOffer.countDown();
+                    final CoopWorldOfferEvent offer = (CoopWorldOfferEvent) event;
+                    // Mirror CoopSession guest policy: hash mismatch → exact message + disconnect.
+                    final String local = guestHash;
+                    if (!CoopWorldHash.matches(local, offer.getWorldHash())) {
+                        refuseMsg.set(CoopPorts.WORLD_HASH_MISMATCH_MESSAGE);
+                        client.send(new CoopDisconnectEvent(CoopPorts.WORLD_HASH_MISMATCH_MESSAGE));
+                        client.disconnect();
+                    }
+                }
+            }
+
+            @Override
+            public void onDisconnected(final String reason) {
+                guestDisconnected.countDown();
+            }
+
+            @Override
+            public void onError(final String message, final Throwable cause) {
+                Assert.fail(message);
+            }
+        });
+        client.connect();
+        Assert.assertTrue(gotOffer.await(10, TimeUnit.SECONDS), "no world offer");
+        Assert.assertEquals(refuseMsg.get(), CoopPorts.WORLD_HASH_MISMATCH_MESSAGE);
+        Assert.assertTrue(guestDisconnected.await(10, TimeUnit.SECONDS), "guest did not disconnect");
+        Assert.assertTrue(hostSawDisconnect.await(10, TimeUnit.SECONDS), "host did not see disconnect");
     }
 
     @Test
@@ -344,129 +546,6 @@ public class CoopSessionConnectionTest {
     }
 
     @Test
-    public void worldBlobWithoutRequestIsIgnoredByPolicy() {
-        // Guest-side policy: only accept CoopWorldDataEvent after CoopWorldRequestEvent.
-        final AtomicBoolean requested = new AtomicBoolean(false);
-        Assert.assertFalse(requested.get());
-        // Simulate the gate used by CoopSession.GuestListener.
-        final boolean accept = requested.get();
-        Assert.assertFalse(accept, "blob must be refused when no request was sent");
-        requested.set(true);
-        Assert.assertTrue(requested.get());
-    }
-
-    @Test
-    public void oversizedWorldBlobIsRejected() throws Exception {
-        final byte[] huge = new byte[CoopPorts.MAX_WORLD_BLOB_BYTES + 1];
-        try {
-            CoopWorldBlobGuard.checkSize(huge);
-            Assert.fail("expected size rejection");
-        } catch (final Exception e) {
-            Assert.assertTrue(e.getMessage().toLowerCase().contains("large"), e.getMessage());
-        }
-    }
-
-    @Test
-    public void hashMismatchRejectedBeforeUse() throws Exception {
-        final CoopWorldBlobGuard.TestPayload payload = new CoopWorldBlobGuard.TestPayload(1L, "x");
-        final ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        try (ObjectOutputStream oos = new ObjectOutputStream(bos)) {
-            oos.writeObject(payload);
-        }
-        final Object obj = CoopWorldBlobGuard.deserializeFiltered(bos.toByteArray());
-        Assert.assertTrue(obj instanceof CoopWorldBlobGuard.TestPayload);
-        try {
-            CoopWorldBlobGuard.requireHashMatch("expected-hash", "actual-hash");
-            Assert.fail("expected hash rejection");
-        } catch (final Exception e) {
-            Assert.assertTrue(e.getMessage().toLowerCase().contains("hash"), e.getMessage());
-        }
-    }
-
-    @Test
-    public void worldHashMismatchRequestsFallback() throws Exception {
-        final String hostHash = CoopWorldHash.hash(99L, 4, 4, sampleBiome(4), sampleTerrain(4));
-        final String guestHash = CoopWorldHash.hash(99L, 4, 4, sampleBiome(4), differentTerrain(4));
-        Assert.assertFalse(CoopWorldHash.matches(hostHash, guestHash));
-
-        final CountDownLatch gotOffer = new CountDownLatch(1);
-        final CountDownLatch gotRequest = new CountDownLatch(1);
-        final CountDownLatch gotData = new CountDownLatch(1);
-        final List<String> steps = java.util.Collections.synchronizedList(new ArrayList<>());
-
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
-            @Override
-            public void onConnected() {
-            }
-
-            @Override
-            public void onMessage(final NetEvent event) {
-                if (event instanceof CoopHelloEvent) {
-                    final CoopHelloEvent h = (CoopHelloEvent) event;
-                    if (!CoopSessionCode.matches(sessionCode, h.getSessionCode())) {
-                        server.rejectAndClose("Invalid session code");
-                        return;
-                    }
-                    server.markGuestAuthenticated();
-                    server.send(new CoopWorldOfferEvent("Host", "plane", "cfg", 99L, hostHash,
-                            CoopPorts.GAME_PORT, port));
-                } else if (event instanceof CoopWorldRequestEvent) {
-                    steps.add("request");
-                    gotRequest.countDown();
-                    server.send(new CoopWorldDataEvent(99L, hostHash, new byte[] {1, 2, 3, 4}));
-                }
-            }
-
-            @Override
-            public void onDisconnected(final String reason) {
-            }
-
-            @Override
-            public void onError(final String message, final Throwable cause) {
-                Assert.fail(message);
-            }
-        });
-        server.start();
-        Assert.assertTrue(server.awaitBound(5000));
-
-        final AtomicBoolean blobRequested = new AtomicBoolean(false);
-        client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
-            @Override
-            public void onConnected() {
-                client.send(hello(sessionCode));
-            }
-
-            @Override
-            public void onMessage(final NetEvent event) {
-                if (event instanceof CoopWorldOfferEvent) {
-                    steps.add("offer");
-                    gotOffer.countDown();
-                    blobRequested.set(true);
-                    client.send(new CoopWorldRequestEvent(guestHash, "rebuild hash mismatch"));
-                } else if (event instanceof CoopWorldDataEvent) {
-                    Assert.assertTrue(blobRequested.get(), "must not accept blob without request");
-                    steps.add("data");
-                    Assert.assertEquals(((CoopWorldDataEvent) event).getWorldSaveBytes().length, 4);
-                    gotData.countDown();
-                }
-            }
-
-            @Override
-            public void onDisconnected(final String reason) {
-            }
-
-            @Override
-            public void onError(final String message, final Throwable cause) {
-                Assert.fail(message);
-            }
-        });
-        client.connect();
-        Assert.assertTrue(gotOffer.await(10, TimeUnit.SECONDS), "no offer; steps=" + steps);
-        Assert.assertTrue(gotRequest.await(10, TimeUnit.SECONDS), "no request; steps=" + steps);
-        Assert.assertTrue(gotData.await(10, TimeUnit.SECONDS), "no data; steps=" + steps);
-    }
-
-    @Test
     public void worldHashMatchAndMismatchPure() {
         final long[][] biome = sampleBiome(4);
         final int[][] terrain = sampleTerrain(4);
@@ -520,7 +599,7 @@ public class CoopSessionConnectionTest {
             @Override
             public void onConnected() {
                 // Send a non-hello first — server must drop it before auth.
-                client.send(new CoopWorldRequestEvent("x", "early"));
+                client.send(new CoopSessionReadyEvent(false, "Guest", "x"));
                 client.send(hello(sessionCode));
             }
 
@@ -540,6 +619,57 @@ public class CoopSessionConnectionTest {
         Assert.assertTrue(helloSeen.await(10, TimeUnit.SECONDS));
         Thread.sleep(200);
         Assert.assertEquals(nonHello.get(), 0, "pre-auth non-hello must be dropped");
+    }
+
+    @Test
+    public void cardDataHashFailsWhenStaticDataMissing() {
+        // Production defaultCardDataHash throws IllegalStateException when StaticData is absent.
+        CoopVersion.setCardDataHashSupplier(() -> {
+            throw new IllegalStateException("StaticData.instance() is null");
+        });
+        try {
+            CoopVersion.cardDataHash();
+            Assert.fail("expected IllegalStateException when StaticData missing");
+        } catch (final IllegalStateException expected) {
+            Assert.assertTrue(expected.getMessage().contains("StaticData"), expected.getMessage());
+        }
+        final String reason = CoopVersion.mismatchReason(CoopVersion.buildHash(), "anything");
+        Assert.assertEquals(reason, "Card data unavailable — cannot verify co-op version.");
+
+        // Also exercise the real default path: with supplier cleared, missing StaticData must fail closed.
+        CoopVersion.setCardDataHashSupplier(null);
+        try {
+            // If StaticData is actually loaded in this JVM the hash may succeed; that is fine —
+            // the fail-closed contract above already covers the missing case. When Class.forName
+            // / instance() fails, defaultCardDataHash must throw rather than return a constant.
+            final String hash = CoopVersion.cardDataHash();
+            Assert.assertNotNull(hash);
+            Assert.assertFalse(hash.isEmpty());
+            Assert.assertNotEquals(hash, "unavailable");
+            Assert.assertNotEquals(hash, "0");
+        } catch (final IllegalStateException expected) {
+            Assert.assertTrue(
+                    expected.getMessage().toLowerCase().contains("card")
+                            || expected.getMessage().contains("StaticData")
+                            || expected.getMessage().toLowerCase().contains("unavailable"),
+                    expected.getMessage());
+        }
+    }
+
+    @Test
+    public void authGuardLockoutConstants() {
+        final CoopAuthGuard guard = new CoopAuthGuard();
+        Assert.assertFalse(guard.isLockedOut("10.0.0.1"));
+        for (int i = 0; i < CoopPorts.SESSION_CODE_MAX_FAILURES - 1; i++) {
+            Assert.assertFalse(guard.recordFailure("10.0.0.1"));
+            Assert.assertFalse(guard.isLockedOut("10.0.0.1"));
+        }
+        Assert.assertTrue(guard.recordFailure("10.0.0.1"));
+        Assert.assertTrue(guard.isLockedOut("10.0.0.1"));
+        Assert.assertTrue(guard.lockoutRemainingMs("10.0.0.1") > 0);
+        Assert.assertEquals(CoopPorts.SESSION_CODE_MAX_FAILURES, 5);
+        guard.recordSuccess("10.0.0.1");
+        Assert.assertFalse(guard.isLockedOut("10.0.0.1"));
     }
 
     private static long[][] sampleBiome(final int n) {

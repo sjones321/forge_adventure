@@ -5,7 +5,6 @@ import com.badlogic.gdx.graphics.PixmapIO;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
 import forge.Forge;
-import forge.gamemodes.net.WireClassFilter;
 import io.sentry.Hint;
 import io.sentry.Sentry;
 import org.tinylog.Logger;
@@ -14,25 +13,6 @@ import java.io.*;
 import java.util.HashMap;
 
 public class SaveFileData extends HashMap<String, byte[]> {
-    /**
-     * When true, nested {@link DecompressibleInputStream} reads consult
-     * {@link WireClassFilter} — used while applying an untrusted co-op world blob.
-     */
-    private static final ThreadLocal<Boolean> FILTER_UNTRUSTED = ThreadLocal.withInitial(() -> Boolean.FALSE);
-
-    /** Run {@code action} with filtered nested ObjectInputStream resolves. */
-    public static void runWithWireFilter(final Runnable action) {
-        FILTER_UNTRUSTED.set(Boolean.TRUE);
-        try {
-            action.run();
-        } finally {
-            FILTER_UNTRUSTED.set(Boolean.FALSE);
-        }
-    }
-
-    private static boolean filterUntrusted() {
-        return Boolean.TRUE.equals(FILTER_UNTRUSTED.get());
-    }
     public void store(String key, SaveFileData subData) {
         try {
             ByteArrayOutputStream stream = new ByteArrayOutputStream();
@@ -352,23 +332,6 @@ public class SaveFileData extends HashMap<String, byte[]> {
 
         public DecompressibleInputStream(InputStream in) throws IOException {
             super(in);
-        }
-
-        @Override
-        protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
-            if (filterUntrusted()) {
-                WireClassFilter.checkAllowed(desc.getName());
-            }
-            return super.resolveClass(desc);
-        }
-
-        @Override
-        protected Class<?> resolveProxyClass(String[] interfaces) throws IOException, ClassNotFoundException {
-            if (filterUntrusted()) {
-                throw new InvalidClassException("dynamic proxy",
-                        "proxy classes are not permitted when loading untrusted co-op data");
-            }
-            return super.resolveProxyClass(interfaces);
         }
 
         @Override

@@ -40,7 +40,10 @@ public final class CoopVersion {
         return sha256Hex(sb.toString());
     }
 
-    /** Hash of the loaded card database (or a test override). */
+    /**
+     * Hash of the loaded card database (or a test override).
+     * @throws IllegalStateException if StaticData / card scripts are unavailable
+     */
     public static String cardDataHash() {
         return cardDataHashSupplier.get();
     }
@@ -61,25 +64,38 @@ public final class CoopVersion {
         if (!buildMatches(buildHash(), remoteBuildHash)) {
             return "Build hash mismatch — both players must use the same Forge build.";
         }
-        if (!cardDataMatches(cardDataHash(), remoteCardHash)) {
+        final String localCard;
+        try {
+            localCard = cardDataHash();
+        } catch (final RuntimeException e) {
+            return "Card data unavailable — cannot verify co-op version.";
+        }
+        if (!cardDataMatches(localCard, remoteCardHash)) {
             return "Card data hash mismatch — both players must have the same card database.";
         }
         return null;
     }
 
     /**
-     * Fingerprint every loaded card by name + edition + art index + oracle/script
-     * text so a script change or missing set diverges. Sorted for stability.
+     * Fingerprint every loaded card by name, edition, art index, oracle text,
+     * and ability/script lines (keywords, abilities, statics, triggers,
+     * replacements). Sorted for stability. Fails hard if StaticData is missing.
      */
     private static String defaultCardDataHash() {
         try {
             final Class<?> staticData = Class.forName("forge.StaticData");
             final Object instance = staticData.getMethod("instance").invoke(null);
             if (instance == null) {
-                return sha256Hex("card-data:unavailable");
+                throw new IllegalStateException("StaticData.instance() is null");
             }
             final Object common = staticData.getMethod("getCommonCards").invoke(instance);
+            if (common == null) {
+                throw new IllegalStateException("StaticData common cards unavailable");
+            }
             final Collection<?> all = (Collection<?>) common.getClass().getMethod("getAllCards").invoke(common);
+            if (all == null || all.isEmpty()) {
+                throw new IllegalStateException("Card database is empty");
+            }
             final List<Object> cards = new ArrayList<>(all);
             cards.sort(Comparator.comparing((Object c) -> safeInvoke(c, "getName"))
                     .thenComparing(c -> safeInvoke(c, "getEdition"))
@@ -91,16 +107,24 @@ public final class CoopVersion {
                         }
                     }));
             final MessageDigest md = MessageDigest.getInstance("SHA-256");
-            md.update("cards-v2".getBytes(StandardCharsets.UTF_8));
+            md.update("cards-v3".getBytes(StandardCharsets.UTF_8));
             for (final Object card : cards) {
                 final String name = safeInvoke(card, "getName");
                 final String edition = safeInvoke(card, "getEdition");
-                String script = "";
+                int artIndex = 0;
+                try {
+                    artIndex = (Integer) card.getClass().getMethod("getArtIndex").invoke(card);
+                } catch (final ReflectiveOperationException ignored) {
+                }
+                String oracle = "";
+                final StringBuilder script = new StringBuilder();
                 try {
                     final Object rules = card.getClass().getMethod("getRules").invoke(card);
                     if (rules != null) {
-                        final Object oracle = rules.getClass().getMethod("getOracleText").invoke(rules);
-                        script = oracle != null ? oracle.toString() : "";
+                        final Object oracleObj = rules.getClass().getMethod("getOracleText").invoke(rules);
+                        oracle = oracleObj != null ? oracleObj.toString() : "";
+                        appendFaceScript(script, rules, "getMainPart");
+                        appendFaceScript(script, rules, "getOtherPart");
                     }
                 } catch (final ReflectiveOperationException ignored) {
                 }
@@ -108,7 +132,11 @@ public final class CoopVersion {
                 md.update((byte) 0);
                 md.update(edition.getBytes(StandardCharsets.UTF_8));
                 md.update((byte) 0);
-                md.update(script.getBytes(StandardCharsets.UTF_8));
+                md.update(Integer.toString(artIndex).getBytes(StandardCharsets.UTF_8));
+                md.update((byte) 0);
+                md.update(oracle.getBytes(StandardCharsets.UTF_8));
+                md.update((byte) 0);
+                md.update(script.toString().getBytes(StandardCharsets.UTF_8));
                 md.update((byte) 0);
             }
             final byte[] dig = md.digest();
@@ -118,7 +146,40 @@ public final class CoopVersion {
             }
             return sb.toString();
         } catch (final ReflectiveOperationException | ClassCastException | NoSuchAlgorithmException e) {
-            return sha256Hex("card-data:unavailable");
+            throw new IllegalStateException("Card data hash unavailable: " + e.getMessage(), e);
+        }
+    }
+
+    private static void appendFaceScript(final StringBuilder script, final Object rules, final String getter) {
+        try {
+            final Object face = rules.getClass().getMethod(getter).invoke(rules);
+            if (face == null) {
+                return;
+            }
+            appendIterable(script, face, "getKeywords");
+            appendIterable(script, face, "getAbilities");
+            appendIterable(script, face, "getStaticAbilities");
+            appendIterable(script, face, "getTriggers");
+            appendIterable(script, face, "getReplacements");
+            final Object nonAbility = face.getClass().getMethod("getNonAbilityText").invoke(face);
+            if (nonAbility != null) {
+                script.append(nonAbility).append('\n');
+            }
+        } catch (final ReflectiveOperationException ignored) {
+        }
+    }
+
+    private static void appendIterable(final StringBuilder script, final Object face, final String method) {
+        try {
+            final Object it = face.getClass().getMethod(method).invoke(face);
+            if (it instanceof Iterable) {
+                for (final Object line : (Iterable<?>) it) {
+                    if (line != null) {
+                        script.append(line).append('\n');
+                    }
+                }
+            }
+        } catch (final ReflectiveOperationException ignored) {
         }
     }
 
