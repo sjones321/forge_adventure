@@ -11,8 +11,11 @@ public final class CoopPorts {
     /** Ascendant co-op overworld session port (handshake, world sync, CO2). */
     public static final int OVERWORLD_PORT = 36744;
 
-    /** Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change. */
-    public static final int PROTOCOL_VERSION = 5;
+    /**
+     * Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change.
+     * CO2 (merged #18) is protocol 5; CO3 is 6.
+     */
+    public static final int PROTOCOL_VERSION = 6;
 
     /** Length of the short session code shown by the host. */
     public static final int SESSION_CODE_LENGTH = 8;

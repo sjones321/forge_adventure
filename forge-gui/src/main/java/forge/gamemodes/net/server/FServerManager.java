@@ -225,16 +225,45 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
         return byteTracker;
     }
 
+    /**
+     * Expected guest username for Ascendant co-op duels (CO3). When non-empty,
+     * LoginEvent usernames that do not match are refused. Cleared on stop.
+     * Stock online play leaves this empty.
+     */
+    private volatile String coopExpectedGuestName = "";
+    /** Optional session-code echo required in the LoginEvent version field for CO3. */
+    private volatile String coopExpectedSessionCode = "";
+
     public void startServer(final int port) {
+        startServer(port, null, null);
+    }
+
+    /**
+     * Start the multiplayer duel server.
+     *
+     * <p>Ascendant co-op (CO3) calls this with a bind address (Tailscale
+     * {@code 100.x} or empty for all interfaces) and {@code forceUPnP=false}
+     * so stock UPnP prefs are not consulted. Stock online play keeps using
+     * {@link #startServer(int)}.
+     *
+     * @param bindAddress null/empty = all interfaces; otherwise bind that host
+     * @param forceUPnP null = use net prefs (stock); non-null overrides
+     */
+    public void startServer(final int port, final String bindAddress, final Boolean forceUPnP) {
         this.port = port;
-        String UPnPOption = FModel.getNetPreferences().getPref(ForgeNetPreferences.FNetPref.UPnP);
-        boolean startUPnP;
-        if (UPnPOption.equalsIgnoreCase("ASK")) {
-            startUPnP = callUPnPDialog();
+        final boolean startUPnP;
+        if (forceUPnP != null) {
+            startUPnP = forceUPnP;
         } else {
-            startUPnP = UPnPOption.equalsIgnoreCase("ALWAYS");
+            final String UPnPOption = FModel.getNetPreferences().getPref(ForgeNetPreferences.FNetPref.UPnP);
+            if (UPnPOption.equalsIgnoreCase("ASK")) {
+                startUPnP = callUPnPDialog();
+            } else {
+                startUPnP = UPnPOption.equalsIgnoreCase("ALWAYS");
+            }
         }
-        netLog.info("Starting Multiplayer Server");
+        final String bind = bindAddress == null || bindAddress.trim().isEmpty() ? null : bindAddress.trim();
+        netLog.info("Starting Multiplayer Server on {}:{}", bind != null ? bind : "*", port);
         bossGroup = new NioEventLoopGroup(1);
         workerGroup = new NioEventLoopGroup();
         try {
@@ -262,7 +291,10 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
                     });
 
             // Bind and start to accept incoming connections.
-            final ChannelFuture ch = b.bind(port).sync().channel().closeFuture();
+            final ChannelFuture bindFuture = bind != null
+                    ? b.bind(bind, port).sync()
+                    : b.bind(port).sync();
+            final ChannelFuture ch = bindFuture.channel().closeFuture();
             new Thread(() -> {
                 try {
                     ch.sync();
@@ -280,6 +312,39 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
         } catch (final InterruptedException e) {
             netLog.error(e, "Server start interrupted");
         }
+    }
+
+    /**
+     * CO3: gate LoginEvent to the already-authenticated co-op guest. Pass empty
+     * strings to clear (stock online / after duel).
+     */
+    public void setCoopSessionGate(final String expectedGuestName, final String sessionCode) {
+        this.coopExpectedGuestName = expectedGuestName != null ? expectedGuestName.trim() : "";
+        this.coopExpectedSessionCode = sessionCode != null ? sessionCode.trim() : "";
+    }
+
+    public void clearCoopSessionGate() {
+        setCoopSessionGate("", "");
+    }
+
+    boolean coopGateAllows(final String username, final String versionField) {
+        final String expected = coopExpectedGuestName;
+        if (expected == null || expected.isEmpty()) {
+            return true; // stock online — no gate
+        }
+        if (username == null || !expected.equalsIgnoreCase(username.trim())) {
+            return false;
+        }
+        final String code = coopExpectedSessionCode;
+        if (code == null || code.isEmpty()) {
+            return true;
+        }
+        // Optional: callers may embed the session code in the LoginEvent version string
+        // as a suffix ";coop=<code>" so the game port requires the same session.
+        if (versionField != null && versionField.contains(";coop=" + code)) {
+            return true;
+        }
+        return code.equals(versionField);
     }
 
     private boolean callUPnPDialog() {
@@ -313,6 +378,7 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
         if (!HostingServer.isHosting()) {
             return;
         }
+        clearCoopSessionGate();
         // Cancel all reconnect timers
         for (final Timer timer : reconnectTimers.values()) {
             timer.cancel();
@@ -1073,6 +1139,12 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
                 // point of intake keeps the parked key and the reconnect
                 // lookup in agreement.
                 final String username = LogSafe.forDisplay(event.getUsername(), maxNameLength());
+                // Ascendant co-op (CO3): require the same authenticated guest / session.
+                if (!coopGateAllows(username, event.getVersion())) {
+                    netLog.warn("Refusing LoginEvent from {} — co-op session gate mismatch", username);
+                    ctx.close();
+                    return;
+                }
                 client.setUsername(username);
 
                 // Check if this is a reconnecting player

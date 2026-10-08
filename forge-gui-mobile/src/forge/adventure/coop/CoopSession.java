@@ -20,8 +20,12 @@ import forge.gamemodes.net.event.coop.CoopDecklistEvent;
 import forge.gamemodes.net.event.coop.CoopDisconnectEvent;
 import forge.gamemodes.net.event.coop.CoopDuelInviteEvent;
 import forge.gamemodes.net.event.coop.CoopDuelResponseEvent;
+import forge.gamemodes.net.event.coop.CoopDuelResultEvent;
+import forge.gamemodes.net.event.coop.CoopDuelStartEvent;
 import forge.gamemodes.net.event.coop.CoopEnemyEncounterRequestEvent;
 import forge.gamemodes.net.event.coop.CoopEnemyStateEvent;
+import forge.gamemodes.net.event.coop.CoopFightLoadoutEvent;
+import forge.gamemodes.net.event.coop.CoopFightRequestResultEvent;
 import forge.gamemodes.net.event.coop.CoopGatherRequestEvent;
 import forge.gamemodes.net.event.coop.CoopGatherResultEvent;
 import forge.gamemodes.net.event.coop.CoopHelloEvent;
@@ -79,6 +83,8 @@ public final class CoopSession {
     private volatile boolean skipUPnP = true;
     private volatile String joinSessionCode = "";
     private volatile String bindAddress = "";
+    /** Host address the guest connected to (for CO3 game-port reconnect). */
+    private volatile String joinHostAddress = "";
 
     /** Host world held separately for the guest — never written into WorldSave slots. */
     private volatile World sessionWorld;
@@ -132,7 +138,15 @@ public final class CoopSession {
     }
 
     public String getSessionCode() {
+        if (role == CoopSessionRole.GUEST && (sessionCode == null || sessionCode.isEmpty())) {
+            return joinSessionCode;
+        }
         return sessionCode;
+    }
+
+    /** Address the guest used to reach the host (empty on host). */
+    public String getJoinHostAddress() {
+        return joinHostAddress;
     }
 
     public int getOverworldPort() {
@@ -282,6 +296,7 @@ public final class CoopSession {
 
         role = CoopSessionRole.GUEST;
         state = State.JOINING;
+        joinHostAddress = host;
         guestRestoreDone.set(false);
         stashGuestSave();
         CoopCharacterStore.exportCurrentPlayer();
@@ -371,6 +386,11 @@ public final class CoopSession {
         }
 
         disposeSessionWorld();
+        try {
+            CoopDuelRuntime.get().onSessionPeerDisconnected();
+            CoopDuelRuntime.get().detach();
+        } catch (final Exception ignored) {
+        }
         role = CoopSessionRole.NONE;
         // Keep REJECTED visible until the next host/join clears it.
         if (previousState == State.REJECTED) {
@@ -379,6 +399,7 @@ public final class CoopSession {
             state = State.DISCONNECTED;
         }
         peerName = "";
+        joinHostAddress = "";
         if (previousRole == CoopSessionRole.HOST) {
             sessionCode = "";
             bindAddress = "";
@@ -544,6 +565,33 @@ public final class CoopSession {
                 l.onDecklist((CoopDecklistEvent) event);
                 l.onDuelMessage(event);
             }
+        } else if (event instanceof CoopFightRequestResultEvent) {
+            for (final CoopHooks.DuelListener l : duelListeners) {
+                l.onFightRequestResult((CoopFightRequestResultEvent) event);
+                l.onDuelMessage(event);
+            }
+        } else if (event instanceof CoopFightLoadoutEvent) {
+            for (final CoopHooks.DuelListener l : duelListeners) {
+                l.onFightLoadout((CoopFightLoadoutEvent) event);
+                l.onDuelMessage(event);
+            }
+        } else if (event instanceof CoopDuelStartEvent) {
+            for (final CoopHooks.DuelListener l : duelListeners) {
+                l.onDuelStart((CoopDuelStartEvent) event);
+                l.onDuelMessage(event);
+            }
+        } else if (event instanceof CoopDuelResultEvent) {
+            for (final CoopHooks.DuelListener l : duelListeners) {
+                l.onDuelResult((CoopDuelResultEvent) event);
+                l.onDuelMessage(event);
+            }
+        }
+    }
+
+    private void attachDuelRuntime() {
+        try {
+            CoopDuelRuntime.get().attach();
+        } catch (final Exception ignored) {
         }
     }
 
@@ -624,12 +672,17 @@ public final class CoopSession {
             } else if (event instanceof CoopSessionReadyEvent) {
                 state = State.READY;
                 peerName = ((CoopSessionReadyEvent) event).getPeerName();
+                attachDuelRuntime();
                 status("Session ready with " + peerName);
                 try {
                     CoopOverworldRuntime.get().onSessionReady();
                 } catch (final Exception ignored) {
                 }
             } else if (event instanceof CoopDisconnectEvent) {
+                try {
+                    CoopDuelRuntime.get().onSessionPeerDisconnected();
+                } catch (final Exception ignored) {
+                }
                 peerName = "";
                 status("Guest disconnected: " + ((CoopDisconnectEvent) event).getReason());
             } else if (s != null && s.isGuestAuthenticated()) {
@@ -700,6 +753,10 @@ public final class CoopSession {
         public void onDisconnected(final String reason) {
             if (state == State.DISCONNECTED || state == State.IDLE) {
                 return;
+            }
+            try {
+                CoopDuelRuntime.get().onSessionPeerDisconnected();
+            } catch (final Exception ignored) {
             }
             // Do not save host player or stop the server — wait for another guest.
             peerName = "";
@@ -785,6 +842,7 @@ public final class CoopSession {
 
         private void finishReady(final String hostName) {
             state = State.READY;
+            attachDuelRuntime();
             send(new CoopSessionReadyEvent(false, WorldSave.getCurrentSave().getPlayer().getName(), worldHash));
             status("Session ready with host " + hostName);
             try {

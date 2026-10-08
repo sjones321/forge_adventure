@@ -81,7 +81,16 @@ public final class WireClassFilter implements IHasForgeLog {
             "forge.gamemodes.net.event.coop.CoopHostPresenceEvent",
             "forge.gamemodes.net.event.coop.CoopHostPresenceEvent$Presence",
             "forge.gamemodes.net.event.coop.CoopDuelInviteEvent",
-            "forge.gamemodes.net.event.coop.CoopDuelResponseEvent");
+            "forge.gamemodes.net.event.coop.CoopDuelResponseEvent",
+            // CO2/CO3 guest enemy encounter (shape matches PR #18)
+            "forge.gamemodes.net.event.coop.CoopEnemyEncounterRequestEvent",
+            // CO3 co-op duels
+            "forge.gamemodes.net.event.coop.CoopFightRequestResultEvent",
+            "forge.gamemodes.net.event.coop.CoopFightRequestResultEvent$Decision",
+            "forge.gamemodes.net.event.coop.CoopFightLoadoutEvent",
+            "forge.gamemodes.net.event.coop.CoopDuelStartEvent",
+            "forge.gamemodes.net.event.coop.CoopDuelResultEvent",
+            "forge.gamemodes.net.coop.CoopFightLoadout");
 
     private static final String JAVA_LANG = "java.lang.";
     private static final String PRIMITIVE_DESCRIPTORS = "BCDFIJSZ";

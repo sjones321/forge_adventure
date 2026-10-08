@@ -3,15 +3,14 @@
 Direct, no servers. One player **hosts**; the other **joins** over LAN or Tailscale.
 Ascendant only — stock Forge / non-Ascendant Adventure worlds do not show Host / Join.
 
-## Port
+## Ports
 
 | Port  | Role |
 |------:|------|
 | **36744** | Ascendant co-op overworld session (handshake, world sync, CO2). |
+| **36743** | Forge game / duel port — started **only for co-op duels** (CO3), bound to `coopBindAddress` when set, same session auth as 36744. Stock online play is unchanged. |
 
-Tunable in the Ascendant `config.json` as `coopOverworldPort`.
-
-> The existing Forge duel port **36743** is reserved for co-op duels in **CO3** and is not used or required for CO1.
+Tunable in the Ascendant `config.json` as `coopOverworldPort` / `coopGamePort`.
 
 ## Host
 
@@ -45,7 +44,7 @@ Use your Tailscale IPv4 (`100.x`). Leave empty (`""`) for all interfaces.
 
 Run these in an **Administrator** PowerShell on the **host** PC.
 
-Scope rules to the Java/Forge program and to Tailscale or the local subnet — do not open 36744 to the whole Internet.
+Scope rules to the Java/Forge program and to Tailscale or the local subnet — do not open 36743/36744 to the whole Internet.
 
 **Tailscale** (recommended):
 
@@ -53,6 +52,11 @@ Scope rules to the Java/Forge program and to Tailscale or the local subnet — d
 # Run as Administrator
 New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Overworld (Tailscale)" `
   -Direction Inbound -Protocol TCP -LocalPort 36744 -Action Allow -Profile Private `
+  -RemoteAddress 100.64.0.0/10 `
+  -Program "C:\Path\To\java.exe"
+
+New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Duels (Tailscale)" `
+  -Direction Inbound -Protocol TCP -LocalPort 36743 -Action Allow -Profile Private `
   -RemoteAddress 100.64.0.0/10 `
   -Program "C:\Path\To\java.exe"
 ```
@@ -65,6 +69,11 @@ Replace the `-Program` path with the `java.exe` (or Forge launcher) you actually
 # Run as Administrator
 New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Overworld (LAN)" `
   -Direction Inbound -Protocol TCP -LocalPort 36744 -Action Allow -Profile Private `
+  -RemoteAddress LocalSubnet `
+  -Program "C:\Path\To\java.exe"
+
+New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Duels (LAN)" `
+  -Direction Inbound -Protocol TCP -LocalPort 36743 -Action Allow -Profile Private `
   -RemoteAddress LocalSubnet `
   -Program "C:\Path\To\java.exe"
 ```
@@ -102,7 +111,7 @@ World seed rebuild must also produce the same world hash; otherwise the guest re
 host-authoritative nodes/enemies/POI, party invites, and location-enter invites.
 Tunables live in Ascendant `config.json` (`coopPositionSendHz`,
 `coopPartnerInterpRate`, `coopInteractRangePx`, `coopLocationInviteTimeoutSeconds`, …).
-Wire `PROTOCOL_VERSION = 5` (round 3: teleport move samples + reported max speed).
+Wire protocol: CO2 = 5; CO3 = **6**.
 
 **Interior rule (v1):** both roam freely on the overworld. Entering a town,
 dungeon or delve invites a nearby party partner. Accept → enter the same
@@ -131,9 +140,13 @@ entities stay). Guest stashed enemies are restored on leave.
 **Menus:** inventory / deck editor do **not** pause the shared overworld in co-op
 (but duels do — background tick never despawns the fought mob).
 
-**CO3-stable hooks (unchanged):** `CoopHooks.notifyFightAboutToStart(String)`,
+**CO3 (co-op duels):** starts game port (**36743**) only when a joined co-op duel
+begins, binds to `coopBindAddress` when set, gates LoginEvent to the authenticated
+guest / session code, and stops it when the duel or session ends. Hooks:
+`CoopHooks.notifyFightAboutToStart(String)`,
 `CoopHooks.notifyGuestEnemyEncounter(long, String, String)` /
-`GuestEnemyEncounterHandler`, and `CoopPartyState.inParty()` /
-`withinRadius(...)`.
+`GuestEnemyEncounterHandler`, and party proximity via
+`CoopPartyState.inParty()` / `withinRadius(...)` → `CoopHooks.setPartyProximity`.
 
-See `CoopHooks` / `CoopOverworldRuntime` and `docs/Adventure/Ascendant-Roadmap.md`.
+See `CoopHooks` / `CoopOverworldRuntime` / `CoopDuelRuntime` and
+`docs/Adventure/Ascendant-Roadmap.md`.

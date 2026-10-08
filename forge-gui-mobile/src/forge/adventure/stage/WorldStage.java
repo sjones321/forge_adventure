@@ -208,30 +208,14 @@ public class WorldStage extends GameStage implements SaveFileContent {
                     HapticEngine.vibrate(FPref.UI_VIBRATE_ON_ENEMY_ENCOUNTER, mob.getData().boss ? 400 : 200);
                     Forge.advFreezePlayerControls = true;
                     player.clearCollisionHeight();
+                    currentMob = mob;
                     // CO3 hook: party partner may be invited to join; CO2 leaves duel code untouched.
                     final String encounterId = mob.getData() != null ? mob.getData().getName() : "enemy";
                     if (CoopHooks.notifyFightAboutToStart(encounterId)) {
                         // Deferred for co-op duel invite (CO3). Stay frozen until resolved.
                         break;
                     }
-                    float attackDuration = Math.max(
-                            player.getActionAnimationDuration(CharacterSprite.AnimationTypes.Attack, 0.8f),
-                            mob.getActionAnimationDuration(CharacterSprite.AnimationTypes.Attack, 0.8f));
-                    startPause(attackDuration, () -> {
-                        Forge.setCursor(null, Forge.magnifyToggle ? "1" : "2");
-                        SoundSystem.instance.play(SoundEffectType.ManaBurn, false);
-                        DuelScene duelScene = DuelScene.instance();
-                        FThreads.invokeInEdtNowOrLater(() -> {
-                            Forge.setTransitionScreen(new TransitionScreen(() -> {
-                                collided = false;
-                                CoopOverworldRuntime.get().onHostDuelStarted(encounterId);
-                                duelScene.initDuels(player, mob);
-                                Forge.switchScene(duelScene);
-                            }, ScreenUtil.getInstance().takeScreenshot(), true, false, false, false, "", Current.player().avatar(), mob.getAtlasPath(), Current.player().getName(), mob.getName()));
-                            currentMob = mob;
-                            WorldSave.getCurrentSave().autoSave();
-                        });
-                    });
+                    beginEncounterDuel(mob);
                     break;
                 }
             }
@@ -403,6 +387,48 @@ public class WorldStage extends GameStage implements SaveFileContent {
             return;
         foregroundSprites.removeActor(sprite);
         removeEnemy(sprite);
+
+    /**
+     * Start the normal (solo) overworld duel transition for {@code mob}.
+     * Also used by CO3 after a join prompt times out or is declined.
+     * Notifies CO2 {@code onHostDuelStarted} so the host pauses world sim.
+     */
+    public void beginEncounterDuel(final EnemySprite mob) {
+        if (mob == null) {
+            Forge.advFreezePlayerControls = false;
+            collided = false;
+            return;
+        }
+        currentMob = mob;
+        final String encounterId = mob.getData() != null ? mob.getData().getName() : "enemy";
+        float attackDuration = Math.max(
+                player.getActionAnimationDuration(CharacterSprite.AnimationTypes.Attack, 0.8f),
+                mob.getActionAnimationDuration(CharacterSprite.AnimationTypes.Attack, 0.8f));
+        startPause(attackDuration, () -> {
+            Forge.setCursor(null, Forge.magnifyToggle ? "1" : "2");
+            SoundSystem.instance.play(SoundEffectType.ManaBurn, false);
+            DuelScene duelScene = DuelScene.instance();
+            FThreads.invokeInEdtNowOrLater(() -> {
+                Forge.setTransitionScreen(new TransitionScreen(() -> {
+                    collided = false;
+                    CoopOverworldRuntime.get().onHostDuelStarted(encounterId);
+                    duelScene.initDuels(player, mob);
+                    Forge.switchScene(duelScene);
+                }, ScreenUtil.getInstance().takeScreenshot(), true, false, false, false, "", Current.player().avatar(), mob.getAtlasPath(), Current.player().getName(), mob.getName()));
+                currentMob = mob;
+                WorldSave.getCurrentSave().autoSave();
+            });
+        });
+    }
+
+    /** Enemy currently frozen for an encounter / co-op invite (may be null). */
+    public EnemySprite getCurrentMob() {
+        return currentMob;
+    }
+
+    /** CO3: pin the encounter enemy before a deferred co-op result path runs. */
+    public void setCurrentMob(final EnemySprite mob) {
+        currentMob = mob;
     }
 
     private void removeEnemy(EnemySprite currentMob) {

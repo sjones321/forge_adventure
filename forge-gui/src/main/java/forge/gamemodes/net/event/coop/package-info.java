@@ -14,7 +14,13 @@
  * CO2 events in this package: player move, party invite/response, gather
  * request/result, node/enemy/POI state, location invite/response. Handled by
  * {@code CoopOverworldRuntime} via {@code CoopSession} listeners. Host remains
- * authoritative for world state; guest sends requests only. CO3 duel events
- * stay stubs until the duel package lands.
+ * authoritative for world state; guest sends requests only.
+ *
+ * <p>CO3 duel coordination (invite / loadout / start / result /
+ * {@link CoopEnemyEncounterRequestEvent}) travels the overworld port. The Magic
+ * match itself uses {@link forge.gamemodes.net.coop.CoopPorts#GAME_PORT} via
+ * {@code FServerManager} / {@code FGameClient}, started only for co-op duels.
+ *
+ * <p>Protocol: CO2 is 5; CO3 is 6.
  */
 package forge.gamemodes.net.event.coop;
