@@ -1,5 +1,6 @@
 package forge.adventure.stage;
 
+import forge.adventure.util.Current;
 import com.badlogic.gdx.graphics.g2d.Batch;
 import com.badlogic.gdx.graphics.g2d.Sprite;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
@@ -70,19 +71,19 @@ public class MapSprite extends Actor {
 
     public static Array<Actor> getMapSprites(int chunkX, int chunkY, int layer) {
         Array<Actor> actorGroup = new Array<>();
-        List<Pair<Vector2, Integer>> objects = WorldSave.getCurrentSave().getWorld().GetMapObjects(chunkX, chunkY);
+        List<Pair<Vector2, Integer>> objects = Current.world().GetMapObjects(chunkX, chunkY);
         if (layer == SpriteLayer) {
-            List<PointOfInterest> pointsOfInterest = WorldSave.getCurrentSave().getWorld().getPointsOfInterest(chunkX, chunkY);
+            List<PointOfInterest> pointsOfInterest = Current.world().getPointsOfInterest(chunkX, chunkY);
             for (PointOfInterest poi : pointsOfInterest) {
                 Actor sprite = new PointOfInterestMapSprite(poi);
                 actorGroup.add(sprite);
             }
         }
         for (Pair<Vector2, Integer> entry : objects) {
-            BiomeSpriteData data = WorldSave.getCurrentSave().getWorld().getObject(entry.getValue());
+            BiomeSpriteData data = Current.world().getObject(entry.getValue());
             if (data.layer != layer)
                 continue;
-            Sprite biomeSprite = WorldSave.getCurrentSave().getWorld().getData().GetBiomeSprites().getSprite(data.name, (int) entry.getKey().x + (int) entry.getKey().y * 11483);
+            Sprite biomeSprite = Current.world().getData().GetBiomeSprites().getSprite(data.name, (int) entry.getKey().x + (int) entry.getKey().y * 11483);
             if (biomeSprite != null) { //null means invalid and will cause blackscreen, investigate why this would happen...
                 Actor sprite = new MapSprite(entry.getKey(), biomeSprite, null);
                 actorGroup.add(sprite);

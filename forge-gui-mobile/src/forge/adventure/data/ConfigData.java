@@ -342,4 +342,24 @@ public class ConfigData {
     /** Mastery Surge picks granted when a set is mastered (1–2 typical). */
     public int masterySurgePicks = 2;
 
+    // ---- Ascendant multiverse (Package MV1): multi-plane save + planar portals. ----
+
+    /**
+     * Plane instance id for the home overworld inside one save
+     * ({@code "home"}). Distinct from {@code settings.json} adventure pack name.
+     */
+    public String homePlaneId = "home";
+    /**
+     * Relative world.json used when generating a new set plane (MV1 template;
+     * MV2 will specialise per set). Smaller than the home plane.
+     */
+    public String setPlaneWorldConfig = "world/set_plane_world.json";
+    /** Soft cap on planes stored in one save (home + set planes). */
+    public int maxPlanesPerSave = 16;
+    /**
+     * When true (Ascendant default), planar portal objects with {@code targetPlane}
+     * may create a missing set plane on first use.
+     */
+    public boolean planarPortalAutoCreate = true;
+
 }

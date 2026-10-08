@@ -19,6 +19,7 @@ import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.MapStage;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.*;
+import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.WorldSave;
 import forge.card.CardEdition;
 import forge.card.CardRarity;
@@ -1382,7 +1383,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 for (int i = 0; i < n; i++) {
                     if (ids[i] == null || ids[i].isEmpty() || levels[i] <= 0)
                         continue;
-                    GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(ids[i]);
+                    // MV1: bare outpost ids from old saves become home::<id>.
+                    String key = ids[i].contains("::")
+                            ? ids[i]
+                            : campStorageKey(PlaneMeta.HOME_ID, ids[i]);
+                    String bare = bareOutpostId(key);
+                    GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(bare);
                     if (def == null)
                         continue;
                     CampState st = new CampState();
@@ -1396,7 +1402,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                         if (matId != null)
                             st.addStored(matId, legacyStored[i]);
                     }
-                    camps.put(ids[i], st);
+                    camps.put(key, st);
                 }
             }
         }
@@ -3578,8 +3584,56 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return toolEnchantEffect(family, effect) > 0f;
     }
 
+    /**
+     * MV1 camp storage key: {@code <planeId>::<outpostId>}. Bare outpost ids from
+     * old saves are treated as home-plane keys on load.
+     */
+    public static String campStorageKey(String planeId, String outpostId) {
+        if (outpostId == null) {
+            return null;
+        }
+        if (outpostId.contains("::")) {
+            return outpostId;
+        }
+        String plane = planeId != null && !planeId.isEmpty() ? planeId : PlaneMeta.HOME_ID;
+        return plane + "::" + outpostId;
+    }
+
+    public static String bareOutpostId(String campKey) {
+        if (campKey == null) {
+            return null;
+        }
+        int i = campKey.indexOf("::");
+        return i < 0 ? campKey : campKey.substring(i + 2);
+    }
+
+    private String campKeyForCurrentPlane(String outpostId) {
+        if (outpostId == null) {
+            return null;
+        }
+        if (outpostId.contains("::")) {
+            return outpostId;
+        }
+        String plane;
+        try {
+            plane = WorldSave.getCurrentSave().getCurrentPlaneId();
+        } catch (Exception e) {
+            plane = PlaneMeta.HOME_ID;
+        }
+        return campStorageKey(plane, outpostId);
+    }
+
     public CampState getCamp(String outpostId) {
-        return outpostId == null ? null : camps.get(outpostId);
+        if (outpostId == null) {
+            return null;
+        }
+        String key = campKeyForCurrentPlane(outpostId);
+        CampState st = camps.get(key);
+        if (st == null && !outpostId.contains("::")) {
+            // Pre-MV1 bare key (migrated on load; keep lookup for mid-session).
+            st = camps.get(outpostId);
+        }
+        return st;
     }
 
     public Map<String, CampState> getCamps() {
@@ -3590,8 +3644,13 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     public void updateCampProduction(String outpostId) {
         if (!Config.ascendant() || outpostId == null)
             return;
-        CampState st = camps.get(outpostId);
-        GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(outpostId);
+        String key = campKeyForCurrentPlane(outpostId);
+        String bare = bareOutpostId(outpostId);
+        CampState st = camps.get(key);
+        if (st == null) {
+            st = camps.get(outpostId);
+        }
+        GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(bare);
         if (st == null || def == null || st.level <= 0)
             return;
         GatheringMethodData.OutpostLevel level = def.levelData(st.level);
@@ -3621,9 +3680,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     public boolean buildCamp(String outpostId) {
         if (!Config.ascendant() || outpostId == null)
             return false;
-        if (camps.containsKey(outpostId))
+        String key = campKeyForCurrentPlane(outpostId);
+        if (camps.containsKey(key) || camps.containsKey(outpostId))
             return false;
-        GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(outpostId);
+        GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(bareOutpostId(outpostId));
         if (def == null)
             return false;
         return upgradeCamp(outpostId, 1);
@@ -3633,13 +3693,18 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     public boolean upgradeCamp(String outpostId, int targetLevel) {
         if (!Config.ascendant() || outpostId == null || targetLevel < 1)
             return false;
-        GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(outpostId);
+        String key = campKeyForCurrentPlane(outpostId);
+        String bare = bareOutpostId(outpostId);
+        GatheringMethodData.Outpost def = GatheringMethodListData.getOutpost(bare);
         if (def == null)
             return false;
         GatheringMethodData.OutpostLevel level = def.levelData(targetLevel);
         if (level == null)
             return false;
-        CampState st = camps.get(outpostId);
+        CampState st = camps.get(key);
+        if (st == null) {
+            st = camps.get(outpostId);
+        }
         int cur = st != null ? st.level : 0;
         if (targetLevel != cur + 1)
             return false;
@@ -3654,7 +3719,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
         if (st == null) {
             st = new CampState();
-            camps.put(outpostId, st);
+            camps.put(key, st);
+        } else if (!camps.containsKey(key)) {
+            camps.remove(outpostId);
+            camps.put(key, st);
         }
         // Accrue into the current tier's material bin before raising the level so
         // existing stock stays under its material id (never converts on upgrade).
@@ -3693,7 +3761,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (!Config.ascendant() || outpostId == null)
             return 0;
         updateCampProduction(outpostId);
-        CampState st = camps.get(outpostId);
+        String key = campKeyForCurrentPlane(outpostId);
+        CampState st = camps.get(key);
+        if (st == null) {
+            st = camps.get(outpostId);
+        }
         if (st == null || st.level <= 0 || st.storedByMaterial.isEmpty())
             return 0;
         int total = 0;

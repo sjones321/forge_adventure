@@ -1,5 +1,6 @@
 package forge.adventure.stage;
 
+import forge.adventure.util.Current;
 import com.badlogic.gdx.math.GridPoint2;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
@@ -180,11 +181,11 @@ public class WorldStage extends GameStage implements SaveFileContent {
                     enemyMoveVector.setLength(mob.speed() * delta);
                     tempBoundingRect.set(mob.getX() + enemyMoveVector.x, mob.getY() + enemyMoveVector.y, mob.getWidth(), mob.getHeight() * mob.getCollisionHeight());
 
-                    if (!mob.getData().flying && WorldSave.getCurrentSave().getWorld().collidingTile(tempBoundingRect)) {
+                    if (!mob.getData().flying && Current.world().collidingTile(tempBoundingRect)) {
                         tempBoundingRect.set(mob.getX() + enemyMoveVector.x, mob.getY(), mob.getWidth(), mob.getHeight());
-                        if (WorldSave.getCurrentSave().getWorld().collidingTile(tempBoundingRect)) {
+                        if (Current.world().collidingTile(tempBoundingRect)) {
                             tempBoundingRect.set(mob.getX(), mob.getY() + enemyMoveVector.y, mob.getWidth(), mob.getHeight());
-                            if (!WorldSave.getCurrentSave().getWorld().collidingTile(tempBoundingRect)) {
+                            if (!Current.world().collidingTile(tempBoundingRect)) {
                                 mob.moveBy(0, enemyMoveVector.y);
                             }
                         } else {
@@ -562,7 +563,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
     public boolean isColliding(Rectangle boundingRect) {
         if (currentModifications.containsKey(PlayerModification.Fly))
             return false;
-        return WorldSave.getCurrentSave().getWorld().collidingTile(boundingRect);
+        return Current.world().collidingTile(boundingRect);
     }
 
     @Override
@@ -612,7 +613,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
         if (nodes.size() >= maxAlive)
             return;
 
-        World world = WorldSave.getCurrentSave().getWorld();
+        World world = Current.world();
         int currentBiome = World.highestBiome(world.getBiome(
                 (int) ((player.getX() + player.getWidth() / 2f) / world.getTileSize()),
                 (int) (player.getY() / world.getTileSize())));
@@ -704,7 +705,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 boolean yBigger = spawnPos.y > 0;
                 sprite.setX(player.getX() + spawnPos.x + (i * sprite.getWidth() * (xBigger ? 1 : -1)));
                 sprite.setY(player.getY() + spawnPos.y + (i * sprite.getHeight() * (yBigger ? 1 : -1)));
-                if (!WorldSave.getCurrentSave().getWorld().collidingTile(sprite.boundingRect())) {
+                if (!Current.world().collidingTile(sprite.boundingRect())) {
                     nodes.add(Pair.of(globalTimer, sprite));
                     foregroundSprites.addActor(sprite);
                     CoopOverworldRuntime.get().onHostNodeSpawned(sprite, mat.id);
@@ -1209,9 +1210,9 @@ public class WorldStage extends GameStage implements SaveFileContent {
             }
         }
 
-        World world = WorldSave.getCurrentSave().getWorld();
+        World world = Current.world();
         int currentBiome = World.highestBiome(world.getBiome((int) ((player.getX() + player.getWidth() / 2f) / world.getTileSize()), (int) (player.getY() / world.getTileSize())));
-        List<BiomeData> biomeData = WorldSave.getCurrentSave().getWorld().getData().GetBiomes();
+        List<BiomeData> biomeData = Current.world().getData().GetBiomes();
         float sprintingMod = currentModifications.containsKey(PlayerModification.Sprint) ? 2 : 1;
         if (biomeData.size() <= currentBiome) {// "if isOnRoad
             player.setMoveModifier(1.5f * sprintingMod);
@@ -1262,7 +1263,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 boolean enemyYIsBigger = sprite.getY() > player.getY();
                 sprite.setX(player.getX() + spawnPos.x + (i * sprite.getWidth() * (enemyXIsBigger ? 1 : -1)));//maybe find a better way to get spawn points
                 sprite.setY(player.getY() + spawnPos.y + (i * sprite.getHeight() * (enemyYIsBigger ? 1 : -1)));
-                if (sprite.getData().flying || !WorldSave.getCurrentSave().getWorld().collidingTile(sprite.boundingRect())) {
+                if (sprite.getData().flying || !Current.world().collidingTile(sprite.boundingRect())) {
                     enemies.add(Pair.of(globalTimer, sprite));
                     foregroundSprites.addActor(sprite);
                     CoopOverworldRuntime.get().onHostEnemySpawned(sprite);
@@ -1294,7 +1295,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 boolean enemyYIsBigger = sprite.getY() > player.getY();
                 sprite.setX(player.getX() + spawnPos.x + (i * sprite.getWidth() * (enemyXIsBigger ? 1 : -1)));//maybe find a better way to get spawn points
                 sprite.setY(player.getY() + spawnPos.y + (i * sprite.getHeight() * (enemyYIsBigger ? 1 : -1)));
-                if (sprite.getData().flying || !WorldSave.getCurrentSave().getWorld().collidingTile(sprite.boundingRect())) {
+                if (sprite.getData().flying || !Current.world().collidingTile(sprite.boundingRect())) {
                     enemies.add(Pair.of(globalTimer, sprite));
                     foregroundSprites.addActor(sprite);
                     return true;
@@ -1351,7 +1352,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 }
             }
         }
-        setBounds(WorldSave.getCurrentSave().getWorld().getWidthInPixels(), WorldSave.getCurrentSave().getWorld().getHeightInPixels());
+        setBounds(Current.world().getWidthInPixels(), Current.world().getHeightInPixels());
         GridPoint2 pos = background.translateFromWorldToChunk(player.getX(), player.getY());
         background.loadChunk(pos.x, pos.y);
         super.enter();

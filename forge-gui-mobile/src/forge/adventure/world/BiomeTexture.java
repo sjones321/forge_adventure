@@ -42,38 +42,59 @@ public class BiomeTexture implements Serializable {
 
     }
 
-    private void generate() {
-        FThreads.invokeInEdtNowOrLater(() -> {
-
-            if (images != null) {
-                for (ArrayList<Pixmap> val : images) {
-
-                    for (Pixmap img : val) {
+    /** Free all cached pixmaps. Prefer calling on the GL/EDT thread. */
+    public void dispose() {
+        if (images != null) {
+            for (ArrayList<Pixmap> val : images) {
+                if (val == null) {
+                    continue;
+                }
+                for (Pixmap img : val) {
+                    if (img != null) {
                         img.dispose();
                     }
                 }
-                images.clear();
             }
-            images = new ArrayList<>();
-            if (smallImages != null) {
-                for (ArrayList<Pixmap> val : smallImages) {
-
-                    for (Pixmap img : val) {
+            images.clear();
+        }
+        if (smallImages != null) {
+            for (ArrayList<Pixmap> val : smallImages) {
+                if (val == null) {
+                    continue;
+                }
+                for (Pixmap img : val) {
+                    if (img != null) {
                         img.dispose();
                     }
                 }
-                smallImages.clear();
             }
-            smallImages = new ArrayList<>();
-            if (edgeImages != null) {
-                for (IntMap<Pixmap> val : edgeImages) {
-
-                    for (IntMap.Entry<Pixmap> img : new IntMap.Entries<Pixmap>(val)) {
+            smallImages.clear();
+        }
+        if (edgeImages != null) {
+            for (IntMap<Pixmap> val : edgeImages) {
+                if (val == null) {
+                    continue;
+                }
+                for (IntMap.Entry<Pixmap> img : new IntMap.Entries<Pixmap>(val)) {
+                    if (img.value != null) {
                         img.value.dispose();
                     }
                 }
-                edgeImages.clear();
             }
+            edgeImages.clear();
+        }
+        if (emptyPixmap != null) {
+            emptyPixmap.dispose();
+            emptyPixmap = null;
+        }
+    }
+
+    private void generate() {
+        FThreads.invokeInEdtNowOrLater(() -> {
+
+            dispose();
+            images = new ArrayList<>();
+            smallImages = new ArrayList<>();
             edgeImages = new ArrayList<>();
 
             ArrayList<TextureAtlas.AtlasRegion> regions =new ArrayList<>();

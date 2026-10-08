@@ -21,6 +21,6 @@
  * match itself uses {@link forge.gamemodes.net.coop.CoopPorts#GAME_PORT} via
  * {@code FServerManager} / {@code FGameClient}, started only for co-op duels.
  *
- * <p>Protocol: CO2 is 5; CO3 is 6.
+ * <p>Protocol: CO2 is 5; CO3 is 6; MV1 plane-follow ({@link CoopPlaneSwitchEvent}) is 7.
  */
 package forge.gamemodes.net.event.coop;

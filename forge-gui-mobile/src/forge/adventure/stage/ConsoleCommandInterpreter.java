@@ -707,6 +707,78 @@ public class ConsoleCommandInterpreter {
             
             return "Exit the map to reset it.";
         });
+        // MV1 multi-plane — list / create / switch (Ascendant only).
+        registerCommand(new String[]{"plane", "list"}, s -> {
+            if (!Config.ascendant())
+                return "Multi-plane is Ascendant-only";
+            StringBuilder sb = new StringBuilder("Planes (current="
+                    + WorldSave.getCurrentSave().getCurrentPlaneId() + "):\n");
+            for (forge.adventure.world.PlaneMeta meta : WorldSave.getCurrentSave().getMultiverse().listPlanes()) {
+                sb.append("  ").append(meta.getId())
+                        .append(" [").append(meta.getKind()).append("]")
+                        .append(" seed=").append(meta.getSeed())
+                        .append(" cfg=").append(meta.getWorldConfigPath());
+                if (meta.getId().equals(WorldSave.getCurrentSave().getCurrentPlaneId()))
+                    sb.append(" *");
+                if (WorldSave.getCurrentSave().getMultiverse().isSerializedOnly(meta.getId()))
+                    sb.append(" (serialized)");
+                sb.append('\n');
+            }
+            return sb.toString().trim();
+        });
+        registerCommand(new String[]{"plane", "create"}, s -> {
+            if (!Config.ascendant())
+                return "Multi-plane is Ascendant-only";
+            if (!forge.adventure.coop.CoopSession.get().canInitiatePlaneSwitch())
+                return "Guests cannot create planes — host owns the shared world.";
+            if (s.length < 1 || s[0] == null || s[0].isEmpty())
+                return "Usage: plane create <id>";
+            String id = s[0].trim();
+            try {
+                forge.adventure.world.PlaneMeta meta = WorldSave.getCurrentSave().ensureSetPlane(id, id);
+                return "Created/ensured set plane " + meta.getId()
+                        + " (seed " + meta.getSeed() + "). Use: plane go " + meta.getId();
+            } catch (Exception e) {
+                return "plane create failed: " + e.getMessage();
+            }
+        });
+        registerCommand(new String[]{"plane", "go"}, s -> {
+            if (!Config.ascendant())
+                return "Multi-plane is Ascendant-only";
+            if (s.length < 1 || s[0] == null || s[0].isEmpty())
+                return "Usage: plane go <id>";
+            if (!forge.adventure.coop.CoopSession.get().canInitiatePlaneSwitch())
+                return "Guests cannot initiate plane switches — follow the host.";
+            String id = s[0].trim();
+            if ("home".equalsIgnoreCase(id))
+                id = forge.adventure.world.PlaneMeta.HOME_ID;
+            WorldSave save = WorldSave.getCurrentSave();
+            if (Current.player() != null && Current.player().isOverloaded())
+                return "Overloaded — clear Overflow before planar travel.";
+            if (!save.getMultiverse().hasPlane(id)) {
+                try {
+                    save.ensureSetPlane(id, id);
+                } catch (Exception e) {
+                    return "Unknown plane and create failed: " + e.getMessage();
+                }
+            }
+            // Fail before POI eject when the target cannot be loaded.
+            if (!save.canTravelToPlane(id)) {
+                String err = save.getLastPlaneSwitchError();
+                return err != null && !err.isEmpty() ? err : "plane go refused";
+            }
+            // Exit POIs first so WorldStage owns the player before the switch.
+            if (MapStage.getInstance().isInMap()) {
+                MapStage.getInstance().exitDungeon(false, false);
+            }
+            boolean ok = save.switchPlane(id);
+            if (!ok) {
+                String err = save.getLastPlaneSwitchError();
+                return err != null && !err.isEmpty() ? err : "plane go failed";
+            }
+            // GameScene.enter() happens exactly once inside switchPlane.
+            return "Now on plane " + save.getCurrentPlaneId();
+        });
         // CO2 shared overworld — party / location invites (Ascendant co-op only).
         registerCommand(new String[]{"coop", "party", "invite"}, s -> {
             if (!Config.ascendant())

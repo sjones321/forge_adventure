@@ -451,13 +451,23 @@ public class MapStage extends GameStage {
                         else
                             System.err.printf("No sprite defined for portal (ID:%s), defaulting to \"sprites/portal.atlas\"", id);
 
-                        String portalTargetMap = prop.get("teleport").toString();
+                        Object teleportProp = prop.get("teleport");
+                        String portalTargetMap = teleportProp == null ? "" : teleportProp.toString();
                         boolean validSpawnPoint = (portalTargetMap == null || portalTargetMap.isEmpty() && sourceMap.isEmpty()) ||//if target is null and "from world"
                                 !sourceMap.isEmpty() && portalTargetMap.equals(sourceMap);
 
                         int portalTargetId = (!prop.containsKey("teleportObjectId") || prop.get("teleportObjectId") ==null || prop.get("teleportObjectId").toString().isEmpty())? 0: Integer.parseInt(prop.get("teleportObjectId").toString());
 
-                        PortalActor portal = new PortalActor(this, id, prop.get("teleport").toString(), px, py, pw, ph, prop.get("direction").toString(), currentMap, portalTargetId, portalSpriteToUse);
+                        Object directionProp = prop.get("direction");
+                        String portalDirection = directionProp == null ? "down" : directionProp.toString();
+                        PortalActor portal = new PortalActor(this, id, portalTargetMap, px, py, pw, ph, portalDirection, currentMap, portalTargetId, portalSpriteToUse);
+                        // MV1: optional targetPlane switches WorldSave planes (Ascendant only).
+                        if (Config.ascendant() && prop.containsKey("targetPlane") && prop.get("targetPlane") != null) {
+                            String planeTarget = prop.get("targetPlane").toString().trim();
+                            if (!planeTarget.isEmpty()) {
+                                portal.setTargetPlane(planeTarget);
+                            }
+                        }
 
                         if (prop.containsKey("activeQuestFlag") && Current.player().checkQuestFlag(prop.get("activeQuestFlag").toString())){
                             portal.setAnimation("active");
