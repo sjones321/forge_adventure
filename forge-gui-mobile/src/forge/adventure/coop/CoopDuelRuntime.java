@@ -521,6 +521,14 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         declineInvite();
     }
 
+    /**
+     * Join-fight invite timeout may dismiss the HUD dialog only when that dialog
+     * is the join-fight prompt — never an unrelated party / location / exit dialog.
+     */
+    public static boolean mayHideHudOnJoinFightTimeout(final boolean hudShowingJoinFightDialog) {
+        return hudShowingJoinFightDialog;
+    }
+
     private void acceptInvite() {
         final String deckText = currentDecklistText();
         final CoopDuelResponseEvent resp = inviteState.respond(true, deckText);
@@ -566,7 +574,11 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 postGl(() -> {
                     try {
                         CoopOverworldRuntime.get().getInviteUi().removeJoinFight(inviteId);
-                        GameHUD.getInstance().hideCoopInviteDialog();
+                        // Only dismiss the HUD if the join-fight dialog is the one showing —
+                        // never hide an unrelated party / location / exit-dungeon dialog.
+                        final GameHUD hud = GameHUD.getInstance();
+                        if (hud != null && mayHideHudOnJoinFightTimeout(hud.isShowingJoinFightDialog()))
+                            hud.hideCoopInviteDialog();
                     } catch (final Exception ignored) {
                     }
                     if (inviteState.getStatus() == CoopDuelInviteState.Status.SOLO

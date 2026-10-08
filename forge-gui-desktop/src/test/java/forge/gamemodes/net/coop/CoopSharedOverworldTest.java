@@ -643,6 +643,45 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
+    public void joinFightTimeoutDoesNotClearUnrelatedPartyDialog() {
+        final CoopInviteUiState ui = new CoopInviteUiState();
+        ui.enqueue(CoopInviteUiState.PromptKind.PARTY, 1L, "Host", "");
+        Assert.assertEquals(ui.getKind(), CoopInviteUiState.PromptKind.PARTY);
+        // Join-fight arrives while party dialog is up → queued.
+        Assert.assertNull(ui.enqueue(
+                CoopInviteUiState.PromptKind.JOIN_FIGHT, 2L, "Host", "goblin"));
+        Assert.assertEquals(ui.queueSize(), 1);
+        // Timeout removes only the JOIN_FIGHT queue entry — party dialog stays.
+        Assert.assertTrue(ui.removeJoinFight(2L));
+        Assert.assertEquals(ui.getKind(), CoopInviteUiState.PromptKind.PARTY);
+        Assert.assertEquals(ui.queueSize(), 0);
+        Assert.assertTrue(ui.isDialogVisible());
+    }
+
+    @Test
+    public void queueAdvancesAfterExitDungeonBusyClears() {
+        // Simulates: exit-dungeon owns the HUD (inviteUi kind NONE) while join-fight
+        // force-queues; after exit Yes/No, showNextQueuedCoopInvite → hideAndPollNext.
+        final CoopInviteUiState ui = new CoopInviteUiState();
+        Assert.assertNull(ui.enqueue(
+                CoopInviteUiState.PromptKind.JOIN_FIGHT, 5L, "Host", "slime", true));
+        Assert.assertNull(ui.enqueue(
+                CoopInviteUiState.PromptKind.LOCATION, 6L, "Host", "Inn", true));
+        Assert.assertFalse(ui.isDialogVisible());
+        Assert.assertEquals(ui.queueSize(), 2);
+
+        final CoopInviteUiState.Prompt first = ui.hideAndPollNext();
+        Assert.assertEquals(first.kind, CoopInviteUiState.PromptKind.JOIN_FIGHT);
+        Assert.assertEquals(first.inviteId, 5L);
+        Assert.assertEquals(ui.queueSize(), 1);
+
+        final CoopInviteUiState.Prompt second = ui.hideAndPollNext();
+        Assert.assertEquals(second.kind, CoopInviteUiState.PromptKind.LOCATION);
+        Assert.assertEquals(second.inviteId, 6L);
+        Assert.assertEquals(ui.queueSize(), 0);
+    }
+
+    @Test
     public void multiplePendingGatherRequestsMatchedById() {
         final CoopPendingGatherQueue queue = new CoopPendingGatherQueue();
         queue.add(1L, 10L, "oak");

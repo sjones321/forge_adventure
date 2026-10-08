@@ -23,10 +23,11 @@ license. **Add an entry here whenever a new asset, library or data source is add
   `forge-gui/res/adventure/common/maps/tileset/kenney_*.png`) — Kenney Vleugels, <https://kenney.nl>. CC0 1.0;
   credited with thanks.
 - **Kenney Tiny Town tool icons** (local tiles 115 pickaxe, 127 axe, 128 hammer/chisel, 129 sickle,
-  130/131 buckets for probe) copied into `forge-gui/res/adventure/common/sprites/items.png` /
-  `items.atlas` as `ToolPickaxe`, `ToolAxe`, `ToolHammer`, `ToolSickle`, `ToolBucket`,
-  `ToolBucketFull`. Same CC0 1.0 source as above. Dust currency icons (`DustCommon` /
-  `DustUncommon` / `DustRare` / `DustMythic`) are tinted variants of the existing Mana sprite.
+  130/131 buckets for probe) and tinted Mana dust icons live in the Ascendant-only sheet
+  `forge-gui/res/adventure/common/sprites/ascendant_items.png` / `ascendant_items.atlas`
+  (`ToolPickaxe`, `ToolAxe`, `ToolHammer`, `ToolSickle`, `ToolBucket`, `ToolBucketFull`,
+  `DustCommon` / `DustUncommon` / `DustRare` / `DustMythic`). Same CC0 1.0 Tiny Town source.
+  Stock `items.png` / `items.atlas` are unchanged.
 
 ## Art (downloaded, not yet in the game)
 

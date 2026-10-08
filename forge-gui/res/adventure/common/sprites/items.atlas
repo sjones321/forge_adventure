@@ -569,36 +569,4 @@ SirDonovansAmulet
   size:16,16
 LandscapeSketchbook
   xy:80,672
-  size:16,16Mana
-  xy: 48, 32
-  size: 16, 16
-ToolPickaxe
-  xy: 400, 32
-  size: 16, 16
-ToolAxe
-  xy: 416, 32
-  size: 16, 16
-ToolHammer
-  xy: 432, 32
-  size: 16, 16
-ToolSickle
-  xy: 448, 32
-  size: 16, 16
-ToolBucket
-  xy: 416, 80
-  size: 16, 16
-ToolBucketFull
-  xy: 432, 80
-  size: 16, 16
-DustCommon
-  xy: 416, 96
-  size: 16, 16
-DustUncommon
-  xy: 432, 96
-  size: 16, 16
-DustRare
-  xy: 448, 96
-  size: 16, 16
-DustMythic
-  xy: 464, 96
-  size: 16, 16
+  size:16,16

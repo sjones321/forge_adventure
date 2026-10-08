@@ -191,6 +191,56 @@ public class InventoryBagsTest {
     }
 
     @Test
+    public void partialCurrencyRetrieveLeavesNoZeroEntries() {
+        bags.setOverflowCap(10);
+        Map<String, Integer> contest = new LinkedHashMap<>();
+        // currencyMaxStack=10; leave room for 2 more of gym_coin.
+        contest.put("gym_coin", 8);
+        Assert.assertTrue(bags.placeInOverflow(OverflowEntry.ofCurrency("gym_coin", 5)).wentToOverflow());
+        Assert.assertEquals(bags.currencyRoom("gym_coin", contest, Collections.emptyList()), 2);
+
+        // Mirror AdventurePlayer.retrieveFromOverflow CURRENCY branch.
+        OverflowEntry e = bags.takeOverflow(0);
+        Assert.assertNotNull(e);
+        int room = bags.currencyRoom(e.key, contest, Collections.emptyList());
+        int move = Math.min(room, e.amount);
+        Assert.assertEquals(move, 2);
+        contest.put(e.key, contest.get(e.key) + move);
+        int left = e.amount - move;
+        if (left > 0)
+            bags.placeInOverflow(OverflowEntry.ofCurrency(e.key, left));
+
+        Assert.assertEquals(contest.get("gym_coin").intValue(), 10);
+        Assert.assertEquals(bags.overflowCount(), 1);
+        Assert.assertEquals(bags.getOverflow().get(0).amount, 3);
+        Assert.assertTrue(bags.getOverflow().get(0).amount > 0);
+        Assert.assertTrue(contest.get("gym_coin") > 0);
+
+        // Zero-amount currency must not enter Overflow.
+        OverflowEntry zero = new OverflowEntry();
+        zero.kind = OverflowEntry.Kind.CURRENCY;
+        zero.key = "tournament_coin";
+        zero.amount = 0;
+        GrantResult r = bags.placeInOverflow(zero);
+        Assert.assertEquals(r.fate, GrantResult.Fate.ACCEPTED);
+        Assert.assertFalse(r.wentToOverflow());
+        Assert.assertEquals(bags.overflowCount(), 1);
+
+        // Load path drops zero-amount currency/material entries.
+        OverflowEntry zeroMat = new OverflowEntry();
+        zeroMat.kind = OverflowEntry.Kind.MATERIAL;
+        zeroMat.key = "oak";
+        zeroMat.amount = 0;
+        bags.loadOverflowEntries(new OverflowEntry[] {
+                OverflowEntry.ofCurrency("gym_coin", 4),
+                zero,
+                zeroMat
+        });
+        Assert.assertEquals(bags.overflowCount(), 1);
+        Assert.assertEquals(bags.getOverflow().get(0).amount, 4);
+    }
+
+    @Test
     public void overCapacityOldSaveLoadsIntoOverflow() {
         List<ItemData> inv = new ArrayList<>();
         for (int i = 0; i < 7; i++)

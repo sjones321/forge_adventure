@@ -863,7 +863,8 @@ public class GameHUD extends Stage {
         coopDialogKind = CoopDialogKind.NONE;
         MapStage.getInstance().onBeginLeavingDungeon();
         hideDialog(true);
-        // Exit-dungeon closes without showing queued invites mid-transition.
+        // Advance queued party / location / join-fight prompts that waited behind exit-dungeon.
+        showNextQueuedCoopInvite();
     }
 
     private void hideDialog() {
@@ -1478,6 +1479,11 @@ public class GameHUD extends Stage {
             hideDialog(false);
         refreshCoopPartyHud();
         showNextQueuedCoopInvite();
+    }
+
+    /** True when the HUD is showing the CO3 join-fight Yes/No prompt. */
+    public boolean isShowingJoinFightDialog() {
+        return dialogOnlyInput && coopDialogKind == CoopDialogKind.JOIN_FIGHT;
     }
 
     /** Activate the next queued party/location/join-fight prompt, if any. */
