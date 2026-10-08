@@ -20,7 +20,6 @@ import forge.gamemodes.net.event.GuiGameEvent;
 import forge.gamemodes.net.event.IdentifiableNetEvent;
 import forge.gamemodes.net.event.NetEvent;
 import forge.gamemodes.net.event.coop.CoopDuelResultEvent;
-import forge.gui.FThreads;
 import forge.interfaces.IGameController;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.model.FModel;
