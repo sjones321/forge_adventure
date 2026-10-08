@@ -527,6 +527,11 @@ Today the inventory is one flat list of every item (equipped ones included) unde
   bigger backpacks, pack satchels, material sacks) add slots and raise stack sizes. Nothing ever has weight.
 - **Never delete on overflow**: old saves and over-capacity bags keep everything; the bag shows as over capacity
   and new items of that kind go to fortress storage (or are refused with a message) until there is room.
+- **Compare**: selecting (or hovering) a bag item that fits an occupied slot shows it side by side with the
+  equipped item, with each stat difference marked better/worse (green up, red down): life, starting cards, move
+  speed, gold, card rewards, mana shards, mulligans, start-of-battle cards, opponent effects, enchant sockets,
+  tool tier and gathering effects. Works for gear, tools and jewelry; a "Compare" button (controller: hold Y)
+  can also pin any two items against each other.
 - **Controller-first**: D-pad moves across slots and tabs, A selects/equips, X uses, Y shows details,
   shoulder buttons switch tabs.
 - **Icons**: many items reuse unrelated sprites (a sword icon for a pickaxe, and so on). Give every tool,
