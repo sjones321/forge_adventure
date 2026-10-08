@@ -627,7 +627,13 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         server.setCoopSessionGate(peer, code);
         // Duel socket drop (not only overworld disconnect) → concede guest seat.
         server.setCoopGuestDisconnectHook(this::concedeGuestSeat);
-        server.startServer(port, bind, Boolean.FALSE);
+        try {
+            server.startServer(port, bind, Boolean.FALSE);
+        } catch (final RuntimeException e) {
+            // A failed bind must not leave the co-op gate on the shared server (it would block stock logins).
+            server.clearCoopSessionGate();
+            throw e;
+        }
         gameServerStartedByUs = true;
     }
 
@@ -794,31 +800,34 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private void onHostGameEnded(final HostedMatch hostedMatch, final RegisteredPlayer hostRp,
                                  final EnemySprite mob, final long duelId, final long enemyId) {
         final Match match = hostedMatch != null ? hostedMatch.getMatch() : null;
-        final forge.game.Game g = hostedMatch != null ? hostedMatch.getGame() : null;
-        // Post to the game thread AFTER this endGameHook returns so we do not race
-        // humanControllers during HostedMatch's flush / CONTINUE path.
+        // Run AFTER this endGameHook returns and HostedMatch flushes, so we do not race
+        // humanControllers during the flush / CONTINUE path.
         if (match == null || !match.isMatchOver()) {
-            runAfterHook(g, () -> autoContinueHumans(hostedMatch));
+            runAfterHook(() -> postGl(() -> autoContinueHumans(hostedMatch)));
             return;
         }
         // Outcome + server stop only after HostedMatch's final ProtocolGuiGame flush.
-        runAfterHook(g, () -> postGl(() -> finishHostMatch(hostedMatch, hostRp, mob, duelId, enemyId)));
+        runAfterHook(() -> postGl(() -> finishHostMatch(hostedMatch, hostRp, mob, duelId, enemyId)));
     }
 
-    /** Queue work on the game action thread after the current endGameHook returns. */
-    private static void runAfterHook(final forge.game.Game g, final Runnable r) {
+    /**
+     * Run after the end-game hook has returned and HostedMatch has flushed the final updates to the guest.
+     * The hook runs on the game thread and {@code GameAction.invoke} would run inline there, so instead
+     * this waits briefly on the co-op timer thread.
+     */
+    private void runAfterHook(final Runnable r) {
         if (r == null) {
             return;
         }
-        if (g != null) {
-            try {
-                g.getAction().invoke(r);
-                return;
-            } catch (final Exception ignored) {
-            }
+        final ScheduledExecutorService exec = timers;
+        if (exec == null || exec.isShutdown()) {
+            r.run();
+            return;
         }
-        r.run();
+        exec.schedule(r, AFTER_HOOK_DELAY_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
     }
+
+    private static final long AFTER_HOOK_DELAY_MS = 750L;
 
     private void autoContinueHumans(final HostedMatch hostedMatch) {
         if (hostedMatch == null) {
