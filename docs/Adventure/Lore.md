@@ -179,6 +179,9 @@ The Archive, fast travel and the relationship screen are **one place**.
 - **What it is:** a device issued to every Initiate (Engineer-built), which creates a hall in a **pocket
   dimension** reached from your fortress.
 - **Co-op:** each player has their own base, so **each player has their own Hall**.
+  - **Guest visits (nice-to-have):** a player can walk into their partner's Hall as a guest, look only, no adding.
+    Lets a partner show you a town they love, or stand in a lost town's echo together. **Only if it's technically
+    clean and stable**; if it needs fragile workarounds, cut it. Wren's call on feasibility.
 - **Structure, procedurally infinite:**
   - **The Endless Hall**, with **one door per plane** you have visited.
   - Behind each door, that plane's **room**, with **one alcove per town** on the plane. Each alcove carries its

@@ -233,27 +233,28 @@ public class InventoryScene extends UIScene {
         ascendantChromeBuilt = true;
 
         // Enlarge bag area; shrink details to a compact strip.
+        // Right side, top to bottom (stage y is up): capacity + compare, tabs, bag grid, detail strip, buttons.
         if (inventoryScroll != null) {
-            inventoryScroll.setBounds(145, 36, 330, 175);
+            inventoryScroll.setBounds(145, 80, 330, 142);
         }
         for (Actor a : ui.getChildren()) {
             if (a instanceof Window && a.getX() == 145 && a.getWidth() == 330) {
-                a.setBounds(145, 8, 220, 26);
+                a.setBounds(145, 52, 330, 26);
                 break;
             }
         }
         if (itemDescription != null) {
-            itemDescription.setBounds(148, 10, 214, 22);
+            itemDescription.setBounds(150, 54, 320, 22);
             itemDescription.setAlignment(Align.left);
         }
 
-        // Bag tabs
+        // Bag tabs: five tabs must fit the 330px bag area.
         float tabX = 145;
-        float tabY = 214;
-        float tabW = 78;
+        float tabY = 226;
+        float tabW = 64;
         float tabH = 20;
         for (InventoryBagType type : InventoryBagType.values()) {
-            TextraButton tab = Controls.newTextButton(type.label, () -> setActiveBag(type));
+            TextraButton tab = Controls.newTextButton("[%85]" + type.label, () -> setActiveBag(type));
             tab.setBounds(tabX, tabY, tabW, tabH);
             ui.addActor(tab);
             bagTabs.add(tab);
@@ -263,20 +264,23 @@ public class InventoryScene extends UIScene {
             materialsTab.setVisible(false);
 
         capacityLabel = Controls.newTextraLabel("");
-        capacityLabel.setBounds(145, 234, 200, 16);
+        capacityLabel.setBounds(145, 250, 200, 16);
         ui.addActor(capacityLabel);
 
         compareButton = Controls.newTextButton("Compare", this::toggleComparePinMode);
-        compareButton.setBounds(350, 234, 70, 18);
+        compareButton.setBounds(405, 249, 70, 18);
         ui.addActor(compareButton);
 
-        // Toolbelt row under paper doll
-        float tx = 14;
-        float ty = 175;
+        shrinkPaperDoll();
+
+        // Toolbelt: two rows of three under the shrunken paper doll, each slot labelled below.
+        TextraLabel toolsHeader = Controls.newTextraLabel("[%70]Tools");
+        toolsHeader.setPosition(16, 98);
+        ui.addActor(toolsHeader);
         for (int i = 0; i < InventoryBags.TOOLBELT_FAMILIES.length; i++) {
             String family = InventoryBags.TOOLBELT_FAMILIES[i];
             Button slot = createInventorySlot();
-            slot.setBounds(tx + (i % 3) * 36, ty + (i / 3) * 28, 24, 24);
+            slot.setBounds(22 + (i % 3) * 38, 66 - (i / 3) * 40, 24, 24);
             final String fam = family;
             ChangeListener listener = new ChangeListener() {
                 @Override
@@ -301,8 +305,8 @@ public class InventoryScene extends UIScene {
             slot.addListener(listener);
             toolbeltSlots.put(family, slot);
             ui.addActor(slot);
-            TextraLabel tip = Controls.newTextraLabel("[%60]" + InventoryBags.TOOLBELT_LABELS[i]);
-            tip.setPosition(slot.getX(), slot.getY() - 10);
+            TextraLabel tip = Controls.newTextraLabel("[%55]" + InventoryBags.TOOLBELT_LABELS[i]);
+            tip.setPosition(slot.getX() + 12 - tip.getPrefWidth() / 2f, slot.getY() - 9);
             ui.addActor(tip);
         }
 
@@ -310,9 +314,9 @@ public class InventoryScene extends UIScene {
         if (deleteButton instanceof TextraButton)
             ((TextraButton) deleteButton).setText("Del");
         if (equipButton instanceof TextraButton)
-            ((TextraButton) equipButton).setText("Equip/E");
+            ((TextraButton) equipButton).setText("Equip");
         if (useButton != null)
-            useButton.setText("Use/holdA");
+            useButton.setText("Use");
     }
 
     private static int indexOfFamily(String family) {
@@ -331,6 +335,36 @@ public class InventoryScene extends UIScene {
                 return item;
         }
         return null;
+    }
+
+    /** Paper doll is scaled into the top of the left panel (Ascendant) so the toolbelt fits underneath. */
+    private void shrinkPaperDoll() {
+        final float scale = 0.62f;
+        final float left = 8f, top = 262f; // json: x 8, y 8 (y measured down from 270)
+        for (Actor a : ui.getChildren()) {
+            if (a instanceof Image && a.getWidth() == 129 && a.getHeight() == 243) {
+                float w = 129 * scale, h = 243 * scale;
+                a.setBounds(left + (129 - w) / 2f, top - h, w, h);
+                break;
+            }
+        }
+        float dollX = left + (129 - 129 * scale) / 2f;
+        String[][] labels = {{"Ability1", "Ability"}, {"Ability2", "Ability"}, {"Neck", "Neck"}, {"Body", "Body"},
+                {"Left", "Left hand"}, {"Right", "Right hand"}, {"Boots", "Boots"}};
+        for (String[] l : labels) {
+            Button slot = equipmentSlots.get(l[0]);
+            if (slot == null)
+                continue;
+            // Original slot position in json units (x from the left, y from the top).
+            float jx = slot.getX();
+            float jyDown = 270 - slot.getY() - slot.getHeight();
+            float nx = dollX + (jx - left) * scale;
+            float nyDown = 8 + (jyDown - 8) * scale;
+            slot.setBounds(nx, 270 - nyDown - 18, 18, 18);
+            TextraLabel tag = Controls.newTextraLabel("[%50]" + l[1]);
+            tag.setPosition(slot.getX() + 9 - tag.getPrefWidth() / 2f, slot.getY() - 8);
+            ui.addActor(tag);
+        }
     }
 
     private void setActiveBag(InventoryBagType type) {
@@ -377,7 +411,8 @@ public class InventoryScene extends UIScene {
             String label = t.label;
             if (t == InventoryBagType.OVERFLOW && ap.getBags().hasOverflow())
                 label = "[#ffaa33]⚠ " + t.label + "[]";
-            bagTabs.get(i).setText(t == activeBag ? "[" + label + "]" : label);
+            // Square brackets are Textra markup, so highlight the active tab with colour instead.
+            bagTabs.get(i).setText("[%85]" + (t == activeBag ? "[#ffd24d]" + label + "[]" : label));
         }
         if (sellOneButton != null)
             sellOneButton.setVisible(showMats);

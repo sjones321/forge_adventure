@@ -21,6 +21,7 @@ import forge.adventure.util.Controls;
 import forge.adventure.world.WorldSave;
 import forge.assets.FSkinTexture;
 import forge.gamemodes.net.coop.CoopPorts;
+import forge.gamemodes.net.coop.CoopSessionCode;
 import forge.gamemodes.net.server.FServerManager;
 import forge.gui.GuiBase;
 import forge.gui.util.SOptionPane;
@@ -221,7 +222,59 @@ public class StartScene extends UIScene {
                     CoopSession.get().disconnect();
                     removeDialog();
                 });
+        // One-click copy so the guest can paste instead of typing (address + code in one line).
+        final String joinInfo = coopJoinInfo();
+        hostingDialog.getContentTable().row();
+        hostingDialog.getContentTable().add(Controls.newTextButton("Copy join info", () -> {
+            Gdx.app.getClipboard().setContents(joinInfo);
+            showCoopCopied("Copied: " + joinInfo);
+        })).pad(2);
+        hostingDialog.getContentTable().add(Controls.newTextButton("Copy code", () -> {
+            Gdx.app.getClipboard().setContents(CoopSession.get().getSessionCode());
+            showCoopCopied("Copied code: " + CoopSession.get().getSessionCode());
+        })).pad(2);
         showDialog(hostingDialog);
+    }
+
+    /** "address:port CODE", preferring the Tailscale (100.x) address. */
+    private static String coopJoinInfo() {
+        String best = null;
+        for (final String addr : FServerManager.getAllLocalAddresses().values()) {
+            if (addr == null || addr.isEmpty())
+                continue;
+            if (addr.startsWith("100.")) {
+                best = addr;
+                break;
+            }
+            if (best == null)
+                best = addr;
+        }
+        final String bind = CoopSession.get().getBindAddress();
+        if (bind != null && !bind.isEmpty())
+            best = bind;
+        return (best != null ? best : "?") + ":" + CoopSession.get().getOverworldPort()
+                + " " + CoopSession.get().getSessionCode();
+    }
+
+    private void showCoopCopied(final String text) {
+        try {
+            forge.adventure.stage.GameHUD.getInstance().addNotification(text);
+        } catch (final Exception ignored) {
+            System.out.println(text);
+        }
+    }
+
+    /** Fills the join fields from a pasted "address:port CODE" (either part may be missing). */
+    private void pasteJoinInfo() {
+        final String clip = Gdx.app.getClipboard().getContents();
+        if (clip == null || clip.trim().isEmpty())
+            return;
+        for (final String token : clip.trim().split("\s+")) {
+            if (token.contains(".") || token.contains(":"))
+                joinAddressField.setText(token);
+            else if (CoopSessionCode.normalize(token).length() == CoopPorts.SESSION_CODE_LENGTH)
+                joinCodeField.setText(token);
+        }
     }
 
     /** Ascendant co-op Join (CO1). Address + session code from the host screen. */
@@ -261,15 +314,24 @@ public class StartScene extends UIScene {
         joinDialog.getContentTable().row();
         joinDialog.getContentTable().add(joinCodeField).fillX().expandX().colspan(2);
         joinDialog.getContentTable().row();
+        joinDialog.getContentTable().add(Controls.newTextButton("Paste join info", this::pasteJoinInfo))
+                .colspan(2).pad(2);
+        joinDialog.getContentTable().row();
         showDialog(joinDialog);
         return true;
     }
 
-    private void connectJoin(final String address, final String sessionCode) {
+    private void connectJoin(final String address, String sessionCode) {
         if (address == null || address.trim().isEmpty()) {
             return;
         }
         String target = address.trim();
+        // The whole "address:port CODE" line pasted into the address box.
+        if (target.contains(" ") && (sessionCode == null || sessionCode.trim().isEmpty())) {
+            final String[] parts = target.split("\s+");
+            target = parts[0];
+            sessionCode = parts[parts.length - 1];
+        }
         if ("100.".equals(target)) {
             final String typed = SOptionPane.showInputDialog(
                     "Enter host address (Tailscale 100.x.y.z or LAN IP)",

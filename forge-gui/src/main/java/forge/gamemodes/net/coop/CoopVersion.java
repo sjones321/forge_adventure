@@ -62,7 +62,9 @@ public final class CoopVersion {
      */
     public static String mismatchReason(final String remoteBuildHash, final String remoteCardHash) {
         if (!buildMatches(buildHash(), remoteBuildHash)) {
-            return "Build hash mismatch — both players must use the same Forge build.";
+            return "VERSION MISMATCH (not the code): the two copies of the game are different builds "
+                    + "(host " + shortHash(buildHash()) + ", guest " + shortHash(remoteBuildHash) + "). "
+                    + "Both players: git pull, check the commit hashes match, and rebuild.";
         }
         final String localCard;
         try {
@@ -71,9 +73,19 @@ public final class CoopVersion {
             return "Card data unavailable — cannot verify co-op version.";
         }
         if (!cardDataMatches(localCard, remoteCardHash)) {
-            return "Card data hash mismatch — both players must have the same card database.";
+            return "CARD DATA MISMATCH (not the code): same build, but the card files differ "
+                    + "(host " + shortHash(localCard) + ", guest " + shortHash(remoteCardHash) + "). "
+                    + "Usually one PC has extra or older card files (custom cards, an edited res folder, or an "
+                    + "older checkout). Both players: git pull, discard local res changes, and rebuild.";
         }
         return null;
+    }
+
+    /** First 8 characters of a hash, for showing to players. */
+    public static String shortHash(final String hash) {
+        if (hash == null || hash.isEmpty())
+            return "none";
+        return hash.substring(0, Math.min(8, hash.length()));
     }
 
     /**

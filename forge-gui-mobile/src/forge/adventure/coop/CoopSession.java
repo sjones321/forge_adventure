@@ -238,7 +238,37 @@ public final class CoopSession {
      * code the guest must enter. UPnP is skipped by default. Optional bind
      * address from config (empty = all interfaces).
      */
+    private boolean exitHookInstalled;
+
+    /**
+     * Netty's network threads are not daemon threads, so an open co-op session would keep Java running after the
+     * game window closes. Disconnect when the libGDX app shuts down.
+     */
+    private void ensureExitHook() {
+        if (exitHookInstalled || Gdx.app == null)
+            return;
+        exitHookInstalled = true;
+        Gdx.app.addLifecycleListener(new com.badlogic.gdx.LifecycleListener() {
+            @Override
+            public void pause() {
+            }
+
+            @Override
+            public void resume() {
+            }
+
+            @Override
+            public void dispose() {
+                try {
+                    disconnect();
+                } catch (final Exception ignored) {
+                }
+            }
+        });
+    }
+
     public synchronized void host(final boolean skipUPnPFlag) throws Exception {
+        ensureExitHook();
         ensureAscendant();
         ensureWorldLoaded();
         disconnectInternal("restarting host", false);
@@ -273,6 +303,7 @@ public final class CoopSession {
      * {@code 100.x.y.z}, or LAN. {@code sessionCode} must match the host screen.
      */
     public synchronized void join(final String address, final String sessionCodeInput) throws Exception {
+        ensureExitHook();
         ensureAscendant();
         ensureWorldLoaded();
         disconnectInternal("restarting join", false);
@@ -693,12 +724,15 @@ public final class CoopSession {
 
         private void onHello(final CoopHelloEvent hello) {
             if (!CoopSessionCode.matches(sessionCode, hello.getSessionCode())) {
-                rejectGuest("Invalid session code", true);
+                rejectGuest("WRONG SESSION CODE (not a version problem): the code doesn't match the host's. "
+                        + "Copy it again from the host's Hosting screen; it changes every time the host starts "
+                        + "hosting.", true);
                 return;
             }
             if (hello.getProtocolVersion() != CoopPorts.PROTOCOL_VERSION) {
-                rejectGuest("Protocol version mismatch (host=" + CoopPorts.PROTOCOL_VERSION
-                        + ", guest=" + hello.getProtocolVersion() + ")", false);
+                rejectGuest("VERSION MISMATCH (not the code): co-op protocol " + CoopPorts.PROTOCOL_VERSION
+                        + " on the host, " + hello.getProtocolVersion() + " on the guest. Both players: git pull, "
+                        + "check the commit hashes match, and rebuild.", false);
                 return;
             }
             final String mismatch = CoopVersion.mismatchReason(hello.getBuildHash(), hello.getCardDataHash());
