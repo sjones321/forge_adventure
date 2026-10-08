@@ -569,6 +569,118 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
+    public void partyUiInviteExpiresAndClosesDialog() {
+        final CoopPartyState party = new CoopPartyState();
+        final CoopLocationPolicy loc = new CoopLocationPolicy();
+        final CoopInviteUiState ui = new CoopInviteUiState();
+        final CoopPartyInviteEvent invite = party.createInvite("Host", 1_000L);
+        Assert.assertNotNull(invite);
+        // Peer receives → dialog shown (UI path).
+        final CoopPartyState guest = new CoopPartyState();
+        Assert.assertEquals(guest.receiveInvite(invite, 1_000L, 12_000L),
+                CoopPartyState.InviteOutcome.PENDING);
+        ui.showPartyInvite(invite.getInviteId(), "Host");
+        Assert.assertTrue(ui.isDialogVisible());
+        Assert.assertEquals(ui.getKind(), CoopInviteUiState.PromptKind.PARTY);
+
+        final CoopInviteUiState.ExpiryResult early =
+                ui.tickExpiry(guest, loc, 1_000L + 5_000L, 12_000L);
+        Assert.assertFalse(early.anyExpired());
+        Assert.assertTrue(ui.isDialogVisible());
+
+        final CoopInviteUiState.ExpiryResult expired =
+                ui.tickExpiry(guest, loc, 1_000L + 13_000L, 12_000L);
+        Assert.assertTrue(expired.partyExpired);
+        Assert.assertTrue(expired.dialogClosed);
+        Assert.assertFalse(ui.isDialogVisible());
+        Assert.assertEquals(guest.getStatus(), CoopPartyState.Status.SOLO);
+    }
+
+    @Test
+    public void multiplePendingGatherRequestsMatchedById() {
+        final CoopPendingGatherQueue queue = new CoopPendingGatherQueue();
+        queue.add(1L, 10L, "oak");
+        queue.add(2L, 11L, "iron");
+        queue.add(3L, 12L, "plant");
+        Assert.assertEquals(queue.size(), 3);
+        Assert.assertTrue(queue.contains(2L));
+
+        final CoopPendingGatherQueue.Entry second = queue.take(2L);
+        Assert.assertNotNull(second);
+        Assert.assertEquals(second.nodeId, 11L);
+        Assert.assertEquals(second.materialId, "iron");
+        Assert.assertEquals(queue.size(), 2);
+        Assert.assertNull(queue.take(2L));
+
+        final CoopPendingGatherQueue.Entry first = queue.take(1L);
+        Assert.assertEquals(first.materialId, "oak");
+        Assert.assertEquals(queue.take(3L).nodeId, 12L);
+        Assert.assertTrue(queue.isEmpty());
+    }
+
+    @Test
+    public void pausedDespawnStaysBehindQueuedSpawn() {
+        final CoopPausedEventQueue queue = new CoopPausedEventQueue();
+        final CoopEnemyStateEvent spawn = new CoopEnemyStateEvent(7L,
+                CoopEnemyStateEvent.Action.SPAWN, "goblin", 1f, 2f, 0f);
+        final CoopEnemyStateEvent despawn = new CoopEnemyStateEvent(7L,
+                CoopEnemyStateEvent.Action.DESPAWN, "", 0f, 0f, 0f);
+        queue.enqueue(spawn);
+        queue.enqueue(despawn);
+        Assert.assertEquals(queue.size(), 2);
+
+        final List<NetEvent> drained = queue.drain();
+        Assert.assertEquals(drained.size(), 2);
+        Assert.assertSame(spawn, drained.get(0));
+        Assert.assertSame(despawn, drained.get(1));
+        Assert.assertTrue(queue.isEmpty());
+
+        // Node SPAWN then CLAIMED stays ordered the same way.
+        final CoopNodeStateEvent nSpawn = new CoopNodeStateEvent(3L,
+                CoopNodeStateEvent.Action.SPAWN, "oak", 0f, 0f, "");
+        final CoopNodeStateEvent claimed = new CoopNodeStateEvent(3L,
+                CoopNodeStateEvent.Action.CLAIMED, "oak", 0f, 0f, "Host");
+        queue.enqueue(nSpawn);
+        queue.enqueue(claimed);
+        final List<NetEvent> nodes = queue.drain();
+        Assert.assertEquals(((CoopNodeStateEvent) nodes.get(0)).getAction(),
+                CoopNodeStateEvent.Action.SPAWN);
+        Assert.assertEquals(((CoopNodeStateEvent) nodes.get(1)).getAction(),
+                CoopNodeStateEvent.Action.CLAIMED);
+    }
+
+    @Test
+    public void guestNodeStashAndRestore() {
+        final CoopLocalEntityStash<String> stash = new CoopLocalEntityStash<>();
+        final List<String> live = new ArrayList<>();
+        live.add("oak@1");
+        live.add("iron@2");
+        live.add("mirror-host-node"); // would be filtered out as mirrored
+        stash.stashAndClear(live, id -> !id.startsWith("mirror-"));
+        Assert.assertTrue(live.isEmpty());
+        Assert.assertEquals(stash.size(), 2);
+        Assert.assertEquals(stash.snapshot().get(0), "oak@1");
+
+        final List<String> restored = new ArrayList<>();
+        stash.restoreInto(restored);
+        Assert.assertEquals(restored.size(), 2);
+        Assert.assertTrue(stash.isEmpty());
+        Assert.assertTrue(restored.contains("oak@1"));
+        Assert.assertTrue(restored.contains("iron@2"));
+    }
+
+    @Test
+    public void hostBlastExtraClaimSkipsRangeCheck() {
+        final CoopWorldAuthority auth = new CoopWorldAuthority(16f, 20, 1000L);
+        final long near = auth.registerNode("oak", 0f, 0f);
+        final long far = auth.registerNode("oak", 500f, 500f);
+        // Primary in range.
+        Assert.assertTrue(auth.claimLocal(-1L, near, "Host", 1, 0f, 0f).isAccepted());
+        // Blast extra far from player — skip-range still claims.
+        Assert.assertTrue(auth.claimLocalSkipRange(-2L, far, "Host", 1).isAccepted());
+    }
+
+    @Test
     public void protocolVersionIsFiveForCo2Round3() {
         Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 5);
     }

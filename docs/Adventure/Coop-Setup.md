@@ -109,7 +109,10 @@ dungeon or delve invites a nearby party partner. Accept → enter the same
 interior when ready (accepter marked inside only on actual enter); decline /
 timeout → wait outside. Only one shared interior at a time. While the **host**
 is in an interior or a duel, enemy AI / spawns / lifetimes pause for both; the
-guest keeps free movement and sees a persistent "Host is in …" banner. Console:
+guest keeps free movement and sees a persistent "Host is in …" banner (dedicated
+HUD label). In-game Party button (F5 / left-stick click) invites or leaves;
+incoming party and location invites use Accept/Decline dialogs (keyboard, mouse,
+and controller). Console remains as a debug path:
 `coop party invite|accept|decline|leave`, `coop location accept|decline`.
 
 **Guest is a pure mirror:** no local enemy AI, spawns, lifetime expiry, or local

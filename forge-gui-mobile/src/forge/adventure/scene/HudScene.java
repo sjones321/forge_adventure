@@ -74,6 +74,11 @@ public abstract class HudScene extends Scene implements InputProcessor, IAfterMa
 
     @Override
     public boolean keyDown(int keycode) {
+        // Prefer GameHUD's own dialog (party / location invites) so controller
+        // focus hits the HUD dialogButtonMap, not MapStage's empty one.
+        if (hud.isDialogOnlyInput()) {
+            return hud.keyDown(keycode);
+        }
         if (MapStage.getInstance().isDialogOnlyInput()) {
             MapStage.getInstance().stop();
             return MapStage.getInstance().dialogInput(keycode);
@@ -89,6 +94,9 @@ public abstract class HudScene extends Scene implements InputProcessor, IAfterMa
 
     @Override
     public boolean keyUp(int keycode) {
+        if (hud.isDialogOnlyInput()) {
+            return hud.keyUp(keycode);
+        }
         if (MapStage.getInstance().isDialogOnlyInput()) {
             MapStage.getInstance().stop();
             return true;

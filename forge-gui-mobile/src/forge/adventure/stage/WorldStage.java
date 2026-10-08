@@ -54,6 +54,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
     protected ArrayList<Pair<Float, EnemySprite>> enemies = new ArrayList<>();
     /** Guest co-op: locally saved enemies held aside while mirroring the host. */
     private final ArrayList<Pair<Float, EnemySprite>> stashedCoopEnemies = new ArrayList<>();
+    /** Guest co-op: locally saved nodes held aside while mirroring the host. */
+    private final ArrayList<Pair<Float, ResourceNodeSprite>> stashedCoopNodes = new ArrayList<>();
     /** Ascendant resource nodes (Package B); parallel to {@link #enemies}. */
     protected ArrayList<Pair<Float, ResourceNodeSprite>> nodes = new ArrayList<>();
     private final static Float dieTimer = 20f;//todo config
@@ -310,6 +312,33 @@ public class WorldStage extends GameStage implements SaveFileContent {
             foregroundSprites.addActor(pair.getValue());
         }
         stashedCoopEnemies.clear();
+    }
+
+    /**
+     * Guest session start: stash locally saved nodes so the host mirror is the
+     * only node set. Restored on {@link #coopRestoreStashedNodes()}.
+     */
+    public void coopStashAndClearLocalNodes() {
+        stashedCoopNodes.clear();
+        for (Pair<Float, ResourceNodeSprite> pair : nodes) {
+            if (pair != null && pair.getValue() != null
+                    && !CoopOverworldRuntime.get().isMirroredActor(pair.getValue())) {
+                stashedCoopNodes.add(pair);
+                foregroundSprites.removeActor(pair.getValue());
+            }
+        }
+        nodes.clear();
+    }
+
+    public void coopRestoreStashedNodes() {
+        for (Pair<Float, ResourceNodeSprite> pair : stashedCoopNodes) {
+            if (pair == null || pair.getValue() == null) {
+                continue;
+            }
+            nodes.add(pair);
+            foregroundSprites.addActor(pair.getValue());
+        }
+        stashedCoopNodes.clear();
     }
 
     /**
@@ -811,8 +840,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
             }
             for (ResourceNodeSprite extra : extras) {
                 if (CoopHooks.isOverworldReady() && CoopHooks.isWorldAuthority()
-                        && !CoopOverworldRuntime.get().onGatherComplete(extra, previewAmount))
-                    continue;
+                        && !CoopOverworldRuntime.get().onGatherComplete(extra, previewAmount, true))
+                    continue; // blast extras: quiet, skip per-node range message
                 msg.append("; ");
                 grantGatherRewards(extra.getMaterial(), ap, msg, false);
                 extra.playEffect(Paths.EFFECT_KILL);
@@ -1266,6 +1295,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
             foregroundSprites.removeActor(node.getValue());
         nodes.clear();
         stashedCoopEnemies.clear();
+        stashedCoopNodes.clear();
         background.clear();
         player = null;
         CoopOverworldRuntime.get().clearEntityIdMaps();
