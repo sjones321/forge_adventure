@@ -363,6 +363,13 @@ public final class CoopSession {
             }
         }
 
+        // CO2: drop partner sprite / party on the GL thread without leaking listeners.
+        // Must run while the role is still set: the host only clears id maps, the guest removes mirrors.
+        try {
+            CoopOverworldRuntime.get().onSessionEnded(reason);
+        } catch (final Exception ignored) {
+        }
+
         disposeSessionWorld();
         role = CoopSessionRole.NONE;
         // Keep REJECTED visible until the next host/join clears it.
@@ -375,11 +382,6 @@ public final class CoopSession {
         if (previousRole == CoopSessionRole.HOST) {
             sessionCode = "";
             bindAddress = "";
-        }
-        // CO2: drop partner sprite / party on the GL thread without leaking listeners.
-        try {
-            CoopOverworldRuntime.get().onSessionEnded(reason);
-        } catch (final Exception ignored) {
         }
         status("Disconnected: " + reason);
     }
