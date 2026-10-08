@@ -1396,9 +1396,15 @@ public class InventoryScene extends UIScene {
      * Ascendant INV1 controller map (does not change global KeyBinding / Party=P):
      * A select/equip, X use, Y details (hold Y = pin compare), L1/R1 switch bags.
      * Keyboard: Enter equip, E use, Q details, C compare, PgUp/PgDn tabs, Del dispose.
+     * <p>
+     * Never steals A/B/X/Y/shoulders while an inventory dialog or a co-op HUD invite
+     * dialog (party / location / join-fight / leave) is open — CO3 queues those and
+     * GameHUD owns Left/Right + confirm/decline while {@code dialogOnlyInput}.
      */
     @Override
     public boolean keyPressed(int keycode) {
+        if (deferInventoryKeysToDialog())
+            return super.keyPressed(keycode);
         if (Config.ascendant() && ascendantChromeBuilt) {
             if (KeyBinding.ScrollUp.isPressed(keycode)) {
                 cycleBag(-1);
@@ -1440,6 +1446,8 @@ public class InventoryScene extends UIScene {
 
     @Override
     public boolean keyReleased(int keycode) {
+        if (deferInventoryKeysToDialog())
+            return super.keyReleased(keycode);
         if (Config.ascendant() && ascendantChromeBuilt
                 && (KeyBinding.Status.isPressed(keycode) || keycode == Input.Keys.BUTTON_Y)) {
             long held = System.currentTimeMillis() - yButtonDownMs;
@@ -1451,6 +1459,23 @@ public class InventoryScene extends UIScene {
             return true;
         }
         return super.keyReleased(keycode);
+    }
+
+    /**
+     * True when Ascendant remaps must yield: local inventory dialogs, or a co-op
+     * invite/exit dialog on {@link GameHUD} (invite queue / exit-dungeon guard).
+     */
+    private boolean deferInventoryKeysToDialog() {
+        if (dialogs != null && dialogs.size > 0)
+            return true;
+        try {
+            GameHUD hud = GameHUD.getInstance();
+            if (hud != null && hud.isDialogOnlyInput())
+                return true;
+        } catch (Exception ignored) {
+            // HUD may be unavailable in tests
+        }
+        return false;
     }
 
     private static String toolSocketSummary(ItemData data) {

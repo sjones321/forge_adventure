@@ -784,6 +784,10 @@ public class GameHUD extends Stage {
             return;
         if (Forge.advFreezePlayerControls)
             return;
+        // CO3: do not leave the overworld while an invite/exit dialog owns input
+        // (party / location / join-fight / leave / exit-dungeon). Invites stay queued.
+        if (dialogOnlyInput)
+            return;
         WorldSave.requestPreview();
         Forge.switchScene(InventoryScene.instance());
     }
