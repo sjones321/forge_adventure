@@ -51,6 +51,7 @@ import forge.adventure.scene.MapViewScene;
 import forge.adventure.scene.QuestLogScene;
 import forge.adventure.scene.Scene;
 import forge.adventure.scene.TileMapScene;
+import forge.adventure.coop.CoopDuelRuntime;
 import forge.adventure.coop.CoopHooks;
 import forge.adventure.coop.CoopOverworldRuntime;
 import forge.adventure.util.AdventureQuestController;
@@ -94,8 +95,8 @@ public class GameHUD extends Stage {
     private enum CoopDialogKind { NONE, PARTY_INVITE, LOCATION_INVITE, PARTY_LEAVE, JOIN_FIGHT, EXIT_DUNGEON }
     private CoopDialogKind coopDialogKind = CoopDialogKind.NONE;
     private String lastPartyStatusText = "";
-    private Runnable joinFightAccept;
-    private Runnable joinFightDecline;
+    /** Index into dialogButtonMap for left/right focus on side-by-side party/co-op buttons. */
+    private int dialogFocusIndex = 0;
     public final UIActor ui;
     private final Touchpad touchpad;
     private final Console console;
@@ -861,8 +862,9 @@ public class GameHUD extends Stage {
     private void exitDungeonCallback() {
         coopDialogKind = CoopDialogKind.NONE;
         MapStage.getInstance().onBeginLeavingDungeon();
+        // The queued party / location / join-fight prompt is shown from the end of the hide animation, after the
+        // exit has run; showing it now would cancel that animation and leave the player in the dungeon.
         hideDialog(true);
-        // Exit-dungeon closes without showing queued invites mid-transition.
     }
 
     private void hideDialog() {
@@ -1023,15 +1025,21 @@ public class GameHUD extends Stage {
                 performTouch(dialogButtonMap.get(1));
                 return true;
             }
+            // Side-by-side Accept|Decline: Left/Right (and Up/Down) move focus between buttons.
             if (KeyBinding.Up.isPressed(keycode) || KeyBinding.Left.isPressed(keycode)) {
                 selectPreviousDialogButton();
+                return true;
             }
             if (KeyBinding.Down.isPressed(keycode) || KeyBinding.Right.isPressed(keycode)) {
                 selectNextDialogButton();
+                return true;
             }
             if (KeyBinding.isDialogConfirm(keycode)) {
                 Actor focus = this.getKeyboardFocus();
+                if (!(focus instanceof Button) && dialogButtonMap.size > 0)
+                    focus = dialogButtonMap.get(Math.max(0, Math.min(dialogFocusIndex, dialogButtonMap.size - 1)));
                 performTouch(focus == null && dialogButtonMap.size == 1 ? dialogButtonMap.first() : focus);
+                return true;
             }
             int option = KeyBinding.dialogOptionIndex(keycode);
             if (option >= 0 && option < dialogButtonMap.size) {
@@ -1084,8 +1092,12 @@ public class GameHUD extends Stage {
         dialogOnlyInput = true;
         gameStage.hudIsShowingDialog(true);
         MapStage.getInstance().hudIsShowingDialog(true);
-        if (Forge.hasExternalInput() && !dialogButtonMap.isEmpty())
-            this.setKeyboardFocus(dialogButtonMap.first());
+        // Always focus the first button so Left/Right can move between side-by-side choices
+        // (party Accept|Decline, exit Yes|No, join-fight Yes|No) even when hasExternalInput is false.
+        if (!dialogButtonMap.isEmpty()) {
+            dialogFocusIndex = 0;
+            applyDialogButtonFocus(0);
+        }
     }
 
     private void hideDialog(boolean exitDungeon) {
@@ -1097,6 +1109,7 @@ public class GameHUD extends Stage {
                     MapStage.getInstance().exitDungeon(false, false);
                     setDisabled(exitToWorldMapActor, true, "[%120][+ExitToWorldMap]", "\u2613");
                     setDisabled(bookmarkActor, true, "[%120][+Bookmark]", "\u2613");
+                    showNextQueuedCoopInvite();
                 }
                 return true;
             }
@@ -1110,36 +1123,31 @@ public class GameHUD extends Stage {
     private void selectNextDialogButton() {
         if (dialogButtonMap.size < 2)
             return;
-        if (!(this.getKeyboardFocus() instanceof Button)) {
-            this.setKeyboardFocus(dialogButtonMap.first());
-            return;
-        }
-        for (int i = 0; i < dialogButtonMap.size; i++) {
-            if (this.getKeyboardFocus() == dialogButtonMap.get(i)) {
-                i += 1;
-                i %= dialogButtonMap.size;
-                this.setKeyboardFocus(dialogButtonMap.get(i));
-                return;
-            }
-        }
+        dialogFocusIndex = (dialogFocusIndex + 1) % dialogButtonMap.size;
+        applyDialogButtonFocus(dialogFocusIndex);
     }
 
     private void selectPreviousDialogButton() {
         if (dialogButtonMap.size < 2)
             return;
-        if (!(this.getKeyboardFocus() instanceof Button)) {
-            this.setKeyboardFocus(dialogButtonMap.first());
+        dialogFocusIndex -= 1;
+        if (dialogFocusIndex < 0)
+            dialogFocusIndex = dialogButtonMap.size - 1;
+        applyDialogButtonFocus(dialogFocusIndex);
+    }
+
+    /** Keyboard focus + checked state so side-by-side buttons show which is selected. */
+    private void applyDialogButtonFocus(final int index) {
+        if (dialogButtonMap.isEmpty())
             return;
+        final int i = Math.max(0, Math.min(index, dialogButtonMap.size - 1));
+        dialogFocusIndex = i;
+        for (int b = 0; b < dialogButtonMap.size; b++) {
+            final TextraButton btn = dialogButtonMap.get(b);
+            if (btn != null)
+                btn.setChecked(b == i);
         }
-        for (int i = 0; i < dialogButtonMap.size; i++) {
-            if (this.getKeyboardFocus() == dialogButtonMap.get(i)) {
-                i -= 1;
-                if (i < 0)
-                    i = dialogButtonMap.size - 1;
-                this.setKeyboardFocus(dialogButtonMap.get(i));
-                return;
-            }
-        }
+        this.setKeyboardFocus(dialogButtonMap.get(i));
     }
 
     class ConsoleToggleListener extends ActorGestureListener {
@@ -1390,17 +1398,24 @@ public class GameHUD extends Stage {
                 this::declineLocationInviteFromUi);
     }
 
-    /** CO3 join-fight prompt — queued with party/location; never replaces exit-dungeon. */
-    public void showCoopJoinFightDialog(String fromPlayer, String encounter,
-                                        Runnable onAccept, Runnable onDecline) {
+    /**
+     * CO3 join-fight prompt — queued with party/location; never replaces exit-dungeon.
+     * Accept/Decline call {@link forge.adventure.coop.CoopDuelRuntime} directly (like party),
+     * so a prompt dequeued after another dialog still works.
+     */
+    public void showCoopJoinFightDialog(String fromPlayer, String encounter) {
         final String from = CoopWireLimits.clampString(fromPlayer, CoopWireLimits.MAX_PLAYER_NAME_LEN);
         final String enc = CoopWireLimits.clampString(encounter, CoopWireLimits.MAX_DISPLAY_NAME_LEN);
         final String msg = from + " started a fight"
                 + (enc.isEmpty() ? "" : " (" + enc + ")") + ". Join?";
-        joinFightAccept = onAccept;
-        joinFightDecline = onDecline;
         enqueueOrShowCoopDialog(CoopDialogKind.JOIN_FIGHT, msg,
                 this::acceptJoinFightFromUi, this::declineJoinFightFromUi);
+    }
+
+    /** @deprecated use {@link #showCoopJoinFightDialog(String, String)}; runnables ignored. */
+    public void showCoopJoinFightDialog(String fromPlayer, String encounter,
+                                        Runnable onAccept, Runnable onDecline) {
+        showCoopJoinFightDialog(fromPlayer, encounter);
     }
 
     private void showLeavePartyConfirm() {
@@ -1467,6 +1482,11 @@ public class GameHUD extends Stage {
         showNextQueuedCoopInvite();
     }
 
+    /** True when the HUD is showing the CO3 join-fight Yes/No prompt. */
+    public boolean isShowingJoinFightDialog() {
+        return dialogOnlyInput && coopDialogKind == CoopDialogKind.JOIN_FIGHT;
+    }
+
     /** Activate the next queued party/location/join-fight prompt, if any. */
     private void showNextQueuedCoopInvite() {
         if (dialogOnlyInput || console.isVisible())
@@ -1522,19 +1542,17 @@ public class GameHUD extends Stage {
     }
 
     private void acceptJoinFightFromUi() {
-        final Runnable r = joinFightAccept;
-        joinFightAccept = null;
-        joinFightDecline = null;
-        if (r != null)
-            r.run();
+        try {
+            CoopDuelRuntime.get().acceptInviteFromUi();
+        } catch (final Exception ignored) {
+        }
     }
 
     private void declineJoinFightFromUi() {
-        final Runnable r = joinFightDecline;
-        joinFightAccept = null;
-        joinFightDecline = null;
-        if (r != null)
-            r.run();
+        try {
+            CoopDuelRuntime.get().declineInviteFromUi();
+        } catch (final Exception ignored) {
+        }
     }
 
     private void leavePartyFromUi() {

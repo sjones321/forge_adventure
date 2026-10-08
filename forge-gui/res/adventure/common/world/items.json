@@ -2036,7 +2036,7 @@
   {
     "name": "Copper Hatchet",
     "description": "Tier 1 logs gathering tool. Chop trees for logs. Caps gather tier at 1.",
-    "iconName": "SteelAxt",
+    "iconName": "ToolAxe",
     "cost": 40,
     "toolFamily": "logs",
     "toolTier": 1
@@ -2044,7 +2044,7 @@
   {
     "name": "Iron Hatchet",
     "description": "Tier 2 logs gathering tool. Chop trees for logs. Caps gather tier at 2.",
-    "iconName": "SteelAxt",
+    "iconName": "ToolAxe",
     "cost": 120,
     "toolFamily": "logs",
     "toolTier": 2
@@ -2052,7 +2052,7 @@
   {
     "name": "Mithril Hatchet",
     "description": "Tier 3 logs gathering tool. Chop trees for logs. Caps gather tier at 3.",
-    "iconName": "GarrukAxe",
+    "iconName": "ToolAxe",
     "cost": 350,
     "toolFamily": "logs",
     "toolTier": 3
@@ -2060,7 +2060,7 @@
   {
     "name": "Adamant Hatchet",
     "description": "Tier 4 logs gathering tool. Chop trees for logs. Caps gather tier at 4.",
-    "iconName": "GarrukAxe",
+    "iconName": "ToolAxe",
     "cost": 900,
     "toolFamily": "logs",
     "toolTier": 4
@@ -2068,7 +2068,7 @@
   {
     "name": "Copper Pickaxe",
     "description": "Tier 1 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 1.",
-    "iconName": "ToolBox",
+    "iconName": "ToolPickaxe",
     "cost": 40,
     "toolFamily": "ore",
     "toolTier": 1
@@ -2076,7 +2076,7 @@
   {
     "name": "Iron Pickaxe",
     "description": "Tier 2 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 2.",
-    "iconName": "ToolBox",
+    "iconName": "ToolPickaxe",
     "cost": 120,
     "toolFamily": "ore",
     "toolTier": 2
@@ -2084,7 +2084,7 @@
   {
     "name": "Mithril Pickaxe",
     "description": "Tier 3 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 3.",
-    "iconName": "StrangeKey",
+    "iconName": "ToolPickaxe",
     "cost": 350,
     "toolFamily": "ore",
     "toolTier": 3
@@ -2092,7 +2092,7 @@
   {
     "name": "Adamant Pickaxe",
     "description": "Tier 4 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 4.",
-    "iconName": "StrangeKey",
+    "iconName": "ToolPickaxe",
     "cost": 900,
     "toolFamily": "ore",
     "toolTier": 4
@@ -2100,7 +2100,7 @@
   {
     "name": "Copper Chisel",
     "description": "Tier 1 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 1.",
-    "iconName": "Clue",
+    "iconName": "ToolHammer",
     "cost": 40,
     "toolFamily": "sacred_stone",
     "toolTier": 1
@@ -2108,7 +2108,7 @@
   {
     "name": "Iron Chisel",
     "description": "Tier 2 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 2.",
-    "iconName": "Clue",
+    "iconName": "ToolHammer",
     "cost": 120,
     "toolFamily": "sacred_stone",
     "toolTier": 2
@@ -2116,7 +2116,7 @@
   {
     "name": "Mithril Chisel",
     "description": "Tier 3 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 3.",
-    "iconName": "Hivestone",
+    "iconName": "ToolHammer",
     "cost": 350,
     "toolFamily": "sacred_stone",
     "toolTier": 3
@@ -2124,7 +2124,7 @@
   {
     "name": "Adamant Chisel",
     "description": "Tier 4 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 4.",
-    "iconName": "Hivestone",
+    "iconName": "ToolHammer",
     "cost": 900,
     "toolFamily": "sacred_stone",
     "toolTier": 4
@@ -2132,7 +2132,7 @@
   {
     "name": "Copper Sickle",
     "description": "Tier 1 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 1.",
-    "iconName": "Scythe",
+    "iconName": "ToolSickle",
     "cost": 40,
     "toolFamily": "plants",
     "toolTier": 1
@@ -2140,7 +2140,7 @@
   {
     "name": "Iron Sickle",
     "description": "Tier 2 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 2.",
-    "iconName": "Scythe",
+    "iconName": "ToolSickle",
     "cost": 120,
     "toolFamily": "plants",
     "toolTier": 2
@@ -2148,7 +2148,7 @@
   {
     "name": "Mithril Sickle",
     "description": "Tier 3 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 3.",
-    "iconName": "FarmersTools",
+    "iconName": "ToolSickle",
     "cost": 350,
     "toolFamily": "plants",
     "toolTier": 3
@@ -2156,7 +2156,7 @@
   {
     "name": "Adamant Sickle",
     "description": "Tier 4 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 4.",
-    "iconName": "FarmersTools",
+    "iconName": "ToolSickle",
     "cost": 900,
     "toolFamily": "plants",
     "toolTier": 4
@@ -2164,7 +2164,7 @@
   {
     "name": "Copper Probe",
     "description": "Tier 1 waters gathering tool. Delve island waters; crystal and pearls on rare finds. Caps gather tier at 1.",
-    "iconName": "BlueStaff",
+    "iconName": "ToolBucket",
     "cost": 40,
     "toolFamily": "waters",
     "toolTier": 1
@@ -2172,7 +2172,7 @@
   {
     "name": "Iron Probe",
     "description": "Tier 2 waters gathering tool. Delve island waters; crystal and pearls on rare finds. Caps gather tier at 2.",
-    "iconName": "BlueStaff",
+    "iconName": "ToolBucket",
     "cost": 120,
     "toolFamily": "waters",
     "toolTier": 2
@@ -2180,7 +2180,7 @@
   {
     "name": "Mithril Probe",
     "description": "Tier 3 waters gathering tool. Delve island waters; crystal and pearls on rare finds. Caps gather tier at 3.",
-    "iconName": "VeilstoneAmulet",
+    "iconName": "ToolBucketFull",
     "cost": 350,
     "toolFamily": "waters",
     "toolTier": 3
@@ -2188,7 +2188,7 @@
   {
     "name": "Adamant Probe",
     "description": "Tier 4 waters gathering tool. Delve island waters; crystal and pearls on rare finds. Caps gather tier at 4.",
-    "iconName": "AladdinsRing",
+    "iconName": "ToolBucketFull",
     "cost": 900,
     "toolFamily": "waters",
     "toolTier": 4

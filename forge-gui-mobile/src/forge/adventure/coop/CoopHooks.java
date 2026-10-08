@@ -133,6 +133,14 @@ public final class CoopHooks {
         return CoopSession.get().getActiveWorld();
     }
 
+    /**
+     * MV1 helper (additive): host's current plane instance id, or the plane the
+     * guest last followed. Does not change CO3 fight hook signatures.
+     */
+    public static String activePlaneId() {
+        return CoopSession.get().getActiveWorldPlaneId();
+    }
+
     public static int getGamePort() {
         return CoopSession.get().getGamePort();
     }

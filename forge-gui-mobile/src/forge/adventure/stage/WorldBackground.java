@@ -1,5 +1,6 @@
 package forge.adventure.stage;
 
+import forge.adventure.util.Current;
 import com.badlogic.gdx.graphics.Camera;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
@@ -9,7 +10,6 @@ import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.utils.Array;
 import forge.adventure.world.World;
-import forge.adventure.world.WorldSave;
 
 /**
  * Background for the over world, will get biome information and create chunks based on the terrain.
@@ -238,7 +238,7 @@ public class WorldBackground extends Actor {
             scratch = new Pixmap(size, size, Pixmap.Format.RGBA8888);
             scratch.setBlending(Pixmap.Blending.None); // overwrite pixels, exactly like Texture.draw() did
         }
-        World world = WorldSave.getCurrentSave().getWorld();
+        World world = Current.world();
         for (int cx = 0; cx < chunkSize; cx++) {
             for (int cy = 0; cy < chunkSize; cy++) {
                 scratch.drawPixmap(world.getBiomeSprite(cx + chunkSize * x, cy + chunkSize * y), cx * tileSize, size - (cy + 1) * tileSize);
@@ -262,7 +262,7 @@ public class WorldBackground extends Actor {
     }
     @SuppressWarnings("unchecked")
     public void initialize() {
-        World world = WorldSave.getCurrentSave().getWorld();
+        World world = Current.world();
         tileSize = world.getTileSize();
         chunkSize = world.getChunkSize();
         if (chunks != null) {
@@ -307,7 +307,7 @@ public class WorldBackground extends Actor {
     }
     GridPoint2 translateFromWorldToChunk(float x, float y) {
         if (chunkSize <= 0 || tileSize <= 0) {
-            World world = WorldSave.getCurrentSave().getWorld();
+            World world = Current.world();
             tileSize = world.getTileSize();
             chunkSize = world.getChunkSize();
             if (chunkSize <= 0 || tileSize <= 0) {

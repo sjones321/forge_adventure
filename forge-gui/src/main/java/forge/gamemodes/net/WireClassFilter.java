@@ -57,6 +57,7 @@ public final class WireClassFilter implements IHasForgeLog {
             "forge.gamemodes.net.event.coop.CoopHelloEvent",
             "forge.gamemodes.net.event.coop.CoopHelloRejectEvent",
             "forge.gamemodes.net.event.coop.CoopWorldOfferEvent",
+            "forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent",
             "forge.gamemodes.net.event.coop.CoopSessionReadyEvent",
             "forge.gamemodes.net.event.coop.CoopDisconnectEvent",
             "forge.gamemodes.net.event.coop.CoopDecklistEvent",

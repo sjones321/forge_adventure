@@ -313,7 +313,8 @@ public class SaveLoadScene extends UIScene {
                         loaded = false;
                         if (WorldSave.load(currentSlot)) {
                             WorldSave.getCurrentSave().clearChanges();
-                            if (WorldSave.getCurrentSave().getWorld().generateNew(0)) {
+                            // NG+: always regenerate from the home template, not a set-plane path.
+                            if (WorldSave.getCurrentSave().getWorld().generateNew(0, forge.adventure.util.Paths.WORLD, true)) {
                                 if (difficulty != null)
                                     Current.player().updateDifficulty(Config.instance().getConfigData().difficulties[difficulty.getSelectedIndex()]);
                                 Current.player().setWorldPosY((int) (WorldSave.getCurrentSave().getWorld().getData().playerStartPosY * WorldSave.getCurrentSave().getWorld().getData().height * WorldSave.getCurrentSave().getWorld().getTileSize()));
@@ -326,6 +327,8 @@ public class SaveLoadScene extends UIScene {
                                 Current.player().removeAllQuestItems();
                                 AdventurePlayer.current().addQuest("28", true);
                                 WorldSave.getCurrentSave().clearBookmarks();
+                                // Drop every set plane; registry restarts as a fresh home plane.
+                                WorldSave.getCurrentSave().resetForNewGamePlus();
                                 WorldStage.getInstance().enterSpawnPOI();
                                 SoundSystem.instance.changeBackgroundTrack();
                                 Forge.switchScene(GameScene.instance());

@@ -23,10 +23,11 @@ import java.util.function.Predicate;
 public class CoopDuelTest {
 
     @Test
-    public void protocolVersionIsPastCo2() {
-        // CO2 (PR #18 round 3) = 5; CO3 = 6. Expected merge order: CO2 first, then rebase CO3.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 6);
+    public void protocolVersionIsAtLeastCo3AndMv1() {
+        // CO2 = 5; CO3 = 6; MV1 plane-follow = 7.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 7);
         Assert.assertTrue(CoopPorts.PROTOCOL_VERSION > 5);
+        Assert.assertTrue(CoopPorts.PROTOCOL_VERSION >= 6);
     }
 
     @Test

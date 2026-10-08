@@ -8,6 +8,8 @@ import forge.adventure.util.AdventureQuestController;
 import forge.adventure.util.AdventureQuestEvent;
 import forge.adventure.util.AdventureQuestEventType;
 import forge.adventure.util.Current;
+import forge.adventure.world.PlaneMeta;
+import forge.adventure.world.WorldSave;
 import forge.util.Aggregates;
 
 import java.io.Serializable;
@@ -39,6 +41,8 @@ public class AdventureQuestStage implements Serializable {
     public boolean mixedEnemies; //false: Pick one enemy type. True: Combine all potential types
     public boolean here; //Default PoI selection to current location
     private PointOfInterest targetPOI; //Destination. Expand to array to cover "anyPOI?"
+    /** MV1: plane instance id where {@link #targetPOI} lives; null = legacy (any/current). */
+    private String targetPlaneId;
     private transient EnemySprite targetSprite; //EnemySprite targeted by this quest stage.
     private EnemyData targetEnemyData; //Valid enemy type for this quest stage when mixedEnemies is false.
     public List<String> POITags = new ArrayList<>(); //Tags defining potential targets
@@ -88,9 +92,23 @@ public class AdventureQuestStage implements Serializable {
         return targetPOI;
     }
 
+    public String getTargetPlaneId() {
+        return targetPlaneId;
+    }
+
     public void setTargetPOI(PointOfInterest target) {
-        if (!anyPOI)
+        if (!anyPOI) {
             targetPOI = target;
+            targetPlaneId = currentPlaneIdSafe();
+        }
+    }
+
+    private static String currentPlaneIdSafe() {
+        try {
+            return WorldSave.getCurrentSave().getCurrentPlaneId();
+        } catch (Exception e) {
+            return PlaneMeta.HOME_ID;
+        }
     }
 
     public void setTargetPOI(Dictionary<String, PointOfInterest> poiTokens, String questName) {
@@ -165,6 +183,11 @@ public class AdventureQuestStage implements Serializable {
         {
             return worldMapOK;
         }
+        // MV1: a targeted POI on another plane does not count until the player is there.
+        if (targetPlaneId != null && !targetPlaneId.isEmpty()
+                && !targetPlaneId.equals(currentPlaneIdSafe())) {
+            return false;
+        }
         if (targetPOI == null) {
             List<String> enteredTags = Arrays.stream(locationToCheck.getData().questTags).collect(Collectors.toList());
             for (String tag : POITags) {
@@ -224,6 +247,7 @@ public class AdventureQuestStage implements Serializable {
         this.anyPOI = other.anyPOI;
         this.here = other.here;
         this.targetPOI = other.targetPOI;
+        this.targetPlaneId = other.targetPlaneId;
         this.objective = other.objective;
         this.mapFlagValue = other.mapFlagValue;
         this.mapFlag = other.mapFlag;

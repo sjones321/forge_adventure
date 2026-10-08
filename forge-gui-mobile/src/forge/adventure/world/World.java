@@ -52,6 +52,10 @@ public class World implements Disposable, SaveFileContent {
     private final ArrayList<DrawingInformation> drawingInfoCache = new ArrayList<>(32);
     private Pixmap globalTileDrawing = null;
     private Pixmap emptyTile = null;
+    /** Relative path under the adventure plane (MV1 set planes may use a template). */
+    private String worldConfigPath = Paths.WORLD;
+    /** Test/observe: whether the last {@link #generateNew} cleared the live WorldStage. */
+    private boolean clearedLiveStageOnLastGenerate;
 
     public Random getRandom() {
         return random;
@@ -59,6 +63,27 @@ public class World implements Disposable, SaveFileContent {
 
     public long getSeed() {
         return seed;
+    }
+
+    /** World JSON used for generation / co-op hash (MV1). Defaults to {@link Paths#WORLD}. */
+    public String getWorldConfigPath() {
+        return worldConfigPath != null && !worldConfigPath.isEmpty() ? worldConfigPath : Paths.WORLD;
+    }
+
+    /**
+     * Drop cached world.json so the next generate/load reads {@code path}.
+     * Call before generating a set plane from a template.
+     * Disposes prior {@link BiomeTexture} pixmaps on the GL thread when the path changes.
+     */
+    public void setWorldConfigPath(String path) {
+        String next = path != null && !path.isEmpty() ? path : Paths.WORLD;
+        if (!next.equals(getWorldConfigPath()) || !worldDataLoaded) {
+            disposeBiomeTexturesAsync();
+            worldConfigPath = next;
+            worldDataLoaded = false;
+        } else {
+            worldConfigPath = next;
+        }
     }
 
     /** Biome grid used by Ascendant co-op world-hash verification (CO1). */
@@ -93,9 +118,10 @@ public class World implements Disposable, SaveFileContent {
         if (worldDataLoaded)
             return;
 
-        FileHandle handle = Config.instance().getFile(Paths.WORLD);
+        FileHandle handle = Config.instance().getFile(getWorldConfigPath());
         String rawJson = handle.readString();
         this.data = (new Json()).fromJson(WorldData.class, rawJson);
+        disposeBiomeTexturesAsync();
         biomeTexture = new BiomeTexture[data.GetBiomes().size() + 1];
 
         int biomeIndex = 0;
@@ -115,6 +141,10 @@ public class World implements Disposable, SaveFileContent {
             biomeImage.dispose();
             biomeImage = null;
         }
+
+        // MV1: pick the plane's world.json before loading biome definitions.
+        String savedPath = saveFileData != null ? saveFileData.readString("worldConfigPath") : null;
+        setWorldConfigPath(savedPath != null && !savedPath.isEmpty() ? savedPath : Paths.WORLD);
 
         loadWorldData();
 
@@ -149,6 +179,7 @@ public class World implements Disposable, SaveFileContent {
         data.store("mapObjectIds", mapObjectIds.save());
         data.store("mapPoiIds", mapPoiIds.save());
         data.store("seed", seed);
+        data.store("worldConfigPath", getWorldConfigPath());
         return data;
     }
 
@@ -320,7 +351,38 @@ public class World implements Disposable, SaveFileContent {
         return false;
     }
 
+    /**
+     * Generate using an alternate world.json (MV1 set-plane template).
+     * Does <em>not</em> clear the live {@link WorldStage} — use for temporary
+     * / set-plane generation into a separate {@link World} instance.
+     */
+    public boolean generateNew(long seed, String configPath) {
+        return generateNew(seed, configPath, false);
+    }
+
+    /**
+     * @param clearLiveStage when true, clears {@link WorldStage} after generation
+     *                       (new-game / live-world regen only). Temporary plane
+     *                       generation must pass false.
+     */
+    public boolean generateNew(long seed, String configPath, boolean clearLiveStage) {
+        setWorldConfigPath(configPath);
+        return generateNewInternal(seed, clearLiveStage);
+    }
+
     public boolean generateNew(long seed) {
+        // Live-world regen (New Game / load failure) clears the stage.
+        return generateNewInternal(seed, true);
+    }
+
+    /** @return whether the most recent generate cleared {@link WorldStage} (tests). */
+    public boolean didClearLiveStageOnLastGenerate() {
+        return clearedLiveStageOnLastGenerate;
+    }
+
+    private boolean generateNewInternal(long seed, boolean clearLiveStage) {
+        // Record intent up front so callers/tests can see temporary generates never ask to clear.
+        clearedLiveStageOnLastGenerate = clearLiveStage;
         try {
             if (GuiBase.isMobile())
                 GuiBase.getInterface().preventSystemSleep(true);
@@ -895,11 +957,13 @@ public class World implements Disposable, SaveFileContent {
                     + " | towns=" + towns.size()
                     + " | minTownSpacing=" + data.minTownSpacing
                     + " | heap used~" + usedMb + "MB / total~" + totalMb + "MB");
-            try {
-                WorldStage.getInstance().clearCache();
-            } catch (Throwable t) {
-                // Headless / early-init benches may not have a fully built stage.
-                System.out.println("WorldStage.clearCache skipped: " + t.getMessage());
+            if (clearLiveStage) {
+                try {
+                    WorldStage.getInstance().clearCache();
+                } catch (Throwable t) {
+                    // Headless / early-init benches may not have a fully built stage.
+                    System.out.println("WorldStage.clearCache skipped: " + t.getMessage());
+                }
             }
 
             if (GuiBase.isMobile())
@@ -1049,7 +1113,38 @@ public class World implements Disposable, SaveFileContent {
 
     public void dispose() {
         drawingInfoCache.clear();
+        disposeBiomeTexturesAsync();
         Forge.safeDispose(biomeImage, globalTileDrawing, globalTexture, emptyTile);
+        biomeImage = null;
+        globalTileDrawing = null;
+        globalTexture = null;
+        emptyTile = null;
+        worldDataLoaded = false;
+    }
+
+    /** Dispose {@link BiomeTexture} pixmaps on the GL/EDT thread when available. */
+    void disposeBiomeTexturesAsync() {
+        final BiomeTexture[] old = biomeTexture;
+        biomeTexture = null;
+        if (old == null) {
+            return;
+        }
+        Runnable release = () -> {
+            for (BiomeTexture bt : old) {
+                if (bt != null) {
+                    bt.dispose();
+                }
+            }
+        };
+        try {
+            if (com.badlogic.gdx.Gdx.app != null) {
+                com.badlogic.gdx.Gdx.app.postRunnable(release);
+            } else {
+                release.run();
+            }
+        } catch (Exception e) {
+            release.run();
+        }
     }
 
     public void setSeed(long seedOffset) {

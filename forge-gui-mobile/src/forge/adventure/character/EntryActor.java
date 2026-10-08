@@ -17,6 +17,8 @@ public class EntryActor extends MapActor {
     protected final String direction;
     protected final int entryTargetObject;
     protected String currentMap;
+    /** MV1: when set (Ascendant), collision switches WorldSave planes instead of TMX maps. */
+    protected String targetPlane;
 
     public EntryActor(MapStage stage, int id, String targetMap, float x, float y, float w, float h, String direction, String currentMap, int entryTargetObject) {
         super(id);
@@ -29,6 +31,14 @@ public class EntryActor extends MapActor {
         this.currentMap = currentMap;
         this.entryTargetObject = entryTargetObject;
         this.direction = direction;
+    }
+
+    public void setTargetPlane(String targetPlane) {
+        this.targetPlane = targetPlane;
+    }
+
+    public String getTargetPlane() {
+        return targetPlane;
     }
 
     public MapStage getMapStage() {
