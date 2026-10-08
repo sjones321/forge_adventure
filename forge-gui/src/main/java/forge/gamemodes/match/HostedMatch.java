@@ -56,6 +56,11 @@ public class HostedMatch {
     private Runnable startGameHook = null;
     private Runnable endGameHook = null;
     private Runnable onMatchOver = null;
+    /**
+     * When non-null and true for the quitting controller, QUIT concedes that
+     * seat only instead of ending the whole match (Ascendant co-op guest quit).
+     */
+    private java.util.function.Predicate<PlayerControllerHuman> quitAsConcede = null;
     private final List<PlayerControllerHuman> humanControllers = Lists.newArrayList();
     private Map<RegisteredPlayer, IGuiGame> guis;
     private int humanCount;
@@ -72,6 +77,11 @@ public class HostedMatch {
     }
     public void setEndGameHook(Runnable hook) { endGameHook = hook; }
     public void setOnMatchOver(Runnable callback) { onMatchOver = callback; }
+
+    /** Co-op: guest QUIT → concede that seat; host match continues. */
+    public void setQuitAsConcede(final java.util.function.Predicate<PlayerControllerHuman> pred) {
+        quitAsConcede = pred;
+    }
 
     private static GameRules getDefaultRules(final GameType gameType) {
         final GameRules gameRules = new GameRules(gameType);
@@ -535,6 +545,17 @@ public class HostedMatch {
 
     private void addNextGameDecision(final PlayerControllerHuman controller, final NextGameDecision decision) {
         if (decision == NextGameDecision.QUIT) {
+            // Ascendant co-op: a guest quit only concedes that seat — never ends the host match.
+            if (quitAsConcede != null && controller != null && quitAsConcede.test(controller)) {
+                final PlayerControllerHuman toConcede = controller;
+                final Game g = game;
+                if (g != null) {
+                    g.getAction().invoke(toConcede::concede);
+                } else {
+                    toConcede.concede();
+                }
+                return;
+            }
             FThreads.invokeInEdtNowOrLater(() -> {
                 endCurrentGame();
                 isMatchOver = true;

@@ -712,7 +712,7 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
     }
 
     public void acceptParty() {
-        inviteUi.hide();
+        // Do not clear the invite queue here — GameHUD advances it on dialog close.
         final CoopPartyResponseEvent resp = party.respond(
                 CoopPartyResponseEvent.Action.ACCEPT, System.currentTimeMillis(), inviteTimeoutMs());
         if (resp != null) {
@@ -723,7 +723,6 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
     }
 
     public void declineParty() {
-        inviteUi.hide();
         final CoopPartyResponseEvent resp = party.respond(
                 CoopPartyResponseEvent.Action.DECLINE, System.currentTimeMillis(), inviteTimeoutMs());
         if (resp != null) {
@@ -734,7 +733,6 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
     }
 
     public void leaveParty() {
-        inviteUi.hide();
         final CoopPartyResponseEvent resp = party.respond(CoopPartyResponseEvent.Action.LEAVE);
         if (resp != null) {
             CoopSession.get().send(resp);
@@ -1056,7 +1054,6 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
     }
 
     public void acceptLocationInvite() {
-        inviteUi.hide();
         final long id = locationPolicy.getPendingInviteId();
         if (id <= 0L) {
             return;
@@ -1068,7 +1065,6 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
     }
 
     public void declineLocationInvite() {
-        inviteUi.hide();
         final long id = locationPolicy.getPendingInviteId();
         if (id <= 0L) {
             return;
@@ -1220,9 +1216,16 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
     }
 
     private void promptPartyInvite(final CoopPartyInviteEvent event) {
-        inviteUi.showPartyInvite(event.getInviteId(), capName(event.getFromPlayer()));
+        final String from = capName(event.getFromPlayer());
+        // Queue — never replace an open dialog (exit-dungeon / other invite).
+        final forge.gamemodes.net.coop.CoopInviteUiState.Prompt activated =
+                inviteUi.enqueue(forge.gamemodes.net.coop.CoopInviteUiState.PromptKind.PARTY,
+                        event.getInviteId(), from, "");
+        if (activated == null) {
+            return; // queued behind an open dialog
+        }
         try {
-            GameHUD.getInstance().showCoopPartyInviteDialog(capName(event.getFromPlayer()));
+            GameHUD.getInstance().showCoopPartyInviteDialog(from);
         } catch (final Exception ignored) {
         }
     }
@@ -1230,9 +1233,15 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
     private void promptLocationInvite(final CoopLocationInviteEvent event) {
         final String display = CoopWireLimits.clampString(event.getDisplayName(),
                 CoopWireLimits.MAX_DISPLAY_NAME_LEN);
-        inviteUi.showLocationInvite(event.getInviteId(), capName(event.getFromPlayer()), display);
+        final String from = capName(event.getFromPlayer());
+        final forge.gamemodes.net.coop.CoopInviteUiState.Prompt activated =
+                inviteUi.enqueue(forge.gamemodes.net.coop.CoopInviteUiState.PromptKind.LOCATION,
+                        event.getInviteId(), from, display);
+        if (activated == null) {
+            return;
+        }
         try {
-            GameHUD.getInstance().showCoopLocationInviteDialog(capName(event.getFromPlayer()), display);
+            GameHUD.getInstance().showCoopLocationInviteDialog(from, display);
         } catch (final Exception ignored) {
         }
     }

@@ -231,6 +231,8 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
      * Stock online play leaves this empty.
      */
     private volatile String coopExpectedGuestName = "";
+    /** CO3: when the duel socket drops during a gated co-op match, run this (concede guest). */
+    private volatile Runnable coopGuestDisconnectHook = null;
     /** Optional session-code echo required in the LoginEvent version field for CO3. */
     private volatile String coopExpectedSessionCode = "";
 
@@ -325,6 +327,17 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
 
     public void clearCoopSessionGate() {
         setCoopSessionGate("", "");
+        coopGuestDisconnectHook = null;
+    }
+
+    /** CO3: concede the guest seat when the duel TCP channel drops mid-match. */
+    public void setCoopGuestDisconnectHook(final Runnable hook) {
+        this.coopGuestDisconnectHook = hook;
+    }
+
+    private boolean coopGateActive() {
+        final String expected = coopExpectedGuestName;
+        return expected != null && !expected.isEmpty();
     }
 
     boolean coopGateAllows(final String username, final String versionField, final String sessionCodeField) {
@@ -1141,8 +1154,10 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
                 // key for disconnectedClients, so cleaning it at the single
                 // point of intake keeps the parked key and the reconnect
                 // lookup in agreement.
-                final String username = forge.gamemodes.net.coop.CoopDuelIdentity.normalizeUsername(
-                        event.getUsername());
+                // Stock online: keep historical LoginEvent name handling (64 /
+                // forge.net.maxNameLength, untrimmed). Co-op duel gate compares via
+                // CoopDuelIdentity.normalizeUsername inside coopGateAllows only.
+                final String username = LogSafe.forDisplay(event.getUsername(), maxNameLength());
                 // Ascendant co-op (CO3): require the same authenticated guest / session.
                 if (!coopGateAllows(username, event.getVersion(), event.getSessionCode())) {
                     netLog.warn("Refusing LoginEvent from {} — co-op session gate mismatch", username);
@@ -1311,7 +1326,19 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
                     && localLobby.getCurrentEvent() != null
                     && localLobby.getCurrentEvent().getPhase() == EventPhase.DRAFTING;
 
-            if (isMatchActive() && client.hasValidSlot()) {
+            if (isMatchActive() && client.hasValidSlot() && coopGateActive()) {
+                // Ascendant co-op duel: socket drop → concede guest seat immediately
+                // (no stock reconnect timer — overworld session is the reconnect path).
+                netLog.info("[Disconnect] Co-op duel guest socket dropped: {} — conceding seat", username);
+                final Runnable hook = coopGuestDisconnectHook;
+                if (hook != null) {
+                    try {
+                        hook.run();
+                    } catch (final Exception e) {
+                        netLog.warn(e, "Co-op guest disconnect hook failed");
+                    }
+                }
+            } else if (isMatchActive() && client.hasValidSlot()) {
                 // Match is active — pause, store for reconnect, run 5-minute reclaim timer.
                 pauseRemoteClientGuiGame(client);
                 disconnectedClients.put(username, client);

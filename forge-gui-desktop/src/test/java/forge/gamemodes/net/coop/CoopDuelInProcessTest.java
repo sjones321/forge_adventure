@@ -402,19 +402,48 @@ public class CoopDuelInProcessTest {
         match.startMatch(rules, EnumSet.of(GameType.Constructed),
                 List.of(host, guest, enemy), guis, null);
 
-        final long deadline = System.currentTimeMillis() + 90_000;
-        driveUntilGameOver(match, hostRemote, hostGui, guestRemote, guestGui, true, deadline);
+        // Drive until both remotes are live, then concede only the guest seat.
+        final long warm = System.currentTimeMillis() + 30_000;
+        while (System.currentTimeMillis() < warm
+                && (hostRemote.myPlayers == null || guestRemote.myPlayers == null)) {
+            answerOne(hostRemote, hostGui, true, false);
+            answerOne(guestRemote, guestGui, true, false);
+        }
+        assertNotNull(hostRemote.myPlayers, "host openView");
+        assertNotNull(guestRemote.myPlayers, "guest openView");
+
+        forceConcedeHumans(match, true, "Guest");
+        // Let the game thread process the concede.
+        Thread.sleep(500);
+        flushEdt();
 
         final CoopDuelDisconnectPolicy.Outcome out = policy.onGuestDisconnected();
         assertEquals(out, CoopDuelDisconnectPolicy.Outcome.CONTINUE_HOST_MATCH);
         assertTrue(CoopDuelDisconnectPolicy.hostWorldRemainsPlayable(out));
         assertFalse(policy.isGuestConnected());
 
-        // Guest seat conceded — wait for the game to settle; host match must not hang.
-        waitGameOver(match, 45_000);
-        assertTrue(match.getGameView() == null || match.getGameView().isGameOver()
-                || match.getMatch() != null,
-                "host match still reachable after guest concede");
+        // Guest must have lost/conceded; host Match must still be alive (not match-over
+        // solely from a guest quit — team 0 still has the host).
+        boolean guestLost = false;
+        boolean hostAlive = false;
+        for (final forge.player.PlayerControllerHuman hc : match.getHumanControllers()) {
+            if (hc == null || hc.getPlayer() == null) {
+                continue;
+            }
+            final String name = hc.getPlayer().getName();
+            if (name != null && name.equalsIgnoreCase("Guest")) {
+                guestLost = hc.getPlayer().hasLost() || hc.getPlayer().conceded();
+            }
+            if (name != null && name.equalsIgnoreCase("Host")) {
+                hostAlive = !hc.getPlayer().hasLost() && !hc.getPlayer().conceded();
+            }
+        }
+        assertTrue(guestLost, "guest seat conceded after disconnect policy");
+        assertTrue(hostAlive || match.getMatch() != null,
+                "host seat still in the match after guest concede");
+        assertNotNull(match.getMatch(), "host Match object still reachable");
+        assertFalse(match.getMatch().isMatchOver(),
+                "guest concede alone must not end the host match");
         policy.endDuel();
     }
 
@@ -516,24 +545,44 @@ public class CoopDuelInProcessTest {
                 .changeStartCards(9)
                 .startBattleCardNames(List.of("Plains", "Black Lotus"))
                 .build();
+        // Guest's real base life (bounded), not a hard-coded 20.
         final CoopFightLoadoutValidator.Result rejected = CoopFightLoadoutValidator.validate(
-                raw, 5, allow, () -> 20);
+                raw, 5, allow, () -> Math.min(100, 40));
         assertFalse(rejected.ok, "non-allowlisted effect card rejected");
 
         final CoopFightLoadout okRaw = CoopFightLoadout.builder()
                 .playerName("Guest")
                 .avatarId("g")
-                .startingLife(100)
+                .startingLife(20)
                 .lifeModifier(50)
                 .changeStartCards(9)
+                .manaShards(500)
+                .extraManaShards(99)
+                .freeMulligans(50)
                 .startBattleCardNames(List.of("Plains"))
                 .build();
+        final CoopFightLoadoutValidator.StatCaps caps =
+                new CoopFightLoadoutValidator.StatCaps(100, 3, 4);
         final CoopFightLoadoutValidator.Result ok = CoopFightLoadoutValidator.validate(
-                okRaw, 5, allow, () -> 20);
+                okRaw, 5, allow, () -> 20, caps);
         assertTrue(ok.ok, ok.reason);
         assertNotNull(ok.loadout);
         assertTrue(ok.loadout.getStartingLife() <= 25, "capped at base+maxLifeBonus");
         assertEquals(ok.loadout.getChangeStartCards(), CoopFightLoadoutValidator.MAX_HAND_DELTA);
+        assertTrue(ok.loadout.getManaShards() <= 100, "mana shards clamped");
+        assertTrue(ok.loadout.getExtraManaShards() <= 3, "extra shards clamped");
+        assertTrue(ok.loadout.getFreeMulligans() <= 4, "free mulligans clamped");
+
+        // Fail closed: empty allowlist rejects any effect card names.
+        final CoopFightLoadout withCards = CoopFightLoadout.builder()
+                .playerName("Guest")
+                .avatarId("g")
+                .startingLife(20)
+                .startBattleCardNames(List.of("Plains"))
+                .build();
+        final CoopFightLoadoutValidator.Result emptyAllow = CoopFightLoadoutValidator.validate(
+                withCards, 5, Collections.emptySet(), () -> 20);
+        assertFalse(emptyAllow.ok, "empty allowlist must reject effect cards");
     }
 
     @Test

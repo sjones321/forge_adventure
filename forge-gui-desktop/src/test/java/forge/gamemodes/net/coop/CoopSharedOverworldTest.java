@@ -681,8 +681,8 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsFiveForCo2Round3() {
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 5);
+    public void protocolVersionIsSixForCo3() {
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 6);
     }
 
     private static long[][] sampleBiome(final int n) {

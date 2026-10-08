@@ -379,11 +379,17 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (event == null || event.getDuelId() != activeDuelId || activeDuelId <= 0L) {
             return;
         }
+        final CoopFightLoadout rawLoadout = event.getLoadout();
+        // Guest's real base life is the loadout startingLife before modifiers (bounded).
+        final int guestBaseLife = rawLoadout != null
+                ? Math.max(1, Math.min(rawLoadout.getStartingLife(), CoopDuelWireLimits.MAX_STAT))
+                : 20;
         final CoopFightLoadoutValidator.Result loadoutResult = CoopFightLoadoutValidator.validate(
-                event.getLoadout(),
+                rawLoadout,
                 maxKnownLifeBonus(),
                 effectCardAllowlist(),
-                () -> 20);
+                () -> guestBaseLife,
+                knownStatCaps());
         if (!loadoutResult.ok) {
             return;
         }
@@ -461,14 +467,28 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     // ---- Internals ----
 
     private void showJoinPrompt(final CoopDuelInviteEvent event) {
+        final String from = event.getHostPlayer() != null ? event.getHostPlayer() : "Partner";
+        final String enc = event.getEncounterId() != null ? event.getEncounterId() : "";
+        // Queue with party/location invites; never replace exit-dungeon.
+        try {
+            final forge.gamemodes.net.coop.CoopInviteUiState.Prompt activated =
+                    CoopOverworldRuntime.get().getInviteUi().enqueue(
+                            forge.gamemodes.net.coop.CoopInviteUiState.PromptKind.JOIN_FIGHT,
+                            event.getInviteId(), from, enc);
+            if (activated == null) {
+                // Queued — GameHUD will show when the current dialog closes.
+                return;
+            }
+            GameHUD.getInstance().showCoopJoinFightDialog(from, enc,
+                    this::acceptInvite, this::declineInvite);
+            return;
+        } catch (final Exception ignored) {
+        }
+        // Fallback when HUD unavailable (headless / tests).
         final Localizer loc = Forge.getLocalizer();
-        final String title = "Join the fight?";
-        final String msg = (event.getHostPlayer() != null ? event.getHostPlayer() : "Partner")
-                + " started a fight"
-                + (event.getEncounterId() != null && !event.getEncounterId().isEmpty()
-                ? " (" + event.getEncounterId() + ")" : "")
-                + ". Join?";
-        FOptionPane.showConfirmDialog(msg, title,
+        FOptionPane.showConfirmDialog(
+                from + " started a fight" + (enc.isEmpty() ? "" : " (" + enc + ")") + ". Join?",
+                "Join the fight?",
                 loc != null ? loc.getMessage("lblYes") : "Yes",
                 loc != null ? loc.getMessage("lblNo") : "No",
                 false, result -> {
@@ -605,6 +625,8 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         coopLobby = new ServerGameLobby();
         server.setLobby(coopLobby);
         server.setCoopSessionGate(peer, code);
+        // Duel socket drop (not only overworld disconnect) → concede guest seat.
+        server.setCoopGuestDisconnectHook(this::concedeGuestSeat);
         server.startServer(port, bind, Boolean.FALSE);
         gameServerStartedByUs = true;
     }
@@ -738,6 +760,11 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             final long enemyIdFinal = enemyId > 0L ? enemyId : pendingEnemyId;
             hostedMatch.setEndGameHook(() -> onHostGameEnded(
                     hostedMatch, hostRpFinal, mobFinal, duelIdFinal, enemyIdFinal));
+            // Guest QUIT → concede that seat only; never end the host match.
+            final RegisteredPlayer guestRpFinal = guestRp;
+            hostedMatch.setQuitAsConcede(hc -> guestRpFinal != null
+                    && hc != null && hc.getPlayer() != null
+                    && hc.getPlayer().getRegisteredPlayer() == guestRpFinal);
             // CO2 host pause: enemy AI / spawns / lifetimes pause for both while in duel.
             final String encounterLabel = mob.getData() != null ? mob.getData().getName() : "a duel";
             try {
@@ -767,12 +794,30 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private void onHostGameEnded(final HostedMatch hostedMatch, final RegisteredPlayer hostRp,
                                  final EnemySprite mob, final long duelId, final long enemyId) {
         final Match match = hostedMatch != null ? hostedMatch.getMatch() : null;
+        final forge.game.Game g = hostedMatch != null ? hostedMatch.getGame() : null;
+        // Post to the game thread AFTER this endGameHook returns so we do not race
+        // humanControllers during HostedMatch's flush / CONTINUE path.
         if (match == null || !match.isMatchOver()) {
-            autoContinueHumans(hostedMatch);
+            runAfterHook(g, () -> autoContinueHumans(hostedMatch));
             return;
         }
-        // Defer past HostedMatch's ProtocolGuiGame flush on this game thread.
-        postGl(() -> finishHostMatch(hostedMatch, hostRp, mob, duelId, enemyId));
+        // Outcome + server stop only after HostedMatch's final ProtocolGuiGame flush.
+        runAfterHook(g, () -> postGl(() -> finishHostMatch(hostedMatch, hostRp, mob, duelId, enemyId)));
+    }
+
+    /** Queue work on the game action thread after the current endGameHook returns. */
+    private static void runAfterHook(final forge.game.Game g, final Runnable r) {
+        if (r == null) {
+            return;
+        }
+        if (g != null) {
+            try {
+                g.getAction().invoke(r);
+                return;
+            } catch (final Exception ignored) {
+            }
+        }
+        r.run();
     }
 
     private void autoContinueHumans(final HostedMatch hostedMatch) {
@@ -780,7 +825,10 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             return;
         }
         try {
-            for (final PlayerControllerHuman hc : hostedMatch.getHumanControllers()) {
+            // Snapshot — continueMatch may clear humanControllers.
+            final List<PlayerControllerHuman> humans =
+                    new ArrayList<>(hostedMatch.getHumanControllers());
+            for (final PlayerControllerHuman hc : humans) {
                 if (hc != null) {
                     hc.nextGameDecision(NextGameDecision.CONTINUE);
                 }
@@ -853,9 +901,17 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             return;
         }
         // Never apply host character changes from wire numbers — outcome only.
+        // Resolve the fought enemy by id from the result event (not getCurrentMob()).
         final boolean teamWon = event.isTeamWon();
-        final EnemySprite mob = WorldStage.getInstance().getCurrentMob();
+        EnemySprite mob = resolveEnemy(event.getEnemyId());
+        if (mob == null && event.getEnemyId() != 0L) {
+            try {
+                mob = CoopOverworldRuntime.get().getEnemyById(event.getEnemyId());
+            } catch (final Exception ignored) {
+            }
+        }
         if (mob != null) {
+            WorldStage.getInstance().setCurrentMob(mob);
             WorldStage.getInstance().setWinner(teamWon, false);
         } else {
             if (teamWon) {
@@ -880,12 +936,24 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             return;
         }
         try {
+            PlayerControllerHuman target = null;
             for (final PlayerControllerHuman hc : match.getHumanControllers()) {
                 if (hc != null && hc.getPlayer() != null
                         && hc.getPlayer().getRegisteredPlayer() == guestRp) {
-                    hc.concede();
-                    return;
+                    target = hc;
+                    break;
                 }
+            }
+            if (target == null) {
+                return;
+            }
+            final PlayerControllerHuman toConcede = target;
+            // Concede must run on the game thread so input queues unblock cleanly.
+            final forge.game.Game g = match.getGame();
+            if (g != null) {
+                g.getAction().invoke(toConcede::concede);
+            } else {
+                toConcede.concede();
             }
         } catch (final Exception ignored) {
         }
@@ -1000,17 +1068,20 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             shardsExtra += ap.getBlessing().extraManaShards;
             accumulateCardNames(ap.getBlessing(), startCards, commandCards);
         }
-        // Clamp locally before send (host re-validates).
+        // Clamp locally before send (host re-validates). Send real base life
+        // separately from modifiers so the host does not hard-code () -> 20.
         handMod = Math.max(CoopFightLoadoutValidator.MIN_HAND_DELTA,
                 Math.min(handMod, CoopFightLoadoutValidator.MAX_HAND_DELTA));
-        final int cappedLife = Math.min(ap.getLife() + lifeMod, ap.getLife() + maxKnownLifeBonus());
+        final int baseLife = Math.max(1, ap.getLife());
+        final int maxBonus = maxKnownLifeBonus();
+        lifeMod = Math.max(-maxBonus, Math.min(lifeMod, maxBonus));
         return CoopFightLoadout.builder()
                 .playerName(CoopDuelIdentity.normalizeUsername(ap.getName()))
                 .avatarId(ap.getName())
-                .startingLife(Math.max(1, cappedLife))
+                .startingLife(baseLife)
                 .manaShards(ap.getShards())
                 .freeMulligans(freeMull)
-                .lifeModifier(0)
+                .lifeModifier(lifeMod)
                 .changeStartCards(handMod)
                 .extraManaShards(shardsExtra)
                 .startBattleCardNames(startCards)
@@ -1127,22 +1198,130 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         };
     }
 
-    private static Predicate<String> adventureBanned() {
-        return name -> BanLists.isBanned("standard", name)
-                || BanLists.isBanned("historic", name)
-                || BanLists.isBanned("commander", name);
+    /**
+     * Adventure deck restrictions for CO3: plane {@code restrictedCards} /
+     * {@code restrictedEditions} plus the host's current run-format rules —
+     * not the union of Standard/Historic/Commander ban lists.
+     */
+    private Predicate<String> adventureBanned() {
+        final ConfigData cfg = Config.instance().getConfigData();
+        final Set<String> restrictedCards = new HashSet<>();
+        if (cfg.restrictedCards != null) {
+            for (final String n : cfg.restrictedCards) {
+                if (n != null && !n.isEmpty()) {
+                    restrictedCards.add(n.toLowerCase(java.util.Locale.ROOT));
+                }
+            }
+        }
+        final Set<String> restrictedEditions = new HashSet<>();
+        if (cfg.restrictedEditions != null) {
+            for (final String ed : cfg.restrictedEditions) {
+                if (ed != null && !ed.isEmpty()) {
+                    restrictedEditions.add(ed);
+                }
+            }
+        }
+        final AdventurePlayer hostAp = Current.player();
+        final String format = hostAp != null ? hostAp.getRunFormat() : forge.adventure.util.GymUtil.FORMAT_STANDARD;
+        final String formatKey = format != null ? format.toLowerCase(java.util.Locale.ROOT) : "standard";
+        return name -> {
+            if (name == null || name.isEmpty()) {
+                return true;
+            }
+            if (restrictedCards.contains(name.toLowerCase(java.util.Locale.ROOT))) {
+                return true;
+            }
+            PaperCard pc = null;
+            try {
+                pc = FModel.getMagicDb().getCommonCards().getCard(name);
+            } catch (final Exception ignored) {
+            }
+            if (pc != null && !restrictedEditions.isEmpty()
+                    && restrictedEditions.contains(pc.getEdition())) {
+                return true;
+            }
+            // Run-format ban list for the host's current format only.
+            if (BanLists.isBanned(formatKey, name)) {
+                return true;
+            }
+            // Standard window: illegal outside the active rotation.
+            if (hostAp != null
+                    && forge.adventure.util.GymUtil.FORMAT_STANDARD.equalsIgnoreCase(format)
+                    && hostAp.getStandardWindow().isActive()
+                    && pc != null
+                    && !pc.getRules().getType().isBasicLand()
+                    && !hostAp.isStandardLegal(pc)) {
+                return true;
+            }
+            return false;
+        };
     }
 
-    /** Largest lifeModifier any known item or skill-perk effect can grant. */
+    /** Largest lifeModifier any known item, skill-perk (× ranks), or blessing can grant. */
     static int maxKnownLifeBonus() {
         int max = 0;
+        for (final RankedEffect re : allKnownRankedEffects()) {
+            if (re.effect == null) {
+                continue;
+            }
+            max = Math.max(max, re.effect.lifeModifier * re.ranks);
+            if (re.effect.opponent != null) {
+                max = Math.max(max, re.effect.opponent.lifeModifier * re.ranks);
+            }
+        }
+        return Math.max(0, max);
+    }
+
+    static CoopFightLoadoutValidator.StatCaps knownStatCaps() {
+        int baseMull = 0;
+        try {
+            baseMull = Math.max(0, Config.instance().getConfigData().adventureFreeMulligans);
+        } catch (final Exception ignored) {
+        }
+        int bestEffectMull = 0;
+        int bestExtra = 0;
+        for (final RankedEffect re : allKnownRankedEffects()) {
+            if (re.effect == null) {
+                continue;
+            }
+            bestEffectMull = Math.max(bestEffectMull, re.effect.freeMulligans * re.ranks);
+            bestExtra = Math.max(bestExtra, re.effect.extraManaShards * re.ranks);
+        }
+        // Mana shards are the player's inventory pool used in battle — wire MAX_STAT.
+        return new CoopFightLoadoutValidator.StatCaps(
+                CoopDuelWireLimits.MAX_STAT, bestExtra, baseMull + bestEffectMull);
+    }
+
+    /** Card names grantable by items, skill perks, or potion blessing recipes. */
+    static Set<String> effectCardAllowlist() {
+        try {
+            final List<String[]> arrays = new ArrayList<>();
+            for (final RankedEffect re : allKnownRankedEffects()) {
+                collectEffectCardArrays(re.effect, arrays);
+            }
+            return CoopFightLoadoutValidator.allowlistFromEffects(() -> arrays);
+        } catch (final Exception e) {
+            return new HashSet<>(); // fail closed
+        }
+    }
+
+    private static final class RankedEffect {
+        final EffectData effect;
+        final int ranks;
+
+        RankedEffect(final EffectData effect, final int ranks) {
+            this.effect = effect;
+            this.ranks = Math.max(1, ranks);
+        }
+    }
+
+    /** Items + skill-tree nodes (with maxRanks) + recipe blessings. */
+    private static List<RankedEffect> allKnownRankedEffects() {
+        final List<RankedEffect> out = new ArrayList<>();
         try {
             for (final ItemData item : new Array.ArrayIterator<>(ItemListData.getAllItems())) {
                 if (item != null && item.effect != null) {
-                    max = Math.max(max, item.effect.lifeModifier);
-                    if (item.effect.opponent != null) {
-                        max = Math.max(max, item.effect.opponent.lifeModifier);
-                    }
+                    out.add(new RankedEffect(item.effect, 1));
                 }
             }
             for (final SkillTreeData tree : SkillTreeListData.allTrees()) {
@@ -1153,32 +1332,15 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                     if (node == null || node.effect == null) {
                         continue;
                     }
-                    final int ranks = Math.max(1, node.maxRanks);
-                    max = Math.max(max, node.effect.lifeModifier * ranks);
+                    out.add(new RankedEffect(node.effect, Math.max(1, node.maxRanks)));
                 }
             }
-        } catch (final Exception ignored) {
-        }
-        return Math.max(0, max);
-    }
-
-    /** Card names grantable by items.json or skill-perk effects. */
-    static Set<String> effectCardAllowlist() {
-        final Set<String> out = new HashSet<>();
-        try {
-            final List<String[]> arrays = new ArrayList<>();
-            for (final ItemData item : new Array.ArrayIterator<>(ItemListData.getAllItems())) {
-                collectEffectCardArrays(item != null ? item.effect : null, arrays);
-            }
-            for (final SkillTreeData tree : SkillTreeListData.allTrees()) {
-                if (tree == null || tree.nodes == null) {
-                    continue;
-                }
-                for (final SkillTreeNodeData node : tree.nodes) {
-                    collectEffectCardArrays(node != null ? node.effect : null, arrays);
+            for (final forge.adventure.data.RecipeData recipe
+                    : new Array.ArrayIterator<>(forge.adventure.data.RecipeListData.getAll())) {
+                if (recipe != null && recipe.blessing != null) {
+                    out.add(new RankedEffect(recipe.blessing, 1));
                 }
             }
-            out.addAll(CoopFightLoadoutValidator.allowlistFromEffects(() -> arrays));
         } catch (final Exception ignored) {
         }
         return out;
