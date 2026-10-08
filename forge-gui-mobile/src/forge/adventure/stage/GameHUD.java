@@ -51,6 +51,8 @@ import forge.adventure.scene.MapViewScene;
 import forge.adventure.scene.QuestLogScene;
 import forge.adventure.scene.Scene;
 import forge.adventure.scene.TileMapScene;
+import forge.adventure.coop.CoopHooks;
+import forge.adventure.coop.CoopOverworldRuntime;
 import forge.adventure.util.AdventureQuestController;
 import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
@@ -59,6 +61,8 @@ import forge.adventure.util.KeyBinding;
 import forge.adventure.util.NavArrowActor;
 import forge.adventure.util.UIActor;
 import forge.adventure.world.WorldSave;
+import forge.gamemodes.net.coop.CoopPartyState;
+import forge.gamemodes.net.coop.CoopWireLimits;
 import forge.deck.Deck;
 import forge.gui.GuiBase;
 import forge.sound.MusicPlaylist;
@@ -79,9 +83,16 @@ public class GameHUD extends Stage {
     private final TypingLabel enemyCounterText;
     private final Image enemyCounterBackground;
     private final TextraLabel notificationText = Controls.newTextraLabel("");
+    /** Dedicated host-presence banner (does not share notificationPane). */
+    private final TextraLabel hostPresenceText = Controls.newTextraLabel("");
+    private final ScrollPane hostPresencePane;
+    private final TypingLabel partyStatusLabel;
+    private final TextraButton partyActor;
     private final Image miniMap, gamehud, mapborder, avatarborder, blank;
     private final InputEvent eventTouchDown, eventTouchUp;
     private final TextraButton deckActor, openMapActor, menuActor, logbookActor, inventoryActor, exitToWorldMapActor, bookmarkActor;
+    private enum CoopDialogKind { NONE, PARTY_INVITE, LOCATION_INVITE, PARTY_LEAVE }
+    private CoopDialogKind coopDialogKind = CoopDialogKind.NONE;
     public final UIActor ui;
     private final Touchpad touchpad;
     private final Console console;
@@ -229,7 +240,27 @@ public class GameHUD extends Stage {
         notificationPane.setStyle(Controls.getSkin().get("paper", ScrollPane.ScrollPaneStyle.class));
         notificationPane.getColor().a = 0f;
 
+        hostPresencePane = new ScrollPane(hostPresenceText);
+        hostPresencePane.setTouchable(Touchable.disabled);
+        hostPresencePane.setBounds(5, Forge.isLandscapeMode() ? 28 : getHeight() - 55, getWidth() * 0.4f, 25);
+        hostPresencePane.setStyle(Controls.getSkin().get("paper", ScrollPane.ScrollPaneStyle.class));
+        hostPresencePane.getColor().a = 0f;
+
+        partyStatusLabel = Controls.newTypingLabel("");
+        partyStatusLabel.setColor(Color.BLACK);
+        partyStatusLabel.skipToTheEnd();
+        partyStatusLabel.setVisible(false);
+        partyStatusLabel.setPosition(5, Forge.isLandscapeMode() ? 102 : getHeight() - 120);
+        partyStatusLabel.setWidth(160f);
+
+        partyActor = Controls.newTextButton("[%100]Party", this::partyButtonPressed);
+        partyActor.setSize(72f, 25f);
+        partyActor.setPosition(Forge.isLandscapeMode() ? 378 : getWidth() - 80, Forge.isLandscapeMode() ? 0 : 30);
+        partyActor.setVisible(false);
+
         ui.addActor(notificationPane);
+        ui.addActor(hostPresencePane);
+        ui.addActor(partyStatusLabel);
         //move touchpad here so z-index is over notificationPane and we can still move the player
         if (GuiBase.isAndroid()) //add touchpad for android
             ui.addActor(touchpad);
@@ -254,6 +285,7 @@ public class GameHUD extends Stage {
         menuGroup.addActor(inventoryActor);
         menuGroup.addActor(exitToWorldMapActor);
         menuGroup.addActor(bookmarkActor);
+        menuGroup.addActor(partyActor);
         ui.addActor(menuGroup);
         //AVATAR
         avatarGroup.addActor(avatar);
@@ -949,6 +981,11 @@ public class GameHUD extends Stage {
         }
         if (console.isVisible())
             return true;
+        if (KeyBinding.Party.isPressed(keycode) && partyActor != null && partyActor.isVisible()
+                && !partyActor.isDisabled()) {
+            partyButtonPressed();
+            return true;
+        }
         Button pressedButton = ui.buttonPressed(keycode);
         if (pressedButton != null) {
             pressedButton.fire(eventTouchDown);
@@ -956,8 +993,20 @@ public class GameHUD extends Stage {
         return super.keyDown(keycode);
     }
 
+    public boolean isDialogOnlyInput() {
+        return dialogOnlyInput;
+    }
+
     private boolean dialogInput(int keycode) {
         if (dialogOnlyInput) {
+            // Controller B / Esc declines invite prompts (second button).
+            if (KeyBinding.Back.isPressed(keycode) && dialogButtonMap.size >= 2
+                    && (coopDialogKind == CoopDialogKind.PARTY_INVITE
+                    || coopDialogKind == CoopDialogKind.LOCATION_INVITE
+                    || coopDialogKind == CoopDialogKind.PARTY_LEAVE)) {
+                performTouch(dialogButtonMap.get(1));
+                return true;
+            }
             if (KeyBinding.Up.isPressed(keycode)) {
                 selectPreviousDialogButton();
             }
@@ -1173,36 +1222,221 @@ public class GameHUD extends Stage {
     }
 
     /**
-     * CO2: show a persistent status banner (e.g. "Host is in Town") that does
-     * not auto-fade until {@link #clearCoopStatusBanner()} is called.
+     * Dedicated "Host is in…" banner — separate from transient notifications.
      */
-    public void setCoopStatusBanner(String text) {
+    public void setHostPresenceBanner(String text) {
         if (text == null || text.isEmpty()) {
-            clearCoopStatusBanner();
+            clearHostPresenceBanner();
             return;
         }
-        notificationPane.clearActions();
-        notificationText.setWrap(false);
-        notificationText.setText(text);
-        notificationText.setColor(Color.BLACK);
-        notificationText.setWidth(Math.min(notificationText.getPrefWidth(),
-                Forge.isLandscapeMode() ? getWidth() * 0.25f : getWidth() - 25));
-        notificationText.setWrap(true);
-        notificationText.layout();
-        notificationPane.setSize(notificationText.getWidth() + 10, notificationText.getPrefHeight() + 20);
+        final String capped = CoopWireLimits.clampString(text, CoopWireLimits.MAX_TEXT_LEN);
+        hostPresenceText.setWrap(false);
+        hostPresenceText.setText(capped);
+        hostPresenceText.setColor(Color.BLACK);
+        hostPresenceText.setWidth(Math.min(hostPresenceText.getPrefWidth(),
+                Forge.isLandscapeMode() ? getWidth() * 0.3f : getWidth() - 25));
+        hostPresenceText.setWrap(true);
+        hostPresenceText.layout();
+        hostPresencePane.setSize(hostPresenceText.getWidth() + 10, hostPresenceText.getPrefHeight() + 16);
         if (Forge.isLandscapeMode()) {
-            notificationPane.setPosition(5, 0);
+            hostPresencePane.setPosition(5, 28);
         } else {
-            notificationPane.setPosition(5, getHeight() - notificationPane.getHeight());
+            hostPresencePane.setPosition(5, getHeight() - hostPresencePane.getHeight() - 4);
         }
-        notificationPane.getColor().a = 1f;
-        notificationPane.layout();
-        notificationText.layout();
+        hostPresencePane.getColor().a = 1f;
+        hostPresencePane.layout();
+        hostPresenceText.layout();
     }
 
+    public void clearHostPresenceBanner() {
+        hostPresenceText.setText("");
+        hostPresencePane.getColor().a = 0f;
+        hostPresencePane.setSize(0, 0);
+    }
+
+    /** @deprecated use {@link #setHostPresenceBanner(String)} */
+    public void setCoopStatusBanner(String text) {
+        setHostPresenceBanner(text);
+    }
+
+    /** @deprecated use {@link #clearHostPresenceBanner()} */
     public void clearCoopStatusBanner() {
-        notificationPane.clearActions();
-        clearNotifications();
+        clearHostPresenceBanner();
+    }
+
+    public void onCoopSessionReady() {
+        refreshCoopPartyHud();
+    }
+
+    public void onCoopSessionEnded() {
+        hideCoopInviteDialog();
+        clearHostPresenceBanner();
+        if (partyActor != null) {
+            partyActor.setVisible(false);
+        }
+        if (partyStatusLabel != null) {
+            partyStatusLabel.setVisible(false);
+            partyStatusLabel.setText("");
+        }
+        CoopOverworldRuntime.get().getInviteUi().hide();
+    }
+
+    public void refreshCoopPartyHud() {
+        if (!Config.ascendant() || !CoopHooks.isOverworldReady()) {
+            if (partyActor != null) {
+                partyActor.setVisible(false);
+            }
+            if (partyStatusLabel != null) {
+                partyStatusLabel.setVisible(false);
+            }
+            return;
+        }
+        final CoopPartyState party = CoopOverworldRuntime.get().getParty();
+        final boolean overworld = !MapStage.getInstance().isInMap();
+        partyActor.setVisible(overworld);
+        partyStatusLabel.setVisible(true);
+        switch (party.getStatus()) {
+            case PARTY: {
+                final String name = CoopWireLimits.clampString(party.getPartnerName(),
+                        CoopWireLimits.MAX_PLAYER_NAME_LEN);
+                partyStatusLabel.setText("[%90]Party with " + (name.isEmpty() ? "partner" : name));
+                partyActor.setText("[%100]Leave");
+                partyActor.setDisabled(false);
+                break;
+            }
+            case INVITE_SENT:
+                partyStatusLabel.setText("[%90]Party invite sent…");
+                partyActor.setText("[%100]Invite");
+                partyActor.setDisabled(true);
+                break;
+            case INVITE_RECEIVED: {
+                final String from = CoopWireLimits.clampString(party.getPendingFrom(),
+                        CoopWireLimits.MAX_PLAYER_NAME_LEN);
+                partyStatusLabel.setText("[%90]Invite from " + (from.isEmpty() ? "partner" : from));
+                partyActor.setText("[%100]Invite");
+                partyActor.setDisabled(true);
+                break;
+            }
+            default:
+                partyStatusLabel.setText("[%90]Not in a party");
+                partyActor.setText("[%100]Invite");
+                partyActor.setDisabled(false);
+                break;
+        }
+        partyStatusLabel.skipToTheEnd();
+    }
+
+    private void partyButtonPressed() {
+        if (console.isVisible() || Forge.advFreezePlayerControls)
+            return;
+        if (!Config.ascendant() || !CoopHooks.isOverworldReady())
+            return;
+        if (MapStage.getInstance().isInMap())
+            return;
+        if (dialogOnlyInput)
+            return;
+        final CoopPartyState party = CoopOverworldRuntime.get().getParty();
+        if (party.inParty()) {
+            showLeavePartyConfirm();
+            return;
+        }
+        if (party.getStatus() == CoopPartyState.Status.SOLO) {
+            CoopOverworldRuntime.get().inviteParty();
+            refreshCoopPartyHud();
+        }
+    }
+
+    public void showCoopPartyInviteDialog(String fromPlayer) {
+        final String from = CoopWireLimits.clampString(fromPlayer, CoopWireLimits.MAX_PLAYER_NAME_LEN);
+        showCoopChoiceDialog(CoopDialogKind.PARTY_INVITE,
+                from + " invited you to a party.",
+                this::acceptPartyInviteFromUi,
+                this::declinePartyInviteFromUi);
+    }
+
+    public void showCoopLocationInviteDialog(String fromPlayer, String displayName) {
+        final String from = CoopWireLimits.clampString(fromPlayer, CoopWireLimits.MAX_PLAYER_NAME_LEN);
+        final String place = CoopWireLimits.clampString(displayName, CoopWireLimits.MAX_DISPLAY_NAME_LEN);
+        showCoopChoiceDialog(CoopDialogKind.LOCATION_INVITE,
+                from + " is entering " + place + ". Come along?",
+                this::acceptLocationInviteFromUi,
+                this::declineLocationInviteFromUi);
+    }
+
+    private void showLeavePartyConfirm() {
+        showCoopChoiceDialog(CoopDialogKind.PARTY_LEAVE,
+                "Leave the party?",
+                this::leavePartyFromUi,
+                this::hideCoopInviteDialog);
+    }
+
+    private void showCoopChoiceDialog(CoopDialogKind kind, String message,
+                                      Runnable onAccept, Runnable onDecline) {
+        if (console.isVisible())
+            return;
+        dialog.getButtonTable().clear();
+        dialog.getContentTable().clear();
+        dialog.clearListeners();
+        coopDialogKind = kind;
+        final String acceptLabel = kind == CoopDialogKind.PARTY_LEAVE ? "Leave" : "Accept";
+        final String declineLabel = kind == CoopDialogKind.PARTY_LEAVE ? "Cancel" : "Decline";
+        TextraButton accept = Controls.newTextButton(acceptLabel, () -> {
+            hideCoopInviteDialog();
+            if (onAccept != null)
+                onAccept.run();
+        });
+        TextraButton decline = Controls.newTextButton(declineLabel, () -> {
+            hideCoopInviteDialog();
+            if (onDecline != null)
+                onDecline.run();
+        });
+        TypingLabel label = Controls.newTypingLabel(CoopWireLimits.clampString(message, CoopWireLimits.MAX_TEXT_LEN));
+        label.setWrap(true);
+        label.skipToTheEnd();
+        dialog.getButtonTable().add(accept).width(70f);
+        dialog.getButtonTable().add(decline).width(70f);
+        dialog.getContentTable().add(label).width(180f);
+        dialog.setKeepWithinStage(true);
+        showDialog();
+    }
+
+    public void hideCoopInviteDialog() {
+        if (!dialogOnlyInput && coopDialogKind == CoopDialogKind.NONE)
+            return;
+        coopDialogKind = CoopDialogKind.NONE;
+        CoopOverworldRuntime.get().getInviteUi().hide();
+        if (dialogOnlyInput)
+            hideDialog(false);
+        refreshCoopPartyHud();
+    }
+
+    private void acceptPartyInviteFromUi() {
+        CoopOverworldRuntime.get().getInviteUi().hide();
+        CoopOverworldRuntime.get().acceptParty();
+        refreshCoopPartyHud();
+    }
+
+    private void declinePartyInviteFromUi() {
+        CoopOverworldRuntime.get().getInviteUi().hide();
+        CoopOverworldRuntime.get().declineParty();
+        refreshCoopPartyHud();
+    }
+
+    private void acceptLocationInviteFromUi() {
+        CoopOverworldRuntime.get().getInviteUi().hide();
+        CoopOverworldRuntime.get().acceptLocationInvite();
+        refreshCoopPartyHud();
+    }
+
+    private void declineLocationInviteFromUi() {
+        CoopOverworldRuntime.get().getInviteUi().hide();
+        CoopOverworldRuntime.get().declineLocationInvite();
+        refreshCoopPartyHud();
+    }
+
+    private void leavePartyFromUi() {
+        CoopOverworldRuntime.get().leaveParty();
+        refreshCoopPartyHud();
     }
 
     public Batch getBatch() {
@@ -1211,6 +1445,7 @@ public class GameHUD extends Stage {
 
     @Override
     public void dispose() {
+        onCoopSessionEnded();
         super.dispose();
     }
 

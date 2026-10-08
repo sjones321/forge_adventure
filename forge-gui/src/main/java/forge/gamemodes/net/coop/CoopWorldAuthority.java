@@ -281,6 +281,15 @@ public final class CoopWorldAuthority {
         return tryClaim(requestId, nodeId, claimant, lootAmount, posX, posY, true);
     }
 
+    /**
+     * Host claim for blast-radius extras: skips the per-node interact-range
+     * check (primary node already validated the player is in range).
+     */
+    public CoopGatherResultEvent claimLocalSkipRange(final long requestId, final long nodeId,
+                                                     final String claimant, final int lootAmount) {
+        return tryClaim(requestId, nodeId, claimant, lootAmount, 0f, 0f, false);
+    }
+
     public boolean enemyExists(final long enemyId) {
         final EnemyRecord e = enemies.get(enemyId);
         return e != null && e.alive;
