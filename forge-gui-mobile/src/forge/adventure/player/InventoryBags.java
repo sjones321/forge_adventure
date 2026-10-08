@@ -573,11 +573,24 @@ public class InventoryBags implements Serializable {
      * Place an entry into Overflow if under cap. If at cap, try fortress hook then signal
      * auto-sell (caller performs the sale). Returns OVERFLOW or indicates AUTO_SOLD needed.
      */
+    private Runnable overflowListener;
+
+    /** Called whenever Overflow gains or loses entries (e.g. to refresh the overload slowdown). */
+    public void setOverflowListener(Runnable listener) {
+        overflowListener = listener;
+    }
+
+    private void overflowChanged() {
+        if (overflowListener != null)
+            overflowListener.run();
+    }
+
     public GrantResult placeInOverflow(OverflowEntry entry) {
         if (entry == null)
             return GrantResult.accepted();
         if (overflow.size() < getOverflowCap()) {
             overflow.add(entry);
+            overflowChanged();
             GrantResult r = GrantResult.overflow();
             setMsg(r.message);
             return r;
@@ -600,17 +613,21 @@ public class InventoryBags implements Serializable {
         if (index < 0 || index >= overflow.size())
             return false;
         overflow.remove(index);
+        overflowChanged();
         return true;
     }
 
     public OverflowEntry takeOverflow(int index) {
         if (index < 0 || index >= overflow.size())
             return null;
-        return overflow.remove(index);
+        OverflowEntry taken = overflow.remove(index);
+        overflowChanged();
+        return taken;
     }
 
     public void clearOverflow() {
         overflow.clear();
+        overflowChanged();
     }
 
     /** Restore Overflow from a save without auto-sell (cap may be raised afterward). */

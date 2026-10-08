@@ -89,6 +89,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
      * boostersOwned, materials, and contestCurrencies. Stock Adventure leaves this unused.
      */
     private final InventoryBags bags = new InventoryBags();
+
+    {
+        // Overflow slows the player: refresh the cached move speed whenever Overflow changes.
+        bags.setOverflowListener(() -> this.onEquipmentChange.emit());
+    }
     /**
      * Ascendant contest currencies (gym / tournament / Grand Prix). Extensible map; optional on load.
      */
@@ -814,6 +819,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (!hasItem(item.name) && !inventoryItems.contains(item))
             return false;
         InventoryBagType type = InventoryBags.parseBagUpgrade(item.bagUpgrade);
+        if (type == null) {
+            // Old Material Sacks: Craft Pouch tiers only come from Mastery Surge now. Keep the item (it can be sold).
+            notifyInventory("Craft Pouch upgrades now come from Mastery Surge. You can sell this " + item.getDisplayName() + ".");
+            return false;
+        }
         bags.applyUpgrade(item);
         if (inventoryItems.contains(item))
             removeItem(item);
@@ -1726,8 +1736,9 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             getCurrentGameStage().setExtraAnnouncement(Forge.getLocalizer().getMessage("lblDataMigrationMsg"));
         }
 
-        ensureStarterGatheringTools();
+        // Bags (and Overflow) must be loaded before starter tools are granted, or a tool sent to Overflow is wiped.
         loadInventoryBags(data);
+        ensureStarterGatheringTools();
 
         RewardData.invalidateCardPool();
         onLifeTotalChangeList.emit();
