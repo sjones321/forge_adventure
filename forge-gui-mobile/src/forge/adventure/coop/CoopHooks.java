@@ -1,11 +1,17 @@
 package forge.adventure.coop;
 
+import forge.gamemodes.net.coop.CoopPartyProximity;
+import forge.gamemodes.net.coop.CoopPartyState;
 import forge.gamemodes.net.event.NetEvent;
 import forge.gamemodes.net.event.coop.CoopDecklistEvent;
 import forge.gamemodes.net.event.coop.CoopDuelInviteEvent;
 import forge.gamemodes.net.event.coop.CoopDuelResponseEvent;
+import forge.gamemodes.net.event.coop.CoopDuelResultEvent;
+import forge.gamemodes.net.event.coop.CoopDuelStartEvent;
 import forge.gamemodes.net.event.coop.CoopEnemyEncounterRequestEvent;
 import forge.gamemodes.net.event.coop.CoopEnemyStateEvent;
+import forge.gamemodes.net.event.coop.CoopFightLoadoutEvent;
+import forge.gamemodes.net.event.coop.CoopFightRequestResultEvent;
 import forge.gamemodes.net.event.coop.CoopGatherRequestEvent;
 import forge.gamemodes.net.event.coop.CoopGatherResultEvent;
 import forge.gamemodes.net.event.coop.CoopHostPresenceEvent;
@@ -17,13 +23,12 @@ import forge.gamemodes.net.event.coop.CoopPartyInviteEvent;
 import forge.gamemodes.net.event.coop.CoopPartyResponseEvent;
 import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
-import forge.gamemodes.net.coop.CoopPartyState;
 
 /**
  * Extension points for CO2 (shared overworld) and CO3 (co-op duels).
  *
  * <h2>CO3-stable entry points</h2>
- * Keep these signatures stable — the parallel CO3 agent depends on them:
+ * Keep these signatures stable:
  * <ul>
  *   <li>{@link #notifyFightAboutToStart(String)} — host about to start a local fight</li>
  *   <li>{@link #notifyGuestEnemyEncounter(long, String, String)} /
@@ -31,8 +36,13 @@ import forge.gamemodes.net.coop.CoopPartyState;
  *       host enemy; host/CO3 decides (guest never starts a local fight)</li>
  *   <li>{@link CoopPartyState#inParty()} and
  *       {@link CoopPartyState#withinRadius(float, float, float, float, float, float)}
- *       — whether the partner is in party and nearby</li>
+ *       — whether the partner is in party and nearby; CO3 also reads them through
+ *       {@link #getPartyProximity()} after {@link #setPartyProximity} is wired</li>
  * </ul>
+ *
+ * <p>CO2 sends one encounter request per mob per contact and rate-limits on the
+ * host. Guest-local request ids are positive; host-local ids are negative and
+ * stay off the wire.
  */
 public final class CoopHooks {
     private CoopHooks() {
@@ -94,6 +104,18 @@ public final class CoopHooks {
         default void onDecklist(CoopDecklistEvent event) {
         }
 
+        default void onFightRequestResult(CoopFightRequestResultEvent event) {
+        }
+
+        default void onFightLoadout(CoopFightLoadoutEvent event) {
+        }
+
+        default void onDuelStart(CoopDuelStartEvent event) {
+        }
+
+        default void onDuelResult(CoopDuelResultEvent event) {
+        }
+
         default void onDuelMessage(NetEvent event) {
         }
     }
@@ -130,6 +152,8 @@ public final class CoopHooks {
     }
 
     private static volatile FightStartHook fightStartHook;
+    private static volatile GuestEnemyEncounterHandler guestEnemyEncounterHandler;
+    private static volatile CoopPartyProximity partyProximity = CoopPartyProximity.NEVER;
 
     public static void setFightStartHook(final FightStartHook hook) {
         fightStartHook = hook;
@@ -162,8 +186,6 @@ public final class CoopHooks {
         boolean onGuestEnemyEncounter(long enemyId, String enemyDataId, String guestName);
     }
 
-    private static volatile GuestEnemyEncounterHandler guestEnemyEncounterHandler;
-
     public static void setGuestEnemyEncounterHandler(final GuestEnemyEncounterHandler handler) {
         guestEnemyEncounterHandler = handler;
     }
@@ -173,7 +195,11 @@ public final class CoopHooks {
     }
 
     /**
-     * @param enemyId host-assigned coop enemy id
+     * CO2 sends one encounter request per mob per contact and rate-limits on the
+     * host. Guest-local request ids are positive; host-local ids are negative and
+     * stay off the wire.
+     *
+     * @param enemyId host-assigned coop enemy id (CO2 registry; positive)
      * @param enemyDataId enemy data name/id (not a deck or texture)
      * @param guestName claiming guest
      * @return true if a registered CO3 handler consumed the encounter
@@ -191,8 +217,22 @@ public final class CoopHooks {
         }
     }
 
-    /** Party state for CO3 nearby / in-party checks. */
+    /** Party state for CO3 nearby / in-party checks (CO2). */
     public static CoopPartyState partyState() {
         return CoopOverworldRuntime.get().getParty();
+    }
+
+    /**
+     * Wire CO3's proximity reader. Prefer
+     * {@code () -> partyState().inParty() && partyState().withinRadius(...)} from
+     * {@code CoopDuelRuntime.attach()}. Default {@link CoopPartyProximity#NEVER}.
+     */
+    public static void setPartyProximity(final CoopPartyProximity proximity) {
+        partyProximity = proximity != null ? proximity : CoopPartyProximity.NEVER;
+    }
+
+    public static CoopPartyProximity getPartyProximity() {
+        final CoopPartyProximity p = partyProximity;
+        return p != null ? p : CoopPartyProximity.NEVER;
     }
 }

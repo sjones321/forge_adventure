@@ -24,6 +24,11 @@ public class ItemListData {
         }
         return null;
     }
+
+    /** All loaded items (shared definitions; callers must not mutate). Empty if missing. */
+    public static Array<ItemData> getAllItems() {
+        return itemList != null ? itemList : new Array<>();
+    }
     public static Array<ItemData> getSketchBooks() {
         Array<ItemData> sketchbooks = new Array<>();
         if (itemList == null)

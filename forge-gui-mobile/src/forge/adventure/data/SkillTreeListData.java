@@ -81,4 +81,9 @@ public final class SkillTreeListData {
         }
         return null;
     }
+
+    /** All loaded skill trees (for CO3 loadout allowlists). */
+    public static Iterable<SkillTreeData> allTrees() {
+        return bySkill.values();
+    }
 }

@@ -269,4 +269,22 @@ public class ConfigData {
      */
     public float coopMaxMoveSpeedPx = 120f;
 
+    // ---- Ascendant co-op (Package CO3): co-op duels. ----
+
+    /**
+     * Enemy starting-life multiplier when two humans fight together (team 0).
+     * Solo fights ignore this (factor 1.0). Tunable like {@link #enemyLifeEarly}.
+     */
+    public float coopDuelEnemyLifeFactor = 1.5f;
+    /**
+     * Extra cards enemies start with / draw when two humans fight together.
+     * Solo fights get 0.
+     */
+    public int coopDuelEnemyExtraCards = 1;
+    /**
+     * Seconds the host waits for the guest to connect on the game port after
+     * sending {@code CoopDuelStartEvent} before starting the match anyway.
+     */
+    public int coopDuelGuestConnectGraceSeconds = 8;
+
 }

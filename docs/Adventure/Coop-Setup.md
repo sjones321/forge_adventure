@@ -3,15 +3,14 @@
 Direct, no servers. One player **hosts**; the other **joins** over LAN or Tailscale.
 Ascendant only — stock Forge / non-Ascendant Adventure worlds do not show Host / Join.
 
-## Port
+## Ports
 
 | Port  | Role |
 |------:|------|
 | **36744** | Ascendant co-op overworld session (handshake, world sync, CO2). |
+| **36743** | Forge game / duel port — started **only for co-op duels** (CO3), bound to `coopBindAddress` when set, same session auth as 36744. Stock online play is unchanged. |
 
-Tunable in the Ascendant `config.json` as `coopOverworldPort`.
-
-> The existing Forge duel port **36743** is reserved for co-op duels in **CO3** and is not used or required for CO1.
+Tunable in the Ascendant `config.json` as `coopOverworldPort` / `coopGamePort`.
 
 ## Host
 
@@ -45,7 +44,7 @@ Use your Tailscale IPv4 (`100.x`). Leave empty (`""`) for all interfaces.
 
 Run these in an **Administrator** PowerShell on the **host** PC.
 
-Scope rules to the Java/Forge program and to Tailscale or the local subnet — do not open 36744 to the whole Internet.
+Scope rules to the Java/Forge program and to Tailscale or the local subnet — do not open 36743/36744 to the whole Internet.
 
 **Tailscale** (recommended):
 
@@ -53,6 +52,11 @@ Scope rules to the Java/Forge program and to Tailscale or the local subnet — d
 # Run as Administrator
 New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Overworld (Tailscale)" `
   -Direction Inbound -Protocol TCP -LocalPort 36744 -Action Allow -Profile Private `
+  -RemoteAddress 100.64.0.0/10 `
+  -Program "C:\Path\To\java.exe"
+
+New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Duels (Tailscale)" `
+  -Direction Inbound -Protocol TCP -LocalPort 36743 -Action Allow -Profile Private `
   -RemoteAddress 100.64.0.0/10 `
   -Program "C:\Path\To\java.exe"
 ```
@@ -65,6 +69,11 @@ Replace the `-Program` path with the `java.exe` (or Forge launcher) you actually
 # Run as Administrator
 New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Overworld (LAN)" `
   -Direction Inbound -Protocol TCP -LocalPort 36744 -Action Allow -Profile Private `
+  -RemoteAddress LocalSubnet `
+  -Program "C:\Path\To\java.exe"
+
+New-NetFirewallRule -DisplayName "Forge Ascendant Co-op Duels (LAN)" `
+  -Direction Inbound -Protocol TCP -LocalPort 36743 -Action Allow -Profile Private `
   -RemoteAddress LocalSubnet `
   -Program "C:\Path\To\java.exe"
 ```
@@ -102,7 +111,7 @@ World seed rebuild must also produce the same world hash; otherwise the guest re
 host-authoritative nodes/enemies/POI, party invites, and location-enter invites.
 Tunables live in Ascendant `config.json` (`coopPositionSendHz`,
 `coopPartnerInterpRate`, `coopInteractRangePx`, `coopLocationInviteTimeoutSeconds`, …).
-Wire `PROTOCOL_VERSION = 5` (round 3: teleport move samples + reported max speed).
+Wire protocol: CO2 = 5; CO3 = **6**.
 
 **Interior rule (v1):** both roam freely on the overworld. Entering a town,
 dungeon or delve invites a nearby party partner. Accept → enter the same
@@ -131,9 +140,67 @@ entities stay). Guest stashed enemies are restored on leave.
 **Menus:** inventory / deck editor do **not** pause the shared overworld in co-op
 (but duels do — background tick never despawns the fought mob).
 
-**CO3-stable hooks (unchanged):** `CoopHooks.notifyFightAboutToStart(String)`,
+**CO3 (co-op duels):** starts game port (**36743**) only when a joined co-op duel
+begins, binds to `coopBindAddress` when set, gates LoginEvent to the authenticated
+guest / session code, and stops it when the duel or session ends. Hooks:
+`CoopHooks.notifyFightAboutToStart(String)`,
 `CoopHooks.notifyGuestEnemyEncounter(long, String, String)` /
-`GuestEnemyEncounterHandler`, and `CoopPartyState.inParty()` /
-`withinRadius(...)`.
+`GuestEnemyEncounterHandler`, and party proximity via
+`CoopPartyState.inParty()` / `withinRadius(...)` → `CoopHooks.setPartyProximity`.
 
-See `CoopHooks` / `CoopOverworldRuntime` and `docs/Adventure/Ascendant-Roadmap.md`.
+See `CoopHooks` / `CoopOverworldRuntime` / `CoopDuelRuntime` and
+`docs/Adventure/Ascendant-Roadmap.md`.
+
+**Trust note (CO3 decks):** the host cannot verify that the guest owns the cards in their decklist — the partner is trusted. The host still clamps loadout life/hand, allowlists effect card names from items.json / skill perks, and enforces Adventure min deck size + ban lists.
+
+## One-PC playtest (two Forge copies)
+
+Use this to manually verify co-op duels on a single machine before review.
+
+### Separate profile / data dirs
+
+Run two copies with **different** `userDir` values so saves and prefs do not collide. Easiest: two install folders, each with its own `forge.profile.properties`:
+
+```properties
+# host install: forge.profile.properties
+userDir=/home/you/forge-coop-host/
+
+# guest install: forge.profile.properties
+userDir=/home/you/forge-coop-guest/
+```
+
+Then launch each install's jar from its own folder (two terminals). On Windows use e.g. `C:\ForgeCoop\host\` and `C:\ForgeCoop\guest\`.
+
+### Ports
+
+Defaults: overworld **36744**, game/duel **36743**. On one PC both sides share localhost, so leave ports at defaults on the host. Optional in Ascendant `config.json` on the **host**:
+
+```json
+"coopBindAddress": "127.0.0.1",
+"coopOverworldPort": 36744,
+"coopGamePort": 36743
+```
+
+Firewall: allow inbound TCP 36743–36744 on loopback / Private profile (see Windows rules above). On Linux, loopback usually needs no extra rules.
+
+### Host steps
+
+1. Launch Ascendant with the **host** user dir; Load/Continue a save.
+2. Adventure menu → **Host** → note the **8-character session code**.
+3. Wait until the Hosting screen shows listening (overworld 36744).
+
+### Guest steps
+
+1. Launch Ascendant with the **guest** user dir; Load/Continue a **different** character.
+2. Adventure menu → **Join** → address `127.0.0.1` (or `localhost`), paste the session code.
+3. Confirm the guest enters the session world (normal save slots untouched).
+
+### What to look for (CO3)
+
+1. **Party / proximity:** with CO2 merged and both in party within radius, host colliding with an enemy opens a **Join the fight?** prompt on the guest (keyboard/mouse/controller). Timeout or Decline → host solos; Accept → co-op duel.
+2. **Without party (or CO2 not merged):** no join prompt; host fights solo as usual. Stock online play and solo fights unchanged.
+3. **Game port:** when the guest Accepts, host starts **36743**, guest LoginEvent carries the session code + normalised username, lobby slot 1 gets a remote GUI. If the guest never connects, host aborts to solo (never gives the guest seat to the host MatchController).
+4. **During the duel:** both players control their own seats; enemy life/hand scaled for 2 humans.
+5. **Guest drop:** kill the guest process mid-duel — host continues; guest seat concedes; host world stays playable.
+6. **Results:** one match-outcome message (winner team, duel id, enemy id) when the **match** ends (not each game of a best-of-3). Each side runs its local loot / XP / removeEnemy / penalty path; host never applies guest-supplied reward numbers.
+7. **Session end:** Stop on the host (or disconnect) clears the game port and restores guest save isolation.

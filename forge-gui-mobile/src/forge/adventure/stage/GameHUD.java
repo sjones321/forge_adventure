@@ -91,8 +91,11 @@ public class GameHUD extends Stage {
     private final Image miniMap, gamehud, mapborder, avatarborder, blank;
     private final InputEvent eventTouchDown, eventTouchUp;
     private final TextraButton deckActor, openMapActor, menuActor, logbookActor, inventoryActor, exitToWorldMapActor, bookmarkActor;
-    private enum CoopDialogKind { NONE, PARTY_INVITE, LOCATION_INVITE, PARTY_LEAVE }
+    private enum CoopDialogKind { NONE, PARTY_INVITE, LOCATION_INVITE, PARTY_LEAVE, JOIN_FIGHT, EXIT_DUNGEON }
     private CoopDialogKind coopDialogKind = CoopDialogKind.NONE;
+    private String lastPartyStatusText = "";
+    private Runnable joinFightAccept;
+    private Runnable joinFightDecline;
     public final UIActor ui;
     private final Touchpad touchpad;
     private final Console console;
@@ -794,11 +797,17 @@ public class GameHUD extends Stage {
             return;
         if (Forge.advFreezePlayerControls)
             return;
+        // Never let co-op invite dialogs replace the exit-dungeon confirm.
         dialog.getButtonTable().clear();
         dialog.getContentTable().clear();
         dialog.clearListeners();
+        coopDialogKind = CoopDialogKind.EXIT_DUNGEON;
         TextraButton YES = Controls.newTextButton(Forge.getLocalizer().getMessage("lblYes"), this::exitDungeonCallback);
-        TextraButton NO = Controls.newTextButton(Forge.getLocalizer().getMessage("lblNo"), this::hideDialog);
+        TextraButton NO = Controls.newTextButton(Forge.getLocalizer().getMessage("lblNo"), () -> {
+            coopDialogKind = CoopDialogKind.NONE;
+            hideDialog();
+            showNextQueuedCoopInvite();
+        });
         TypingLabel L = Controls.newTypingLabel(Forge.getLocalizer().getMessageorUseDefault("lblExitToWoldMap", "Exit to the World Map?"));
         L.setWrap(true);
         L.skipToTheEnd();
@@ -846,8 +855,10 @@ public class GameHUD extends Stage {
     }
 
     private void exitDungeonCallback() {
+        coopDialogKind = CoopDialogKind.NONE;
         MapStage.getInstance().onBeginLeavingDungeon();
         hideDialog(true);
+        // Exit-dungeon closes without showing queued invites mid-transition.
     }
 
     private void hideDialog() {
@@ -1003,14 +1014,15 @@ public class GameHUD extends Stage {
             if (KeyBinding.Back.isPressed(keycode) && dialogButtonMap.size >= 2
                     && (coopDialogKind == CoopDialogKind.PARTY_INVITE
                     || coopDialogKind == CoopDialogKind.LOCATION_INVITE
-                    || coopDialogKind == CoopDialogKind.PARTY_LEAVE)) {
+                    || coopDialogKind == CoopDialogKind.PARTY_LEAVE
+                    || coopDialogKind == CoopDialogKind.JOIN_FIGHT)) {
                 performTouch(dialogButtonMap.get(1));
                 return true;
             }
-            if (KeyBinding.Up.isPressed(keycode)) {
+            if (KeyBinding.Up.isPressed(keycode) || KeyBinding.Left.isPressed(keycode)) {
                 selectPreviousDialogButton();
             }
-            if (KeyBinding.Down.isPressed(keycode)) {
+            if (KeyBinding.Down.isPressed(keycode) || KeyBinding.Right.isPressed(keycode)) {
                 selectNextDialogButton();
             }
             if (KeyBinding.isDialogConfirm(keycode)) {
@@ -1289,41 +1301,52 @@ public class GameHUD extends Stage {
             if (partyStatusLabel != null) {
                 partyStatusLabel.setVisible(false);
             }
+            lastPartyStatusText = "";
             return;
         }
         final CoopPartyState party = CoopOverworldRuntime.get().getParty();
         final boolean overworld = !MapStage.getInstance().isInMap();
         partyActor.setVisible(overworld);
         partyStatusLabel.setVisible(true);
+        final String statusText;
+        final String buttonText;
+        final boolean buttonDisabled;
         switch (party.getStatus()) {
             case PARTY: {
                 final String name = CoopWireLimits.clampString(party.getPartnerName(),
                         CoopWireLimits.MAX_PLAYER_NAME_LEN);
-                partyStatusLabel.setText("[%90]Party with " + (name.isEmpty() ? "partner" : name));
-                partyActor.setText("[%100]Leave");
-                partyActor.setDisabled(false);
+                statusText = "[%90]Party with " + (name.isEmpty() ? "partner" : name);
+                buttonText = "[%100]Leave";
+                buttonDisabled = false;
                 break;
             }
             case INVITE_SENT:
-                partyStatusLabel.setText("[%90]Party invite sent…");
-                partyActor.setText("[%100]Invite");
-                partyActor.setDisabled(true);
+                statusText = "[%90]Party invite sent…";
+                buttonText = "[%100]Invite";
+                buttonDisabled = true;
                 break;
             case INVITE_RECEIVED: {
                 final String from = CoopWireLimits.clampString(party.getPendingFrom(),
                         CoopWireLimits.MAX_PLAYER_NAME_LEN);
-                partyStatusLabel.setText("[%90]Invite from " + (from.isEmpty() ? "partner" : from));
-                partyActor.setText("[%100]Invite");
-                partyActor.setDisabled(true);
+                statusText = "[%90]Invite from " + (from.isEmpty() ? "partner" : from);
+                buttonText = "[%100]Invite";
+                buttonDisabled = true;
                 break;
             }
             default:
-                partyStatusLabel.setText("[%90]Not in a party");
-                partyActor.setText("[%100]Invite");
-                partyActor.setDisabled(false);
+                statusText = "[%90]Not in a party";
+                buttonText = "[%100]Invite";
+                buttonDisabled = false;
                 break;
         }
-        partyStatusLabel.skipToTheEnd();
+        // Refresh the party label only when it changes.
+        if (!statusText.equals(lastPartyStatusText)) {
+            lastPartyStatusText = statusText;
+            partyStatusLabel.setText(statusText);
+            partyStatusLabel.skipToTheEnd();
+        }
+        partyActor.setText(buttonText);
+        partyActor.setDisabled(buttonDisabled);
     }
 
     private void partyButtonPressed() {
@@ -1348,7 +1371,7 @@ public class GameHUD extends Stage {
 
     public void showCoopPartyInviteDialog(String fromPlayer) {
         final String from = CoopWireLimits.clampString(fromPlayer, CoopWireLimits.MAX_PLAYER_NAME_LEN);
-        showCoopChoiceDialog(CoopDialogKind.PARTY_INVITE,
+        enqueueOrShowCoopDialog(CoopDialogKind.PARTY_INVITE,
                 from + " invited you to a party.",
                 this::acceptPartyInviteFromUi,
                 this::declinePartyInviteFromUi);
@@ -1357,29 +1380,57 @@ public class GameHUD extends Stage {
     public void showCoopLocationInviteDialog(String fromPlayer, String displayName) {
         final String from = CoopWireLimits.clampString(fromPlayer, CoopWireLimits.MAX_PLAYER_NAME_LEN);
         final String place = CoopWireLimits.clampString(displayName, CoopWireLimits.MAX_DISPLAY_NAME_LEN);
-        showCoopChoiceDialog(CoopDialogKind.LOCATION_INVITE,
+        enqueueOrShowCoopDialog(CoopDialogKind.LOCATION_INVITE,
                 from + " is entering " + place + ". Come along?",
                 this::acceptLocationInviteFromUi,
                 this::declineLocationInviteFromUi);
     }
 
+    /** CO3 join-fight prompt — queued with party/location; never replaces exit-dungeon. */
+    public void showCoopJoinFightDialog(String fromPlayer, String encounter,
+                                        Runnable onAccept, Runnable onDecline) {
+        final String from = CoopWireLimits.clampString(fromPlayer, CoopWireLimits.MAX_PLAYER_NAME_LEN);
+        final String enc = CoopWireLimits.clampString(encounter, CoopWireLimits.MAX_DISPLAY_NAME_LEN);
+        final String msg = from + " started a fight"
+                + (enc.isEmpty() ? "" : " (" + enc + ")") + ". Join?";
+        joinFightAccept = onAccept;
+        joinFightDecline = onDecline;
+        enqueueOrShowCoopDialog(CoopDialogKind.JOIN_FIGHT, msg,
+                this::acceptJoinFightFromUi, this::declineJoinFightFromUi);
+    }
+
     private void showLeavePartyConfirm() {
-        showCoopChoiceDialog(CoopDialogKind.PARTY_LEAVE,
+        enqueueOrShowCoopDialog(CoopDialogKind.PARTY_LEAVE,
                 "Leave the party?",
                 this::leavePartyFromUi,
                 this::hideCoopInviteDialog);
     }
 
-    private void showCoopChoiceDialog(CoopDialogKind kind, String message,
-                                      Runnable onAccept, Runnable onDecline) {
+    /**
+     * Show immediately when the HUD dialog is free; otherwise leave the invite
+     * queued in {@link CoopInviteUiState} and wait. Never replaces exit-dungeon.
+     */
+    private void enqueueOrShowCoopDialog(CoopDialogKind kind, String message,
+                                         Runnable onAccept, Runnable onDecline) {
         if (console.isVisible())
             return;
+        if (dialogOnlyInput) {
+            // Dialog busy (exit-dungeon or another invite) — already queued in InviteUiState.
+            return;
+        }
+        showCoopChoiceDialogNow(kind, message, onAccept, onDecline);
+    }
+
+    private void showCoopChoiceDialogNow(CoopDialogKind kind, String message,
+                                         Runnable onAccept, Runnable onDecline) {
         dialog.getButtonTable().clear();
         dialog.getContentTable().clear();
         dialog.clearListeners();
         coopDialogKind = kind;
-        final String acceptLabel = kind == CoopDialogKind.PARTY_LEAVE ? "Leave" : "Accept";
-        final String declineLabel = kind == CoopDialogKind.PARTY_LEAVE ? "Cancel" : "Decline";
+        final String acceptLabel = kind == CoopDialogKind.PARTY_LEAVE ? "Leave"
+                : (kind == CoopDialogKind.JOIN_FIGHT ? "Yes" : "Accept");
+        final String declineLabel = kind == CoopDialogKind.PARTY_LEAVE ? "Cancel"
+                : (kind == CoopDialogKind.JOIN_FIGHT ? "No" : "Decline");
         TextraButton accept = Controls.newTextButton(acceptLabel, () -> {
             hideCoopInviteDialog();
             if (onAccept != null)
@@ -1403,35 +1454,83 @@ public class GameHUD extends Stage {
     public void hideCoopInviteDialog() {
         if (!dialogOnlyInput && coopDialogKind == CoopDialogKind.NONE)
             return;
+        if (coopDialogKind == CoopDialogKind.EXIT_DUNGEON)
+            return;
         coopDialogKind = CoopDialogKind.NONE;
-        CoopOverworldRuntime.get().getInviteUi().hide();
         if (dialogOnlyInput)
             hideDialog(false);
         refreshCoopPartyHud();
+        showNextQueuedCoopInvite();
+    }
+
+    /** Activate the next queued party/location/join-fight prompt, if any. */
+    private void showNextQueuedCoopInvite() {
+        if (dialogOnlyInput || console.isVisible())
+            return;
+        final forge.gamemodes.net.coop.CoopInviteUiState.Prompt next;
+        try {
+            next = CoopOverworldRuntime.get().getInviteUi().hideAndPollNext();
+        } catch (final Exception e) {
+            return;
+        }
+        if (next == null || next.kind == forge.gamemodes.net.coop.CoopInviteUiState.PromptKind.NONE)
+            return;
+        switch (next.kind) {
+            case PARTY:
+                showCoopChoiceDialogNow(CoopDialogKind.PARTY_INVITE,
+                        next.from + " invited you to a party.",
+                        this::acceptPartyInviteFromUi, this::declinePartyInviteFromUi);
+                break;
+            case LOCATION:
+                showCoopChoiceDialogNow(CoopDialogKind.LOCATION_INVITE,
+                        next.from + " is entering " + next.detail + ". Come along?",
+                        this::acceptLocationInviteFromUi, this::declineLocationInviteFromUi);
+                break;
+            case JOIN_FIGHT:
+                showCoopChoiceDialogNow(CoopDialogKind.JOIN_FIGHT,
+                        next.from + " started a fight"
+                                + (next.detail.isEmpty() ? "" : " (" + next.detail + ")") + ". Join?",
+                        this::acceptJoinFightFromUi, this::declineJoinFightFromUi);
+                break;
+            default:
+                break;
+        }
     }
 
     private void acceptPartyInviteFromUi() {
-        CoopOverworldRuntime.get().getInviteUi().hide();
         CoopOverworldRuntime.get().acceptParty();
         refreshCoopPartyHud();
     }
 
     private void declinePartyInviteFromUi() {
-        CoopOverworldRuntime.get().getInviteUi().hide();
         CoopOverworldRuntime.get().declineParty();
         refreshCoopPartyHud();
     }
 
     private void acceptLocationInviteFromUi() {
-        CoopOverworldRuntime.get().getInviteUi().hide();
         CoopOverworldRuntime.get().acceptLocationInvite();
         refreshCoopPartyHud();
     }
 
     private void declineLocationInviteFromUi() {
-        CoopOverworldRuntime.get().getInviteUi().hide();
         CoopOverworldRuntime.get().declineLocationInvite();
         refreshCoopPartyHud();
+    }
+
+    private void acceptJoinFightFromUi() {
+        final Runnable r = joinFightAccept;
+        joinFightAccept = null;
+        joinFightDecline = null;
+        if (r != null)
+            r.run();
+    }
+
+    private void declineJoinFightFromUi() {
+        final Runnable r = joinFightDecline;
+        joinFightAccept = null;
+        joinFightDecline = null;
+        if (r != null)
+            r.run();
     }
 
     private void leavePartyFromUi() {
