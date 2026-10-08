@@ -72,6 +72,12 @@ public class WaypointTravelScreen extends FScreen {
                     "Travel locked", FOptionPane.INFORMATION_ICON, result -> Forge.back());
             return;
         }
+        if (player.isOverloaded()) {
+            FOptionPane.showMessageDialog(
+                    "You are overloaded. Clear the Overflow stash before waypoint travel.",
+                    "Overloaded", FOptionPane.INFORMATION_ICON, result -> Forge.back());
+            return;
+        }
         reload();
     }
 

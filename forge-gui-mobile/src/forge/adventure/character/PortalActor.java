@@ -4,8 +4,10 @@ import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.*;
 import com.badlogic.gdx.utils.Array;
 import forge.adventure.scene.TileMapScene;
+import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.MapStage;
 import forge.adventure.util.Config;
+import forge.adventure.util.Current;
 import forge.adventure.util.Paths;
 
 import java.util.HashMap;
@@ -46,6 +48,15 @@ public class PortalActor extends EntryActor {
             //Activate portal? Launch Dialog?
         }
         if (currentAnimationType == PortalAnimationTypes.Active) {
+            if (Config.ascendant() && Current.player() != null && Current.player().isOverloaded()) {
+                try {
+                    GameHUD.getInstance().addNotification(
+                            "Overloaded — clear Overflow before using portals.");
+                } catch (Exception ignored) {
+                    // HUD may be unavailable
+                }
+                return;
+            }
             if (targetMap == null || targetMap.isEmpty()) {
                 stage.exitDungeon(false, false);
             } else {

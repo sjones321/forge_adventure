@@ -1,0 +1,34 @@
+[
+  {
+    "id": "craft_pouch_next",
+    "name": "Next Craft Pouch tier",
+    "description": "Upgrade the Craft Pouch (Satchel → Pack → Hauler's Sack → Bottomless). Materials only; not craftable.",
+    "iconName": "Bag",
+    "alwaysInclude": true,
+    "effect": "craft_pouch_next"
+  },
+  {
+    "id": "duel_perk_slot",
+    "name": "+1 duel perk slot",
+    "description": "Gain one extra duel perk slot.",
+    "iconName": "Medal",
+    "alwaysInclude": false,
+    "effect": "duel_perk_slot"
+  },
+  {
+    "id": "tool_enchant_socket",
+    "name": "+1 tool enchant socket",
+    "description": "Gain one extra tool enchantment socket (all families).",
+    "iconName": "Jewel",
+    "alwaysInclude": false,
+    "effect": "tool_enchant_socket"
+  },
+  {
+    "id": "overflow_cap",
+    "name": "+1 Overflow cap",
+    "description": "Raise the Overflow stash slot cap by one.",
+    "iconName": "Chest",
+    "alwaysInclude": false,
+    "effect": "overflow_cap"
+  }
+]

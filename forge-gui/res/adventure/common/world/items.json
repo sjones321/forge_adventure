@@ -2,17 +2,23 @@
   {
     "name": "Challenge Coin",
     "description": "A heavy coin made of gold",
-    "iconName": "ChallengeCoin"
+    "iconName": "ChallengeCoin",
+    "stackable": true,
+    "currencyId": "challenge_coin"
   },
   {
     "name": "Silver Challenge Coin",
     "description": "A weighty coin made of silver",
-    "iconName": "SilverChallengeCoin"
+    "iconName": "SilverChallengeCoin",
+    "stackable": true,
+    "currencyId": "silver_challenge_coin"
   },
   {
     "name": "Bronze Challenge Coin",
     "description": "A lightweight coin made of bronze",
-    "iconName": "BronzeChallengeCoin"
+    "iconName": "BronzeChallengeCoin",
+    "stackable": true,
+    "currencyId": "bronze_challenge_coin"
   },
   {
     "name": "Sir Donovan's Amulet",
@@ -29,12 +35,16 @@
         },
         {
           "condition": [
-            { "checkQuestFlag": "Quest_ShardMines_Epilogue" },
+            {
+              "checkQuestFlag": "Quest_ShardMines_Epilogue"
+            },
             {
               "checkQuestFlag": "Quest_ShardMines_EpilogueComplete",
               "not": true
             },
-            { "hasShards": 3 }
+            {
+              "hasShards": 3
+            }
           ],
           "locname": "adv.item_sir_donovans_amulet.n2.name",
           "name": "Contact Sir Donovan (Requires 3 Mana Shards)",
@@ -66,7 +76,9 @@
         },
         {
           "condition": [
-            { "checkQuestFlag": "Quest_ShardMines_Epilogue" },
+            {
+              "checkQuestFlag": "Quest_ShardMines_Epilogue"
+            },
             {
               "checkQuestFlag": "Quest_ShardMines_EpilogueComplete",
               "not": true
@@ -97,7 +109,9 @@
               },
               "not": true
             },
-            { "hasShards": 5 }
+            {
+              "hasShards": 5
+            }
           ],
           "locname": "adv.item_sir_donovans_amulet.n4.name",
           "name": "Contact Sir Donovan (Requires 5 Mana Shards)",
@@ -798,10 +812,10 @@
       "startBattleWithCard": [
         "g_0_1_plant"
       ]
-  }
+    }
   },
   {
-   "name": "Sorin's Amulet",
+    "name": "Sorin's Amulet",
     "equipmentSlot": "Neck",
     "iconName": "SorinAmulet",
     "cost": 12000,
@@ -810,7 +824,7 @@
       "startBattleWithCardInCommandZone": [
         "Sorin's Amulet"
       ]
-  }
+    }
   },
   {
     "name": "Dagger",
@@ -889,7 +903,6 @@
         "c_0_4_a_wall_defender"
       ]
     }
-
   },
   {
     "name": "Mithril Armor",
@@ -946,7 +959,7 @@
     }
   },
   {
-     "name": "Basilisk Collar",
+    "name": "Basilisk Collar",
     "equipmentSlot": "Neck",
     "cost": 25000,
     "description": "Equipment that gives deathouch and lifelink",
@@ -1015,7 +1028,7 @@
     "equipmentSlot": "Neck",
     "iconName": "CrownofGrowth",
     "cost": 3000,
-     "effect": {
+    "effect": {
       "lifeModifier": 1,
       "changeStartCards": -1,
       "startBattleWithCard": [
@@ -1029,7 +1042,7 @@
     "equipmentSlot": "Body",
     "iconName": "MantleofDenial",
     "cost": 3000,
-     "effect": {
+    "effect": {
       "lifeModifier": 1,
       "changeStartCards": 1,
       "startBattleWithCard": [
@@ -1038,32 +1051,32 @@
     }
   },
   {
-  "name": "Raptor Bondband",
+    "name": "Raptor Bondband",
     "description": "4/2 dinosaur",
     "equipmentSlot": "Boots",
     "iconName": "RaptorBondband",
     "cost": 4000,
     "effect": {
-        "lifeModifier": -3,
-        "startBattleWithCard": [
+      "lifeModifier": -3,
+      "startBattleWithCard": [
         "Frenzied Raptor|IKO"
-     ]
+      ]
     }
   },
-    {
-        "name": "Golden Egg",
+  {
+    "name": "Golden Egg",
     "description": "Filter mana or pay 2 for 3 life",
     "equipmentSlot": "Left",
     "iconName": "GoldenEgg",
     "cost": 2000,
     "effect": {
-        "startBattleWithCard": [
+      "startBattleWithCard": [
         "Golden Egg|ELD"
-     ]
+      ]
     }
   },
-    {
-        "name": "Amulet of Telepathy",
+  {
+    "name": "Amulet of Telepathy",
     "description": "Your opponent plays with their hand revealed",
     "equipmentSlot": "Neck",
     "iconName": "RelicAmulet",
@@ -1110,28 +1123,30 @@
     "description": "Pay 2R and sac 2 Goblins to create 3 1/1 Goblin tokens"
   },
   {
-   "name": "Prayerbook of Ire",
+    "name": "Prayerbook of Ire",
     "description": "3R for 5 damage to a player",
     "equipmentSlot": "Left",
     "iconName": "PrayerbookofIre",
     "cost": 3000,
     "effect": {
-        "startBattleWithCard": [
+      "startBattleWithCard": [
         "Font of Ire|JOU"
-     ]
+      ]
     }
   },
-    {
+  {
     "name": "Wood Bow",
     "equipmentSlot": "Left",
     "iconName": "WoodBow",
     "cost": 1000,
     "effect": {
-      "startBattleWithCard": [ "Fyndhorn Bow" ]
+      "startBattleWithCard": [
+        "Fyndhorn Bow"
+      ]
     }
   },
   {
-      "name": "Robes of Omniscience",
+    "name": "Robes of Omniscience",
     "equipmentSlot": "Body",
     "iconName": "RobesOfOmniscience",
     "cost": 10000,
@@ -1142,32 +1157,32 @@
     "description": "-6 life. Draw 2 extra cards at game start"
   },
   {
-      "name": "Angelic Armaments",
+    "name": "Angelic Armaments",
     "description": "Equip 4, +2/+2 and flying and become an angel",
     "equipmentSlot": "Right",
     "iconName": "AngelicArmaments",
     "cost": 10000,
     "effect": {
-        "lifeModifier": 4,
-        "startBattleWithCard": [
+      "lifeModifier": 4,
+      "startBattleWithCard": [
         "Angelic Armaments|AVR"
-     ]
+      ]
     }
   },
-    {
-        "name": "Angelic Greaves",
+  {
+    "name": "Angelic Greaves",
     "description": "0/4 wall with flying",
     "equipmentSlot": "Boots",
     "iconName": "AngelicGreaves",
-      "cost": 8000,
+    "cost": 8000,
     "effect": {
-         "lifeModifier": 2,
-        "startBattleWithCard": [
+      "lifeModifier": 2,
+      "startBattleWithCard": [
         "Angelic Wall|PO2"
-     ]
+      ]
     }
   },
-    {
+  {
     "name": "Sandals",
     "equipmentSlot": "Boots",
     "iconName": "Sandals",
@@ -1562,7 +1577,6 @@
     },
     "iconName": "ShellWand"
   },
-
   {
     "name": "Manasight Amulet",
     "equipmentSlot": "Neck",
@@ -1783,7 +1797,7 @@
     "cost": 6000,
     "effect": {
       "lifeModifier": -1,
-      "moveSpeed": 1.20,
+      "moveSpeed": 1.2,
       "startBattleWithCard": [
         "Ooze Flux"
       ]
@@ -1796,7 +1810,7 @@
     "cost": 10000,
     "effect": {
       "lifeModifier": -1,
-      "moveSpeed": 1.20,
+      "moveSpeed": 1.2,
       "startBattleWithCard": [
         "Bloodsprout Talisman"
       ],
@@ -2022,7 +2036,7 @@
   {
     "name": "Copper Hatchet",
     "description": "Tier 1 logs gathering tool. Chop trees for logs. Caps gather tier at 1.",
-    "iconName": "WoodBow",
+    "iconName": "SteelAxt",
     "cost": 40,
     "toolFamily": "logs",
     "toolTier": 1
@@ -2030,7 +2044,7 @@
   {
     "name": "Iron Hatchet",
     "description": "Tier 2 logs gathering tool. Chop trees for logs. Caps gather tier at 2.",
-    "iconName": "CompositeBow",
+    "iconName": "SteelAxt",
     "cost": 120,
     "toolFamily": "logs",
     "toolTier": 2
@@ -2038,7 +2052,7 @@
   {
     "name": "Mithril Hatchet",
     "description": "Tier 3 logs gathering tool. Chop trees for logs. Caps gather tier at 3.",
-    "iconName": "JungleShield",
+    "iconName": "GarrukAxe",
     "cost": 350,
     "toolFamily": "logs",
     "toolTier": 3
@@ -2046,7 +2060,7 @@
   {
     "name": "Adamant Hatchet",
     "description": "Tier 4 logs gathering tool. Chop trees for logs. Caps gather tier at 4.",
-    "iconName": "MithrilShield",
+    "iconName": "GarrukAxe",
     "cost": 900,
     "toolFamily": "logs",
     "toolTier": 4
@@ -2054,7 +2068,7 @@
   {
     "name": "Copper Pickaxe",
     "description": "Tier 1 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 1.",
-    "iconName": "BronzeSword",
+    "iconName": "ToolBox",
     "cost": 40,
     "toolFamily": "ore",
     "toolTier": 1
@@ -2062,7 +2076,7 @@
   {
     "name": "Iron Pickaxe",
     "description": "Tier 2 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 2.",
-    "iconName": "SteelSword",
+    "iconName": "ToolBox",
     "cost": 120,
     "toolFamily": "ore",
     "toolTier": 2
@@ -2070,7 +2084,7 @@
   {
     "name": "Mithril Pickaxe",
     "description": "Tier 3 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 3.",
-    "iconName": "FlameSword",
+    "iconName": "StrangeKey",
     "cost": 350,
     "toolFamily": "ore",
     "toolTier": 3
@@ -2078,7 +2092,7 @@
   {
     "name": "Adamant Pickaxe",
     "description": "Tier 4 ore gathering tool. Mine ore veins and ash vents; gems on rare finds. Caps gather tier at 4.",
-    "iconName": "GarrukAxe",
+    "iconName": "StrangeKey",
     "cost": 900,
     "toolFamily": "ore",
     "toolTier": 4
@@ -2086,7 +2100,7 @@
   {
     "name": "Copper Chisel",
     "description": "Tier 1 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 1.",
-    "iconName": "SteelShield",
+    "iconName": "Clue",
     "cost": 40,
     "toolFamily": "sacred_stone",
     "toolTier": 1
@@ -2094,7 +2108,7 @@
   {
     "name": "Iron Chisel",
     "description": "Tier 2 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 2.",
-    "iconName": "IronShield",
+    "iconName": "Clue",
     "cost": 120,
     "toolFamily": "sacred_stone",
     "toolTier": 2
@@ -2102,7 +2116,7 @@
   {
     "name": "Mithril Chisel",
     "description": "Tier 3 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 3.",
-    "iconName": "MithrilShield",
+    "iconName": "Hivestone",
     "cost": 350,
     "toolFamily": "sacred_stone",
     "toolTier": 3
@@ -2110,7 +2124,7 @@
   {
     "name": "Adamant Chisel",
     "description": "Tier 4 sacred stone gathering tool. Quarry sacred stone on the plains. Caps gather tier at 4.",
-    "iconName": "KiteShield",
+    "iconName": "Hivestone",
     "cost": 900,
     "toolFamily": "sacred_stone",
     "toolTier": 4
@@ -2118,7 +2132,7 @@
   {
     "name": "Copper Sickle",
     "description": "Tier 1 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 1.",
-    "iconName": "FarmersTools",
+    "iconName": "Scythe",
     "cost": 40,
     "toolFamily": "plants",
     "toolTier": 1
@@ -2126,7 +2140,7 @@
   {
     "name": "Iron Sickle",
     "description": "Tier 2 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 2.",
-    "iconName": "GreenStaff",
+    "iconName": "Scythe",
     "cost": 120,
     "toolFamily": "plants",
     "toolTier": 2
@@ -2134,7 +2148,7 @@
   {
     "name": "Mithril Sickle",
     "description": "Tier 3 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 3.",
-    "iconName": "WildMagusStaff",
+    "iconName": "FarmersTools",
     "cost": 350,
     "toolFamily": "plants",
     "toolTier": 3
@@ -2142,7 +2156,7 @@
   {
     "name": "Adamant Sickle",
     "description": "Tier 4 plants/dead-things gathering tool. Forage plants in forests and dead things in swamps. Caps gather tier at 4.",
-    "iconName": "Hivestone",
+    "iconName": "FarmersTools",
     "cost": 900,
     "toolFamily": "plants",
     "toolTier": 4
@@ -2150,7 +2164,7 @@
   {
     "name": "Copper Probe",
     "description": "Tier 1 waters gathering tool. Delve island waters; crystal and pearls on rare finds. Caps gather tier at 1.",
-    "iconName": "PrismRing",
+    "iconName": "BlueStaff",
     "cost": 40,
     "toolFamily": "waters",
     "toolTier": 1
@@ -2158,7 +2172,7 @@
   {
     "name": "Iron Probe",
     "description": "Tier 2 waters gathering tool. Delve island waters; crystal and pearls on rare finds. Caps gather tier at 2.",
-    "iconName": "VeilstoneAmulet",
+    "iconName": "BlueStaff",
     "cost": 120,
     "toolFamily": "waters",
     "toolTier": 2
@@ -2166,7 +2180,7 @@
   {
     "name": "Mithril Probe",
     "description": "Tier 3 waters gathering tool. Delve island waters; crystal and pearls on rare finds. Caps gather tier at 3.",
-    "iconName": "RingofThreeWishes",
+    "iconName": "VeilstoneAmulet",
     "cost": 350,
     "toolFamily": "waters",
     "toolTier": 3
@@ -2182,7 +2196,7 @@
   {
     "name": "Copper Spanner",
     "description": "Tier 1 scrap gathering tool. Salvage scrap from the wastes. Caps gather tier at 1.",
-    "iconName": "SolRing",
+    "iconName": "ToolBox",
     "cost": 40,
     "toolFamily": "scrap",
     "toolTier": 1
@@ -2190,7 +2204,7 @@
   {
     "name": "Iron Spanner",
     "description": "Tier 2 scrap gathering tool. Salvage scrap from the wastes. Caps gather tier at 2.",
-    "iconName": "StrangeKey",
+    "iconName": "ToolBox",
     "cost": 120,
     "toolFamily": "scrap",
     "toolTier": 2
@@ -2198,7 +2212,7 @@
   {
     "name": "Mithril Spanner",
     "description": "Tier 3 scrap gathering tool. Salvage scrap from the wastes. Caps gather tier at 3.",
-    "iconName": "FarmersTools",
+    "iconName": "StrangeKey",
     "cost": 350,
     "toolFamily": "scrap",
     "toolTier": 3
@@ -2206,9 +2220,94 @@
   {
     "name": "Adamant Spanner",
     "description": "Tier 4 scrap gathering tool. Salvage scrap from the wastes. Caps gather tier at 4.",
-    "iconName": "GarrukAxe",
+    "iconName": "SolRing",
     "cost": 900,
     "toolFamily": "scrap",
     "toolTier": 4
+  },
+  {
+    "name": "Reinforced Backpack",
+    "description": "Adds backpack slots and raises stack size. Use to apply.",
+    "iconName": "TreasureChest",
+    "cost": 150,
+    "stackable": true,
+    "bagUpgrade": "backpack",
+    "bagBonusSlots": 8,
+    "bagBonusStack": 10
+  },
+  {
+    "name": "Heavy Backpack",
+    "description": "Further expands the backpack. Use to apply.",
+    "iconName": "PandorasBox",
+    "cost": 400,
+    "stackable": true,
+    "bagUpgrade": "backpack",
+    "bagBonusSlots": 12,
+    "bagBonusStack": 15
+  },
+  {
+    "name": "Pack Satchel",
+    "description": "Adds room for unopened card packs. Use to apply.",
+    "iconName": "Deck",
+    "cost": 120,
+    "stackable": true,
+    "bagUpgrade": "packs",
+    "bagBonusSlots": 6,
+    "bagBonusStack": 0
+  },
+  {
+    "name": "Material Sack",
+    "description": "Adds material slots and raises stack size. Use to apply.",
+    "iconName": "LogBook",
+    "cost": 120,
+    "stackable": true,
+    "bagUpgrade": "materials",
+    "bagBonusSlots": 10,
+    "bagBonusStack": 50
+  },
+  {
+    "name": "Deep Material Sack",
+    "description": "Further expands the materials bag. Use to apply.",
+    "iconName": "SpellBook",
+    "cost": 350,
+    "stackable": true,
+    "bagUpgrade": "materials",
+    "bagBonusSlots": 15,
+    "bagBonusStack": 100
+  },
+  {
+    "name": "Currency Pouch Lining",
+    "description": "Adds currency pouch slots. Use to apply.",
+    "iconName": "GoldStack",
+    "cost": 100,
+    "stackable": true,
+    "bagUpgrade": "currency",
+    "bagBonusSlots": 4,
+    "bagBonusStack": 0
+  },
+  {
+    "name": "Gym Coin",
+    "description": "Contest currency from gym victories.",
+    "iconName": "ChallengeCoin",
+    "cost": 0,
+    "stackable": true,
+    "currencyId": "gym_coin",
+    "questItem": false
+  },
+  {
+    "name": "Tournament Coin",
+    "description": "Contest currency from tournament play.",
+    "iconName": "SilverChallengeCoin",
+    "cost": 0,
+    "stackable": true,
+    "currencyId": "tournament_coin"
+  },
+  {
+    "name": "Grand Prix Coin",
+    "description": "Contest currency from Grand Prix events.",
+    "iconName": "FortuneCoin",
+    "cost": 0,
+    "stackable": true,
+    "currencyId": "grand_prix_coin"
   }
 ]

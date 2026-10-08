@@ -85,6 +85,21 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     /** Starter T1 gathering tools are given once per character, not on every load. */
     private boolean starterToolsGranted = false;
     /**
+     * Ascendant INV1 bags: capacities / stack limits. Contents stay in inventoryItems,
+     * boostersOwned, materials, and contestCurrencies. Stock Adventure leaves this unused.
+     */
+    private final InventoryBags bags = new InventoryBags();
+    /**
+     * Ascendant contest currencies (gym / tournament / Grand Prix). Extensible map; optional on load.
+     */
+    private final LinkedHashMap<String, Integer> contestCurrencies = new LinkedHashMap<>();
+    /** Unspent Mastery Surge picks (INV1). Optional on load → 0. */
+    private int masterySurgePicksUnspent = 0;
+    /** Extra duel perk slots from Mastery Surge. */
+    private int duelPerkSlotBonus = 0;
+    /** Extra tool enchant sockets from Mastery Surge (all families). */
+    private int toolEnchantSocketBonus = 0;
+    /**
      * Ascendant toolbelt (Package B): one equipped gathering tool name per material family
      * (logs, ore, stone, herbs, crystal, scrap). Not an equipment slot.
      */
@@ -229,6 +244,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         autoSalvage = false;
         materials.clear();
         starterToolsGranted = false;
+        bags.resetToDefaults(safeConfigData());
+        contestCurrencies.clear();
+        masterySurgePicksUnspent = 0;
+        duelPerkSlotBonus = 0;
+        toolEnchantSocketBonus = 0;
         toolbelt.clear();
         badges.clear();
         leagueCleared = false;
@@ -712,13 +732,370 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     /**
      * Adds {@code amount} of a material (no-op if amount ≤ 0 or id empty).
-     * Emits {@link #onMaterialChange}.
+     * Ascendant INV1: always succeeds — excess goes to Overflow (or auto-sell past Overflow cap).
+     * Emits {@link #onMaterialChange} when the Craft Pouch changes.
+     *
+     * @return false only for invalid id/amount
      */
-    public void addMaterial(String id, int amount) {
+    public boolean addMaterial(String id, int amount) {
         if (id == null || id.isEmpty() || amount <= 0)
+            return false;
+        if (!Config.ascendant()) {
+            materials.put(id, getMaterial(id) + amount);
+            onMaterialChangeList.emit();
+            return true;
+        }
+        int remaining = amount;
+        int room = bags.materialRoom(id, materials);
+        if (room > 0) {
+            int fit = Math.min(room, remaining);
+            materials.put(id, getMaterial(id) + fit);
+            remaining -= fit;
+            onMaterialChangeList.emit();
+        }
+        if (remaining > 0) {
+            GrantResult r = bags.placeInOverflow(OverflowEntry.ofMaterial(id, remaining));
+            applyGrantResult(r, OverflowEntry.ofMaterial(id, remaining));
+        }
+        return true;
+    }
+
+    /** Ascendant INV1 bag capacities (always non-null; ignored when not Ascendant). */
+    public InventoryBags getBags() {
+        return bags;
+    }
+
+    /** Unmodifiable contest currency id → count (Ascendant). */
+    public Map<String, Integer> getContestCurrencies() {
+        return Collections.unmodifiableMap(contestCurrencies);
+    }
+
+    public int getContestCurrency(String id) {
+        if (id == null)
+            return 0;
+        Integer n = contestCurrencies.get(id);
+        return n != null ? Math.max(0, n) : 0;
+    }
+
+    /**
+     * Grant contest currency (gym / tournament / Grand Prix). Ascendant only; always succeeds
+     * (Overflow / auto-sell when the currency pouch is full).
+     */
+    public boolean addContestCurrency(String id, int amount) {
+        if (!Config.ascendant() || id == null || id.isEmpty() || amount <= 0)
+            return false;
+        if (bags.fitsContestCurrency(id, amount, contestCurrencies, inventoryItems)) {
+            contestCurrencies.put(id, getContestCurrency(id) + amount);
+            return true;
+        }
+        GrantResult r = bags.placeInOverflow(OverflowEntry.ofCurrency(id, amount));
+        applyGrantResult(r, OverflowEntry.ofCurrency(id, amount));
+        return true;
+    }
+
+    public boolean takeContestCurrency(String id, int amount) {
+        if (id == null || amount <= 0)
+            return false;
+        int have = getContestCurrency(id);
+        if (have < amount)
+            return false;
+        int left = have - amount;
+        if (left <= 0)
+            contestCurrencies.remove(id);
+        else
+            contestCurrencies.put(id, left);
+        return true;
+    }
+
+    /** Apply a bag-upgrade item: bump capacities, consume one copy. */
+    public boolean applyBagUpgrade(ItemData item) {
+        if (!Config.ascendant() || item == null || item.bagUpgrade == null || item.bagUpgrade.isEmpty())
+            return false;
+        if (!hasItem(item.name) && !inventoryItems.contains(item))
+            return false;
+        InventoryBagType type = InventoryBags.parseBagUpgrade(item.bagUpgrade);
+        bags.applyUpgrade(item);
+        if (inventoryItems.contains(item))
+            removeItem(item);
+        else
+            removeItem(item.name);
+        String bagName = type != null ? type.label : "Bag";
+        notifyInventory(item.getDisplayName() + " applied. " + bagName + " expanded.");
+        return true;
+    }
+
+    private static void notifyInventory(String msg) {
+        if (msg == null || msg.isEmpty())
             return;
-        materials.put(id, getMaterial(id) + amount);
-        onMaterialChangeList.emit();
+        try {
+            GameHUD.getInstance().addNotification(msg);
+        } catch (Exception ignored) {
+            // HUD may be unavailable during load/tests
+        }
+    }
+
+    /** Apply Overflow / auto-sell outcome: pay gold/dust and toast once. */
+    private void applyGrantResult(GrantResult r, OverflowEntry soldEntry) {
+        if (r == null)
+            return;
+        if (r.wentToOverflow()) {
+            notifyInventory(GrantResult.overflow().message);
+            return;
+        }
+        if (r.wasAutoSold() && soldEntry != null) {
+            autoSellOverflowEntry(soldEntry, r);
+            notifyInventory(r.message != null ? r.message : "Overflow full — auto-sold " + soldEntry.displayName());
+        }
+    }
+
+    private void autoSellOverflowEntry(OverflowEntry entry, GrantResult into) {
+        if (entry == null)
+            return;
+        switch (entry.kind) {
+            case ITEM: {
+                ItemData item = entry.item;
+                int gold = itemSellGold(item);
+                if (gold > 0)
+                    giveGold(gold);
+                if (into != null) {
+                    into.goldEarned = gold;
+                    into.autoSoldName = entry.displayName();
+                    into.message = "Overflow full — auto-sold " + entry.displayName()
+                            + (gold > 0 ? " for " + gold + " gold" : "");
+                }
+                break;
+            }
+            case MATERIAL: {
+                int unit = materialSellPrice(entry.key);
+                int gold = unit * Math.max(1, entry.amount);
+                if (gold > 0)
+                    giveGold(gold);
+                if (into != null) {
+                    into.goldEarned = gold;
+                    into.autoSoldName = entry.displayName();
+                    into.message = "Overflow full — auto-sold " + entry.displayName()
+                            + " for " + gold + " gold";
+                }
+                break;
+            }
+            case CURRENCY: {
+                // Contest coins: nominal gold from amount (no dust).
+                int gold = Math.max(1, entry.amount);
+                giveGold(gold);
+                if (into != null) {
+                    into.goldEarned = gold;
+                    into.autoSoldName = entry.displayName();
+                    into.message = "Overflow full — auto-sold " + entry.displayName()
+                            + " for " + gold + " gold";
+                }
+                break;
+            }
+            case BOOSTER: {
+                dustBooster(entry.booster, into);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    private int itemSellGold(ItemData item) {
+        if (item == null)
+            return 1;
+        float factor = difficultyData != null ? difficultyData.sellFactor : 0.2f;
+        return Math.max(1, Math.round(item.cost * factor));
+    }
+
+    private void dustBooster(Deck booster, GrantResult into) {
+        if (booster == null)
+            return;
+        int c = 0, u = 0, r = 0, m = 0;
+        try {
+            for (PaperCard card : booster.getAllCardsInASinglePool().toFlatList()) {
+                if (card == null)
+                    continue;
+                switch (dustIndex(card.getRarity())) {
+                    case DUST_COMMON: c++; break;
+                    case DUST_UNCOMMON: u++; break;
+                    case DUST_RARE: r++; break;
+                    case DUST_MYTHIC: m++; break;
+                    default: c++; break;
+                }
+            }
+        } catch (Exception ignored) {
+            c = 1;
+        }
+        if (c > 0) addDust(DUST_COMMON, c);
+        if (u > 0) addDust(DUST_UNCOMMON, u);
+        if (r > 0) addDust(DUST_RARE, r);
+        if (m > 0) addDust(DUST_MYTHIC, m);
+        if (into != null) {
+            into.dustCommon = c;
+            into.dustUncommon = u;
+            into.dustRare = r;
+            into.dustMythic = m;
+            into.autoSoldName = booster.getName() != null ? booster.getName() : "Booster";
+            into.message = "Overflow full — auto-sold " + into.autoSoldName
+                    + " to dust (C" + c + " U" + u + " R" + r + " M" + m + ")";
+        }
+    }
+
+    public int getMasterySurgePicksUnspent() {
+        return masterySurgePicksUnspent;
+    }
+
+    public int getDuelPerkSlotBonus() {
+        return duelPerkSlotBonus;
+    }
+
+    public int getToolEnchantSocketBonus() {
+        return toolEnchantSocketBonus;
+    }
+
+    /** Grant Mastery Surge picks when a set is mastered (Ascendant). */
+    public void grantMasterySurgePicks() {
+        if (!Config.ascendant())
+            return;
+        ConfigData cfg = safeConfigData();
+        int n = Math.max(1, cfg.masterySurgePicks);
+        masterySurgePicksUnspent += n;
+        notifyInventory("[GOLD]Mastery Surge![] " + n + " upgrade pick"
+                + (n == 1 ? "" : "s") + " — open Skills to choose.");
+    }
+
+    /**
+     * Spend one Mastery Surge pick on {@code optionId} from mastery_surge.json.
+     * @return false if no picks / unknown / unavailable option
+     */
+    public boolean spendMasterySurgePick(String optionId) {
+        if (!Config.ascendant() || masterySurgePicksUnspent <= 0 || optionId == null)
+            return false;
+        MasterySurgeData opt = MasterySurgeListData.get(optionId);
+        if (opt == null)
+            return false;
+        String effect = opt.effect != null ? opt.effect : opt.id;
+        switch (effect) {
+            case "craft_pouch_next":
+                if (bags.getCraftPouchTier().isBottomless())
+                    return false;
+                if (!bags.upgradeCraftPouchTier())
+                    return false;
+                break;
+            case "duel_perk_slot":
+                duelPerkSlotBonus++;
+                break;
+            case "tool_enchant_socket":
+                toolEnchantSocketBonus++;
+                break;
+            case "overflow_cap":
+                bags.addOverflowCapBonus(1);
+                break;
+            default:
+                return false;
+        }
+        masterySurgePicksUnspent--;
+        notifyInventory("Mastery Surge: " + opt.getDisplayName());
+        return true;
+    }
+
+    /** Options currently offerable for an unspent Mastery Surge pick. */
+    public List<MasterySurgeData> availableMasterySurgeOptions() {
+        List<MasterySurgeData> out = new ArrayList<>();
+        if (!Config.ascendant())
+            return out;
+        for (MasterySurgeData d : MasterySurgeListData.getAll()) {
+            if (d == null)
+                continue;
+            String effect = d.effect != null ? d.effect : d.id;
+            if ("craft_pouch_next".equals(effect)) {
+                if (bags.getCraftPouchTier().isBottomless())
+                    continue;
+                // Always include next pouch tier when available.
+                out.add(0, d);
+                continue;
+            }
+            out.add(d);
+        }
+        // Ensure craft_pouch_next is first when present.
+        out.sort((a, b) -> {
+            boolean aa = a != null && a.alwaysInclude;
+            boolean bb = b != null && b.alwaysInclude;
+            if (aa == bb) return 0;
+            return aa ? -1 : 1;
+        });
+        return out;
+    }
+
+    /** True while Overflow is non-empty (blocks inn waypoint travel and planar portals). */
+    public boolean isOverloaded() {
+        return Config.ascendant() && bags.hasOverflow();
+    }
+
+    /**
+     * Move one Overflow entry back into its bag/pouch when there is room.
+     * @return true if retrieved
+     */
+    public boolean retrieveFromOverflow(int index) {
+        if (!Config.ascendant())
+            return false;
+        OverflowEntry e = (index >= 0 && index < bags.overflowCount())
+                ? bags.getOverflow().get(index) : null;
+        if (e == null)
+            return false;
+        boolean fits;
+        switch (e.kind) {
+            case ITEM:
+                if (e.item == null)
+                    return false;
+                if (InventoryBags.classifyItem(e.item) == InventoryBagType.CURRENCY)
+                    fits = bags.fitsCurrencyItem(e.item, contestCurrencies, inventoryItems);
+                else
+                    fits = bags.fitsBackpack(e.item, inventoryItems, equippedItemIdSet(), toolbelt)
+                            || InventoryBags.isCapacityExempt(e.item);
+                if (!fits) {
+                    notifyInventory("No room in bag — free space first.");
+                    return false;
+                }
+                bags.takeOverflow(index);
+                inventoryItems.add(e.item);
+                return true;
+            case BOOSTER:
+                fits = bags.fitsBooster(boostersOwned);
+                if (!fits) {
+                    notifyInventory("No room in Packs — free space first.");
+                    return false;
+                }
+                bags.takeOverflow(index);
+                if (e.booster != null)
+                    boostersOwned.add(e.booster);
+                return true;
+            case MATERIAL: {
+                int room = bags.materialRoom(e.key, materials);
+                if (room <= 0) {
+                    notifyInventory("No room in Craft Pouch — free space or upgrade tier.");
+                    return false;
+                }
+                int move = Math.min(room, e.amount);
+                bags.takeOverflow(index);
+                materials.put(e.key, getMaterial(e.key) + move);
+                onMaterialChangeList.emit();
+                if (move < e.amount) {
+                    // Put remainder back.
+                    bags.placeInOverflow(OverflowEntry.ofMaterial(e.key, e.amount - move));
+                }
+                return true;
+            }
+            case CURRENCY:
+                if (!bags.fitsContestCurrency(e.key, e.amount, contestCurrencies, inventoryItems)) {
+                    notifyInventory("No room in Currency pouch.");
+                    return false;
+                }
+                bags.takeOverflow(index);
+                contestCurrencies.put(e.key, getContestCurrency(e.key) + e.amount);
+                return true;
+            default:
+                return false;
+        }
     }
 
     /**
@@ -1350,6 +1727,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
 
         ensureStarterGatheringTools();
+        loadInventoryBags(data);
 
         RewardData.invalidateCardPool();
         onLifeTotalChangeList.emit();
@@ -1358,6 +1736,93 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         onMaterialChangeList.emit();
         onGoldChangeList.emit();
         onBlessing.emit();
+    }
+
+    /**
+     * INV1: load per-bag capacities and contest currencies. Old saves without bag keys
+     * keep Java/config defaults; flat inventory is auto-sorted into bags by classification
+     * (nothing is deleted; over-capacity is allowed and shown).
+     */
+    private static ConfigData safeConfigData() {
+        try {
+            if (Config.instance() != null && Config.instance().getConfigData() != null)
+                return Config.instance().getConfigData();
+        } catch (Exception ignored) {
+            // Config may be unavailable during early clear/tests
+        }
+        return new ConfigData();
+    }
+
+    private void loadInventoryBags(SaveFileData data) {
+        ConfigData cfg = safeConfigData();
+        bags.resetToDefaults(cfg);
+        if (data != null && data.containsKey("bagTypes") && data.containsKey("bagSlots")) {
+            Object rawTypes = data.readObject("bagTypes");
+            Object rawSlots = data.readObject("bagSlots");
+            Object rawStacks = data.containsKey("bagMaxStacks") ? data.readObject("bagMaxStacks") : null;
+            if (rawTypes instanceof String[] types && rawSlots instanceof int[] slots) {
+                int[] stacks = rawStacks instanceof int[] s ? s : null;
+                bags.load(types, slots, stacks, cfg);
+            }
+        }
+        Integer tier = null;
+        Integer oCap = null;
+        if (data != null && data.containsKey("craftPouchTier"))
+            tier = data.readInt("craftPouchTier");
+        if (data != null && data.containsKey("overflowCap"))
+            oCap = data.readInt("overflowCap");
+        bags.loadCraftPouchAndOverflow(tier, oCap);
+        if (data != null && data.containsKey("overflowEntries")) {
+            try {
+                OverflowEntry[] entries = (OverflowEntry[]) data.readObject("overflowEntries");
+                bags.loadOverflowEntries(entries);
+            } catch (Exception ignored) {
+                bags.clearOverflow();
+            }
+        } else {
+            bags.clearOverflow();
+        }
+        masterySurgePicksUnspent = data != null && data.containsKey("masterySurgePicksUnspent")
+                ? Math.max(0, data.readInt("masterySurgePicksUnspent")) : 0;
+        duelPerkSlotBonus = data != null && data.containsKey("duelPerkSlotBonus")
+                ? Math.max(0, data.readInt("duelPerkSlotBonus")) : 0;
+        toolEnchantSocketBonus = data != null && data.containsKey("toolEnchantSocketBonus")
+                ? Math.max(0, data.readInt("toolEnchantSocketBonus")) : 0;
+        contestCurrencies.clear();
+        if (data != null && data.containsKey("contestCurrencyIds") && data.containsKey("contestCurrencyCounts")) {
+            Object rawIds = data.readObject("contestCurrencyIds");
+            Object rawCounts = data.readObject("contestCurrencyCounts");
+            if (rawIds instanceof String[] ids && rawCounts instanceof int[] counts) {
+                int n = Math.min(ids.length, counts.length);
+                for (int i = 0; i < n; i++) {
+                    if (ids[i] != null && !ids[i].isEmpty() && counts[i] > 0)
+                        contestCurrencies.put(ids[i], counts[i]);
+                }
+            }
+        }
+        if (Config.ascendant())
+            migrateOverCapacityBags();
+    }
+
+    /**
+     * Old over-capacity saves: move excess into Overflow (auto-sell past Overflow cap).
+     * Materials already in the materials map become Craft Pouch contents; excess → Overflow.
+     */
+    private void migrateOverCapacityBags() {
+        List<Deck> boosterList = new ArrayList<>();
+        for (Deck d : boostersOwned)
+            boosterList.add(d);
+        List<OverflowEntry> autoSell = bags.migrateOverCapacity(
+                inventoryItems, equippedItemIdSet(), toolbelt, boosterList, materials, contestCurrencies);
+        boostersOwned.clear();
+        for (Deck d : boosterList)
+            boostersOwned.add(d);
+        for (OverflowEntry e : autoSell) {
+            GrantResult r = new GrantResult();
+            r.fate = GrantResult.Fate.AUTO_SOLD;
+            autoSellOverflowEntry(e, r);
+            notifyInventory(r.message);
+        }
     }
 
     @Override
@@ -1407,6 +1872,33 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             data.store("materialSchema", 2);
             data.store("starterToolsGranted", starterToolsGranted);
             data.storeObject("materialCounts", materialCounts);
+        }
+        {
+            // INV1 bag capacities (contents remain in inventory / boosters / materials).
+            data.storeObject("bagTypes", new String[]{
+                    InventoryBagType.BACKPACK.name(), InventoryBagType.PACKS.name(),
+                    InventoryBagType.CURRENCY.name(), InventoryBagType.MATERIALS.name()
+            });
+            data.storeObject("bagSlots", new int[]{
+                    bags.getSlots(InventoryBagType.BACKPACK), bags.getSlots(InventoryBagType.PACKS),
+                    bags.getSlots(InventoryBagType.CURRENCY), bags.getSlots(InventoryBagType.MATERIALS)
+            });
+            data.storeObject("bagMaxStacks", new int[]{
+                    bags.getMaxStack(InventoryBagType.BACKPACK), bags.getMaxStack(InventoryBagType.PACKS),
+                    bags.getMaxStack(InventoryBagType.CURRENCY), bags.getMaxStack(InventoryBagType.MATERIALS)
+            });
+            data.store("craftPouchTier", bags.getCraftPouchTierIndex());
+            data.store("overflowCap", bags.getOverflowCap());
+            data.storeObject("overflowEntries", bags.getOverflow().toArray(new OverflowEntry[0]));
+            data.store("masterySurgePicksUnspent", masterySurgePicksUnspent);
+            data.store("duelPerkSlotBonus", duelPerkSlotBonus);
+            data.store("toolEnchantSocketBonus", toolEnchantSocketBonus);
+            String[] cIds = contestCurrencies.keySet().toArray(new String[0]);
+            int[] cCounts = new int[cIds.length];
+            for (int i = 0; i < cIds.length; i++)
+                cCounts[i] = contestCurrencies.getOrDefault(cIds[i], 0);
+            data.storeObject("contestCurrencyIds", cIds);
+            data.storeObject("contestCurrencyCounts", cCounts);
         }
         {
             String[] fams = toolbelt.keySet().toArray(new String[0]);
@@ -1653,13 +2145,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 addGold(reward.getCount());
                 break;
             case Item:
-                if (reward.getItem() != null)
-                    addItem(reward.getItem().name);
+                if (reward.getItem() != null) {
+                    if (!addItem(reward.getItem().name))
+                        notifyInventory("Could not add item: " + reward.getItem().name);
+                }
                 break;
             case CardPack:
-                if (reward.getDeck() != null) {
-                    boostersOwned.add(reward.getDeck());
-                }
+                if (reward.getDeck() != null)
+                    addBooster(reward.getDeck());
                 break;
             case Life:
                 addMaxLife(reward.getCount());
@@ -2334,6 +2827,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         } else if (recipe.isTool()) {
             if (recipe.result == null || recipe.result.isEmpty() || ItemListData.getItem(recipe.result) == null)
                 blockers.add("Tool item not defined yet");
+            // INV1: grants never refuse — overflow/auto-sell handles full bags.
         } else {
             if (recipe.result == null || recipe.result.isEmpty() || ItemListData.getItem(recipe.result) == null)
                 blockers.add("Result item missing: " + recipe.result);
@@ -2997,7 +3491,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         int slots = 1;
         if (tier >= tier2)
             slots = 2;
-        return Math.min(max, slots);
+        slots += Math.max(0, toolEnchantSocketBonus);
+        return Math.min(max + Math.max(0, toolEnchantSocketBonus), slots);
     }
 
     /** Socket an enchantment onto the equipped tool for {@code family}. */
@@ -3222,7 +3717,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             if (blessing.moveSpeed > 0.0)
                 factor *= blessing.moveSpeed;
         }
-        return factor * skills.moveSpeedFactor();
+        float overflowSlow = Config.ascendant() ? bags.overflowSpeedFactor() : 1f;
+        return factor * skills.moveSpeedFactor() * overflowSlow;
     }
 
     /** Re-applies stat effects that skills change (e.g. Exploration move speed). */
@@ -3264,6 +3760,37 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         ItemData item = ItemListData.getItem(name);
         if (item == null)
             return false;
+        if (Config.ascendant()) {
+            if (InventoryBags.classifyItem(item) == InventoryBagType.CURRENCY) {
+                if (!bags.fitsCurrencyItem(item, contestCurrencies, inventoryItems)) {
+                    GrantResult r = bags.placeInOverflow(OverflowEntry.ofItem(item));
+                    applyGrantResult(r, OverflowEntry.ofItem(item));
+                    if (updateEvent)
+                        AdventureQuestController.instance().updateItemReceived(item);
+                    return true;
+                }
+            } else if (!InventoryBags.isCapacityExempt(item)
+                    && !bags.fitsBackpack(item, inventoryItems, equippedItemIdSet(), toolbelt)) {
+                // Toolbelt upgrade still equips; demoted tool may overflow separately below.
+                boolean beltOnly = false;
+                if (item.isGatheringTool()) {
+                    int have = getToolTier(item.toolFamily);
+                    if (item.toolTier > have && toolbelt.get(item.toolFamily) == null)
+                        beltOnly = true;
+                }
+                if (!beltOnly) {
+                    GrantResult r = bags.placeInOverflow(OverflowEntry.ofItem(item));
+                    applyGrantResult(r, OverflowEntry.ofItem(item));
+                    if (item.isGatheringTool()) {
+                        int have = getToolTier(item.toolFamily);
+                        // Still track ownership for quests even if in overflow — item is in overflow stash.
+                    }
+                    if (updateEvent)
+                        AdventureQuestController.instance().updateItemReceived(item);
+                    return true;
+                }
+            }
+        }
         inventoryItems.add(item);
         if (item.isGatheringTool()) {
             int have = getToolTier(item.toolFamily);
@@ -3275,6 +3802,34 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return true;
     }
 
+    /**
+     * Whether a new item would fit its target bag without Overflow.
+     * Crafting no longer blocks on this; kept for UI hints.
+     */
+    private boolean canAcceptNewItem(ItemData item) {
+        if (item == null)
+            return false;
+        if (InventoryBags.isCapacityExempt(item))
+            return true;
+        if (InventoryBags.classifyItem(item) == InventoryBagType.CURRENCY)
+            return bags.fitsCurrencyItem(item, contestCurrencies, inventoryItems);
+        if (item.isGatheringTool()) {
+            int have = getToolTier(item.toolFamily);
+            if (item.toolTier > have && toolbelt.get(item.toolFamily) == null)
+                return true;
+        }
+        return bags.fitsBackpack(item, inventoryItems, equippedItemIdSet(), toolbelt);
+    }
+
+    private Set<Long> equippedItemIdSet() {
+        return new HashSet<>(equippedItems.values());
+    }
+
+    /** Backpack items visible in the INV1 bag list (excludes equipped gear and toolbelt tools). */
+    public List<ItemData> getBackpackItems() {
+        return InventoryBags.backpackOccupants(inventoryItems, equippedItemIdSet(), toolbelt);
+    }
+
     public void removeAllQuestItems(){
         inventoryItems.removeIf(data -> data != null && data.questItem);
     }
@@ -3282,6 +3837,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     public boolean addBooster(Deck booster) {
         if (booster == null || booster.isEmpty())
             return false;
+        if (Config.ascendant() && !bags.fitsBooster(boostersOwned)) {
+            GrantResult r = bags.placeInOverflow(OverflowEntry.ofBooster(booster));
+            applyGrantResult(r, OverflowEntry.ofBooster(booster));
+            return true;
+        }
         boostersOwned.add(booster);
         return true;
     }

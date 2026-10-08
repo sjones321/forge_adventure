@@ -11,6 +11,7 @@ public class Paths {
     public static final String POINTS_OF_INTEREST = "world/points_of_interest.json";
     public static final String ITEMS = "world/items.json";
     public static final String MATERIALS = "world/materials.json";
+    public static final String MASTERY_SURGE = "world/mastery_surge.json";
     public static final String ENEMY_MATERIAL_DROPS = "world/enemy_material_drops.json";
     public static final String RECIPES = "world/recipes.json";
     public static final String GATHERING_METHODS = "world/gathering_methods.json";

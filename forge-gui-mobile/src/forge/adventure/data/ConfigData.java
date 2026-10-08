@@ -287,4 +287,59 @@ public class ConfigData {
      */
     public int coopDuelGuestConnectGraceSeconds = 8;
 
+    // ---- Ascendant inventory bags (INV1): slot counts and stack sizes (no weight). ----
+
+    /** Default backpack slots for gear and usable items. */
+    public int backpackSlots = 24;
+    /** Max stack size for stackable backpack items. */
+    public int backpackMaxStack = 20;
+    /** Default unopened-pack bag slots. */
+    public int packsSlots = 12;
+    /** Max stack size for packs (each booster is unique; kept for upgrade parity). */
+    public int packsMaxStack = 1;
+    /** Currency pouch slots (built-in currencies + contest coins). */
+    public int currencySlots = 16;
+    /** Max amount per contest/challenge coin stack in the currency pouch. */
+    public int currencyMaxStack = 9999;
+    /**
+     * Legacy materials bag distinct-type slots (pre–Craft Pouch). Kept for save compat;
+     * Ascendant uses Craft Pouch tier tables below.
+     */
+    public int materialsSlots = 40;
+    /** Legacy materials max stack (pre–Craft Pouch). */
+    public int materialsMaxStack = 99;
+    /** Slots added by a T1 backpack upgrade item. */
+    public int bagUpgradeBackpackSlots = 8;
+    /** Stack size added by a T1 backpack upgrade item. */
+    public int bagUpgradeBackpackStack = 10;
+    /** Slots added by a pack satchel upgrade. */
+    public int bagUpgradePacksSlots = 6;
+    /** Legacy material-sack upgrade slots (Craft Pouch tiers are Mastery Surge only). */
+    public int bagUpgradeMaterialsSlots = 10;
+    /** Legacy material-sack upgrade stack (unused for Craft Pouch tiers). */
+    public int bagUpgradeMaterialsStack = 50;
+    /** Slots added by a currency pouch upgrade. */
+    public int bagUpgradeCurrencySlots = 4;
+
+    // ---- INV1 Overflow + Craft Pouch + Mastery Surge ----
+
+    /** Overflow stash slot cap. Past this, new grants are auto-sold (never deleted). */
+    public int overflowCap = 10;
+    /** Movement speed floor while Overflow is full (1.0 = no slow, 0.5 = half speed). */
+    public float overflowSlowMinFactor = 0.5f;
+    /** Craft Pouch Satchel (start): distinct material types. */
+    public int craftPouchSatchelSlots = 20;
+    /** Craft Pouch Satchel stack size per material. */
+    public int craftPouchSatchelStack = 250;
+    /** Craft Pouch Pack: distinct material types. */
+    public int craftPouchPackSlots = 30;
+    /** Craft Pouch Pack stack size. */
+    public int craftPouchPackStack = 500;
+    /** Craft Pouch Hauler's Sack: distinct material types. */
+    public int craftPouchHaulerSlots = 40;
+    /** Craft Pouch Hauler's Sack stack size. */
+    public int craftPouchHaulerStack = 1000;
+    /** Mastery Surge picks granted when a set is mastered (1–2 typical). */
+    public int masterySurgePicks = 2;
+
 }

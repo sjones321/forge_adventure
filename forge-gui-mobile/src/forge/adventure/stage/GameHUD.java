@@ -784,6 +784,10 @@ public class GameHUD extends Stage {
             return;
         if (Forge.advFreezePlayerControls)
             return;
+        // Ascendant/CO3 only: do not leave the overworld while an invite/exit dialog
+        // owns input. Stock Adventure inventory must stay unchanged.
+        if (Config.ascendant() && dialogOnlyInput)
+            return;
         WorldSave.requestPreview();
         Forge.switchScene(InventoryScene.instance());
     }

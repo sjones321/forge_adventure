@@ -39,6 +39,24 @@ public class ItemData implements Serializable, Cloneable {
     /** Tool tier 1-4; caps the material tier that can be gathered. */
     public int toolTier = 0;
 
+    // ---- Ascendant INV1 bags ----
+    /** When true, identical items share a backpack/currency stack (up to bag max stack). */
+    public boolean stackable = false;
+    /**
+     * Currency pouch key when this item is a contest/challenge coin (e.g. {@code gym_coin}).
+     * Non-empty → classified into the Currency bag.
+     */
+    public String currencyId;
+    /**
+     * Bag upgrade target when used/crafted: {@code backpack}, {@code packs},
+     * {@code currency}, or {@code materials}.
+     */
+    public String bagUpgrade;
+    /** Slots added when this bag upgrade is applied. */
+    public int bagBonusSlots = 0;
+    /** Max-stack increase when this bag upgrade is applied. */
+    public int bagBonusStack = 0;
+
 
     public ItemData()
     {
@@ -60,6 +78,11 @@ public class ItemData implements Serializable, Cloneable {
         dialogOnUse       = cpy.dialogOnUse;
         toolFamily        = cpy.toolFamily;
         toolTier          = cpy.toolTier;
+        stackable         = cpy.stackable;
+        currencyId        = cpy.currencyId;
+        bagUpgrade        = cpy.bagUpgrade;
+        bagBonusSlots     = cpy.bagBonusSlots;
+        bagBonusStack     = cpy.bagBonusStack;
     }
 
     public boolean isGatheringTool() {

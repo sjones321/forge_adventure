@@ -6,6 +6,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.SelectBox;
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.utils.Array;
 import com.github.tommyettinger.textra.TextraButton;
+import forge.adventure.data.MasterySurgeData;
 import forge.adventure.data.RewardData;
 import forge.adventure.data.SkillTreeListData;
 import forge.card.CardEdition;
@@ -17,6 +18,7 @@ import com.badlogic.gdx.utils.Align;
 import com.github.tommyettinger.textra.TypingLabel;
 import forge.Adventure;
 import forge.Forge;
+import forge.adventure.player.AdventurePlayer;
 import forge.adventure.player.PlayerSkills;
 import forge.adventure.player.StandardWindow;
 import forge.adventure.util.Config;
@@ -114,6 +116,8 @@ public class SkillsScene extends UIScene {
             if (window.isChoicePending())
                 addSetChoice(window);
         }
+        if (Config.ascendant() && Current.player().getMasterySurgePicksUnspent() > 0)
+            addMasterySurgeChoice();
         performTouch(scrollPaneOfActor(scrollContainer)); //mouse wheel scrolling
     }
 
@@ -189,6 +193,47 @@ public class SkillsScene extends UIScene {
         scrollContainer.add(unlock).padRight(10);
         addToSelectable(box);
         addToSelectable(unlock);
+    }
+
+    /** Spend unspent Mastery Surge picks (INV1). */
+    private void addMasterySurgeChoice() {
+        AdventurePlayer ap = Current.player();
+        List<MasterySurgeData> options = ap.availableMasterySurgeOptions();
+        if (options.isEmpty())
+            return;
+        Array<String> names = new Array<>();
+        for (MasterySurgeData d : options)
+            names.add(d.getDisplayName());
+        SelectBox<String> box = Controls.newComboBox();
+        box.setItems(names);
+        box.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                box.showScrollPane();
+            }
+        });
+        TextraButton pick = Controls.newTextButton("Claim");
+        pick.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                int i = box.getSelectedIndex();
+                if (i < 0 || i >= options.size())
+                    return;
+                if (ap.spendMasterySurgePick(options.get(i).id))
+                    buildList();
+            }
+        });
+        scrollContainer.row().padTop(10);
+        scrollContainer.add(label("[GOLD]Mastery Surge picks: " + ap.getMasterySurgePicksUnspent() + "[]"))
+                .align(Align.left).padLeft(10).colspan(3);
+        scrollContainer.row().padTop(4);
+        scrollContainer.add(label("[DARK_GRAY]Craft Pouch: " + ap.getBags().getCraftPouchTier().label))
+                .align(Align.left).padLeft(10).colspan(3);
+        scrollContainer.row().padTop(4);
+        scrollContainer.add(box).colspan(2).fillX().padLeft(10);
+        scrollContainer.add(pick).padRight(10);
+        addToSelectable(box);
+        addToSelectable(pick);
     }
 
     private void addRow(String name, String level, String xp) {
