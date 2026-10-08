@@ -67,6 +67,11 @@ public class Adventure {
             // Adventure UIScene
             Forge.currentScene.render();
             Forge.currentScene.act(delta);
+            // CO2: pausing menus (inventory, deck editor) must not pause the shared overworld.
+            try {
+                forge.adventure.coop.CoopOverworldRuntime.get().backgroundTick(delta);
+            } catch (Exception ignored) {
+            }
             if (Forge.currentScene instanceof HudScene hudScene)
                 FrameRate.getInstance().sampleAdventure(hudScene.getBatch(), Forge.showFPS);
         } catch (IllegalStateException | NullPointerException ie) {

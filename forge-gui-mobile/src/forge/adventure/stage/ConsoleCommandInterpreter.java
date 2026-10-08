@@ -707,5 +707,32 @@ public class ConsoleCommandInterpreter {
             
             return "Exit the map to reset it.";
         });
+        // CO2 shared overworld — party / location invites (Ascendant co-op only).
+        registerCommand(new String[]{"coop", "party", "invite"}, s -> {
+            if (!Config.ascendant())
+                return "Co-op is Ascendant-only";
+            forge.adventure.coop.CoopOverworldRuntime.get().inviteParty();
+            return "Party invite sent (if in range)";
+        });
+        registerCommand(new String[]{"coop", "party", "accept"}, s -> {
+            forge.adventure.coop.CoopOverworldRuntime.get().acceptParty();
+            return "Accepted party invite";
+        });
+        registerCommand(new String[]{"coop", "party", "decline"}, s -> {
+            forge.adventure.coop.CoopOverworldRuntime.get().declineParty();
+            return "Declined party invite";
+        });
+        registerCommand(new String[]{"coop", "party", "leave"}, s -> {
+            forge.adventure.coop.CoopOverworldRuntime.get().leaveParty();
+            return "Left party";
+        });
+        registerCommand(new String[]{"coop", "location", "accept"}, s -> {
+            forge.adventure.coop.CoopOverworldRuntime.get().acceptLocationInvite();
+            return "Accepted location invite";
+        });
+        registerCommand(new String[]{"coop", "location", "decline"}, s -> {
+            forge.adventure.coop.CoopOverworldRuntime.get().declineLocationInvite();
+            return "Declined location invite — waiting outside";
+        });
     }
 }

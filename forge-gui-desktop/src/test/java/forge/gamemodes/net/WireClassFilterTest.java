@@ -30,10 +30,14 @@ public class WireClassFilterTest {
             "[Ljava.util.concurrent.ConcurrentHashMap$Segment;",
             // The filter's one deliberate soft spot: getChoices ships a lambda.
             "java.lang.invoke.SerializedLambda",
-            // Ascendant co-op (CO1) — also listed in WireClassFilter.ALLOWED_EXACT.
+            // Ascendant co-op (CO1/CO2) — also listed in WireClassFilter.ALLOWED_EXACT.
             "forge.gamemodes.net.event.coop.CoopHelloEvent",
             "forge.gamemodes.net.event.coop.CoopWorldOfferEvent",
             "forge.gamemodes.net.event.coop.CoopDecklistEvent",
+            "forge.gamemodes.net.event.coop.CoopPlayerMoveEvent",
+            "forge.gamemodes.net.event.coop.CoopGatherRequestEvent",
+            "forge.gamemodes.net.event.coop.CoopNodeStateEvent",
+            "forge.gamemodes.net.event.coop.CoopLocationInviteEvent",
     };
 
     private static final String[] REJECTED = {

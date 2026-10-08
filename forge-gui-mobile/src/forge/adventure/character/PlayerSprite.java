@@ -66,6 +66,14 @@ public class PlayerSprite extends CharacterSprite {
         playerSpeedModifier = speed;
     }
 
+    /**
+     * Current max walk speed in world px/s: base × move modifier (sprint/skill)
+     * × equipment × road bonus. Used by co-op move validation.
+     */
+    public float getMaxSpeedPxPerSec() {
+        return playerSpeed * playerSpeedModifier * playerSpeedEquipmentModifier * roadSpeedBonus();
+    }
+
     @Override
     public void act(float delta) {
         super.act(delta);

@@ -703,6 +703,10 @@ public abstract class GameStage extends Stage {
     public void setPosition(Vector2 position) {
         getPlayerSprite().setPosition(position);
         teleported(position);
+        // Overworld teleports only — interior MapStage moves must not reset peer sync.
+        if (Config.ascendant() && this instanceof WorldStage) {
+            forge.adventure.coop.CoopOverworldRuntime.get().notifyLocalTeleport();
+        }
     }
 
     public void resetPlayerLocation() {

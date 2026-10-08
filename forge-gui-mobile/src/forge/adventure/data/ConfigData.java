@@ -239,9 +239,34 @@ public class ConfigData {
     public String coopBindAddress = "";
     /** Seconds the guest waits for a host hello reply before giving up. */
     public int coopHandshakeTimeoutSeconds = 30;
-    /** Party / duel-invite radius in overworld tiles (CO2/CO3; stored early for tunables). */
+    /** Party / duel-invite / location-invite radius in overworld tiles (CO2/CO3). */
     public float coopPartyRadiusTiles = 8f;
     /** "Join the fight?" prompt timeout in seconds (CO3). */
     public int coopDuelInviteTimeoutSeconds = 15;
+
+    // ---- Ascendant co-op (Package CO2): shared overworld. ----
+
+    /** Outbound position/facing samples per second (10–20). */
+    public float coopPositionSendHz = 15f;
+    /** Max inbound position samples accepted per peer per second (rate limit). */
+    public int coopPositionMaxPerSecond = 24;
+    /** Partner sprite interpolation smoothing rate (higher = snappier). */
+    public float coopPartnerInterpRate = 12f;
+    /** Max gather / world-request messages per peer per second. */
+    public int coopRequestMaxPerSecond = 8;
+    /** Host gather-range check in world pixels. */
+    public float coopInteractRangePx = 96f;
+    /** Seconds a party partner has to accept a location-enter invite. */
+    public int coopLocationInviteTimeoutSeconds = 12;
+    /** Host enemy-position broadcast rate (Hz). Lower than player move rate. */
+    public float coopEnemyBroadcastHz = 5f;
+    /**
+     * Initial / fallback max peer walk speed in world pixels/sec before the peer
+     * reports their actual max (base × road × equipment/skill). Hard-capped by
+     * {@code CoopWireLimits.HARD_MAX_MOVE_SPEED_PX}. Walk samples above
+     * {@code max × MOVE_SPEED_MARGIN} are rejected; explicit teleport samples
+     * bypass the check when armed by an allowing action.
+     */
+    public float coopMaxMoveSpeedPx = 120f;
 
 }
