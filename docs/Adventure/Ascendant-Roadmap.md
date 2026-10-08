@@ -525,8 +525,27 @@ Today the inventory is one flat list of every item (equipped ones included) unde
   - **Materials**: raw and refined materials (the existing Materials tab), stack-based.
 - **Capacity grows, no weight**: each bag has a slot count and a max stack size. Upgrades (crafted or bought, e.g.
   bigger backpacks, pack satchels, material sacks) add slots and raise stack sizes. Nothing ever has weight.
-- **Never delete on overflow**: old saves and over-capacity bags keep everything; the bag shows as over capacity
-  and new items of that kind go to fortress storage (or are refused with a message) until there is room.
+- **Never refuse, never delete: the Overflow stash.** Anything that doesn't fit goes to an **Overflow** tab (warning
+  badge, saved). Overflow items can't be used, equipped or sold until moved into a bag with room. Quest items are
+  exempt from capacity. Old over-capacity saves load straight into Overflow.
+- **Being overloaded has consequences** while anything is in Overflow:
+  - **Slower movement**, scaling with how much is overflowing, down to about half speed.
+  - **No fast travel**: no inn waypoint travel and no planar portals until Overflow is empty.
+  - **Overflow cap of 10 slots.** Past it, new items are auto-sold at normal sell price (cards to dust instead),
+    never silently deleted. No timer.
+- **Craft Pouch (deep slots for gathered resources).** Gathered and crafting materials never use the backpack;
+  they go to a Craft Pouch with far bigger stacks (like No Man's Sky cargo slots or ESO's craft bag):
+  - Satchel (start): ~20 slots, stacks of 250.
+  - Pack: more slots, stacks of 500.
+  - Hauler's Sack: more slots, stacks of 1,000.
+  - **Bottomless Craft Bag**: unlimited slots and stacks, materials only.
+  - **Craft Pouch tiers are NOT craftable.** They come only from the **Mastery Surge** (below). Every other bag
+    upgrade (backpack, pack satchel, currency) is crafted from gathered materials.
+  - Stations and fortress storage pull straight from the Craft Pouch. Each co-op player has their own.
+- **Mastery Surge.** Completing a set mastery releases a burst of power: the player picks **one or two upgrades**
+  (tunable) from a short list. The Craft Pouch's next tier is always on the list. Other first-pass options
+  (tunable, data-driven): +1 duel perk slot, +1 tool enchant socket, +1 Overflow slot cap. Unspent picks are kept
+  until used.
 - **Compare**: selecting (or hovering) a bag item that fits an occupied slot shows it side by side with the
   equipped item, with each stat difference marked better/worse (green up, red down): life, starting cards, move
   speed, gold, card rewards, mana shards, mulligans, start-of-battle cards, opponent effects, enchant sockets,
