@@ -231,6 +231,10 @@ public final class CoopOverworldServer implements IHasForgeLog {
             if (listener == null) {
                 return;
             }
+            // Only the channel holding the guest slot may talk; a rejected extra connection is ignored.
+            if (guestChannel.get() != ctx.channel()) {
+                return;
+            }
             if (!guestAuthenticated.get() && !(msg instanceof CoopHelloEvent)) {
                 netLog.warn("Dropping {} before co-op authentication", msg.getClass().getSimpleName());
                 return;
@@ -240,7 +244,10 @@ public final class CoopOverworldServer implements IHasForgeLog {
 
         @Override
         public void channelInactive(final ChannelHandlerContext ctx) {
-            guestChannel.compareAndSet(ctx.channel(), null);
+            // A rejected or locked-out extra connection closing must not reset the real guest's session.
+            if (!guestChannel.compareAndSet(ctx.channel(), null)) {
+                return;
+            }
             guestAuthenticated.set(false);
             if (listener != null) {
                 listener.onDisconnected("guest disconnected");
@@ -249,7 +256,7 @@ public final class CoopOverworldServer implements IHasForgeLog {
 
         @Override
         public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause) {
-            if (listener != null) {
+            if (listener != null && guestChannel.get() == ctx.channel()) {
                 listener.onError("overworld server error", cause);
             }
             ctx.close();

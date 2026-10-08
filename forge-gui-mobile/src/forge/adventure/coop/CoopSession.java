@@ -219,7 +219,13 @@ public final class CoopSession {
         server = new CoopOverworldServer(overworldPort,
                 bindAddress.isEmpty() ? null : bindAddress,
                 new HostListener());
-        server.start();
+        try {
+            server.start();
+        } catch (final Exception e) {
+            // A failed bind must not leave the session stuck in HOSTING with live event loops.
+            disconnectInternal("host failed", false);
+            throw e;
+        }
         status("Hosting co-op on overworld port " + overworldPort
                 + (bindAddress.isEmpty() ? " (all interfaces)" : " bound to " + bindAddress)
                 + "; session code " + sessionCode
@@ -262,7 +268,13 @@ public final class CoopSession {
         sessionWorld = new World();
 
         client = new CoopOverworldClient(host, port, new GuestListener());
-        client.connect();
+        try {
+            client.connect();
+        } catch (final Exception e) {
+            // Restore the guest's own save so autosave and quick save work again.
+            disconnectInternal("join failed", true);
+            throw e;
+        }
         status("Connecting to " + host + ':' + port
                 + (CoopAddressUtil.isTailscaleAddress(host) ? " (Tailscale, UPnP N/A)" : ""));
     }
@@ -329,7 +341,7 @@ public final class CoopSession {
             }
         }
 
-        sessionWorld = null;
+        disposeSessionWorld();
         role = CoopSessionRole.NONE;
         // Keep REJECTED visible until the next host/join clears it.
         if (previousState == State.REJECTED) {
@@ -343,6 +355,14 @@ public final class CoopSession {
             bindAddress = "";
         }
         status("Disconnected: " + reason);
+    }
+
+    /** Frees the session world's textures on the GL thread, after any queued guest-save restore has run. */
+    private void disposeSessionWorld() {
+        final World w = sessionWorld;
+        sessionWorld = null;
+        if (w != null && Gdx.app != null)
+            Gdx.app.postRunnable(w::dispose);
     }
 
     private void stashGuestSave() {
@@ -702,7 +722,7 @@ public final class CoopSession {
                 if (c != null) {
                     c.disconnect();
                 }
-                sessionWorld = null;
+                disposeSessionWorld();
                 role = CoopSessionRole.NONE;
                 return;
             }
