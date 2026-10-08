@@ -68,6 +68,7 @@ public class InputAttack extends InputSyncronizedBase {
 
     @Override
     public final void showMessage() {
+        getController().getGui().setCombatDeclareInput(true, false);
         setCurrentDefender(defenders.getFirst());
 
         if (currentDefender == null) {
@@ -97,6 +98,7 @@ public class InputAttack extends InputSyncronizedBase {
 
     @Override
     protected void onStop() {
+        getController().getGui().setCombatDeclareInput(false, false);
         // Clear so highlights don't survive autopass.
         getController().clearActionableCards();
     }

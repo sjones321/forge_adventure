@@ -25,6 +25,7 @@ import forge.menu.FMenuItem;
 import forge.menu.FPopupMenu;
 import forge.screens.match.MatchController;
 import forge.screens.match.MatchScreen;
+import forge.screens.match.ModernDuelScreen;
 import forge.toolbox.FCardPanel;
 import forge.toolbox.FContainer;
 import forge.toolbox.FDisplayObject;
@@ -79,6 +80,7 @@ public class VPlayerPanel extends FContainer {
     private final VZoneDisplay commandZone;
     private final LifeLabel lblLife;
     private final InfoTab tabManaPool;
+    private final VFloatingMana floatingMana;
     private final Map<ZoneType, InfoTabZone> zoneTabs = new HashMap<>();
     private final InfoTabExtra extraTab;
     private final List<InfoTab> tabs = new ArrayList<>();
@@ -112,6 +114,7 @@ public class VPlayerPanel extends FContainer {
         VManaPool manaPool = add(new VManaPool(player));
         tabManaPool = add(new InfoTabSingleDisplay(FSkinImage.HDMANAPOOL, manaPool));
         tabs.add(tabManaPool);
+        floatingMana = add(new VFloatingMana(player));
 
         addZoneDisplay(ZoneType.Exile);
         extraTab = add(new InfoTabExtra());
@@ -154,6 +157,14 @@ public class VPlayerPanel extends FContainer {
     public void resetZoneTabs() {
         for (InfoTab tab : tabs)
             tab.reset();
+    }
+
+    public VZoneDisplay getZoneDisplay(ZoneType zoneType) {
+        final InfoTabZone tab = zoneTabs.get(zoneType);
+        if (tab == null || !(tab.getDisplayArea() instanceof VZoneDisplay zone)) {
+            return null;
+        }
+        return zone;
     }
 
     public void setSelectedZone(ZoneType zoneType) {
@@ -291,6 +302,13 @@ public class VPlayerPanel extends FContainer {
 
     public void updateManaPool() {
         tabManaPool.update();
+        if (floatingMana != null) {
+            floatingMana.update();
+        }
+    }
+
+    public VFloatingMana getFloatingMana() {
+        return floatingMana;
     }
 
     @SuppressWarnings("incomplete-switch")
@@ -370,6 +388,7 @@ public class VPlayerPanel extends FContainer {
         }
 
         field.setBounds(0, 0, width, y);
+        layoutFloatingMana(width, y);
 
         if (isFlipped()) { //flip all positions across x-axis if needed
             for (FDisplayObject child : getChildren()) {
@@ -379,6 +398,38 @@ public class VPlayerPanel extends FContainer {
 
         //this is used for landscape so set this to 0
         field.setFieldModifier(0);
+    }
+
+    private void layoutFloatingMana(float panelWidth, float fieldBottom) {
+        if (floatingMana == null || !ModernDuelScreen.enabled()) {
+            if (floatingMana != null) {
+                floatingMana.setVisible(false);
+            }
+            return;
+        }
+        final float barH = Utils.scale(28);
+        final float barW = Math.min(panelWidth * 0.55f, Utils.scale(220));
+        final float x = (panelWidth - barW) / 2f;
+        final float y = isFlipped() ? Utils.scale(2) : Math.max(0, fieldBottom - barH - Utils.scale(2));
+        floatingMana.setBounds(x, y, barW, barH);
+        floatingMana.update();
+    }
+
+    private void layoutFloatingManaLandscape() {
+        if (floatingMana == null || !ModernDuelScreen.enabled()) {
+            if (floatingMana != null) {
+                floatingMana.setVisible(false);
+            }
+            return;
+        }
+        final float barH = Utils.scale(28);
+        final float barW = Math.min(field.getWidth() * 0.45f, Utils.scale(220));
+        final float x = field.getLeft() + (field.getWidth() - barW) / 2f;
+        final float y = isFlipped()
+                ? field.getTop() + Utils.scale(2)
+                : field.getBottom() - barH - Utils.scale(2);
+        floatingMana.setBounds(x, y, barW, barH);
+        floatingMana.update();
     }
 
     private float initW, initH, commandZoneWidth, commandZoneCount, avatarWidth, prefWidth;
@@ -464,6 +515,7 @@ public class VPlayerPanel extends FContainer {
             field.getRow2().setWidth(width - (avatarWidth / 4f) - (selectedTab == null ? 0 : selectedTab.getIdealWidth(prefWidth) + 1) - avatarWidth * mod);
         } else
             field.setBounds(x, 0, fieldWidth, height);
+        layoutFloatingManaLandscape();
 
         x = width - displayAreaWidth - avatarWidth;
         for (InfoTab tab : tabs) {

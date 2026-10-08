@@ -45,6 +45,9 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
     private String daytime = null;
     private boolean ignoreConcedeChain = false;
     private boolean networkGame = false;
+    /** DS1: true while InputAttack / InputBlock is the active prompt for this GUI. */
+    private volatile boolean combatDeclareAttackersInput;
+    private volatile boolean combatDeclareBlockersInput;
 
     private Timer waitingTimer;
     private long waitingStartTime;
@@ -56,6 +59,22 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
     @Override
     public void setNetGame() {
         networkGame = true;
+    }
+
+    @Override
+    public void setCombatDeclareInput(final boolean attackers, final boolean blockers) {
+        combatDeclareAttackersInput = attackers;
+        combatDeclareBlockersInput = blockers;
+    }
+
+    @Override
+    public boolean isCombatDeclareAttackersInput() {
+        return combatDeclareAttackersInput;
+    }
+
+    @Override
+    public boolean isCombatDeclareBlockersInput() {
+        return combatDeclareBlockersInput;
     }
 
     public final boolean hasLocalPlayers() {

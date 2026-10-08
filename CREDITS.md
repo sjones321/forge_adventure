@@ -11,6 +11,19 @@ license. **Add an entry here whenever a new asset, library or data source is add
 - **Particle Park "Forge effects"** (`forge-gui/res/adventure/common/particle_effects/`) — Raymond Buckley. CC BY 4.0.
   See `Particle Park License.txt` in that folder.
 
+## Match UI behaviour (adapted, not copied)
+
+- **Neo Forge** (<https://github.com/AdrianLopez98/NeoForge>, GPLv3, JavaFX) — behaviour reference for Ascendant
+  package DS1 (modern libGDX duel screen). Studied and reimplemented in `forge-gui-mobile` (not a line copy):
+  - Combat / target / drag arrow colours and edge-to-edge curved arrows (`CombatOverlay.java`)
+  - Drag-to-cast, drag-to-attack/block, ~9px drag slop, cancel when dropping a hand card off the board
+    (`TableScreen.installDragGestures`, `NeoMatchUI.onCardDropped`)
+  - Press-to-peek hand, slide between hand cards, push up onto the table to play (`TableScreen` hand peek)
+  - Drag-to-reorder hand via `IGameController.reorderHand`
+  - Clickable floating mana pips near the player field (`PlayerBar` mana pool)
+  - All inputs still go through `IGameController.selectCard` / `selectPlayer` so co-op
+    (`RemoteClientGuiGame` / CO3) stays on the existing network path
+
 ## Sound effects
 
 - **Kenney — Impact Sounds** and **RPG Audio** (gathering sounds in `forge-gui/res/adventure/common/sound/`) —

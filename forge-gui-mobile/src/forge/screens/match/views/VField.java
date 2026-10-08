@@ -334,5 +334,10 @@ public class VField extends FContainer {
             if (this.selectedChild instanceof FCardPanel)
                 VCardDisplayArea.CardAreaPanel.get(((FCardPanel) this.selectedChild).getCard()).selectCard(false);
         }
+
+        @Override
+        public FDisplayObject getSelectedChild() {
+            return this.selectedChild;
+        }
     }
 }

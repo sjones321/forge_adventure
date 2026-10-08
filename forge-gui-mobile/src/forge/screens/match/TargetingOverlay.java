@@ -39,6 +39,16 @@ public class TargetingOverlay {
     private static final float ARROW_THICKNESS = Utils.scale(5);
     private static final float ARROW_SIZE = 3 * ARROW_THICKNESS;
     private static FSkinColor friendColor, foeAtkColor, foeDefColor;
+    /** Precomputed soft friend colour — avoid friendColor.alphaColor(0.85f) every frame. */
+    private static Color friendColorSoft;
+    /** Neo Forge CombatOverlay palette when {@link ModernDuelScreen} is on (cached). */
+    private static final Color MODERN_ATTACK = Color.valueOf("D9534F");
+    private static final Color MODERN_BLOCK = Color.valueOf("4A9BE0");
+    private static final Color MODERN_TARGET = Color.valueOf("E0A63C");
+    private static final Color MODERN_ATTACK_SOFT = new Color(MODERN_ATTACK.r, MODERN_ATTACK.g, MODERN_ATTACK.b, 0.85f);
+    private static final Color MODERN_BLOCK_SOFT = new Color(MODERN_BLOCK.r, MODERN_BLOCK.g, MODERN_BLOCK.b, 0.85f);
+    private static final Color MODERN_TARGET_SOFT = new Color(MODERN_TARGET.r, MODERN_TARGET.g, MODERN_TARGET.b, 0.85f);
+    private static final Color MODERN_FRIEND_SOFT_FALLBACK = new Color(0.5f, 0.8f, 0.5f, 0.85f);
 
     public enum ArcConnection {
         Friends,
@@ -53,6 +63,7 @@ public class TargetingOverlay {
         if (friendColor.getAlpha() == 0) {
             friendColor = Forge.isMobileAdventureMode ? FSkinColor.get(Colors.ADV_CLR_ACTIVE).alphaColor(153f / 255f) : FSkinColor.get(Colors.CLR_ACTIVE).alphaColor(153f / 255f);
         }
+        friendColorSoft = friendColor.alphaColor(0.85f).getColor();
 
         foeDefColor = Forge.isMobileAdventureMode ? FSkinColor.get(Colors.ADV_CLR_COMBAT_TARGETING_ARROW) : FSkinColor.get(Colors.CLR_COMBAT_TARGETING_ARROW);
         if (foeDefColor.getAlpha() == 0) {
@@ -225,27 +236,47 @@ public class TargetingOverlay {
     private static void drawArrowStyled(final Graphics g, final Vector2 start, final Vector2 end, final ArcConnection connects, final String style, final boolean solid) {
         if (start == null || end == null) { return; }
 
-        FSkinColor color = foeDefColor;
-
-        switch (connects) {
-            case Friends:
-            case FriendsStackTargeting:
-                color = friendColor;
-                break;
-            case FoesAttacking:
-                color = foeAtkColor;
-                break;
-            case FoesBlocking:
-            case FoesStackTargeting:
-                color = foeDefColor;
+        final boolean modern = ModernDuelScreen.enabled();
+        Color drawColor;
+        if (modern) {
+            if (solid) {
+                drawColor = switch (connects) {
+                    case FoesAttacking -> MODERN_ATTACK;
+                    case FoesBlocking -> MODERN_BLOCK;
+                    case FriendsStackTargeting, FoesStackTargeting -> MODERN_TARGET;
+                    default -> friendColor != null ? friendColor.getColor() : MODERN_FRIEND_SOFT_FALLBACK;
+                };
+            } else {
+                drawColor = switch (connects) {
+                    case FoesAttacking -> MODERN_ATTACK_SOFT;
+                    case FoesBlocking -> MODERN_BLOCK_SOFT;
+                    case FriendsStackTargeting, FoesStackTargeting -> MODERN_TARGET_SOFT;
+                    default -> friendColorSoft != null ? friendColorSoft : MODERN_FRIEND_SOFT_FALLBACK;
+                };
+            }
+        } else {
+            FSkinColor color = foeDefColor;
+            switch (connects) {
+                case Friends:
+                case FriendsStackTargeting:
+                    color = friendColor;
+                    break;
+                case FoesAttacking:
+                    color = foeAtkColor;
+                    break;
+                case FoesBlocking:
+                case FoesStackTargeting:
+                    color = foeDefColor;
+            }
+            drawColor = solid ? color.alphaColor(1f).getColor() : color.alphaColor(0.8f).getColor();
         }
 
         switch (style) {
-            case "Point" -> g.drawCurvedLinePointer(Utils.scale(3), color.getColor(), Color.WHITE, start.x, start.y, end.x, end.y);
-            case "Line" -> g.drawLinePointer(Utils.scale(3), color.getColor(), start.x, start.y, end.x, end.y);
+            case "Point" -> g.drawCurvedLinePointer(Utils.scale(3), drawColor, Color.WHITE, start.x, start.y, end.x, end.y);
+            case "Line" -> g.drawLinePointer(Utils.scale(3), drawColor, start.x, start.y, end.x, end.y);
             default -> g.drawCurvedArrow(Utils.scale(3),
-                    solid ? color.alphaColor(1f).getColor() : color.alphaColor(0.8f).getColor(),
-                    solid ? Color.WHITE : FSkinColor.getStandardColor(Color.WHITE).alphaColor(0.9f).getColor(),
+                    drawColor,
+                    solid || modern ? Color.WHITE : FSkinColor.getStandardColor(Color.WHITE).alphaColor(0.9f).getColor(),
                     start.x, start.y, end.x, end.y, ArcConnection.Friends.equals(connects));
         }
     }

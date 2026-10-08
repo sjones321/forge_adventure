@@ -333,6 +333,12 @@ public class ProtocolGuiGame extends NetworkGuiGame implements IHasForgeLog {
     }
 
     @Override
+    public void setCombatDeclareInput(final boolean attackers, final boolean blockers) {
+        super.setCombatDeclareInput(attackers, blockers);
+        send(ProtocolMethod.setCombatDeclareInput, attackers, blockers);
+    }
+
+    @Override
     public void flashIncorrectAction() {
         send(ProtocolMethod.flashIncorrectAction);
     }

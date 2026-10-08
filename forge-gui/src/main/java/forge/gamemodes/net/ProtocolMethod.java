@@ -34,6 +34,8 @@ public enum ProtocolMethod implements IHasForgeLog {
     openView            (Mode.SERVER, Void.TYPE, TrackableCollection/*PlayerView*/.class),
     afterGameEnd        (Mode.SERVER, Void.TYPE),
     showCombat          (Mode.SERVER, Void.TYPE),
+    /** DS1: InputAttack / InputBlock active on the host — guest needs the same gate. */
+    setCombatDeclareInput(Mode.SERVER, Void.TYPE, Boolean.TYPE, Boolean.TYPE),
     showPromptMessage   (Mode.SERVER, Void.TYPE, PlayerView.class, String.class, CardView.class),
     updateDrawOffer     (Mode.SERVER, Void.TYPE, DrawOfferMessage.Status.class),
     updateButtons       (Mode.SERVER, Void.TYPE, PlayerView.class, String.class, String.class, Boolean.TYPE, Boolean.TYPE, Boolean.TYPE),
