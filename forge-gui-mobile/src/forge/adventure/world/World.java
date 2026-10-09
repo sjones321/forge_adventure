@@ -207,13 +207,19 @@ public class World implements Disposable, SaveFileContent {
 
         SaveFileData data = new SaveFileData();
 
-        data.store("biomeImage", biomeImage);
+        if (biomeImage != null) {
+            data.store("biomeImage", biomeImage);
+        }
         data.storeObject("biomeMap", biomeMap);
         data.storeObject("terrainMap", terrainMap);
         data.store("width", width);
         data.store("height", height);
-        data.store("mapObjectIds", mapObjectIds.save());
-        data.store("mapPoiIds", mapPoiIds.save());
+        if (mapObjectIds != null) {
+            data.store("mapObjectIds", mapObjectIds.save());
+        }
+        if (mapPoiIds != null) {
+            data.store("mapPoiIds", mapPoiIds.save());
+        }
         data.store("seed", seed);
         data.store("worldConfigPath", getWorldConfigPath());
         return data;

@@ -222,6 +222,125 @@ public class CoopPartnerPersistTest {
     }
 
     @Test
+    public void realWorldSaveDiskRoundTripPartnersAndNoHeaderRetitle() throws Exception {
+        final int slot = 7;
+        final String headerName = "Host World Alpha";
+        ensureMinimalWorldForDiskSave();
+        final WorldSave save = WorldSave.getCurrentSave();
+        save.header.name = headerName;
+        save.setLoadedSlot(slot);
+        final AdventurePlayer partner = CoopPartnerStarter.createNew("DiskPartner", true, 0, 0, "");
+        partner.giveGold(88);
+        save.getPartners().putPlayer(PROFILE_A, partner);
+
+        Assert.assertTrue(save.savePreservingHeader(slot), "disk save");
+        Assert.assertEquals(save.header.name, headerName, "save must not retitle header");
+
+        // Real disk round-trip: read the .sav with the same Inflater/ObjectInputStream path.
+        final Path savPath = Path.of(WorldSave.getSaveFile(slot));
+        Assert.assertTrue(Files.exists(savPath));
+        forge.adventure.world.WorldSaveHeader diskHeader;
+        SaveFileData mainData;
+        try (java.io.FileInputStream fos = new java.io.FileInputStream(savPath.toFile());
+             java.util.zip.InflaterInputStream inf = new java.util.zip.InflaterInputStream(fos);
+             ObjectInputStream oos = new ObjectInputStream(inf)) {
+            diskHeader = (forge.adventure.world.WorldSaveHeader) oos.readObject();
+            mainData = (SaveFileData) oos.readObject();
+        }
+        Assert.assertEquals(diskHeader.name, headerName);
+        Assert.assertTrue(mainData.containsKey("partners"), "partners written to disk");
+        final WorldPartners fromDisk = new WorldPartners();
+        fromDisk.load(mainData.readSubData("partners"));
+        Assert.assertTrue(fromDisk.has(PROFILE_A));
+        Assert.assertEquals(fromDisk.get(PROFILE_A).readString("name"), "DiskPartner");
+        Assert.assertTrue(fromDisk.get(PROFILE_A).readInt("gold") >= 88);
+
+        // Host partner flush must keep the same slot and header title.
+        final CoopSession session = CoopSession.get();
+        session.testBeginHostForPartner(PROFILE_A);
+        session.partnerSync().markHostPartnerDirty();
+        final Path slot0 = Path.of(WorldSave.getSaveFile(0));
+        final byte[] slot0Before = Files.exists(slot0) ? Files.readAllBytes(slot0) : null;
+        Assert.assertTrue(session.partnerSync().saveHostWorldNow());
+        Assert.assertEquals(WorldSave.getCurrentSave().header.name, headerName,
+                "saveHostWorldNow must never retitle header");
+        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), slot);
+        if (slot0Before == null) {
+            Assert.assertFalse(Files.exists(slot0), "must not invent hidden slot 0");
+        } else {
+            Assert.assertEquals(Files.readAllBytes(slot0), slot0Before, "must not overwrite slot 0");
+        }
+    }
+
+    @Test
+    public void realJoinLeaveKeepsSoloSlotBytesIdentical() throws Exception {
+        final Path soloSlot = Path.of(WorldSave.getSaveFile(3));
+        Files.createDirectories(soloSlot.getParent());
+        final byte[] before = ("solo-slot-v2|" + SOLO_GOLD).getBytes();
+        Files.write(soloSlot, before);
+
+        final CoopSession session = CoopSession.get();
+        session.testBeginHostForPartner(PROFILE_A);
+        Assert.assertTrue(session.applyHostPartnerCreate(new CoopPartnerCreateEvent(
+                PROFILE_A, "Farmhand", true, 0, 0, new byte[0], "")));
+        final byte[] blob = CoopPartnerCodec.encode(WorldSave.getCurrentSave().getPartners().get(PROFILE_A));
+
+        session.testBeginGuestForPartner(PROFILE_A);
+        partnerSyncRememberName(session, "SoloHero");
+        session.applyGuestPartnerBlob(blob, new String[0]);
+        Assert.assertTrue(session.isPartnerLoaded());
+        Assert.assertTrue(session.isGuestSession());
+        WorldSave.getCurrentSave().getPlayer().giveGold(LOOT_GOLD);
+
+        // Real leave path (final ack timeout ok headless — no host on wire).
+        session.testGuestLeaveToMenu();
+        Assert.assertFalse(session.isGuestSession(), "leave guard cleared after unload");
+        Assert.assertFalse(session.isPartnerLoaded());
+        Assert.assertNull(WorldSave.getCurrentSave().getWorld().getData());
+        Assert.assertEquals(Files.readAllBytes(soloSlot), before, "solo slot file untouched by join/leave");
+    }
+
+    @Test
+    public void autosaveDuringLeaveWindowDoesNotWritePartner() throws Exception {
+        ensureMinimalWorldForDiskSave();
+        final CoopSession session = CoopSession.get();
+        session.testBeginHostForPartner(PROFILE_A);
+        Assert.assertTrue(session.applyHostPartnerCreate(new CoopPartnerCreateEvent(
+                PROFILE_A, "Farmhand", true, 0, 0, new byte[0], "")));
+        final byte[] blob = CoopPartnerCodec.encode(WorldSave.getCurrentSave().getPartners().get(PROFILE_A));
+
+        session.testBeginGuestForPartner(PROFILE_A);
+        session.applyGuestPartnerBlob(blob, new String[0]);
+        WorldSave.getCurrentSave().getPlayer().giveGold(LOOT_GOLD);
+        Assert.assertEquals(WorldSave.getCurrentSave().getPlayer().getName(), "Farmhand");
+
+        // Leave window: guard stays up so autosave is refused before unload completes.
+        session.testSetGuestLeaveGuard(true);
+        Assert.assertTrue(session.isGuestSession());
+        Assert.assertFalse(WorldSave.getCurrentSave().autoSave(),
+                "autosave blocked while leave guard is set");
+
+        final Path autoPath = Path.of(WorldSave.getSaveFile(WorldSave.AUTO_SAVE_SLOT));
+        final boolean autoExisted = Files.exists(autoPath);
+        final byte[] autoBefore = autoExisted ? Files.readAllBytes(autoPath) : null;
+
+        // Complete leave: unload first, then clear guard.
+        session.testGuestLeaveToMenu();
+        Assert.assertFalse(session.isGuestSession());
+        Assert.assertNull(WorldSave.getCurrentSave().getWorld().getData());
+        Assert.assertFalse(WorldSave.getCurrentSave().autoSave(),
+                "autosave still refuses with null world data");
+
+        if (autoExisted) {
+            Assert.assertEquals(Files.readAllBytes(autoPath), autoBefore,
+                    "pre-existing auto_save.sav must not gain partner bytes");
+        } else {
+            Assert.assertFalse(Files.exists(autoPath),
+                    "leave must not create auto_save.sav with partner data");
+        }
+    }
+
+    @Test
     public void finalSnapshotBypassesRateLimit() throws Exception {
         final CoopSession session = CoopSession.get();
         session.testBeginHostForPartner(PROFILE_A);
@@ -252,6 +371,19 @@ public class CoopPartnerPersistTest {
         d.lifeLoss = 0.1f;
         d.startItems = new String[0];
         p.create(name, new Deck(name), true, 0, 0, false, false, d, AdventureModes.Standard);
+    }
+
+    private static void partnerSyncRememberName(final CoopSession session, final String name) {
+        session.partnerSync().rememberGuiPlayerName(name);
+    }
+
+    private static void ensureMinimalWorldForDiskSave() {
+        final forge.adventure.data.WorldData data = new forge.adventure.data.WorldData();
+        data.width = 16;
+        data.height = 16;
+        data.tileSize = 16;
+        WorldSave.getCurrentSave().getWorld().installTestWorldGrid(data, 42L);
+        Assert.assertNotNull(WorldSave.getCurrentSave().getWorld().getData());
     }
 
     private static boolean rawHasMaterial(final SaveFileData data, final String id, final int amount) {

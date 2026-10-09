@@ -19,9 +19,8 @@ public class WorldSaveHeader implements java.io.Serializable, Disposable {
 
     private void writeObject(java.io.ObjectOutputStream out) throws IOException {
 
-        out.writeUTF(name);
-        if (preview == null)
-            preview = new Pixmap(1, 1, Pixmap.Format.RGBA8888);
+        out.writeUTF(name != null ? name : "");
+        // Null-safe: headless / partner-flush tests must not allocate a Pixmap just to serialize.
         Serializer.WritePixmap(out, preview, false);
         out.writeObject(saveDate);
     }
