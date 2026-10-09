@@ -76,7 +76,9 @@ public final class AdventureTestUserDir {
 
     /**
      * Snapshot every file under {@code root}: relative path → size + mtime + sha-256.
-     * Directories use size=-1 and empty hash.
+     * Directories use size=-1 and empty hash. Unreadable files (e.g. {@code forge.log}
+     * locked while the game is open) are skipped and logged — they must not abort
+     * the suite.
      */
     public static Map<String, FileStamp> snapshot(final Path root) throws IOException {
         final Map<String, FileStamp> out = new LinkedHashMap<>();
@@ -85,9 +87,21 @@ public final class AdventureTestUserDir {
         }
         Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
             @Override
-            public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
-                out.put(root.relativize(file).toString().replace('\\', '/'),
-                        new FileStamp(attrs.size(), attrs.lastModifiedTime().toMillis(), sha256(file)));
+            public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) {
+                final String rel = root.relativize(file).toString().replace('\\', '/');
+                try {
+                    out.put(rel, new FileStamp(attrs.size(), attrs.lastModifiedTime().toMillis(), sha256(file)));
+                } catch (final IOException e) {
+                    System.err.println("AdventureTestUserDir: skipping unreadable file " + file
+                            + ": " + e.getMessage());
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(final Path file, final IOException exc) {
+                System.err.println("AdventureTestUserDir: skipping unreadable file " + file
+                        + ": " + (exc != null ? exc.getMessage() : "unknown"));
                 return FileVisitResult.CONTINUE;
             }
 

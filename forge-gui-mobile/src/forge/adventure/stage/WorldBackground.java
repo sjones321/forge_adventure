@@ -9,6 +9,7 @@ import com.badlogic.gdx.math.GridPoint2;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.utils.Array;
+import forge.adventure.pointofintrest.PointOfInterest;
 import forge.adventure.world.World;
 
 /**
@@ -191,6 +192,39 @@ public class WorldBackground extends Actor {
         sprites = chunksSpritesBackground[x][y];
         for (int i = 0; i < sprites.size; i++) {
             stage.getBackgroundSprites().addActor(sprites.get(i));
+        }
+    }
+
+    /**
+     * Mid-session POI (e.g. planar gate): register the sprite in the chunk cache
+     * so unload/reload cannot double-add a loose foreground actor. If the chunk
+     * is loaded, also attach to the stage once.
+     */
+    public void ensurePoiSprite(final PointOfInterest poi) {
+        if (poi == null || chunksSprites == null || poi.getPosition() == null) {
+            return;
+        }
+        final GridPoint2 chunk = translateFromWorldToChunk(poi.getPosition().x, poi.getPosition().y);
+        final int cx = chunk.x;
+        final int cy = chunk.y;
+        if (cx < 0 || cy < 0 || cx >= chunksSprites.length || cy >= chunksSprites[0].length) {
+            return;
+        }
+        if (chunksSprites[cx][cy] == null) {
+            // Next loadChunk rebuilds from the live world (includes this POI).
+            return;
+        }
+        for (int i = 0; i < chunksSprites[cx][cy].size; i++) {
+            final Actor a = chunksSprites[cx][cy].get(i);
+            if (a instanceof PointOfInterestMapSprite
+                    && ((PointOfInterestMapSprite) a).getPointOfInterest() == poi) {
+                return;
+            }
+        }
+        final PointOfInterestMapSprite sprite = new PointOfInterestMapSprite(poi);
+        chunksSprites[cx][cy].add(sprite);
+        if (chunkLoaded != null && chunkLoaded[cx][cy]) {
+            stage.getSpriteGroup().addActor(sprite);
         }
     }
 

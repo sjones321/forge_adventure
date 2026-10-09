@@ -190,6 +190,11 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         return disconnectPolicy;
     }
 
+    /** True while a co-op HostedMatch is running (guest must not plane-switch-render). */
+    public boolean isDuelActive() {
+        return activeHostedMatch != null;
+    }
+
     public CoopFightRequestValidator getFightRequestValidator() {
         return fightRequestValidator;
     }

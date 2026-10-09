@@ -28,10 +28,9 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * MV2 mid-session gate-delta (round 2): host {@code notifyGatesChanged} →
- * {@code pushGateUpdateToGuest} → guest {@code onGateUpdate} headlessly
- * ({@code Gdx.app == null} runs {@code runOnGlQuiet} inline). Suite isolation
- * unchanged (Surefire {@code test-user-home}).
+ * MV2 mid-session gate-delta (round 3): production {@code notifyCoopHashRefresh}
+ * → host push → guest Netty {@code onGateUpdate}; quiet resync / deferral /
+ * pending queue. Suite isolation unchanged (Surefire {@code test-user-home}).
  */
 public class CoopGateUpdateTest {
 
@@ -85,12 +84,13 @@ public class CoopGateUpdateTest {
     }
 
     @Test
-    public void notifyPushOnGateUpdateMatchesGuestHash() {
+    public void productionNotifyCoopHashRefreshPushesAndGuestNettyApplies() {
         PointOfInterestData.clearRuntimeCacheForTests();
         SetPlaneGenerator.ensurePlanarGateRegistered();
 
         final long seed = 42L;
         final World live = WorldSave.getCurrentSave().getWorld();
+        // Non-zero terrain so clearTerrainAroundWorld in placeGateAt changes the hash.
         installBase(live, seed, 0x22222222);
         final World guestWorld = baseWorld(seed, 0x22222222);
         final String hashBefore = CoopWorldSync.hashWorld(live);
@@ -100,28 +100,97 @@ public class CoopGateUpdateTest {
         final List<NetEvent> sent = new ArrayList<>();
         session.testSetSendHook(sent::add);
         session.testBecomeHostReady();
+        session.refreshHostLiveWorldHash();
 
+        // Production path: placeGateAt → notifyCoopHashRefresh → notifyGatesChanged.
         Assert.assertNotNull(PlanarPortalPlacer.placeGateAt(live, "DMU", 200f, 240f),
                 "host must place a mid-session gate on the live world");
-        session.notifyGatesChanged(live);
-
         final CoopGateUpdateEvent update = findGateUpdate(sent);
-        Assert.assertNotNull(update, "notifyGatesChanged must push CoopGateUpdateEvent when READY");
+        Assert.assertNotNull(update, "notifyCoopHashRefresh must push CoopGateUpdateEvent when READY");
         Assert.assertNotEquals(update.getWorldHash(), hashBefore);
         Assert.assertEquals(update.getGates().length, 1);
         Assert.assertEquals(update.getWorldPlaneId(), WorldSave.getCurrentSave().getCurrentPlaneId());
 
-        // Guest applies in place (no rebuild / no applyGuestSessionWorldRender).
+        // Guest Netty onGateUpdate path (testGuestOnMessage → runOnGlQuiet → handleGateUpdateOnGl).
         session.testBecomeGuestReady(guestWorld, update.getWorldPlaneId());
         final int poisBefore = countPois(guestWorld);
-        session.testHandleGateUpdate(update);
+        sent.clear();
+        session.testGuestOnMessage(update);
         Assert.assertTrue(CoopWorldHash.matches(CoopWorldSync.hashWorld(guestWorld), update.getWorldHash()),
                 "guest live sessionWorld hash must match host after in-place delta");
         Assert.assertTrue(CoopWorldHash.matches(session.getWorldHash(), update.getWorldHash()));
         Assert.assertEquals(countPois(guestWorld), poisBefore + 1, "exactly one new gate POI");
-
-        // No full re-offer / plane-switch as the happy path.
         Assert.assertFalse(sent.stream().anyMatch(e -> e instanceof CoopPlaneSwitchEvent));
+    }
+
+    @Test
+    public void unchangedHashDoesNotPushGateUpdate() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World live = WorldSave.getCurrentSave().getWorld();
+        installBase(live, 5L, 0x55555555);
+        final CoopSession session = CoopSession.get();
+        final List<NetEvent> sent = new ArrayList<>();
+        session.testSetSendHook(sent::add);
+        session.testBecomeHostReady();
+        session.refreshHostLiveWorldHash();
+
+        session.notifyGatesChanged(live);
+        Assert.assertNull(findGateUpdate(sent), "unchanged hash must not push");
+    }
+
+    @Test
+    public void suppressGatePushSkipsWireSend() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World live = WorldSave.getCurrentSave().getWorld();
+        installBase(live, 6L, 0x66666666);
+        final CoopSession session = CoopSession.get();
+        final List<NetEvent> sent = new ArrayList<>();
+        session.testSetSendHook(sent::add);
+        session.testBecomeHostReady();
+        session.refreshHostLiveWorldHash();
+        session.beginSuppressGatePush();
+        try {
+            Assert.assertNotNull(PlanarPortalPlacer.placeGateAt(live, "BRO", 180f, 180f));
+            Assert.assertNull(findGateUpdate(sent), "suppressed push must not send");
+        } finally {
+            session.endSuppressGatePush();
+        }
+    }
+
+    @Test
+    public void coalescedNotifiesSendSingleGateUpdate() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World live = WorldSave.getCurrentSave().getWorld();
+        installBase(live, 8L, 0x88888888);
+        final CoopSession session = CoopSession.get();
+        final List<NetEvent> sent = new ArrayList<>();
+        session.testSetSendHook(sent::add);
+        session.testBecomeHostReady();
+        session.refreshHostLiveWorldHash();
+        session.testSetHoldCoalescedGatePush(true);
+
+        // placeGateAt → notifyCoopHashRefresh (held, not flushed yet).
+        Assert.assertNotNull(PlanarPortalPlacer.placeGateAt(live, "NEO", 160f, 160f));
+        Assert.assertNull(findGateUpdate(sent), "held coalesce must not send yet");
+        // Second gate change while scheduled — must not queue a second push.
+        Assert.assertNotNull(PlanarPortalPlacer.placeGateAt(live, "BRO", 200f, 200f));
+        Assert.assertNull(findGateUpdate(sent));
+
+        session.testFlushCoalescedGatePush();
+        int updates = 0;
+        for (final NetEvent e : sent) {
+            if (e instanceof CoopGateUpdateEvent) {
+                updates++;
+            }
+        }
+        Assert.assertEquals(updates, 1, "coalesced notifies must send exactly one update");
+        Assert.assertEquals(((CoopGateUpdateEvent) findGateUpdate(sent)).getGates().length, 2);
     }
 
     @Test
@@ -139,7 +208,7 @@ public class CoopGateUpdateTest {
         final CoopGateUpdateEvent homeUpdate = new CoopGateUpdateEvent(
                 "home", Paths.WORLD, 7L, "", "deadbeef",
                 new CoopPlanarGateEntry[]{new CoopPlanarGateEntry("BRO", 10f, 10f)});
-        session.testHandleGateUpdate(homeUpdate);
+        session.testGuestOnMessage(homeUpdate);
 
         Assert.assertEquals(CoopWorldSync.hashWorld(guestWorld), hashBefore,
                 "wrong-plane gate update must not mutate sessionWorld");
@@ -157,7 +226,6 @@ public class CoopGateUpdateTest {
         session.testSetSendHook(sent::add);
         session.testBecomeGuestReady(guestWorld, "home");
 
-        // Host claims a hash the guest cannot reach without the gate (and we give wrong hash).
         final CoopGateUpdateEvent bad = new CoopGateUpdateEvent(
                 "home", Paths.WORLD, 11L, "", "not-the-real-hash",
                 new CoopPlanarGateEntry[]{new CoopPlanarGateEntry("DMU", 200f, 240f)});
@@ -169,6 +237,107 @@ public class CoopGateUpdateTest {
                         || resync.getReason().equals(CoopPorts.GATE_UPDATE_MISMATCH_MESSAGE),
                 "resync reason=" + resync.getReason());
         Assert.assertEquals(resync.getWorldPlaneId(), "home");
+        Assert.assertTrue(session.testIsExpectingResyncOffer());
+    }
+
+    @Test
+    public void rateLimitedResyncIsQueuedAndFlushed() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World guestWorld = baseWorld(13L, 0x13131313);
+        final CoopSession session = CoopSession.get();
+        final List<NetEvent> sent = new ArrayList<>();
+        session.testSetSendHook(sent::add);
+        session.testBecomeGuestReady(guestWorld, "home");
+        session.testSetLastResyncRequestMs(System.currentTimeMillis());
+
+        final CoopGateUpdateEvent bad = new CoopGateUpdateEvent(
+                "home", Paths.WORLD, 13L, "", "bad-hash",
+                new CoopPlanarGateEntry[]{new CoopPlanarGateEntry("ONE", 120f, 140f)});
+        session.testHandleGateUpdate(bad);
+
+        Assert.assertNull(findResync(sent), "rate-limited resync must not send immediately");
+        Assert.assertNotNull(session.testGetPendingResyncReason(), "must queue one pending reason");
+
+        session.testFlushPendingResync();
+        Assert.assertNotNull(findResync(sent), "flush must send the queued resync");
+        Assert.assertNull(session.testGetPendingResyncReason());
+        Assert.assertTrue(session.testIsExpectingResyncOffer());
+    }
+
+    @Test
+    public void hostResyncRequestIsQuietRateLimitedAndDoesNotKick() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World live = WorldSave.getCurrentSave().getWorld();
+        installBase(live, 17L, 0x17171717);
+        final CoopSession session = CoopSession.get();
+        final List<NetEvent> sent = new ArrayList<>();
+        session.testSetSendHook(sent::add);
+        session.testBecomeHostReady();
+        session.refreshHostLiveWorldHash();
+
+        final CoopWorldResyncRequestEvent req = new CoopWorldResyncRequestEvent("test", "home");
+        session.testHostOnResyncRequest(req);
+        Assert.assertTrue(sent.stream().anyMatch(e -> e instanceof CoopPlaneSwitchEvent),
+                "host must quiet-re-offer a plane switch");
+        Assert.assertEquals(session.getState(), CoopSession.State.READY, "host must stay READY");
+        Assert.assertEquals(session.getRole(), CoopSessionRole.HOST);
+
+        sent.clear();
+        session.testSetLastHostResyncHandledMs(System.currentTimeMillis());
+        session.testHostOnResyncRequest(req);
+        Assert.assertFalse(sent.stream().anyMatch(e -> e instanceof CoopPlaneSwitchEvent),
+                "rate-limited host resync must not re-offer");
+        Assert.assertEquals(session.getState(), CoopSession.State.READY);
+    }
+
+    @Test
+    public void resyncReofferDefersWhenGuestBusy() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World guestWorld = baseWorld(19L, 0x19191919);
+        final String hashBefore = CoopWorldSync.hashWorld(guestWorld);
+        final CoopSession session = CoopSession.get();
+        session.testBecomeGuestReady(guestWorld, "home");
+        session.testSetExpectingResyncOffer(true);
+        session.testSetGuestBusy(true);
+
+        final CoopPlaneSwitchEvent reoffer = new CoopPlaneSwitchEvent(
+                "home", "home", Paths.WORLD, "cfg", 19L, "hash", 1f, 2f, "",
+                new CoopPlanarGateEntry[0]);
+        session.testGuestOnMessage(reoffer);
+
+        Assert.assertNotNull(session.testGetDeferredPlaneSwitch(), "busy guest must defer resync");
+        Assert.assertEquals(CoopWorldSync.hashWorld(guestWorld), hashBefore,
+                "deferred resync must not mutate sessionWorld yet");
+        Assert.assertEquals(session.getState(), CoopSession.State.READY);
+    }
+
+    @Test
+    public void resyncReofferHashMismatchEndsSessionCleanly() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World guestWorld = baseWorld(23L, 0x23232323);
+        final CoopSession session = CoopSession.get();
+        session.testBecomeGuestReady(guestWorld, "home");
+        session.testSetExpectingResyncOffer(true);
+
+        // Disallowed path: ends the session on a resync re-offer without GL/pixmap work.
+        final CoopPlaneSwitchEvent bad = new CoopPlaneSwitchEvent(
+                "home", "home", "../evil/world.json", "cfg", 23L, "definitely-not-matching",
+                1f, 2f, "", new CoopPlanarGateEntry[0]);
+        session.testGuestOnMessage(bad);
+
+        Assert.assertNotEquals(session.getState(), CoopSession.State.READY,
+                "resync hash failure must end the session");
+        Assert.assertFalse(session.testIsExpectingResyncOffer());
+        Assert.assertTrue(session.getLastError() != null && !session.getLastError().isEmpty(),
+                "must surface a clear end-session message");
     }
 
     @Test

@@ -175,6 +175,9 @@ public final class PlanarPortalPlacer {
         poi.setDisplayName(display);
         poi.setTargetPlane(planeId);
         world.addPointOfInterest(poi);
+        // Host live-world placement: production notify path. Guest/staging no-op via
+        // CoopSession role + world-identity checks.
+        notifyCoopHashRefresh(world);
         return poi;
     }
 

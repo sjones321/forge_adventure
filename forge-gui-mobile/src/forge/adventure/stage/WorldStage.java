@@ -1348,6 +1348,22 @@ public class WorldStage extends GameStage implements SaveFileContent {
         return null;
     }
 
+    /**
+     * Mid-session gate / fortress POI: update the chunk sprite cache (avoids
+     * double-add when the chunk later reloads from {@link MapSprite#getMapSprites}).
+     */
+    public void ensurePointOfInterestSprite(final PointOfInterest poi) {
+        if (poi == null) {
+            return;
+        }
+        if (getMapSprite(poi) != null) {
+            return;
+        }
+        if (background != null) {
+            background.ensurePoiSprite(poi);
+        }
+    }
+
     @Override
     public void enter() {
         getPlayerSprite().LoadPos();
