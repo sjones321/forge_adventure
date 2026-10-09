@@ -358,7 +358,7 @@ public class PlayerStatisticScene extends UIScene {
      * Shrink portrait {@code scrollWindow} / {@code enemies} from the bottom to
      * open a band above the nav row for the Awards button.
      */
-    static void reservePortraitAwardsBand(forge.adventure.util.UIActor ui) {
+    public static void reservePortraitAwardsBand(forge.adventure.util.UIActor ui) {
         final float band = PORTRAIT_AWARDS_BAND;
         Window window = ui.findActor("scrollWindow");
         Table enemies = ui.findActor("enemies");
@@ -373,7 +373,7 @@ public class PlayerStatisticScene extends UIScene {
     }
 
     /** Portrait band height reserved above the nav row (stage / JSON units). */
-    static final float PORTRAIT_AWARDS_BAND = 30f;
+    public static final float PORTRAIT_AWARDS_BAND = 30f;
 
     /**
      * Stage-space (y-up) Awards bounds for the statistic layouts.
@@ -388,7 +388,7 @@ public class PlayerStatisticScene extends UIScene {
      *
      * @return {@code {x, y, w, h}} in stage coordinates
      */
-    static float[] awardsStageBounds(boolean landscape, float layoutH) {
+    public static float[] awardsStageBounds(boolean landscape, float layoutH) {
         final float jx;
         final float jy;
         final float jw;
