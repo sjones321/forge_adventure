@@ -70,11 +70,22 @@ public final class EnemyThemeDecks {
     public static final int MIN_ON_THEME_NONLAND_FIXED = 14;
     /** Minimum copies from the hand-picked theme core in a fixed deck. */
     public static final int MIN_CORE_CARDS_IN_DECK = 24;
-    /** Maximum generated non-core non-land filler slots in a fixed deck. */
+    /** Maximum generated non-core non-land filler slots in a 60-card fixed deck. */
     public static final int MAX_FILLER_NONLAND = 8;
-    public static final int MIN_LANDS_60 = 16;
+    /** Maximum generated non-core non-land filler slots in a Commander fixed deck. */
+    public static final int MAX_FILLER_COMMANDER = 10;
+    public static final int MIN_LANDS_60 = 15;
     public static final int MAX_LANDS_60 = 18;
     public static final int TARGET_LANDS_60 = 17;
+    /** Commander mana-base band (total lands including fixing). */
+    public static final int MIN_LANDS_COMMANDER = 32;
+    public static final int MAX_LANDS_COMMANDER = 40;
+    public static final int TARGET_LANDS_COMMANDER = 36;
+    public static final int TARGET_LANDS_COMMANDER_RAMP = 37;
+    /** Minimum non-land cards in a Commander fixed deck (main + commander). */
+    public static final int MIN_NONLAND_COMMANDER = 58;
+    /** Minimum Dragon creature cards in dragon_* Historic decks. */
+    public static final int MIN_DRAGONS_HISTORIC = 12;
     /** Minimum non-creature spells in a 60-card fixed deck. */
     public static final int MIN_NON_CREATURE_SPELLS_60 = 8;
     /** Max average CMC for non-ramp 60-card themes. */
@@ -765,21 +776,21 @@ public final class EnemyThemeDecks {
         String alchemy = alchemyOrRestrictedProblem(deck);
         if (alchemy != null)
             return alchemy;
-        String coreProblem = coreMembershipProblem(deck, theme);
+        String fmt = normalizeFormat(format);
+        String coreProblem = coreMembershipProblem(deck, theme, fmt);
         if (coreProblem != null)
             return coreProblem;
         int onTheme = countOnThemeNonLand(deck, theme);
         if (onTheme < MIN_ON_THEME_NONLAND_FIXED)
             return "only " + onTheme + " on-theme non-lands (need ~"
                     + MIN_ON_THEME_NONLAND_FIXED + ")";
-        String fmt = normalizeFormat(format);
         String landCover = landColorCoverageProblem(deck, fmt);
         if (landCover != null)
             return landCover;
+        String landBand = landCountProblem(deck, fmt);
+        if (landBand != null)
+            return landBand;
         if (FORMAT_PAUPER.equals(fmt) || FORMAT_HISTORIC.equals(fmt)) {
-            int lands = countLands(deck);
-            if (lands < MIN_LANDS_60 || lands > MAX_LANDS_60)
-                return "lands=" + lands + " (need " + MIN_LANDS_60 + "-" + MAX_LANDS_60 + ")";
             int main = deck.getMain().countAll();
             if (main < 60)
                 return "main deck has " + main + " cards (need 60+)";
@@ -793,8 +804,78 @@ public final class EnemyThemeDecks {
                     return "average CMC " + String.format(Locale.ROOT, "%.2f", avg)
                             + " too high for non-ramp theme (max " + MAX_AVG_CMC_NON_RAMP + ")";
             }
+            if (FORMAT_HISTORIC.equals(fmt) && theme.id != null && theme.id.contains("dragon")) {
+                int dragons = countCreatureType(deck, "Dragon");
+                if (dragons < MIN_DRAGONS_HISTORIC)
+                    return "only " + dragons + " Dragons (need " + MIN_DRAGONS_HISTORIC + ")";
+                int sprawl = 0;
+                int forests = 0;
+                for (var e : deck.getMain()) {
+                    PaperCard pc = e.getKey();
+                    if (pc == null)
+                        continue;
+                    if ("Utopia Sprawl".equals(pc.getName()))
+                        sprawl += e.getValue();
+                    if ("Forest".equals(pc.getName()) || "Snow-Covered Forest".equals(pc.getName()))
+                        forests += e.getValue();
+                }
+                if (sprawl > forests)
+                    return "Utopia Sprawl x" + sprawl + " with only " + forests + " Forests";
+            }
+        }
+        if (FORMAT_COMMANDER.equals(fmt)) {
+            int nonLand = countNonLandsAll(deck);
+            if (nonLand < MIN_NONLAND_COMMANDER)
+                return "only " + nonLand + " nonland cards (need " + MIN_NONLAND_COMMANDER + ")";
         }
         return null;
+    }
+
+    /** Land-count gate: 15–18 for 60-card; 32–40 for Commander. */
+    public static String landCountProblem(Deck deck, String format) {
+        if (deck == null)
+            return "deck is null";
+        String fmt = normalizeFormat(format);
+        int lands = countLands(deck);
+        if (FORMAT_COMMANDER.equals(fmt)) {
+            if (lands < MIN_LANDS_COMMANDER || lands > MAX_LANDS_COMMANDER)
+                return "lands=" + lands + " (need " + MIN_LANDS_COMMANDER + "-"
+                        + MAX_LANDS_COMMANDER + ")";
+            return null;
+        }
+        if (FORMAT_PAUPER.equals(fmt) || FORMAT_HISTORIC.equals(fmt)) {
+            if (lands < MIN_LANDS_60 || lands > MAX_LANDS_60)
+                return "lands=" + lands + " (need " + MIN_LANDS_60 + "-" + MAX_LANDS_60 + ")";
+        }
+        return null;
+    }
+
+    public static int countCreatureType(Deck deck, String type) {
+        if (deck == null || type == null)
+            return 0;
+        int n = 0;
+        for (var e : deck.getAllCardsInASinglePool(true, false)) {
+            PaperCard pc = e.getKey();
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (pc.getRules().getType().isCreature() && pc.getRules().getType().hasSubtype(type))
+                n += e.getValue();
+        }
+        return n;
+    }
+
+    public static int countNonLandsAll(Deck deck) {
+        if (deck == null)
+            return 0;
+        int n = 0;
+        for (var e : deck.getAllCardsInASinglePool(true, false)) {
+            PaperCard pc = e.getKey();
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (!pc.getRules().getType().isLand())
+                n += e.getValue();
+        }
+        return n;
     }
 
     /** True when {@code name} is listed in the theme's hand-picked core (or preferred commanders). */
@@ -859,14 +940,23 @@ public final class EnemyThemeDecks {
 
     /** Core size / filler gates for fixed decks. Returns null if OK. */
     public static String coreMembershipProblem(Deck deck, EnemyThemeData theme) {
+        return coreMembershipProblem(deck, theme, null);
+    }
+
+    public static String coreMembershipProblem(Deck deck, EnemyThemeData theme, String format) {
         if (theme == null || theme.core == null || theme.core.length < MIN_CORE_CARDS_IN_DECK)
             return "theme core has fewer than " + MIN_CORE_CARDS_IN_DECK + " named cards";
         int core = countCoreCards(deck, theme);
         if (core < MIN_CORE_CARDS_IN_DECK)
             return "only " + core + " core cards (need " + MIN_CORE_CARDS_IN_DECK + ")";
         int filler = countFillerNonLand(deck, theme);
-        if (filler > MAX_FILLER_NONLAND)
-            return "filler non-lands=" + filler + " (max " + MAX_FILLER_NONLAND + ")";
+        int maxFiller = FORMAT_COMMANDER.equals(normalizeFormat(format))
+                ? MAX_FILLER_COMMANDER : MAX_FILLER_NONLAND;
+        // Heuristic when format omitted: Commander-sized decks use the EDH filler cap.
+        if (format == null && deck != null && deck.has(DeckSection.Commander))
+            maxFiller = MAX_FILLER_COMMANDER;
+        if (filler > maxFiller)
+            return "filler non-lands=" + filler + " (max " + maxFiller + ")";
         return null;
     }
 
@@ -1652,8 +1742,8 @@ public final class EnemyThemeDecks {
 
     /**
      * Builds a fixed-format deck for a theme (Historic, Pauper, or Commander).
-     * Hand-picked {@link EnemyThemeData#core} first (≥24 copies), then ≤8 generated
-     * filler non-lands, then lands (16–18 for 60-card; CI-matched + fixing for Commander).
+     * Hand-picked {@link EnemyThemeData#core} first, then limited generated filler,
+     * then lands (15–18 for 60-card; ~35–38 for Commander with CI fixing).
      */
     public static Deck buildFixedDeck(EnemyThemeData theme, String format, long seed) {
         String fmt = normalizeFormat(format);
@@ -1688,35 +1778,38 @@ public final class EnemyThemeDecks {
         List<PaperCard> coreLegal = resolveCoreCards(theme, FORMAT_COMMANDER, null, ci, true);
         // Never put the commander into the main deck (singleton / command zone).
         coreLegal.removeIf(pc -> pc != null && pc.getName().equals(commander.getName()));
-        // Singleton: take as many distinct core cards as fit before lands/filler.
         int cmdN = deck.getCommanders().size();
-        int landBudget = commanderLandBudget(ci);
-        int nonLandSlots = 100 - cmdN - landBudget;
-        int wantCore = Math.max(MIN_CORE_CARDS_IN_DECK, nonLandSlots - MAX_FILLER_NONLAND);
+        int landBudget = commanderLandBudget(theme, ci);
+        int nonLandSlots = 100 - cmdN - landBudget; // ~61–67
+        int maxFiller = MAX_FILLER_COMMANDER;
+        int wantCore = Math.max(MIN_CORE_CARDS_IN_DECK, nonLandSlots - maxFiller);
+
         addCoreToPool(main, coreLegal, FORMAT_COMMANDER, wantCore, true);
         stripCommanderDuplicates(deck);
-        int haveCore = countCoreCards(deck, theme);
-        if (haveCore < MIN_CORE_CARDS_IN_DECK) {
-            // Retry with looser color filter (still CI-legal).
-            addCoreToPool(main, coreLegal, FORMAT_COMMANDER, MIN_CORE_CARDS_IN_DECK, true);
-            stripCommanderDuplicates(deck);
-        }
-        int fillerRoom = Math.min(MAX_FILLER_NONLAND,
-                Math.max(0, nonLandSlots - countNonLands(main)));
+        // Keep topping up from the expanded core until the non-land budget is met.
+        topUpCoreForSize(main, coreLegal, FORMAT_COMMANDER, wantCore);
+        stripCommanderDuplicates(deck);
+
+        int fillerRoom = Math.min(maxFiller, Math.max(0, nonLandSlots - countNonLands(main)));
         addFillerNonLand(main, theme, FORMAT_COMMANDER, null, ci, fillerRoom, true);
         stripCommanderDuplicates(deck);
-        trimToBudgets(main, theme, nonLandSlots);
-
-        String[] pad = colorsFromMask(ci);
-        if (pad.length == 0)
-            pad = colorsFromMask(spellColorMask(deck));
-        rebuildBasicLands(deck, pad, 100 - cmdN);
-        addCommanderFixing(deck, ci);
+        enforceFillerCap(deck, theme, maxFiller);
+        // If still thin on non-lands, pull more core (not more lands).
+        topUpCoreForSize(main, coreLegal, FORMAT_COMMANDER, nonLandSlots);
         stripCommanderDuplicates(deck);
-        trimToBudgets(deck.getOrCreate(DeckSection.Main), theme, 100 - cmdN);
-        enforceFillerCap(deck, theme);
-        // Re-trim to exact 99 main after fixing inserts.
-        while (deck.getMain().countAll() > 100 - cmdN) {
+        enforceFillerCap(deck, theme, maxFiller);
+        trimToBudgets(main, theme, nonLandSlots, maxFiller);
+
+        // Mana base: exactly landBudget lands (basics + fixing), never pad to 99 with basics.
+        rebuildCommanderManaBase(deck, ci, landBudget);
+        stripCommanderDuplicates(deck);
+        enforceFillerCap(deck, theme, maxFiller);
+
+        // Exact 99 main: if short, add more core; if over, cut basics then filler.
+        int needMain = 100 - cmdN;
+        topUpCoreForSize(main, coreLegal, FORMAT_COMMANDER, needMain - landBudget);
+        rebuildCommanderManaBase(deck, ci, landBudget);
+        while (deck.getMain().countAll() > needMain) {
             PaperCard remove = null;
             for (PaperCard pc : deck.getMain().toFlatList()) {
                 if (pc.getRules().getType().isBasicLand()) {
@@ -1724,20 +1817,108 @@ public final class EnemyThemeDecks {
                     break;
                 }
             }
+            if (remove == null) {
+                for (PaperCard pc : deck.getMain().toFlatList()) {
+                    if (pc.getRules().getType().isLand()) {
+                        remove = pc;
+                        break;
+                    }
+                }
+            }
             if (remove == null)
                 break;
             deck.getMain().remove(remove);
         }
-        enforceFillerCap(deck, theme);
+        enforceFillerCap(deck, theme, maxFiller);
         return deck;
     }
 
-    /** Remove non-core non-lands until ≤ {@link #MAX_FILLER_NONLAND} (main + commander). */
+    /** Strip lands and rebuild exactly {@code landBudget} CI-matched basics + fixing. */
+    private static void rebuildCommanderManaBase(Deck deck, byte ci, int landBudget) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        List<PaperCard> nonLands = new ArrayList<>();
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (pc.getRules().getType().isLand())
+                continue;
+            nonLands.add(pc);
+        }
+        main.clear();
+        for (PaperCard pc : nonLands)
+            main.add(pc);
+
+        String[] pad = colorsFromMask(ci);
+        if (pad.length == 0)
+            pad = new String[]{"blue"};
+        List<String> basics = new ArrayList<>();
+        for (String c : pad) {
+            String b = basicForColor(c);
+            if (!basics.contains(b))
+                basics.add(b);
+        }
+        if (basics.isEmpty())
+            basics.add("Island");
+
+        // Seed with fixing for multicolor, then fill remaining with basics.
+        int fixingWant = Integer.bitCount(ci & 0xFF) >= 2 ? Math.min(12, 4 + Integer.bitCount(ci & 0xFF) * 2) : 0;
+        int added = 0;
+        if (fixingWant > 0) {
+            // Temporarily add basics so addCommanderFixing has victims to swap — then trim to budget.
+            for (int i = 0; i < landBudget && i < basics.size() * 4; i++) {
+                PaperCard land = cardByName(basics.get(i % basics.size()));
+                if (land != null) {
+                    main.add(land);
+                    added++;
+                }
+            }
+            addCommanderFixing(deck, ci);
+            // Count lands now (basics + fixing).
+            added = 0;
+            for (PaperCard pc : main.toFlatList()) {
+                if (pc.getRules().getType().isLand())
+                    added++;
+            }
+        }
+        while (added < landBudget) {
+            PaperCard land = cardByName(basics.get(added % basics.size()));
+            if (land == null)
+                break;
+            main.add(land);
+            added++;
+        }
+        while (countLands(deck) > landBudget) {
+            PaperCard remove = null;
+            for (PaperCard pc : main.toFlatList()) {
+                if (pc.getRules().getType().isBasicLand()) {
+                    remove = pc;
+                    break;
+                }
+            }
+            if (remove == null) {
+                for (PaperCard pc : main.toFlatList()) {
+                    if (pc.getRules().getType().isLand()) {
+                        remove = pc;
+                        break;
+                    }
+                }
+            }
+            if (remove == null)
+                break;
+            main.remove(remove);
+        }
+    }
+
+    /** Remove non-core non-lands until ≤ {@code maxFiller} (main + commander). */
     private static void enforceFillerCap(Deck deck, EnemyThemeData theme) {
+        enforceFillerCap(deck, theme, MAX_FILLER_NONLAND);
+    }
+
+    private static void enforceFillerCap(Deck deck, EnemyThemeData theme, int maxFiller) {
         if (deck == null || theme == null)
             return;
         int guard = 0;
-        while (countFillerNonLand(deck, theme) > MAX_FILLER_NONLAND && guard++ < 64) {
+        while (countFillerNonLand(deck, theme) > maxFiller && guard++ < 80) {
             PaperCard victim = null;
             for (var e : deck.getMain()) {
                 PaperCard pc = e.getKey();
@@ -1754,12 +1935,21 @@ public final class EnemyThemeDecks {
         }
     }
 
-    private static int commanderLandBudget(byte ci) {
+    private static int commanderLandBudget(EnemyThemeData theme, byte ci) {
+        boolean ramp = theme != null && theme.id != null
+                && (theme.id.contains("ramp") || theme.id.contains("dragon"));
         int colors = Integer.bitCount(ci & 0xFF);
+        if (ramp) {
+            if (colors <= 1)
+                return 36;
+            if (colors == 2)
+                return 38;
+            return 39;
+        }
         if (colors <= 1)
-            return 36;
+            return 35;
         if (colors == 2)
-            return 37;
+            return 36;
         return 38;
     }
 
@@ -1945,7 +2135,103 @@ public final class EnemyThemeDecks {
         }
         Deck done = finalizeConstructed(deck, theme, format, target);
         enforceFillerCap(done, theme);
+        if (FORMAT_HISTORIC.equals(format) && theme.id != null && theme.id.contains("dragon"))
+            ensureHistoricDragonDensity(done, theme, forgeFormat, allowed);
         return done;
+    }
+
+    /**
+     * Historic dragon themes: at least {@link #MIN_DRAGONS_HISTORIC} Dragon creatures,
+     * strip Studious First-Year, and keep Utopia Sprawl ≤ Forest count.
+     */
+    private static void ensureHistoricDragonDensity(Deck deck, EnemyThemeData theme,
+                                                    GameFormat forgeFormat, byte allowed) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        // Remove changeling filler.
+        List<PaperCard> strip = new ArrayList<>();
+        for (PaperCard pc : main.toFlatList()) {
+            if ("Studious First-Year".equals(pc.getName()))
+                strip.add(pc);
+        }
+        for (PaperCard pc : strip)
+            main.remove(pc);
+
+        int dragons = countCreatureType(deck, "Dragon");
+        if (dragons < MIN_DRAGONS_HISTORIC) {
+            List<PaperCard> pool = new ArrayList<>();
+            for (PaperCard pc : resolveCoreCards(theme, FORMAT_HISTORIC, forgeFormat, allowed, false)) {
+                if (pc.getRules().getType().isCreature() && pc.getRules().getType().hasSubtype("Dragon"))
+                    pool.add(pc);
+            }
+            for (PaperCard pc : pool) {
+                if (countCreatureType(deck, "Dragon") >= MIN_DRAGONS_HISTORIC)
+                    break;
+                int cur = main.countByName(pc.getName());
+                if (cur >= 4)
+                    continue;
+                // Swap a non-dragon non-land if needed to keep size.
+                if (main.countAll() >= 60 - MIN_LANDS_60) {
+                    PaperCard victim = null;
+                    for (PaperCard c : main.toFlatList()) {
+                        if (c.getRules().getType().isLand())
+                            continue;
+                        if (c.getRules().getType().isCreature() && c.getRules().getType().hasSubtype("Dragon"))
+                            continue;
+                        if ("Utopia Sprawl".equals(c.getName()) || "Dragonstorm".equals(c.getName()))
+                            continue;
+                        victim = c;
+                        break;
+                    }
+                    if (victim != null)
+                        main.remove(victim);
+                }
+                main.add(preferPaperPrinting(pc));
+            }
+        }
+
+        // Utopia Sprawl needs a Forest; trim excess sprawl or add Forests via land rebuild.
+        int sprawl = 0;
+        int forests = 0;
+        for (var e : main) {
+            if ("Utopia Sprawl".equals(e.getKey().getName()))
+                sprawl += e.getValue();
+            if ("Forest".equals(e.getKey().getName()))
+                forests += e.getValue();
+        }
+        while (sprawl > forests && sprawl > 0) {
+            PaperCard u = null;
+            for (PaperCard pc : main.toFlatList()) {
+                if ("Utopia Sprawl".equals(pc.getName())) {
+                    u = pc;
+                    break;
+                }
+            }
+            if (u == null)
+                break;
+            main.remove(u);
+            sprawl--;
+            // Prefer another Dragon or Cultivate over leaving a hole.
+            PaperCard replacement = null;
+            for (PaperCard pc : resolveCoreCards(theme, FORMAT_HISTORIC, forgeFormat, allowed, false)) {
+                if (pc.getRules().getType().isCreature() && pc.getRules().getType().hasSubtype("Dragon")
+                        && main.countByName(pc.getName()) < 4) {
+                    replacement = pc;
+                    break;
+                }
+            }
+            if (replacement == null) {
+                PaperCard cultivate = cardByName("Cultivate");
+                if (cultivate != null && main.countByName("Cultivate") < 4)
+                    replacement = cultivate;
+            }
+            if (replacement != null)
+                main.add(preferPaperPrinting(replacement));
+        }
+        String[] pad = colorsFromMask(spellColorMask(deck));
+        if (pad.length == 0)
+            pad = theme.colors != null ? theme.colors : new String[]{"red", "green"};
+        rebuildBasicLands(deck, pad, 60);
+        enforceFillerCap(deck, theme);
     }
 
     /** Raise non-land count toward {@code wantNonLand} using remaining core copy slots (max 4). */
@@ -2124,17 +2410,27 @@ public final class EnemyThemeDecks {
         } catch (Throwable ignored) {
         }
         Collections.shuffle(pool, MyRandom.getRandom());
+        // Prefer tribe creatures for dragon themes so payoffs like Dragonstorm connect.
+        if (theme != null && theme.id != null && theme.id.contains("dragon")) {
+            pool.sort((a, b) -> Boolean.compare(
+                    b.getRules().getType().hasSubtype("Dragon"),
+                    a.getRules().getType().hasSubtype("Dragon")));
+        }
+        int fillerCap = FORMAT_COMMANDER.equals(format) ? MAX_FILLER_COMMANDER : MAX_FILLER_NONLAND;
         int added = 0;
         for (PaperCard pc : pool) {
             if (added >= want)
                 break;
-            // Re-check live filler count so batched 4-ofs cannot blow the cap.
-            if (countFillerInPool(main, theme) >= MAX_FILLER_NONLAND)
+            // Skip changeling / off-tribal fodder for dragon themes.
+            if (theme != null && theme.id != null && theme.id.contains("dragon")
+                    && "Studious First-Year".equals(pc.getName()))
+                continue;
+            if (countFillerInPool(main, theme) >= fillerCap)
                 break;
             int max = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 2);
             int cur = main.countByName(pc.getName());
             int room = Math.min(max - cur,
-                    Math.min(want - added, MAX_FILLER_NONLAND - countFillerInPool(main, theme)));
+                    Math.min(want - added, fillerCap - countFillerInPool(main, theme)));
             for (int i = 0; i < room; i++) {
                 main.add(pc);
                 added++;
@@ -2144,8 +2440,12 @@ public final class EnemyThemeDecks {
 
     /** Drop excess non-lands (prefer dropping filler, then extras) to fit budget. */
     private static void trimToBudgets(CardPool main, EnemyThemeData theme, int maxNonLand) {
+        trimToBudgets(main, theme, maxNonLand, MAX_FILLER_NONLAND);
+    }
+
+    private static void trimToBudgets(CardPool main, EnemyThemeData theme, int maxNonLand, int maxFiller) {
         // Hard-cap filler first.
-        while (countFillerInPool(main, theme) > MAX_FILLER_NONLAND) {
+        while (countFillerInPool(main, theme) > maxFiller) {
             PaperCard victim = null;
             for (PaperCard pc : main.toFlatList()) {
                 if (pc.getRules().getType().isLand())

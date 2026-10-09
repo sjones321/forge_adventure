@@ -174,7 +174,7 @@ public class EnemyThemeDeckLegalityTest {
                     deck.getMain();
                     if (deck.has(DeckSection.Commander))
                         deck.get(DeckSection.Commander);
-                    String core = EnemyThemeDecks.coreMembershipProblem(deck, theme);
+                    String core = EnemyThemeDecks.coreMembershipProblem(deck, theme, format);
                     if (core != null)
                         problems.add(deckPath.getFileName() + " [" + format + "]: " + core);
                 }
@@ -183,6 +183,39 @@ public class EnemyThemeDeckLegalityTest {
         Assert.assertTrue(checked >= themes.size() * 3, "expected fixed decks, checked " + checked);
         Assert.assertTrue(problems.isEmpty(),
                 checked + " decks checked; core/filler problems:\n" + String.join("\n", problems));
+    }
+
+    @Test
+    public void everyFixedDeckHasCorrectLandAndNonlandCounts() {
+        List<String> problems = new ArrayList<>();
+        int checked = 0;
+        for (EnemyThemeData theme : themes) {
+            for (String format : new String[]{"Historic", "Pauper", "Commander"}) {
+                for (Path deckPath : listFixedDecks(theme.id, format)) {
+                    checked++;
+                    Deck deck = DeckSerializer.fromFile(deckPath.toFile());
+                    if (deck == null) {
+                        problems.add(deckPath + ": failed to parse");
+                        continue;
+                    }
+                    deck.getMain();
+                    if (deck.has(DeckSection.Commander))
+                        deck.get(DeckSection.Commander);
+                    String land = EnemyThemeDecks.landCountProblem(deck, format);
+                    if (land != null)
+                        problems.add(deckPath.getFileName() + " [" + format + "]: " + land);
+                    if ("Commander".equals(format)) {
+                        int nonLand = EnemyThemeDecks.countNonLandsAll(deck);
+                        if (nonLand < EnemyThemeDecks.MIN_NONLAND_COMMANDER)
+                            problems.add(deckPath.getFileName() + " [Commander]: nonlands="
+                                    + nonLand + " (need " + EnemyThemeDecks.MIN_NONLAND_COMMANDER + ")");
+                    }
+                }
+            }
+        }
+        Assert.assertTrue(checked >= themes.size() * 3, "expected fixed decks, checked " + checked);
+        Assert.assertTrue(problems.isEmpty(),
+                checked + " decks checked; land/nonland problems:\n" + String.join("\n", problems));
     }
 
     @Test
