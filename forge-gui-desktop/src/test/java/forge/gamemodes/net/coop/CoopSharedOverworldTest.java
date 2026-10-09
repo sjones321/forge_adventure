@@ -783,10 +783,10 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsExactlyNineForMv2GateDelta() {
-        // At review: PROTOCOL_VERSION must be (feature/set-start) + 1. Today that is 9.
-        // Exact equality only — soft lower-bounds hide protocol collisions.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
+    public void protocolVersionIsExactlyTenForMv2GateDelta() {
+        // At review: PROTOCOL_VERSION must be (feature/set-start) + 1. After EN2 (#44)
+        // base is 9 → this PR is 10. Exact equality only — soft lower-bounds hide collisions.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
     }
 
     private static long[][] sampleBiome(final int n) {

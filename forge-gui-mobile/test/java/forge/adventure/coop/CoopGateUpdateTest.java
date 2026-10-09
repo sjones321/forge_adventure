@@ -41,9 +41,10 @@ public class CoopGateUpdateTest {
     }
 
     @Test
-    public void protocolVersionIsNineForGateDelta() {
-        // At review: PROTOCOL_VERSION must be (feature/set-start) + 1. Today that is 9.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
+    public void protocolVersionIsTenForGateDelta() {
+        // At review: PROTOCOL_VERSION must be (feature/set-start) + 1. After EN2 (#44)
+        // base is 9 → this PR is 10.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
     }
 
     @Test

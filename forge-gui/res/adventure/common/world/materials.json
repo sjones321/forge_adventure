@@ -561,7 +561,7 @@
   },
   {
     "id": "scrap",
-    "name": "Scrap",
+    "name": "Scrap Metal",
     "family": "scrap",
     "tier": 1,
     "skill": "Salvaging",
@@ -581,7 +581,7 @@
   },
   {
     "id": "brass_gears",
-    "name": "Brass Gears",
+    "name": "Plastic Scrap",
     "family": "scrap",
     "tier": 2,
     "skill": "Salvaging",
@@ -601,7 +601,7 @@
   },
   {
     "id": "thran_parts",
-    "name": "Thran Parts",
+    "name": "Electronic Scrap",
     "family": "scrap",
     "tier": 3,
     "skill": "Salvaging",
@@ -621,7 +621,7 @@
   },
   {
     "id": "thran_relic",
-    "name": "Thran Relic",
+    "name": "Power Cell",
     "family": "scrap",
     "tier": 4,
     "skill": "Salvaging",

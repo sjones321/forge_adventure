@@ -4,6 +4,7 @@ import forge.deck.Deck;
 import forge.gamemodes.net.WireClassFilter;
 import forge.gamemodes.net.event.coop.CoopDuelInviteEvent;
 import forge.gamemodes.net.event.coop.CoopDuelResponseEvent;
+import forge.gamemodes.net.event.coop.CoopDuelResultEvent;
 import forge.gamemodes.net.event.coop.CoopEnemyEncounterRequestEvent;
 import forge.gamemodes.net.event.coop.CoopFightRequestResultEvent;
 import forge.localinstance.properties.ForgePreferences.FPref;
@@ -23,10 +24,10 @@ import java.util.function.Predicate;
 public class CoopDuelTest {
 
     @Test
-    public void protocolVersionIsExactlyNineForMv2GateDelta() {
-        // At review: PROTOCOL_VERSION must be (feature/set-start) + 1. Today that is 9.
-        // Exact equality only — do not use >= or collisions can pass silently.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
+    public void protocolVersionIsExactlyTenForMv2GateDelta() {
+        // At review: PROTOCOL_VERSION must be (feature/set-start) + 1. After EN2 (#44)
+        // base is 9 → this PR is 10. Exact equality only — never >=.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
     }
 
     @Test
@@ -119,6 +120,25 @@ public class CoopDuelTest {
         Assert.assertEquals(CoopDuelScaling.scaleEnemyExtraCards(2, 3), 3);
         Assert.assertEquals(CoopDuelScaling.humanCount(false), 1);
         Assert.assertEquals(CoopDuelScaling.humanCount(true), 2);
+        // EN2: partner present drops boosts; no partner keeps them.
+        Assert.assertEquals(CoopDuelScaling.effectiveLifeFactor(true, 1.0f, 1.5f), 1.0f);
+        Assert.assertEquals(CoopDuelScaling.effectiveExtraCards(true, 0, 1), 0);
+        Assert.assertEquals(CoopDuelScaling.effectiveLifeFactor(false, 1.0f, 1.5f), 1.5f);
+        Assert.assertEquals(CoopDuelScaling.effectiveExtraCards(false, 0, 1), 1);
+        Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(true, 1), 1);
+        Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(true, 0), 0);
+        Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(false, 5), 1);
+    }
+
+    @Test
+    public void resultEventCarriesHostAuthoritativeLootRolls() {
+        final CoopDuelResultEvent zero = new CoopDuelResultEvent(1L, 0, 9L, "Merfolk", 0);
+        Assert.assertEquals(zero.getLootRolls(), 0);
+        Assert.assertTrue(zero.isTeamWon());
+        final CoopDuelResultEvent one = new CoopDuelResultEvent(2L, 0, 9L, "Merfolk", 1);
+        Assert.assertEquals(one.getLootRolls(), 1);
+        // Legacy 4-arg ctor defaults to 1.
+        Assert.assertEquals(new CoopDuelResultEvent(3L, 1, 0L, "x").getLootRolls(), 1);
     }
 
     @Test
