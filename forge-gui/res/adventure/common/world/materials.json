@@ -175,7 +175,9 @@
       "amount": 1
     },
     "nodeType": "vent",
-    "color": "R"
+    "color": "R",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "ash"
   },
   {
     "id": "charcoal",
@@ -193,7 +195,9 @@
       "amount": 1
     },
     "nodeType": "vent",
-    "color": "R"
+    "color": "R",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "charcoal"
   },
   {
     "id": "brimstone",
@@ -211,7 +215,9 @@
       "amount": 1
     },
     "nodeType": "vent",
-    "color": "R"
+    "color": "R",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "brimstone"
   },
   {
     "id": "dragonfire_ash",
@@ -229,7 +235,9 @@
       "amount": 1
     },
     "nodeType": "vent",
-    "color": "R"
+    "color": "R",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "dragonfire_ash"
   },
   {
     "id": "limestone",
@@ -247,7 +255,9 @@
       "amount": 1
     },
     "nodeType": "stone",
-    "color": "W"
+    "color": "W",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "limestone"
   },
   {
     "id": "marble",
@@ -265,7 +275,9 @@
       "amount": 1
     },
     "nodeType": "stone",
-    "color": "W"
+    "color": "W",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "marble"
   },
   {
     "id": "sunstone",
@@ -283,7 +295,9 @@
       "amount": 1
     },
     "nodeType": "stone",
-    "color": "W"
+    "color": "W",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "sunstone"
   },
   {
     "id": "starstone",
@@ -301,7 +315,9 @@
       "amount": 1
     },
     "nodeType": "stone",
-    "color": "W"
+    "color": "W",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "starstone"
   },
   {
     "id": "spring_water",
@@ -319,7 +335,9 @@
       "amount": 1
     },
     "nodeType": "water",
-    "color": "U"
+    "color": "U",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "spring_water"
   },
   {
     "id": "glacier_ice",
@@ -337,7 +355,9 @@
       "amount": 1
     },
     "nodeType": "water",
-    "color": "U"
+    "color": "U",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "glacier_ice"
   },
   {
     "id": "purified_water",
@@ -355,7 +375,9 @@
       "amount": 1
     },
     "nodeType": "water",
-    "color": "U"
+    "color": "U",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "purified_water"
   },
   {
     "id": "elemental_water",
@@ -373,7 +395,9 @@
       "amount": 1
     },
     "nodeType": "water",
-    "color": "U"
+    "color": "U",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "elemental_water"
   },
   {
     "id": "bone_fragments",
@@ -391,7 +415,9 @@
       "amount": 1
     },
     "nodeType": "remains",
-    "color": "B"
+    "color": "B",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "bone_fragments"
   },
   {
     "id": "grave_moss",
@@ -409,7 +435,9 @@
       "amount": 1
     },
     "nodeType": "remains",
-    "color": "B"
+    "color": "B",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "grave_moss"
   },
   {
     "id": "ancient_bone",
@@ -427,7 +455,9 @@
       "amount": 1
     },
     "nodeType": "remains",
-    "color": "B"
+    "color": "B",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "ancient_bone"
   },
   {
     "id": "wraithbloom",
@@ -445,7 +475,9 @@
       "amount": 1
     },
     "nodeType": "remains",
-    "color": "B"
+    "color": "B",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "wraithbloom"
   },
   {
     "id": "wild_herbs",
@@ -463,7 +495,9 @@
       "amount": 1
     },
     "nodeType": "plant",
-    "color": "G"
+    "color": "G",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "wild_herbs"
   },
   {
     "id": "tree_sap",
@@ -481,7 +515,9 @@
       "amount": 1
     },
     "nodeType": "plant",
-    "color": "G"
+    "color": "G",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "tree_sap"
   },
   {
     "id": "elder_seeds",
@@ -499,7 +535,9 @@
       "amount": 1
     },
     "nodeType": "plant",
-    "color": "G"
+    "color": "G",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "elder_seeds"
   },
   {
     "id": "worldtree_bark",
@@ -517,7 +555,9 @@
       "amount": 1
     },
     "nodeType": "plant",
-    "color": "G"
+    "color": "G",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "worldtree_bark"
   },
   {
     "id": "scrap",
@@ -535,7 +575,9 @@
       "amount": 1
     },
     "nodeType": "scrap",
-    "color": "C"
+    "color": "C",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "scrap"
   },
   {
     "id": "brass_gears",
@@ -553,7 +595,9 @@
       "amount": 1
     },
     "nodeType": "scrap",
-    "color": "C"
+    "color": "C",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "brass_gears"
   },
   {
     "id": "thran_parts",
@@ -571,7 +615,9 @@
       "amount": 1
     },
     "nodeType": "scrap",
-    "color": "C"
+    "color": "C",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "thran_parts"
   },
   {
     "id": "thran_relic",
@@ -589,7 +635,9 @@
       "amount": 1
     },
     "nodeType": "scrap",
-    "color": "C"
+    "color": "C",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "thran_relic"
   },
   {
     "id": "garnet",

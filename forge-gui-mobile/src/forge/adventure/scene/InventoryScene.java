@@ -76,6 +76,7 @@ public class InventoryScene extends UIScene {
     // ---- Ascendant INV1 ----
     private boolean ascendantChromeBuilt = false;
     private InventoryBagType activeBag = InventoryBagType.BACKPACK;
+    private boolean returnToPacks;
     private final ArrayList<TextraButton> bagTabs = new ArrayList<>();
     private final HashMap<String, Button> toolbeltSlots = new HashMap<>();
     private TextraLabel capacityLabel;
@@ -235,18 +236,20 @@ public class InventoryScene extends UIScene {
         // Enlarge bag area; shrink details to a compact strip.
         // Right side, top to bottom (stage y is up): capacity + compare, tabs, bag grid, detail strip, buttons.
         if (inventoryScroll != null) {
-            inventoryScroll.setBounds(145, 80, 330, 142);
+            inventoryScroll.setBounds(145, 88, 330, 134);
         }
         for (Actor a : ui.getChildren()) {
             if (a instanceof Window && a.getX() == 145 && a.getWidth() == 330) {
-                a.setBounds(145, 52, 330, 26);
+                a.setBounds(145, 52, 330, 34);
                 break;
             }
         }
         if (itemDescription != null) {
             // Taller detail strip so Overflow / Currency multi-line text is not clipped.
-            itemDescription.setBounds(150, 48, 320, 30);
-            itemDescription.setAlignment(Align.left);
+            // The label lives in a ScrollPane; size the pane to sit inside the detail strip's border.
+            itemDescription.setAlignment(Align.topLeft);
+            if (itemDescription.getParent() instanceof ScrollPane descPane)
+                descPane.setBounds(151, 55, 318, 28);
         }
 
         // Bag tabs: five tabs must fit the 330px bag area.
@@ -695,9 +698,31 @@ public class InventoryScene extends UIScene {
         if (data == null) return;
 
         setSelected(null);
+        returnToPacks = activeBag == InventoryBagType.PACKS;
+        final String[] lastName = {data.getName()};
+        RewardScene.instance().setNextPack(() -> nextBooster(lastName[0]) != null, () -> {
+            Deck next = nextBooster(lastName[0]);
+            if (next == null)
+                return;
+            lastName[0] = next.getName();
+            Current.player().getBoostersOwned().removeValue(next, true);
+            RewardScene.instance().loadRewards(next, RewardScene.Type.EventReward, null, next.getTags().contains("noSell"));
+        });
         RewardScene.instance().loadRewards(data, RewardScene.Type.EventReward, null, data.getTags().contains("noSell"));
         Forge.switchScene(RewardScene.instance());
         Current.player().getBoostersOwned().removeValue(data, true);
+    }
+
+    /** The next unopened pack: same name as the last one if possible, otherwise any. */
+    private static Deck nextBooster(String name) {
+        Array<Deck> owned = Current.player().getBoostersOwned();
+        if (owned.isEmpty())
+            return null;
+        for (Deck d : owned) {
+            if (d.getName() != null && d.getName().equals(name))
+                return d;
+        }
+        return owned.first();
     }
 
     private void use() {
@@ -1545,7 +1570,8 @@ public class InventoryScene extends UIScene {
     @Override
     public void enter() {
         materialsMode = false;
-        activeBag = InventoryBagType.BACKPACK;
+        activeBag = returnToPacks ? InventoryBagType.PACKS : InventoryBagType.BACKPACK;
+        returnToPacks = false;
         selectedSlot = null;
         comparePinMode = false;
         comparePinnedA = null;
