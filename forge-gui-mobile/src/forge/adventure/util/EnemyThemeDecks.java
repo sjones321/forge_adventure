@@ -725,7 +725,7 @@ public final class EnemyThemeDecks {
             AdventurePlayer p = Current.player();
             if (p != null)
                 pick = Math.floorMod(p.getEnemyDeckNumber(theme.id, paths.size()), paths.size());
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
         }
         String path = paths.get(pick);
         Deck deck = loadDck(path);
@@ -743,7 +743,7 @@ public final class EnemyThemeDecks {
                 window = p.getStandardWindow();
                 seed ^= (long) p.getEnemyDeckNumber(theme.id, 997) * 31L;
             }
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
         }
         if (window == null || !window.isActive()) {
             // Inactive window ≠ everything legal — use the theme's fixed Historic list.
@@ -769,7 +769,7 @@ public final class EnemyThemeDecks {
             AdventurePlayer p = Current.player();
             if (p != null)
                 pick = Math.floorMod(p.getEnemyDeckNumber(theme.id, paths.size()), paths.size());
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
         }
         Deck deck = loadDck(paths.get(pick));
         if (deck == null)
