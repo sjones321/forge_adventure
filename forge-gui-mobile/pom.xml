@@ -38,16 +38,16 @@
                         --add-opens java.base/java.lang.reflect=ALL-UNNAMED
                         --add-opens java.desktop/javax.imageio.spi=ALL-UNNAMED
                     </argLine>
-                    <!-- Isolate USER_DIR before ForgeConstants loads (see AdventureTestUserDirIsolationListener). -->
+                    <!-- Suite-wide: set before any test class loads ForgeConstants (CO1 #38). -->
                     <systemPropertyVariables>
-                        <forge.test.userDir>${project.build.directory}/adventure-test-user/</forge.test.userDir>
+                        <forge.test.userDir>${project.build.directory}/test-user-home</forge.test.userDir>
                     </systemPropertyVariables>
                     <!-- Default: skip LWJGL3 "gl" tests (hang on Windows/AMD without a driven GL loop). -->
                     <excludedGroups>gl</excludedGroups>
                     <properties>
                         <property>
                             <name>listener</name>
-                            <value>forge.adventure.AdventureTestUserDirIsolationListener,forge.adventure.AdventureGuiBootstrapListener</value>
+                            <value>forge.adventure.AdventureTestBootstrapListener,forge.adventure.AdventureGuiBootstrapListener</value>
                         </property>
                     </properties>
                 </configuration>

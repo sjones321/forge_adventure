@@ -24,9 +24,10 @@ import java.nio.file.Paths;
  * {@code CardUtil} via {@code FModel.getFormats()} before editions load, and
  * {@code WorldSave} clinit NPEs on an uninitialized Localizer.
  *
- * <p>Must run <em>after</em> {@link AdventureTestUserDirIsolationListener} so
- * Ascendant {@code settings.json} is written only under the isolated temp
- * {@link ForgeConstants#USER_ADVENTURE_DIR}, never the developer's real profile.
+ * <p>Must run <em>after</em> {@link AdventureTestBootstrapListener} so
+ * Ascendant {@code settings.json} is written only under the Surefire
+ * {@code test-user-home} {@link ForgeConstants#USER_ADVENTURE_DIR}, never the
+ * developer's real profile.
  */
 public final class AdventureGuiBootstrapListener implements ISuiteListener {
     @Override
@@ -36,8 +37,9 @@ public final class AdventureGuiBootstrapListener implements ISuiteListener {
         if (testUser == null || testUser.isBlank()) {
             throw new IllegalStateException(
                     "AdventureGuiBootstrapListener requires forge.test.userDir "
-                            + "(AdventureTestUserDirIsolationListener). Refusing to write settings "
-                            + "to the real USER_DIR=" + ForgeConstants.USER_DIR);
+                            + "(AdventureTestBootstrapListener / Surefire test-user-home). "
+                            + "Refusing to write settings to the real USER_DIR="
+                            + ForgeConstants.USER_DIR);
         }
         AdventureTestUserDir.assertConstantsUse(java.nio.file.Paths.get(testUser));
         final String assets = Files.exists(Paths.get("./forge-gui")) ? "./forge-gui/"

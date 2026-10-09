@@ -141,7 +141,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
         if (channeling) {
             if (moving) {
-                walkedOffNode = channelNode;
+                // Moving cancels; stopping on the node again restarts it.
                 cancelGatherChannel(null);
             } else {
                 tickGatherChannel(delta);
@@ -226,7 +226,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
             }
         }
 
-        if (moving && channelNode == null && !Forge.advFreezePlayerControls)
+        // Gather starts once the player stands still on a node, so walking onto it with the key held works.
+        if (!moving && channelNode == null && !Forge.advFreezePlayerControls)
             tryStartGatherFromCollision();
 
         if (CoopHooks.isOverworldReady())
@@ -749,6 +750,9 @@ public class WorldStage extends GameStage implements SaveFileContent {
             ResourceNodeSprite node = nodes.get(i).getValue();
             if (node != walkedOffNode && player.collideWith(node)) {
                 beginGatherChannel(node);
+                // A failed start (tool, level) is not retried until the player steps off, so the message shows once.
+                if (channelNode == null)
+                    walkedOffNode = node;
                 return;
             }
         }
@@ -889,6 +893,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
         // Still touching the node?
         if (!player.collideWith(channelNode) && !almostTouching(channelNode)) {
             cancelGatherChannel(null);
+            // Walking over a node starts and silently cancels the channel; say how gathering works.
+            notifyGatherFail("Stop on the node and stand still to gather.");
             return;
         }
         channelElapsed += delta;

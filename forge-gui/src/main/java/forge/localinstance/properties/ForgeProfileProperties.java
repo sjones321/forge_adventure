@@ -60,7 +60,6 @@ public class ForgeProfileProperties {
      * Test-only: when set before {@link ForgeConstants} class init, {@link #load}
      * uses this directory as {@code userDir} (and {@code forge.test.cacheDir} or
      * {@code <userDir>/cache} for cache) instead of the real profile / OS defaults.
-     * Shared with CO1 ({@code AdventureTestUserDir}) and MV2 suite isolation.
      * Must not be used by production code paths.
      */
     public static final String TEST_USER_DIR_PROPERTY = "forge.test.userDir";

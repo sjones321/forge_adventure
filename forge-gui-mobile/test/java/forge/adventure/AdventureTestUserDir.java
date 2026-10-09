@@ -21,21 +21,19 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Test-only helper (shared with CO1): point Forge's user / adventure dirs at a
- * fresh temp folder via {@link ForgeProfileProperties#TEST_USER_DIR_PROPERTY}
- * <em>before</em> {@link ForgeConstants} class-init, and assert the real OS
- * user dir was not written.
+ * Test-only helper for Forge user-dir isolation.
  *
- * <p>MV2 registers {@link AdventureTestUserDirIsolationListener} for the whole
- * forge-gui-mobile surefire run; CO1's {@code CoopGuestCharacterPersistTest}
- * can also call {@link #installTempUserDir()} directly when the suite listener
- * is not present.
+ * <p>{@code forge.test.userDir} must be set by Surefire
+ * ({@code ${project.build.directory}/test-user-home}) before any test class
+ * loads {@link ForgeConstants}. This class snapshots the real OS user dir
+ * (size, mtime, sha-256) and fail-fast checks that {@link ForgeConstants#USER_DIR}
+ * is under the test dir. Shared by CO1 and MV2 — one property, one directory.
  */
 public final class AdventureTestUserDir {
     private AdventureTestUserDir() {
     }
 
-    /** Linux/macOS/Windows default userDir used for the "real dir" snapshot (pre-ForgeConstants). */
+    /** Linux/macOS/Windows default userDir for the "real dir" snapshot. */
     public static Path defaultRealUserDir() {
         final String home = System.getProperty("user.home");
         final String os = System.getProperty("os.name", "");
@@ -52,34 +50,28 @@ public final class AdventureTestUserDir {
     }
 
     /**
-     * Create a temp user dir and set {@code forge.test.userDir} so the next
-     * {@link ForgeConstants} / {@link ForgeProfileProperties#load} uses it.
-     * Call before GuiBase touches {@code ForgeConstants}.
+     * Surefire-configured test user dir ({@code forge.test.userDir}).
+     * Fails fast if the property is missing (order-dependent @BeforeClass install is not enough).
      */
-    public static Path installTempUserDir() throws IOException {
-        final Path temp = Files.createTempDirectory("forge-test-user-");
-        System.setProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY, temp.toAbsolutePath().toString());
-        return temp;
+    public static Path configuredTestUserDir() {
+        final String prop = System.getProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
+        if (prop == null || prop.isBlank()) {
+            throw new IllegalStateException(
+                    ForgeProfileProperties.TEST_USER_DIR_PROPERTY
+                            + " must be set by Surefire systemPropertyVariables before ForgeConstants loads"
+                            + " (expected ${project.build.directory}/test-user-home)");
+        }
+        return Paths.get(prop).toAbsolutePath().normalize();
     }
 
     /**
-     * Ensure {@code forge.test.userDir} is set (surefire may already have set it).
-     * Returns the absolute path that will become {@link ForgeConstants#USER_DIR}.
+     * Fail fast: property set and {@link ForgeConstants#USER_DIR} / adventure dir
+     * resolve under the Surefire test user home. Call after GuiBase is installed
+     * (so ForgeConstants can initialize).
      */
-    public static Path ensureTestUserDirProperty() throws IOException {
-        final String existing = System.getProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
-        if (existing != null && !existing.isBlank()) {
-            final Path p = Paths.get(existing.trim()).toAbsolutePath();
-            Files.createDirectories(p);
-            System.setProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY, p.toString());
-            return p;
-        }
-        return installTempUserDir();
-    }
-
-    public static void clearTempUserDirProperty() {
-        System.clearProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
-        System.clearProperty(ForgeProfileProperties.TEST_CACHE_DIR_PROPERTY);
+    public static void requireIsolatedUserDir() {
+        final Path expected = configuredTestUserDir();
+        assertConstantsUse(expected);
     }
 
     /**
@@ -118,35 +110,17 @@ public final class AdventureTestUserDir {
                 context + ": real Forge user dir was modified.\nBefore=" + before + "\nAfter=" + after);
     }
 
-    /** Confirm production constants land inside the installed temp user dir. */
-    public static void assertConstantsUse(final Path tempUserDir) {
-        final String temp = tempUserDir.toAbsolutePath().normalize().toString();
+    /** Confirm production constants land inside the Surefire test user dir. */
+    public static void assertConstantsUse(final Path testUserDir) {
+        final String expected = testUserDir.toAbsolutePath().normalize().toString();
         final String user = Paths.get(ForgeConstants.USER_DIR).toAbsolutePath().normalize().toString();
         final String adventure = Paths.get(ForgeConstants.USER_ADVENTURE_DIR).toAbsolutePath().normalize().toString();
-        Assert.assertTrue(user.startsWith(temp),
-                "USER_DIR must be under temp user dir: " + user + " vs " + temp);
-        Assert.assertTrue(adventure.startsWith(temp),
-                "USER_ADVENTURE_DIR must be under temp user dir: " + adventure + " vs " + temp);
+        Assert.assertTrue(user.startsWith(expected),
+                "USER_DIR must be under forge.test.userDir: " + user + " vs " + expected
+                        + " (ForgeConstants likely loaded before Surefire set the property)");
+        Assert.assertTrue(adventure.startsWith(expected),
+                "USER_ADVENTURE_DIR must be under forge.test.userDir: " + adventure + " vs " + expected);
         Assert.assertEquals(ForgeProfileProperties.getUserDir(), ForgeConstants.USER_DIR);
-    }
-
-    public static void deleteRecursive(final Path root) throws IOException {
-        if (root == null || !Files.exists(root)) {
-            return;
-        }
-        Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
-            @Override
-            public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
-                Files.deleteIfExists(file);
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) throws IOException {
-                Files.deleteIfExists(dir);
-                return FileVisitResult.CONTINUE;
-            }
-        });
     }
 
     private static String sha256(final Path file) throws IOException {

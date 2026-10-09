@@ -34,8 +34,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * (excluded from default surefire; enable with {@code -Pgl-tests} /
  * {@code xvfb-run -a mvn -Pgl-tests test}). Ascendant settings must already live
  * under the isolated {@link ForgeConstants#USER_ADVENTURE_DIR} from
- * {@link AdventureTestUserDirIsolationListener} — this class never writes the
- * real user profile.
+ * {@link AdventureTestBootstrapListener} / Surefire {@code test-user-home} —
+ * this class never writes the real user profile.
  */
 public final class AdventureGlTestSupport {
     private static final LinkedBlockingQueue<Runnable> GL_QUEUE = new LinkedBlockingQueue<>();

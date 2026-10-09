@@ -63,6 +63,12 @@ import java.util.function.Consumer;
  * character and never overwrites their local WorldSave with host world data.
  * Hard session-code + version check on connect. Provides send/listen hooks for CO2/CO3.
  *
+ * <p>Guest character model: the co-op {@code .chr} under {@code characters/} is the
+ * source of truth across sessions. Join seeds it from the solo player only when
+ * missing; later joins load the existing {@code .chr}. Leave persists the
+ * {@code .chr} atomically and restores the stashed solo WorldSave without
+ * touching the co-op character file.
+ *
  * <p>{@link World#generateNew} / {@link World#load} for co-op run only on the GL
  * thread via {@link Gdx#app}{@Runnable} behind a {@link TransitionScreen},
  * matching New Game / Continue. They never run on the session worker or Netty.
@@ -473,10 +479,7 @@ public final class CoopSession {
         state = State.JOINING;
         joinHostAddress = host;
         guestRestoreDone.set(false);
-        stashGuestSave();
-        CoopCharacterStore.exportCurrentPlayer();
-        guestCharacterName = WorldSave.getCurrentSave().getPlayer().getName();
-        CoopCharacterStore.loadPlayer(WorldSave.getCurrentSave().getPlayer(), guestCharacterName);
+        applyGuestJoinSaveModel();
         sessionWorld = new World();
 
         client = new CoopOverworldClient(host, port, new GuestListener());
@@ -543,14 +546,7 @@ public final class CoopSession {
         }
 
         if (previousRole == CoopSessionRole.GUEST) {
-            try {
-                CoopCharacterStore.savePlayer(WorldSave.getCurrentSave().getPlayer());
-            } catch (final Exception e) {
-                lastError = "Failed to save character: " + e.getMessage();
-            }
-            if (restoreGuest) {
-                restoreGuestSave();
-            }
+            applyGuestLeaveSaveModel(restoreGuest);
         }
 
         // CO2: drop partner sprite / party on the GL thread without leaking listeners.
@@ -590,8 +586,45 @@ public final class CoopSession {
             Gdx.app.postRunnable(w::dispose);
     }
 
+    /**
+     * Production guest join save-model: stash the solo WorldSave, then seed the
+     * co-op {@code .chr} from solo once or load the existing co-op character.
+     * Called from {@link #join} before networking. Package-visible for tests.
+     */
+    void applyGuestJoinSaveModel() throws Exception {
+        stashGuestSave();
+        final AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
+        guestCharacterName = player.getName();
+        CoopCharacterStore.loadOrSeedForJoin(player);
+    }
+
+    /**
+     * Production guest leave save-model: persist the co-op {@code .chr} (atomic),
+     * then optionally restore the stashed solo WorldSave without touching the
+     * {@code .chr}. Called from {@link #disconnectInternal}. Package-visible for tests.
+     */
+    void applyGuestLeaveSaveModel(final boolean restoreSolo) {
+        try {
+            CoopCharacterStore.savePlayer(WorldSave.getCurrentSave().getPlayer());
+        } catch (final Exception e) {
+            lastError = "Failed to save character: " + e.getMessage();
+        }
+        if (restoreSolo) {
+            restoreGuestSave();
+        }
+    }
+
     private void stashGuestSave() {
-        guestWorldBackup = WorldSave.getCurrentSave().getWorld().save();
+        final World world = WorldSave.getCurrentSave().getWorld();
+        if (world.getData() != null) {
+            try {
+                guestWorldBackup = world.save();
+            } catch (final Exception e) {
+                guestWorldBackup = null;
+            }
+        } else {
+            guestWorldBackup = null;
+        }
         guestPlayerBackup = WorldSave.getCurrentSave().getPlayer().save();
         try {
             guestMultiverseBackup = WorldSave.getCurrentSave().getMultiverse().saveRegistry();
