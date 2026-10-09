@@ -267,7 +267,7 @@ public class ConsoleCommandInterpreter {
             if (s.length < 1)
                 return "Command needs method id from gathering_methods.json";
             if (!Config.ascendant())
-                return "Gathering methods are Ascendant-only";
+                return "Gathering methods are only available in Bellwarden: Planes of Nothing";
             String id = s[0];
             if (GatheringMethodListData.getMethod(id) == null)
                 return "Unknown method id: " + id;
@@ -285,7 +285,7 @@ public class ConsoleCommandInterpreter {
             if (s.length < 1)
                 return "Command needs outpost id (e.g. logging_camp)";
             if (!Config.ascendant())
-                return "Outposts are Ascendant-only";
+                return "Outposts are only available in Bellwarden: Planes of Nothing";
             String id = s[0];
             if (GatheringMethodListData.getOutpost(id) == null)
                 return "Unknown outpost id: " + id;
@@ -306,7 +306,7 @@ public class ConsoleCommandInterpreter {
         });
         registerCommand(new String[]{"spawn", "node"}, s -> {
             if (!Config.ascendant())
-                return "Gathering nodes are Ascendant-only";
+                return "Gathering nodes are only available in Bellwarden: Planes of Nothing";
             if (!(currentGameStage() instanceof WorldStage))
                 return "Must be on the overworld";
             String id = s.length >= 1 ? s[0] : "oak";
@@ -325,7 +325,7 @@ public class ConsoleCommandInterpreter {
         });
         registerCommand(new String[]{"give", "badge"}, s -> {
             if (!Config.ascendant())
-                return "Command is Ascendant-only";
+                return "Command is only available in Bellwarden: Planes of Nothing";
             if (s.length < 1)
                 return "Command needs 1 parameter: badge id (or 'all').";
             if ("all".equalsIgnoreCase(s[0])) {
@@ -710,14 +710,14 @@ public class ConsoleCommandInterpreter {
         // FT1 fortresses — plant banner / build mode (Ascendant only).
         registerCommand(new String[]{"fortress", "plant"}, s -> {
             if (!Config.ascendant())
-                return "Fortresses are Ascendant-only";
+                return "Fortresses are only available in Bellwarden: Planes of Nothing";
             if (MapStage.getInstance().isInMap())
                 return "Plant the banner on the overworld, not inside a map.";
             return forge.adventure.fortress.FortressService.get().plantBanner();
         });
         registerCommand(new String[]{"fortress", "build"}, s -> {
             if (!Config.ascendant())
-                return "Fortresses are Ascendant-only";
+                return "Fortresses are only available in Bellwarden: Planes of Nothing";
             if (!forge.adventure.fortress.FortressService.isInsideFortressMap())
                 return "Build mode only works inside your fortress.";
             MapStage.getInstance().setFortressBuildMode(true);
@@ -727,7 +727,7 @@ public class ConsoleCommandInterpreter {
         });
         registerCommand(new String[]{"fortress", "status"}, s -> {
             if (!Config.ascendant())
-                return "Fortresses are Ascendant-only";
+                return "Fortresses are only available in Bellwarden: Planes of Nothing";
             forge.adventure.fortress.FortressInstance inst =
                     forge.adventure.fortress.FortressService.get().getCurrent();
             if (inst == null || !inst.isClaimed())
@@ -739,7 +739,7 @@ public class ConsoleCommandInterpreter {
         // MV1 multi-plane — list / create / switch (Ascendant only).
         registerCommand(new String[]{"plane", "list"}, s -> {
             if (!Config.ascendant())
-                return "Multi-plane is Ascendant-only";
+                return "Multi-plane is only available in Bellwarden: Planes of Nothing";
             StringBuilder sb = new StringBuilder("Planes (current="
                     + WorldSave.getCurrentSave().getCurrentPlaneId() + "):\n");
             for (forge.adventure.world.PlaneMeta meta : WorldSave.getCurrentSave().getMultiverse().listPlanes()) {
@@ -757,7 +757,7 @@ public class ConsoleCommandInterpreter {
         });
         registerCommand(new String[]{"plane", "create"}, s -> {
             if (!Config.ascendant())
-                return "Multi-plane is Ascendant-only";
+                return "Multi-plane is only available in Bellwarden: Planes of Nothing";
             if (!forge.adventure.coop.CoopSession.get().canInitiatePlaneSwitch())
                 return "Guests cannot create planes — host owns the shared world.";
             if (s.length < 1 || s[0] == null || s[0].isEmpty())
@@ -773,7 +773,7 @@ public class ConsoleCommandInterpreter {
         });
         registerCommand(new String[]{"plane", "go"}, s -> {
             if (!Config.ascendant())
-                return "Multi-plane is Ascendant-only";
+                return "Multi-plane is only available in Bellwarden: Planes of Nothing";
             if (s.length < 1 || s[0] == null || s[0].isEmpty())
                 return "Usage: plane go <id>";
             if (!forge.adventure.coop.CoopSession.get().canInitiatePlaneSwitch())
@@ -836,7 +836,7 @@ public class ConsoleCommandInterpreter {
         // CO2 shared overworld — party / location invites (Ascendant co-op only).
         registerCommand(new String[]{"coop", "party", "invite"}, s -> {
             if (!Config.ascendant())
-                return "Co-op is Ascendant-only";
+                return "Co-op is only available in Bellwarden: Planes of Nothing";
             forge.adventure.coop.CoopOverworldRuntime.get().inviteParty();
             return "Party invite sent (if in range)";
         });
