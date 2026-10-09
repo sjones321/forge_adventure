@@ -1,5 +1,6 @@
 package forge.adventure.coop;
 
+import forge.adventure.AdventureTestUserDir;
 import forge.adventure.data.ItemData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.AdventureModes;
@@ -20,6 +21,7 @@ import forge.util.ImageFetcher;
 import forge.util.Localizer;
 import org.jupnp.UpnpServiceConfiguration;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
@@ -30,11 +32,15 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 /**
  * CO1 guest save-model: co-op {@code .chr} persists across sessions; solo WorldSave
@@ -53,14 +59,23 @@ public class CoopGuestCharacterPersistTest {
     /** Card-list line stored in the .chr payload (card DB not loaded in this headless suite). */
     private static final String LOOT_CARD_LINE = "1 Coop Loot Bolt";
 
-    private File tempCharsDir;
+    private static Path tempUserDir;
+    private static Path realUserDir;
+    private static Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
+
     private AdventurePlayer player;
     private int soloGoldSnapshot;
     private SaveFileData soloPlayerSnapshot;
 
     @BeforeClass
-    public static void initHeadlessGui() {
-        // ForgeConstants / WorldSave need assets dir + Localizer before class init.
+    public static void initIsolatedUserDirAndGui() throws Exception {
+        // Snapshot the real OS user dir BEFORE ForgeConstants / profile load can touch it.
+        realUserDir = AdventureTestUserDir.defaultRealUserDir();
+        realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
+
+        // Point USER_DIR / USER_ADVENTURE_DIR at a temp folder before class-init reads them.
+        tempUserDir = AdventureTestUserDir.installTempUserDir();
+
         final String assets = Files.exists(Paths.get("./forge-gui"))
                 ? "./forge-gui/"
                 : Files.exists(Paths.get("../forge-gui"))
@@ -69,13 +84,41 @@ public class CoopGuestCharacterPersistTest {
         if (GuiBase.getInterface() == null) {
             GuiBase.setInterface(new HeadlessAssetsGui(assets));
         }
+        // First ForgeConstants touch resolves USER_* from forge.test.userDir.
         Localizer.getInstance().initialize("en-US", assets + "res/languages");
+        AdventureTestUserDir.assertConstantsUse(tempUserDir);
+
+        // Characters live under the isolated USER_ADVENTURE_DIR — no separate override needed,
+        // but keep the production path (charactersDir → USER_ADVENTURE_DIR/…/characters).
+        Assert.assertTrue(CoopCharacterStore.charactersDir().getAbsolutePath()
+                        .startsWith(tempUserDir.toAbsolutePath().toString()),
+                "co-op characters dir must be under the temp user dir");
+    }
+
+    @AfterClass
+    public static void assertRealUserDirUntouchedAndCleanup() throws Exception {
+        try {
+            AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
+                    "CoopGuestCharacterPersistTest");
+        } finally {
+            AdventureTestUserDir.clearTempUserDirProperty();
+            if (tempUserDir != null && Files.exists(tempUserDir)) {
+                try (Stream<Path> walk = Files.walk(tempUserDir)) {
+                    walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        } catch (final IOException ignored) {
+                        }
+                    });
+                }
+            }
+        }
     }
 
     @BeforeMethod
     public void setUp() throws Exception {
-        tempCharsDir = Files.createTempDirectory("coop-chr-").toFile();
-        CoopCharacterStore.setCharactersDirOverrideForTests(tempCharsDir);
+        // Guard: constants must still point at the temp user dir for every method.
+        AdventureTestUserDir.assertConstantsUse(tempUserDir);
 
         player = WorldSave.getCurrentSave().getPlayer();
         prepareSoloPlayer(player, SOLO_GOLD);
@@ -90,18 +133,6 @@ public class CoopGuestCharacterPersistTest {
 
     @AfterMethod
     public void tearDown() throws Exception {
-        CoopCharacterStore.setCharactersDirOverrideForTests(null);
-        if (tempCharsDir != null && tempCharsDir.isDirectory()) {
-            final File[] files = tempCharsDir.listFiles();
-            if (files != null) {
-                for (final File f : files) {
-                    //noinspection ResultOfMethodCallIgnored
-                    f.delete();
-                }
-            }
-            //noinspection ResultOfMethodCallIgnored
-            tempCharsDir.delete();
-        }
         if (soloPlayerSnapshot != null && player != null) {
             try {
                 player.load(soloPlayerSnapshot);
