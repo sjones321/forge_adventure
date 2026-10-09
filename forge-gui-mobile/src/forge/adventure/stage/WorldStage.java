@@ -662,8 +662,10 @@ public class WorldStage extends GameStage implements SaveFileContent {
      */
     private MaterialData pickNodeMaterial(String materialBiome) {
         String familyFilter = pickBiomeFamily(materialBiome);
+        // Log materials are defined on the forest biome; other biomes borrow them.
+        String familyBiome = "logs".equals(familyFilter) ? "forest" : materialBiome;
         com.badlogic.gdx.utils.Array<MaterialData> candidates = familyFilter != null
-                ? MaterialListData.getGatherablesForBiomeFamily(materialBiome, familyFilter)
+                ? MaterialListData.getGatherablesForBiomeFamily(familyBiome, familyFilter)
                 : MaterialListData.getGatherablesForBiome(materialBiome);
         if (candidates.size == 0)
             candidates = MaterialListData.getGatherablesForBiome(materialBiome);
@@ -702,6 +704,9 @@ public class WorldStage extends GameStage implements SaveFileContent {
     private String pickBiomeFamily(String materialBiome) {
         if ("forest".equalsIgnoreCase(materialBiome))
             return rand.nextBoolean() ? "logs" : "plants";
+        // Trees grow everywhere (each biome has its own look, world/node_variants.json).
+        if (rand.nextFloat() < 0.3f)
+            return "logs";
         if ("mountain".equalsIgnoreCase(materialBiome))
             return rand.nextBoolean() ? "ore" : "ash";
         return null;

@@ -20,7 +20,7 @@
     },
     {
       "type": "Table",
-      "name": "skillList",
+      "name": "achievementList",
       "x": 20,
       "y": 22,
       "width": 390,
@@ -49,8 +49,8 @@
     },
     {
       "type": "TextButton",
-      "name": "quests",
-      "text": "Quests",
+      "name": "skills",
+      "text": "Skills",
       "width": 60,
       "height": 30,
       "x": 420,
@@ -58,21 +58,12 @@
     },
     {
       "type": "TextButton",
-      "name": "unlocks",
-      "text": "Unlocks",
+      "name": "quests",
+      "text": "Quests",
       "width": 60,
       "height": 30,
       "x": 420,
       "y": 104
-    },
-    {
-      "type": "TextButton",
-      "name": "achievements",
-      "text": "Awards",
-      "width": 60,
-      "height": 30,
-      "x": 420,
-      "y": 64
     }
   ]
 }

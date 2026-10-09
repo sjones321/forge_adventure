@@ -362,7 +362,7 @@ public class ConfigData {
      */
     public boolean planarPortalAutoCreate = true;
 
-    // ---- Ascendant multiverse (Package MV2): plane-per-set generator + alignment. ----
+// ---- Ascendant multiverse (Package MV2): plane-per-set generator + alignment. ----
 
     /** Minimum set-plane map width/height in tiles (inclusive). */
     public int setPlaneMinTiles = 300;
@@ -385,6 +385,16 @@ public class ConfigData {
      * unplaceable instances are skipped so generation always finishes.
      */
     public int setPlaneMaxPlacementRestarts = 8;
+
+    // ---- Ascendant achievements (Package AC1): account-wide, outside the save. ----
+
+    /** When true, show a HUD toast when an achievement unlocks. */
+    public boolean achievementToastEnabled = true;
+    /**
+     * Max achievement toasts emitted in one evaluation pass (set-completion spam guard).
+     * Extra unlocks still persist; only the toast is deferred.
+     */
+    public int achievementToastMaxPerPass = 5;
 
     // ---- Ascendant fortresses (Package FT1): claim site + instance build mode. ----
 

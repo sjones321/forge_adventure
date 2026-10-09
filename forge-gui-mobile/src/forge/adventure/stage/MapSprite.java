@@ -75,6 +75,11 @@ public class MapSprite extends Actor {
         if (layer == SpriteLayer) {
             List<PointOfInterest> pointsOfInterest = Current.world().getPointsOfInterest(chunkX, chunkY);
             for (PointOfInterest poi : pointsOfInterest) {
+                // A POI whose sprite is missing from its atlas would crash the draw and black out the world.
+                if (poi.getSprite() == null) {
+                    System.err.println("POI " + poi.getID() + " has no sprite; not drawn");
+                    continue;
+                }
                 Actor sprite = new PointOfInterestMapSprite(poi);
                 actorGroup.add(sprite);
             }

@@ -436,6 +436,39 @@ remote human can be added through `guiMap`. Nothing in Adventure knows about a s
   result; each player applies their own rewards, XP and penalties to their own character.
 - Watch out for blocking `sendAndWait` prompts freezing the host while the guest decides; keep timeouts generous.
 
+### CO5. World-bound partner characters (the Stardew "farmhand" model; decided 2026-10-09)
+Replaces the CO1 guest save model (guest `.chr` files, stashing and restoring the guest's solo save, character-id
+migration). **Why:** a guest who brings their solo character carries their own rotation and set progress into a world
+whose rules belong to the host, so gyms and formats keep clashing, and every guest save path is a distributed-save
+problem. A co-op character that lives in the host's world removes both.
+- **A partner character belongs to one world.** The first time a guest joins a host's world, they create a character
+  for that world (name, look). It is stored **in the host's world save** (a `partners` map keyed by the guest's
+  profile id), follows that world's rotation and plane formats, and is waiting for them on every later join. A guest
+  can only play it while that host is hosting, as in Stardew.
+- **Solo characters never enter co-op.** The guest's solo save is never read, written, stashed or restored by a
+  session. Leaving a session returns the guest to the main menu; their solo game is exactly as they left it.
+- **Profile id:** a stable id generated once per install and stored in the user folder (not per character). One
+  partner character per profile per world.
+- **Starter gift (tunable):** a new partner character starts with a sealed pool from the world's current sets, like a
+  new game. Optional host setting: also let them copy one deck from their solo character as a gift.
+- **Host is the source of truth.** On join the host sends the partner character. During the session the guest plays on
+  a local copy and sends a full snapshot to the host after every duel, on gather/craft batches (debounced, e.g. every
+  30 s of play) and on leave; the host stores it in the world save with its normal saves. A guest crash loses at most
+  the last few seconds; a host crash loses the same as the host's own progress.
+- **Legacy import:** a guest who already has a co-op character from the old model (`characters/<name>.chr` or
+  `characters/guest/<id>.chr`) is offered a one-time "bring your existing co-op character into this world" on first
+  join after the update, so nobody loses progress.
+- **Rules:** partner characters use the host world's rotation and, with K, each plane's format. Ordinary overworld
+  co-op fights accept any deck (only the game-wide restricted, joke and digital-only cards are refused); gyms, the
+  League and tournaments check each deck against the plane's format and list any illegal cards before the fight
+  instead of dropping the player.
+- **Remove after migration:** the guest `.chr` store, `stashGuestSave` / `restoreGuestSave`, the guest-side
+  `blocksLocalWorldSave` session gating, and character-id migration code. Keep the `forge.test.userDir` test isolation.
+- Tests (temp user dir): first join creates a partner in the host save; leave and rejoin restores it with progress;
+  guest crash mid-session loses only the last snapshot window; the guest's solo save file is byte-identical before and
+  after a session; legacy `.chr` import; two different guests get two partners; a host with two worlds keeps separate
+  partners.
+
 ### CO4. Co-op systems (depends on CO2, MV3)
 - Shared home base on the host's home plane: both can use stations, storage and outposts.
 - Trading cards, materials and items between players.
@@ -489,9 +522,14 @@ Replaces the homestead. War-torn frontier strongholds, built and defended.
 
 Scope order: **TR1 first** (needed for co-op), then LG1, then the rest.
 
-### TR1. Player trading (depends on CO1)
+### TR1. Player trading (depends on CO1, CO5)
 - Trade window between connected players: each side offers cards, materials, items and gold; both confirm; the
   exchange is applied on both characters at once. Vaulted cards and cards in decks can't be offered.
+- **With CO5 both characters live in the host's world save, so a trade is one local, atomic operation on the host:**
+  the guest's inventory is locked while the trade window is open and confirmed; the guest sends its current snapshot;
+  the host applies the trade to its own character and the partner record, saves the world once, then sends the
+  partner its updated character. If the guest drops before receiving it, the next join delivers the stored copy, which
+  already includes the trade. No escrow, reconcile log or two-phase protocol.
 - Later: offline trade codes (export an offer, the other player imports and accepts).
 
 ### LG1. Auto-sorting storage and workers (depends on FT1)
@@ -713,6 +751,24 @@ with him.
 - First batch: about 8 common enemy types with 2 themes each (merfolk, goblins, zombies, elves, vampires,
   dragons, soldiers/knights, spirits). Grow the library over time.
 
+### EN2. Co-op enemy partners (depends on EN1, CO3)
+- **In a co-op duel the enemy brings a partner of the same creature type, playing a different theme.** A merfolk brings
+  a second merfolk on another merfolk deck; a goblin tribal enemy brings a goblin burn partner. Two players face two
+  enemies, so the fight feels like a pack, not two decks ganging up on one.
+- **Every creature type needs at least two themes with distinct decks in every format**, so a pair never mirrors.
+  Today merfolk and the sea monsters (kraken_leviathan) have one theme each: add a second merfolk theme (e.g. merfolk
+  tempo or mill) and a second sea-monster theme (e.g. serpents and big leviathans). Add a test that every creature-type
+  tag has two or more themes.
+- **Pairing rule:** the partner uses a different theme from the same tag, picked deterministically from the encounter
+  so host and guest agree. Fallback when a type has only one theme, or for enemies with no theme tag: a random themed
+  enemy from the same biome. Bosses, gym and League fights, and encounters that already chain enemies (`nextEnemy`)
+  keep their hand-made setups.
+- **Scaling:** with a partner, drop the single-enemy boosts (`coopDuelEnemyLifeFactor` back to 1.0 and no extra card).
+  Keep both settings tunable, and keep the boosts for the fallback case where no partner could be built.
+- **Seats:** team-0 the two players, team-1 the two enemies, each with their own life and turns. A Two-Headed Giant
+  (shared life) option per format comes with package K.
+- Rewards: each player rolls loot as for their own kill of one enemy (tunable), so a pair isn't worth double.
+
 ### AC1. Achievements (no hard dependency)
 - **Account-wide, stored outside the save** (next to the Hall of Fame and prestige data) and **kept through
   prestige**.
@@ -756,7 +812,7 @@ with him.
 10. Fortresses: FT1 → FT2 → FT3 and FT4.
 11. TR1 with co-op; then LG1 → LG2 → LG3; WAR1 after FT3.
 12. INV1, then DS1 (duel screen).
-13. EN1 data and AC1 can start now; K after MV2; CS1 after AC1.
+13. EN1 data and AC1 can start now; K after MV2; CS1 after AC1; EN2 after EN1.
 14. Core loop: LT1 + FR1 (first living town) → AR1 → SE1 → BL1 with WAR1; CH1 alongside.
 
 ## Art

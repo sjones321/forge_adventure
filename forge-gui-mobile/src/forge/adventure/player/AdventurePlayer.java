@@ -314,10 +314,51 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     /** After cards enter the collection: check set mastery (may unlock and rotate in a new set). */
     private void afterCardsCollected() {
+        afterCardsCollected(null);
+    }
+
+    private void afterCardsCollected(Iterable<PaperCard> justAdded) {
         List<String> before = new ArrayList<>(standardWindow.getSets());
         standardWindow.checkMastery(cards);
         if (!before.equals(standardWindow.getSets()))
             RewardData.invalidateCardPool();
+        // AC1: incremental set-completion check (account-wide; Ascendant only).
+        if (Config.ascendant()) {
+            try {
+                if (justAdded != null) {
+                    AchievementService.get().onCardsAdded(cards, justAdded);
+                } else {
+                    AchievementService.get().evaluateCollection(cards);
+                }
+            } catch (Throwable ignored) {
+                // Achievements must never break collection rewards.
+            }
+        }
+    }
+
+    /** AC1: keep nameCounts in sync when copies leave the collection. */
+    private void afterCardsRemoved(Iterable<PaperCard> removed) {
+        if (!Config.ascendant() || removed == null) {
+            return;
+        }
+        try {
+            AchievementService.get().onCardsRemoved(removed);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * AC1: rebuild ownership map for this save and evaluate already-complete sets.
+     * Call after load / new game so a previous save's cards never count.
+     */
+    private void notifyAchievementsCollectionReady() {
+        if (!Config.ascendant()) {
+            return;
+        }
+        try {
+            AchievementService.get().onPlayerCollectionReady(cards);
+        } catch (Throwable ignored) {
+        }
     }
 
     public final ItemPool<PaperCard> newCards = new ItemPool<>(PaperCard.class);
@@ -489,7 +530,22 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 }
             }
         }
+        afterCommanderDeckStateMayHaveChanged();
+    }
+
+    /**
+     * RemNonCommanderDecks reward filter and AC1 reachable caches depend on whether
+     * any deck carries {@link #COMMANDER_DECK_TAG}. Call after tag-bearing deck
+     * edits (set / clear / delete / copy).
+     */
+    private void afterCommanderDeckStateMayHaveChanged() {
         RewardData.invalidateCardPool();
+        if (Config.ascendant()) {
+            try {
+                AchievementService.get().onCommanderDeckChanged();
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /** Copies of a card that are free to vault: owned, not vaulted, not auto-selling, not used in decks. */
@@ -556,6 +612,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         onGoldChangeList.emit();
         onLifeTotalChangeList.emit();
         onShardsChangeList.emit();
+        notifyAchievementsCollectionReady();
     }
 
     public void setSelectedDeckSlot(int slot) {
@@ -1804,6 +1861,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         onMaterialChangeList.emit();
         onGoldChangeList.emit();
         onBlessing.emit();
+        notifyAchievementsCollectionReady();
     }
 
     /**
@@ -2187,7 +2245,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         awardCollectingXp(card, amount);
         cards.add(card, amount);
         newCards.add(card, amount);
-        afterCardsCollected();
+        List<PaperCard> added = new ArrayList<>(Math.max(1, amount));
+        for (int i = 0; i < amount; i++)
+            added.add(card);
+        afterCardsCollected(added);
         if (autoSalvage)
             maybeAutoSalvage(card);
     }
@@ -2197,7 +2258,13 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             awardCollectingXp(entry.getKey(), entry.getValue());
         cards.addAll(cardPool);
         newCards.addAll(cardPool);
-        afterCardsCollected();
+        List<PaperCard> added = new ArrayList<>();
+        for (Map.Entry<PaperCard, Integer> entry : cardPool) {
+            int n = entry.getValue() == null ? 0 : entry.getValue();
+            for (int i = 0; i < n; i++)
+                added.add(entry.getKey());
+        }
+        afterCardsCollected(added);
         for (Map.Entry<PaperCard, Integer> entry : cardPool)
             maybeAutoSalvage(entry.getKey());
     }
@@ -2218,7 +2285,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 awardCollectingXp(reward.getCard(), 1);
                 cards.add(reward.getCard());
                 newCards.add(reward.getCard());
-                afterCardsCollected();
+                afterCardsCollected(java.util.Collections.singletonList(reward.getCard()));
                 if (reward.isAutoSell()) {
                     autoSellCards.add(reward.getCard());
                     refreshEditor();
@@ -2320,7 +2387,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             return false;
         if (GymListData.getByBadge(badgeId) == null)
             return false;
-        return badges.add(badgeId);
+        boolean added = badges.add(badgeId);
+        if (added) {
+            try {
+                AchievementService.get().evaluatePlayer(this);
+            } catch (Throwable ignored) {
+            }
+        }
+        return added;
     }
 
     public boolean isLeagueCleared() {
@@ -2328,7 +2402,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     public void setLeagueCleared(boolean cleared) {
+        boolean newly = cleared && !leagueCleared;
         leagueCleared = cleared;
+        if (newly && Config.ascendant()) {
+            try {
+                AchievementService.get().evaluatePlayer(this);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /**
@@ -3002,6 +3083,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             return 0;
         if(!cards.remove(card, amountToSell))
             return 0; //Failed to sell?
+        List<PaperCard> removed = new ArrayList<>(amountToSell);
+        for (int i = 0; i < amountToSell; i++)
+            removed.add(card);
+        afterCardsRemoved(removed);
         return cardSellPrice(card) * amountToSell;
     }
 
@@ -3074,6 +3159,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
         if (!cards.remove(card, toSalvage))
             return 0;
+        List<PaperCard> removed = new ArrayList<>(toSalvage);
+        for (int i = 0; i < toSalvage; i++)
+            removed.add(card);
+        afterCardsRemoved(removed);
         int autoMarked = Math.min(toSalvage, autoSellCards.count(card));
         if (autoMarked > 0)
             autoSellCards.remove(card, autoMarked);
@@ -4136,6 +4225,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         deck = decks.set(selectedDeckIndex, new Deck(Forge.getLocalizer().getMessage("lblEmptyDeck")));
         ensureDeckLoadoutsSize();
         deckLoadouts.set(selectedDeckIndex, null);
+        afterCommanderDeckStateMayHaveChanged();
     }
 
     /**
@@ -4148,6 +4238,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (oldIndex < deckLoadouts.size()) {
             deckLoadouts.remove(oldIndex);
         }
+        afterCommanderDeckStateMayHaveChanged();
     }
 
     public void addDeck(){
@@ -4169,6 +4260,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 ensureDeckLoadoutsSize();
                 HashMap<String, Long> sourceLoadout = selectedDeckIndex < deckLoadouts.size() ? deckLoadouts.get(selectedDeckIndex) : null;
                 deckLoadouts.set(i, sourceLoadout != null ? new HashMap<>(sourceLoadout) : null);
+                afterCommanderDeckStateMayHaveChanged();
                 return i;
             }
         }
@@ -4274,6 +4366,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             deck.getMain().remove(card, nToRemoveFromThisDeck);
         }
         Current.player().getCards().remove(card, 1);
+        afterCardsRemoved(Collections.singletonList(card));
     }
 
     public CardPool getCollectionCards(boolean allCards) {
