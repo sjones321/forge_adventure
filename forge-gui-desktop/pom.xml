@@ -27,7 +27,20 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <!-- Match forge-gui-mobile: isolate Forge USER_DIR before ForgeConstants init. -->
+                    <!-- Match forge-gui-mobile: isolate Forge USER_DIR before ForgeConstants init.
+                         -D on argLine so the property exists from JVM start (FModel.initialize →
+                         pruneForgeLogs). Keep parent add-opens; do not pull app-launch Xmx here. -->
+                    <argLine>
+                        --add-opens java.base/java.lang=ALL-UNNAMED
+                        --add-opens java.base/java.time=ALL-UNNAMED
+                        --add-opens java.base/java.text=ALL-UNNAMED
+                        --add-opens java.base/java.util=ALL-UNNAMED
+                        --add-opens java.base/java.util.regex=ALL-UNNAMED
+                        --add-opens java.base/java.util.stream=ALL-UNNAMED
+                        --add-opens java.base/java.lang.reflect=ALL-UNNAMED
+                        --add-opens java.desktop/javax.imageio.spi=ALL-UNNAMED
+                        -Dforge.test.userDir=${project.build.directory}/test-user-home
+                    </argLine>
                     <systemPropertyVariables>
                         <forge.test.userDir>${project.build.directory}/test-user-home</forge.test.userDir>
                     </systemPropertyVariables>

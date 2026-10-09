@@ -321,6 +321,141 @@ public class EnemyThemeDeckLegalityTest {
     }
 
     @Test
+    public void fixedAndGeneratedBasicsUsePreferredEdition() {
+        String preferred = EnemyThemeDecks.PREFERRED_BASIC_LAND_EDITION;
+        Assert.assertEquals(preferred, "FDN");
+        // Preferred set must actually print the five basics.
+        for (String basic : new String[]{"Plains", "Island", "Swamp", "Mountain", "Forest"}) {
+            PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(basic, preferred);
+            Assert.assertNotNull(pc, "expected " + basic + "|" + preferred);
+        }
+
+        List<String> problems = new ArrayList<>();
+        int checked = 0;
+        for (EnemyThemeData theme : themes) {
+            for (String format : new String[]{"Historic", "Pauper", "Commander"}) {
+                for (Path deckPath : listFixedDecks(theme.id, format)) {
+                    checked++;
+                    Deck deck = DeckSerializer.fromFile(deckPath.toFile());
+                    if (deck == null) {
+                        problems.add(deckPath + ": failed to parse");
+                        continue;
+                    }
+                    for (var e : deck.getMain()) {
+                        PaperCard pc = e.getKey();
+                        if (pc == null || pc.getRules() == null || !pc.getRules().getType().isBasicLand())
+                            continue;
+                        // Wastes has no FDN printing; other basics must be pinned.
+                        if ("Wastes".equals(pc.getName()))
+                            continue;
+                        if (!preferred.equalsIgnoreCase(pc.getEdition()))
+                            problems.add(deckPath.getFileName() + " [" + format + "]: basic "
+                                    + pc.getName() + "|" + pc.getEdition()
+                                    + " (want " + preferred + ")");
+                    }
+                }
+            }
+        }
+        Assert.assertTrue(checked >= themes.size() * 3, "expected fixed decks, checked " + checked);
+        Assert.assertTrue(problems.isEmpty(),
+                checked + " decks checked; non-" + preferred + " basics:\n"
+                        + String.join("\n", problems));
+
+        // Generator path: rebuild a fixed deck and confirm basics are pinned.
+        EnemyThemeData sample = themeById("elf_tribal");
+        Assert.assertNotNull(sample);
+        EnemyThemeDecks.ensureCoreLoaded(sample);
+        Deck generated = EnemyThemeDecks.buildFixedDeck(sample, "Pauper", 42L);
+        Assert.assertNotNull(generated);
+        int basics = 0;
+        for (var e : generated.getMain()) {
+            PaperCard pc = e.getKey();
+            if (pc == null || pc.getRules() == null || !pc.getRules().getType().isBasicLand())
+                continue;
+            if ("Wastes".equals(pc.getName()))
+                continue;
+            basics += e.getValue();
+            Assert.assertEquals(pc.getEdition(), preferred,
+                    "generated basic must be " + preferred + ": " + pc.getName()
+                            + "|" + pc.getEdition());
+        }
+        Assert.assertTrue(basics >= EnemyThemeDecks.MIN_LANDS_60, "expected basics in generated deck");
+    }
+
+    @Test
+    public void tribalDensityTopUpTakesCoreCardsBeforeDb() {
+        EnemyThemeData theme = themeById("spirit_tempo");
+        Assert.assertNotNull(theme);
+        EnemyThemeDecks.ensureCoreLoaded(theme);
+        Assert.assertTrue(EnemyThemeDecks.isInCore("Chapel Geist", theme));
+        Assert.assertTrue(EnemyThemeDecks.isInCore("Stormbound Geist", theme));
+
+        Deck thin = new Deck("tribal-topup");
+        // Only basics — tribal count is 0 so top-up must run.
+        PaperCard plains = FModel.getMagicDb().getCommonCards()
+                .getCard("Plains", EnemyThemeDecks.PREFERRED_BASIC_LAND_EDITION);
+        PaperCard island = FModel.getMagicDb().getCommonCards()
+                .getCard("Island", EnemyThemeDecks.PREFERRED_BASIC_LAND_EDITION);
+        Assert.assertNotNull(plains);
+        Assert.assertNotNull(island);
+        for (int i = 0; i < 9; i++)
+            thin.getMain().add(plains);
+        for (int i = 0; i < 8; i++)
+            thin.getMain().add(island);
+
+        GameFormat pauper = FModel.getFormats().getPauper();
+        Assert.assertNotNull(pauper);
+        byte allowed = forge.card.MagicColor.WHITE | forge.card.MagicColor.BLUE;
+        EnemyThemeDecks.ensureTribalCreatureDensityForTests(
+                thin, theme, "Pauper", pauper, allowed, false);
+
+        int tribe = EnemyThemeDecks.countTribalCreatures(thin, theme);
+        Assert.assertTrue(tribe >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_60,
+                "top-up should reach tribal floor, got " + tribe);
+
+        // Preference invariant: any non-core tribe card may appear only after every
+        // format-legal core tribe creature is already at the 4-of cap.
+        int perName = 4;
+        boolean unsaturatedCore = false;
+        for (String name : theme.core) {
+            if (name == null || !EnemyThemeDecks.isInCore(name, theme))
+                continue;
+            PaperCard pc = FModel.getMagicDb().getCommonCards().getUniqueByName(name);
+            if (pc == null || pc.getRules() == null || !pc.getRules().getType().isCreature())
+                continue;
+            if (!pc.getRules().getType().hasSubtype("Spirit") && !pc.getRules().hasKeyword("Changeling"))
+                continue;
+            if (!EnemyThemeDecks.cardLegalInFixedFormat(pc, "Pauper", pauper))
+                continue;
+            if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            if (thin.getMain().countByName(name) < perName) {
+                unsaturatedCore = true;
+                break;
+            }
+        }
+        int dbTribe = 0;
+        for (var e : thin.getMain()) {
+            PaperCard pc = e.getKey();
+            if (pc == null || pc.getRules() == null || !pc.getRules().getType().isCreature())
+                continue;
+            if (!pc.getRules().getType().hasSubtype("Spirit") && !pc.getRules().hasKeyword("Changeling"))
+                continue;
+            if (EnemyThemeDecks.isInCore(pc.getName(), theme))
+                continue;
+            dbTribe += e.getValue();
+        }
+        if (unsaturatedCore)
+            Assert.assertEquals(dbTribe, 0,
+                    "DB tribe cards must not appear while core tribe copies are unsaturated");
+        // With the beefed spirit_tempo core, top-up should rarely need the DB at all.
+        Assert.assertEquals(dbTribe, 0,
+                "spirit_tempo core should supply the tribal floor without DB cards; dbTribe="
+                        + dbTribe);
+    }
+
+    @Test
     public void exclusionFilterRejectsOnlineFunnyUnAndPlaytestCards() {
         String[] banned = {
                 "Sarevok the Usurper", // HBG
