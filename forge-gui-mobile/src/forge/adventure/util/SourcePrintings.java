@@ -186,10 +186,11 @@ public final class SourcePrintings {
 
     /**
      * Whether a shop/reward edition pin is worth keeping against {@code pool}.
-     * Counts distinct non-basic pool names that have a non-basic printing in a
-     * non-reprint pin edition — same floor as {@link SetPlaneRules#MIN_SET_POOL_SIZE}.
-     * Basics and Commander reprints of window staples alone are not enough, so 40K /
-     * D&amp;D pins over a Standard window fall back to the rotation.
+     * Counts distinct non-basic pool names that have a non-basic <em>original</em>
+     * printing in a pin edition (no earlier printing elsewhere) — same floor as
+     * {@link SetPlaneRules#MIN_SET_POOL_SIZE}. Basics and Commander / D&amp;D
+     * reprints of window staples alone are not enough, so 40K / AFR / CLB pins
+     * over a Standard window fall back to the rotation.
      */
     public static boolean pinnedEditionsUsable(Iterable<PaperCard> pool, String[] pinEditions) {
         if (pool == null || pinEditions == null || pinEditions.length == 0) {
@@ -227,9 +228,7 @@ public final class SourcePrintings {
                 continue;
             }
             for (String ed : usablePins) {
-                PaperCard pinPrint = printingFromSet(name, ed);
-                if (pinPrint != null && ed.equalsIgnoreCase(pinPrint.getEdition())
-                        && !SetPlaneRules.isBasicLand(pinPrint)) {
+                if (isOriginalNonBasicInEdition(name, ed)) {
                     n++;
                     break;
                 }
@@ -241,12 +240,46 @@ public final class SourcePrintings {
         return false;
     }
 
+    /**
+     * True when {@code cardName} has a non-basic printing in {@code editionCode}
+     * and no printing in any earlier-dated edition (i.e. not a reprint into the pin).
+     */
+    private static boolean isOriginalNonBasicInEdition(String cardName, String editionCode) {
+        PaperCard pinPrint = printingFromSet(cardName, editionCode);
+        if (pinPrint == null || !editionCode.equalsIgnoreCase(pinPrint.getEdition())
+                || SetPlaneRules.isBasicLand(pinPrint)) {
+            return false;
+        }
+        Date pinDate = editionDate(pinPrint);
+        if (pinDate == null) {
+            return false;
+        }
+        for (PaperCard other : allPrintings(cardName)) {
+            if (other == null || editionCode.equalsIgnoreCase(other.getEdition())) {
+                continue;
+            }
+            Date otherDate = editionDate(other);
+            if (otherDate != null && otherDate.before(pinDate)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** Prefer a main-sheet printing of {@code cardName} from {@code setCode}. */
     public static PaperCard printingFromSet(String cardName, String setCode) {
         if (cardName == null || cardName.isEmpty() || setCode == null || setCode.isEmpty()) {
             return null;
         }
         if (isRestrictedEdition(setCode) || isExcludedEditionCode(setCode) || !isAllowedEdition(setCode)) {
+            return null;
+        }
+        try {
+            CardEdition edition = editions().get(setCode);
+            if (edition != null && EXCLUDED_EDITION_TYPES.contains(edition.getType())) {
+                return null;
+            }
+        } catch (Throwable ignored) {
             return null;
         }
         List<PaperCard> inSet = new ArrayList<>();

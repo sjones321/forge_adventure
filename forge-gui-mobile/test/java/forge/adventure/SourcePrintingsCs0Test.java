@@ -469,17 +469,22 @@ public class SourcePrintingsCs0Test {
         Assert.assertTrue(SourcePrintings.isRestrictedEdition("UST"),
                 "Ascendant restrictedEditions must list UST");
 
-        PaperCard onlineShock = SourcePrintings.printingFromSet("Shock", "ANB");
+        PaperCard onlineShock = FModel.getMagicDb().getCommonCards().getCard("Shock", "ANB");
         Assert.assertNotNull(onlineShock, "ANB Shock printing required");
         Assert.assertFalse(SourcePrintings.isNormalPrinting(onlineShock),
                 "ONLINE Shock must fail isNormalPrinting");
+        Assert.assertNull(SourcePrintings.printingFromSet("Shock", "ANB"),
+                "printingFromSet must refuse ONLINE editions");
 
         CardEdition ustEd = FModel.getMagicDb().getEditions().get("UST");
         Assert.assertFalse(ustEd.getCards().isEmpty(), "UST must have cards");
-        PaperCard ustCard = SourcePrintings.printingFromSet(ustEd.getCards().get(0).name(), "UST");
-        Assert.assertNotNull(ustCard, "UST printing must resolve for isNormalPrinting check");
+        String ustName = ustEd.getCards().get(0).name();
+        PaperCard ustCard = FModel.getMagicDb().getCommonCards().getCard(ustName, "UST");
+        Assert.assertNotNull(ustCard, "UST printing must load from DB for isNormalPrinting check");
         Assert.assertFalse(SourcePrintings.isNormalPrinting(ustCard),
                 "restricted FUNNY UST must fail isNormalPrinting");
+        Assert.assertNull(SourcePrintings.printingFromSet(ustName, "UST"),
+                "printingFromSet must refuse restrictedEditions");
 
         // Junk / generic shop via generate() — no editions pin.
         RewardData junk = new RewardData();
