@@ -630,32 +630,31 @@ public class WorldSave {
         if (!PlaneConfigPaths.isAllowed(template, multiverse)) {
             throw new IllegalStateException("Disallowed set-plane template: " + template);
         }
+        // Prefer stamped setCode; fall back to plane-id parse. Only stamp after a
+        // successful MV2 customise so pre-MV2 set planes stay with empty setCode.
         String setCode = meta.getSetCode();
         if (setCode == null || setCode.isEmpty()) {
             setCode = SetPlaneGenerator.setCodeFromPlaneId(planeId);
-            if (!setCode.isEmpty()) {
-                meta.setSetCode(setCode);
-            }
         }
         long seed = meta.getSeed() != 0 ? meta.getSeed()
                 : (world.getSeed() ^ ((long) planeId.hashCode() << 32));
 
         // Temporary World — must not touch the live stage. Caller must be on GL thread.
+        // Co-op hash uses the pre-gate world; gates are placed after for gameplay only.
         World generated = new World();
-        if (setCode != null && !setCode.isEmpty() && SetPlaneRules.isKnownEdition(setCode)) {
-            try {
-                forge.adventure.data.WorldData custom = SetPlaneGenerator.prepareSetPlaneData(setCode, seed);
-                generated.overrideWorldData(custom);
-            } catch (Exception e) {
-                System.err.println("MV2 set-plane customise failed for " + setCode + ": " + e.getMessage());
-            }
-        }
-        if (!generated.generateNew(seed, template, false)) {
+        final String mv2Code = (setCode != null && !setCode.isEmpty()
+                && SetPlaneRules.isKnownEdition(setCode)) ? setCode : "";
+        try {
+            forge.adventure.coop.CoopWorldSync.buildSetPlaneWorld(
+                    generated, seed, template, mv2Code, true);
+        } catch (Exception e) {
             Forge.safeDispose(generated);
-            throw new IllegalStateException("Failed to generate set plane " + planeId);
+            throw new IllegalStateException("Failed to generate set plane " + planeId
+                    + ": " + e.getMessage(), e);
         }
-        if (setCode != null && !setCode.isEmpty()) {
-            PlanarPortalPlacer.ensureReturnPortal(generated, setCode, seed);
+        // Stamp setCode only when MV2 customisation actually ran (pre-MV2 stays empty).
+        if (!mv2Code.isEmpty()) {
+            meta.setSetCode(mv2Code);
         }
         meta.setSeed(generated.getSeed());
         float startX = (float) (generated.getData().playerStartPosX * generated.getData().width

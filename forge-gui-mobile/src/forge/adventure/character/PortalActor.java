@@ -13,7 +13,6 @@ import forge.adventure.util.Current;
 import forge.adventure.util.Paths;
 import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.WorldSave;
-import forge.screens.TransitionScreen;
 
 import java.util.HashMap;
 
@@ -139,32 +138,16 @@ public class PortalActor extends EntryActor {
                 final String loadingMsg = Forge.getLocalizer() != null
                         ? Forge.getLocalizer().getMessage("lblGeneratingWorld")
                         : "Opening a portal…";
-                try {
-                    Forge.setTransitionScreen(new TransitionScreen(() -> {
-                        try {
-                            save.materializeSetPlane(planeIdFinal);
-                            finishPortalTravel(planeIdFinal);
-                        } catch (Exception e) {
-                            notifyPortal("Could not create plane: "
-                                    + (e.getMessage() != null ? e.getMessage() : "unknown error"));
-                        } finally {
-                            try {
-                                Forge.clearTransitionScreen();
-                            } catch (Exception ignored) {
-                            }
-                        }
-                    }, null, false, true, loadingMsg));
-                    return true;
-                } catch (Exception e) {
-                    // TransitionScreen unavailable — still materialize on this (GL) thread.
+                forge.adventure.world.SetPlaneLoading.runWithLoadingScreen(loadingMsg, () -> {
                     try {
-                        save.materializeSetPlane(id);
-                    } catch (Exception genEx) {
+                        save.materializeSetPlane(planeIdFinal);
+                        finishPortalTravel(planeIdFinal);
+                    } catch (Exception e) {
                         notifyPortal("Could not create plane: "
-                                + (genEx.getMessage() != null ? genEx.getMessage() : "unknown error"));
-                        return false;
+                                + (e.getMessage() != null ? e.getMessage() : "unknown error"));
                     }
-                }
+                });
+                return true;
             }
             return finishPortalTravel(id);
         } catch (Exception e) {
@@ -198,10 +181,38 @@ public class PortalActor extends EntryActor {
             return false;
         }
         // GameScene.enter() happens exactly once inside switchPlane.
-        String dest = save.getMultiverse().getCurrentMeta() != null
-                ? save.getMultiverse().getCurrentMeta().getDisplayName() : id;
-        notifyPortal("Planeswalked to " + dest);
+        notifyPortal("Planeswalked to " + arrivalDisplayName(save, id));
         return true;
+    }
+
+    /** Prefer set display name (MV2) over raw plane id / meta label. */
+    public static String arrivalDisplayName(WorldSave save, String planeId) {
+        try {
+            if (save != null && save.getMultiverse() != null) {
+                PlaneMeta meta = save.getMultiverse().getMeta(planeId);
+                if (meta == null) {
+                    meta = save.getMultiverse().getCurrentMeta();
+                }
+                if (meta != null) {
+                    String code = meta.getSetCode();
+                    if (code == null || code.isEmpty()) {
+                        code = forge.adventure.world.SetPlaneGenerator.setCodeFromPlaneId(meta.getId());
+                    }
+                    if (code != null && !code.isEmpty()) {
+                        return forge.adventure.world.SetPlaneGenerator.displayNameForSet(code);
+                    }
+                    if (meta.getDisplayName() != null && !meta.getDisplayName().isEmpty()) {
+                        return meta.getDisplayName();
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        String fromId = forge.adventure.world.SetPlaneGenerator.setCodeFromPlaneId(planeId);
+        if (!fromId.isEmpty()) {
+            return forge.adventure.world.SetPlaneGenerator.displayNameForSet(fromId);
+        }
+        return planeId != null ? planeId : "plane";
     }
 
     private void notifyPortal(String msg) {

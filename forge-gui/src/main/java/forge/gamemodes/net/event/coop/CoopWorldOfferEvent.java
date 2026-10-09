@@ -8,9 +8,12 @@ import forge.gamemodes.net.event.NetEvent;
  *
  * <p>MV1: {@link #worldPlaneId} / {@link #worldConfigPath} identify the host's
  * current overworld plane inside the adventure pack ({@link #planeId}).
+ *
+ * <p>MV2: {@link #mv2SetCode} is the host-stamped set code for co-op rebuild
+ * customisation (empty for home / pre-MV2 set planes). World hash is gate-free.
  */
 public class CoopWorldOfferEvent implements NetEvent {
-    private static final long serialVersionUID = 2L;
+    private static final long serialVersionUID = 3L;
 
     private final String hostPlayerName;
     private final String planeId;
@@ -23,18 +26,29 @@ public class CoopWorldOfferEvent implements NetEvent {
     private final String worldPlaneId;
     /** Relative world.json for the host's current plane; empty → world/world.json. */
     private final String worldConfigPath;
+    /** MV2: non-empty when the host materialised this plane with set customisation. */
+    private final String mv2SetCode;
 
     public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
                                final long worldSeed, final String worldHash,
                                final int gamePort, final int overworldPort) {
         this(hostPlayerName, planeId, planeConfigHash, worldSeed, worldHash, gamePort, overworldPort,
-                null, null);
+                null, null, "");
     }
 
     public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
                                final long worldSeed, final String worldHash,
                                final int gamePort, final int overworldPort,
                                final String worldPlaneId, final String worldConfigPath) {
+        this(hostPlayerName, planeId, planeConfigHash, worldSeed, worldHash, gamePort, overworldPort,
+                worldPlaneId, worldConfigPath, "");
+    }
+
+    public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
+                               final long worldSeed, final String worldHash,
+                               final int gamePort, final int overworldPort,
+                               final String worldPlaneId, final String worldConfigPath,
+                               final String mv2SetCode) {
         this.hostPlayerName = hostPlayerName;
         this.planeId = planeId;
         this.planeConfigHash = planeConfigHash;
@@ -44,6 +58,7 @@ public class CoopWorldOfferEvent implements NetEvent {
         this.overworldPort = overworldPort;
         this.worldPlaneId = worldPlaneId;
         this.worldConfigPath = worldConfigPath;
+        this.mv2SetCode = mv2SetCode != null ? mv2SetCode : "";
     }
 
     public String getHostPlayerName() {
@@ -81,5 +96,10 @@ public class CoopWorldOfferEvent implements NetEvent {
 
     public String getWorldConfigPath() {
         return worldConfigPath;
+    }
+
+    /** Host-stamped MV2 set code; empty means no set customisation on rebuild. */
+    public String getMv2SetCode() {
+        return mv2SetCode != null ? mv2SetCode : "";
     }
 }

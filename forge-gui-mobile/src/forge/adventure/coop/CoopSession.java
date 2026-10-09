@@ -3,6 +3,7 @@ package forge.adventure.coop;
 import com.badlogic.gdx.Gdx;
 import forge.Forge;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.player.StandardWindow;
 import forge.adventure.util.Config;
 import forge.adventure.util.Paths;
 import forge.adventure.util.SaveFileData;
@@ -253,14 +254,16 @@ public final class CoopSession {
         runWorldOpOnGl(loadingMsg, () -> {
             final WorldSave save = WorldSave.getCurrentSave();
             final World w = save.getWorld();
-            // Hash on the GL thread (world textures / data must not be touched off-GL).
-            final String hash = CoopWorldSync.hashWorld(w);
+            // Gate-free staging hash (must match guest rebuildFromSeed).
+            final String hash = CoopWorldSync.hashPlaneForOffer(save);
             worldHash = hash;
             final String worldPath = w.getWorldConfigPath();
             if (!PlaneConfigPaths.isAllowed(worldPath, save.getMultiverse())) {
                 status("Refusing plane offer — disallowed worldConfigPath " + worldPath);
                 return;
             }
+            final String mv2SetCode = save.getMultiverse().getCurrentMeta() != null
+                    ? save.getMultiverse().getCurrentMeta().getSetCode() : "";
             final CoopPlaneSwitchEvent switchEvent = new CoopPlaneSwitchEvent(
                     Config.instance().getPlane(),
                     save.getCurrentPlaneId(),
@@ -269,7 +272,8 @@ public final class CoopSession {
                     w.getSeed(),
                     hash,
                     save.getPlayer().getWorldPosX(),
-                    save.getPlayer().getWorldPosY());
+                    save.getPlayer().getWorldPosY(),
+                    mv2SetCode);
             runOffNetty(() -> {
                 send(switchEvent);
                 status("Offered plane switch → " + save.getCurrentPlaneId()
@@ -281,10 +285,13 @@ public final class CoopSession {
     private CoopWorldOfferEvent buildWorldOffer() {
         final WorldSave save = WorldSave.getCurrentSave();
         final World w = save.getWorld();
-        worldHash = CoopWorldSync.hashWorld(w);
+        // Gate-free staging hash — live world may already have planar gates.
+        worldHash = CoopWorldSync.hashPlaneForOffer(save);
         final String worldPath = w.getWorldConfigPath();
         final String safePath = PlaneConfigPaths.isAllowed(worldPath, save.getMultiverse())
                 ? worldPath : Paths.WORLD;
+        final String mv2SetCode = save.getMultiverse().getCurrentMeta() != null
+                ? save.getMultiverse().getCurrentMeta().getSetCode() : "";
         return new CoopWorldOfferEvent(
                 save.getPlayer().getName(),
                 Config.instance().getPlane(),
@@ -294,7 +301,8 @@ public final class CoopSession {
                 gamePort,
                 overworldPort,
                 save.getCurrentPlaneId(),
-                safePath);
+                safePath,
+                mv2SetCode);
     }
 
     public void addStatusListener(final Consumer<String> listener) {
@@ -1014,9 +1022,19 @@ public final class CoopSession {
                     // Rebuild into a staging world first — never overwrite sessionWorld on mismatch.
                     final String offerPlaneId = offer.getWorldPlaneId() != null && !offer.getWorldPlaneId().isEmpty()
                             ? offer.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                    final String mv2SetCode = offer.getMv2SetCode();
                     final String localHash = CoopWorldSync.rebuildFromSeed(
-                            staging, offer.getWorldSeed(), worldPath, offerPlaneId);
+                            staging, offer.getWorldSeed(), worldPath, offerPlaneId, mv2SetCode);
                     if (CoopWorldHash.matches(localHash, offer.getWorldHash())) {
+                        // Gates after hash — must not affect the verified hash.
+                        try {
+                            final StandardWindow sw = WorldSave.getCurrentSave().getPlayer() != null
+                                    ? WorldSave.getCurrentSave().getPlayer().getStandardWindow() : null;
+                            CoopWorldSync.applyGatesAfterCoopHash(staging, offer.getWorldSeed(),
+                                    offerPlaneId, mv2SetCode, sw, null);
+                        } catch (final Exception gateEx) {
+                            status("World matched; gate place partial: " + gateEx.getMessage());
+                        }
                         final World previous = sessionWorld;
                         sessionWorld = staging;
                         worldHash = localHash;
@@ -1071,8 +1089,9 @@ public final class CoopSession {
                 try {
                     final String switchPlaneId = event.getWorldPlaneId() != null && !event.getWorldPlaneId().isEmpty()
                             ? event.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                    final String mv2SetCode = event.getMv2SetCode();
                     final String localHash = CoopWorldSync.rebuildFromSeed(
-                            staging, event.getWorldSeed(), worldPath, switchPlaneId);
+                            staging, event.getWorldSeed(), worldPath, switchPlaneId, mv2SetCode);
                     if (!CoopWorldHash.matches(localHash, event.getWorldHash())) {
                         try {
                             staging.dispose();
@@ -1080,6 +1099,14 @@ public final class CoopSession {
                         }
                         status("Plane switch hash mismatch — sessionWorld unchanged");
                         return;
+                    }
+                    try {
+                        final StandardWindow sw = WorldSave.getCurrentSave().getPlayer() != null
+                                ? WorldSave.getCurrentSave().getPlayer().getStandardWindow() : null;
+                        CoopWorldSync.applyGatesAfterCoopHash(staging, event.getWorldSeed(),
+                                switchPlaneId, mv2SetCode, sw, null);
+                    } catch (final Exception gateEx) {
+                        status("Plane matched; gate place partial: " + gateEx.getMessage());
                     }
                     final World previous = sessionWorld;
                     sessionWorld = staging;

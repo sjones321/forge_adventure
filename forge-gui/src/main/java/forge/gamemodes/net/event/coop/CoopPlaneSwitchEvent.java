@@ -7,9 +7,12 @@ import forge.gamemodes.net.event.NetEvent;
  * Guest rebuilds {@code sessionWorld} from seed + world config path and verifies
  * {@link #worldHash}. Adventure pack id stays in {@link #adventurePlaneId}
  * (same meaning as {@link CoopWorldOfferEvent#getPlaneId()}).
+ *
+ * <p>MV2: {@link #mv2SetCode} carries the host-stamped set code for rebuild
+ * customisation. World hash excludes planar-gate terrain clears.
  */
 public class CoopPlaneSwitchEvent implements NetEvent {
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;
 
     private final String adventurePlaneId;
     private final String worldPlaneId;
@@ -19,11 +22,21 @@ public class CoopPlaneSwitchEvent implements NetEvent {
     private final String worldHash;
     private final float spawnX;
     private final float spawnY;
+    private final String mv2SetCode;
 
     public CoopPlaneSwitchEvent(final String adventurePlaneId, final String worldPlaneId,
                                 final String worldConfigPath, final String planeConfigHash,
                                 final long worldSeed, final String worldHash,
                                 final float spawnX, final float spawnY) {
+        this(adventurePlaneId, worldPlaneId, worldConfigPath, planeConfigHash,
+                worldSeed, worldHash, spawnX, spawnY, "");
+    }
+
+    public CoopPlaneSwitchEvent(final String adventurePlaneId, final String worldPlaneId,
+                                final String worldConfigPath, final String planeConfigHash,
+                                final long worldSeed, final String worldHash,
+                                final float spawnX, final float spawnY,
+                                final String mv2SetCode) {
         this.adventurePlaneId = adventurePlaneId;
         this.worldPlaneId = worldPlaneId;
         this.worldConfigPath = worldConfigPath;
@@ -32,6 +45,7 @@ public class CoopPlaneSwitchEvent implements NetEvent {
         this.worldHash = worldHash;
         this.spawnX = spawnX;
         this.spawnY = spawnY;
+        this.mv2SetCode = mv2SetCode != null ? mv2SetCode : "";
     }
 
     public String getAdventurePlaneId() {
@@ -65,5 +79,10 @@ public class CoopPlaneSwitchEvent implements NetEvent {
 
     public float getSpawnY() {
         return spawnY;
+    }
+
+    /** Host-stamped MV2 set code; empty means no set customisation on rebuild. */
+    public String getMv2SetCode() {
+        return mv2SetCode != null ? mv2SetCode : "";
     }
 }
