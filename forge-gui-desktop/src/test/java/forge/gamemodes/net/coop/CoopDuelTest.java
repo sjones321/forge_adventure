@@ -23,10 +23,10 @@ import java.util.function.Predicate;
 public class CoopDuelTest {
 
     @Test
-    public void protocolVersionIsExactlyTenForMv2GateDelta() {
-        // CO2=5; CO3=6; MV1=7; MV2=8; TR1 trading reserved=9; MV2 gate-delta=10.
+    public void protocolVersionIsExactlyNineForMv2GateDelta() {
+        // CO2=5; CO3=6; MV1=7; MV2=8; MV2 gate-delta=9. TR1 takes the next on merge.
         // Exact equality only — do not use >= or collisions can pass silently.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
     }
 
     @Test

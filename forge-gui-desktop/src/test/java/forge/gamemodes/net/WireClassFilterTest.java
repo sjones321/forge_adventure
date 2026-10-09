@@ -35,6 +35,7 @@ public class WireClassFilterTest {
             "forge.gamemodes.net.event.coop.CoopWorldOfferEvent",
             "forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent",
             "forge.gamemodes.net.event.coop.CoopGateUpdateEvent",
+            "forge.gamemodes.net.event.coop.CoopWorldResyncRequestEvent",
             "forge.gamemodes.net.event.coop.CoopPlanarGateEntry",
             "[Lforge.gamemodes.net.event.coop.CoopPlanarGateEntry;",
             "forge.gamemodes.net.event.coop.CoopDecklistEvent",

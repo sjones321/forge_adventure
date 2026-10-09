@@ -777,6 +777,17 @@ public class WorldSave {
             return false;
         }
 
+        // Suppress mid-switch gate-delta pushes; offerCurrentPlaneToGuest follows success.
+        forge.adventure.coop.CoopSession.get().beginSuppressGatePush();
+        try {
+            return switchPlaneBody(planeId);
+        } finally {
+            forge.adventure.coop.CoopSession.get().endSuppressGatePush();
+        }
+    }
+
+    /** Inner body of {@link #switchPlane(String)} (gate pushes suppressed by caller). */
+    private boolean switchPlaneBody(final String planeId) {
         final String fromId = multiverse.getCurrentPlaneId();
         multiverse.rememberCurrentPosition(player.getWorldPosX(), player.getWorldPosY());
         multiverse.updateCurrentSeed(world.getSeed());

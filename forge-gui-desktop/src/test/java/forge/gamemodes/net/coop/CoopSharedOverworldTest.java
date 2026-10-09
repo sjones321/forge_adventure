@@ -766,10 +766,10 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsExactlyTenForMv2GateDelta() {
-        // CO3=6; MV1=7; MV2=8; TR1 trading reserved=9; MV2 gate-delta=10.
+    public void protocolVersionIsExactlyNineForMv2GateDelta() {
+        // CO3=6; MV1=7; MV2=8; MV2 gate-delta=9. TR1 takes the next on merge.
         // Exact equality only — soft lower-bounds hide protocol collisions.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
     }
 
     private static long[][] sampleBiome(final int n) {

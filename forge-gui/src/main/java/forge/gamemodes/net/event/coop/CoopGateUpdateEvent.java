@@ -6,10 +6,11 @@ import forge.gamemodes.net.event.NetEvent;
  * MV2 follow-up: host → guest when planar gates change mid-session on the
  * current plane (mastery unlock, pending flush on load, return portal ensure).
  * Plain data only — capped {@link CoopPlanarGateEntry} list plus the host's new
- * live {@link #worldHash}. Guest rebuilds from seed, replays gates, and verifies
- * the hash; on mismatch the guest keeps its prior {@code sessionWorld}.
+ * live {@link #worldHash}. Guest applies missing gates in place on
+ * {@code sessionWorld}, adds new POI sprites, and re-hashes; on mismatch the
+ * guest requests a {@link CoopWorldResyncRequestEvent} (rate-limited).
  *
- * <p>Does not move the guest spawn (unlike {@link CoopPlaneSwitchEvent}).
+ * <p>Does not rebuild the world or call a stage re-render / spawn move.
  */
 public class CoopGateUpdateEvent implements NetEvent {
     private static final long serialVersionUID = 1L;

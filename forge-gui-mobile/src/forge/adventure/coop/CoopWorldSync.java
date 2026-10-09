@@ -18,7 +18,9 @@ import forge.gamemodes.net.event.coop.CoopPlanarGateEntry;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Guest rebuilds the host world from seed + plane config into a dedicated
@@ -157,7 +159,8 @@ public final class CoopWorldSync {
     }
 
     /**
-     * Guest: place the host's gates at exact positions and clear terrain there.
+     * Guest join / plane-switch: place the host's gates at exact positions and
+     * clear terrain there (including pads for already-present destinations).
      * Never consults the guest's Standard window.
      */
     public static int applyHostGates(final World target, final CoopPlanarGateEntry[] gates) {
@@ -172,7 +175,7 @@ public final class CoopWorldSync {
             if (g == null) {
                 continue;
             }
-            if (PlanarPortalPlacer.placeGateAt(target, g.getSetCode(), g.getX(), g.getY())) {
+            if (PlanarPortalPlacer.placeGateAt(target, g.getSetCode(), g.getX(), g.getY()) != null) {
                 placed++;
             }
         }
@@ -180,16 +183,38 @@ public final class CoopWorldSync {
     }
 
     /**
-     * Guest mid-session gate update: rebuild from seed, replay host gates, and
-     * report whether the local hash matches the host's live hash.
-     * Used by {@code CoopGateUpdateEvent} handling and non-GL unit tests.
+     * Mid-session guest delta: {@link PlanarPortalPlacer#placeGateAt} only for
+     * destinations not already present. Returns newly placed POIs (for map sprites).
+     * Does not rebuild or regenerate the world.
      */
-    public static boolean gateUpdateMatchesHost(final World target, final long seed,
-                                                final String worldConfigPath, final String mv2SetCode,
-                                                final CoopPlanarGateEntry[] gates,
-                                                final String hostLiveHash) {
-        final String local = rebuildFromSeed(target, seed, worldConfigPath, mv2SetCode, gates);
-        return CoopWorldHash.matches(local, hostLiveHash);
+    public static List<PointOfInterest> applyGateDelta(final World live,
+                                                       final CoopPlanarGateEntry[] gates) {
+        final List<PointOfInterest> placed = new ArrayList<>();
+        if (live == null || gates == null || gates.length == 0) {
+            return placed;
+        }
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+        final Set<String> existing = new HashSet<>(PlanarPortalPlacer.existingPortalTargets(live));
+        final int limit = Math.min(gates.length, MAX_PLANAR_GATES_ON_WIRE);
+        for (int i = 0; i < limit; i++) {
+            final CoopPlanarGateEntry g = gates[i];
+            if (g == null) {
+                continue;
+            }
+            final String planeId = g.getSetCode() == null || g.getSetCode().isEmpty()
+                    ? PlaneMeta.HOME_ID
+                    : SetPlaneGenerator.planeIdForSet(g.getSetCode());
+            if (existing.contains(planeId)) {
+                continue;
+            }
+            final PointOfInterest poi = PlanarPortalPlacer.placeGateAt(
+                    live, g.getSetCode(), g.getX(), g.getY());
+            if (poi != null) {
+                placed.add(poi);
+                existing.add(planeId);
+            }
+        }
+        return placed;
     }
 
     /**

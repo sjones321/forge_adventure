@@ -15,10 +15,11 @@ public final class CoopPorts {
      * Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change.
      * CO2 (merged #18) is protocol 5; CO3 is 6; MV1 plane-follow = 7;
      * MV2 live hash + gate list + {@code mv2SetCode} = 8;
-     * TR1 trading (#27) is reserved for 9;
-     * MV2 gate-delta mid-session ({@code CoopGateUpdateEvent}) = 10.
+     * MV2 mid-session gate-delta ({@code CoopGateUpdateEvent} /
+     * {@code CoopWorldResyncRequestEvent}) = 9.
+     * TR1 trading (#27) takes the next number when it merges.
      */
-    public static final int PROTOCOL_VERSION = 10;
+    public static final int PROTOCOL_VERSION = 9;
 
     /** Length of the short session code shown by the host. */
     public static final int SESSION_CODE_LENGTH = 8;
@@ -32,6 +33,10 @@ public final class CoopPorts {
     /** Exact guest-side refusal when seed rebuild hash does not match the host. */
     public static final String WORLD_HASH_MISMATCH_MESSAGE =
             "Builds or world data differ; update both copies";
+
+    /** Guest/host status when a mid-session gate update fails the live hash check. */
+    public static final String GATE_UPDATE_MISMATCH_MESSAGE =
+            "Gate update hash mismatch — requesting world resync";
 
     private CoopPorts() {
     }

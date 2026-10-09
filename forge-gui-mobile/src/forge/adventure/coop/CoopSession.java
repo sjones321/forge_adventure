@@ -10,7 +10,9 @@ import forge.adventure.world.PlaneConfigPaths;
 import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.World;
 import forge.adventure.world.WorldSave;
+import forge.adventure.pointofintrest.PointOfInterest;
 import forge.adventure.stage.MapStage;
+import forge.adventure.stage.PointOfInterestMapSprite;
 import forge.adventure.stage.WorldStage;
 import forge.gamemodes.net.coop.CoopAddressUtil;
 import forge.gamemodes.net.coop.CoopMessageListener;
@@ -35,6 +37,7 @@ import forge.gamemodes.net.event.coop.CoopGatherRequestEvent;
 import forge.gamemodes.net.event.coop.CoopGatherResultEvent;
 import forge.gamemodes.net.event.coop.CoopGateUpdateEvent;
 import forge.gamemodes.net.event.coop.CoopHelloEvent;
+import forge.gamemodes.net.event.coop.CoopWorldResyncRequestEvent;
 import forge.gamemodes.net.event.coop.CoopHelloRejectEvent;
 import forge.gamemodes.net.event.coop.CoopHostPresenceEvent;
 import forge.gamemodes.net.event.coop.CoopLocationExitEvent;
@@ -57,6 +60,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
@@ -128,6 +132,17 @@ public final class CoopSession {
 
     private final Consumer<String> consoleStatusListener = msg -> System.out.println("[co-op] " + msg);
     private volatile boolean consoleListenerAttached;
+
+    /** >0 while {@link WorldSave#switchPlane} runs — gate pushes suppressed (re-offer follows). */
+    private final AtomicInteger suppressGatePush = new AtomicInteger(0);
+    /** Coalesce rapid host gate pushes into one wire send. */
+    private final AtomicBoolean gatePushScheduled = new AtomicBoolean(false);
+    private static final long GATE_PUSH_COALESCE_MS = 50L;
+    /** Guest: min interval between {@link CoopWorldResyncRequestEvent} sends. */
+    private static final long RESYNC_MIN_INTERVAL_MS = 5_000L;
+    private volatile long lastResyncRequestMs;
+    /** Test hook: observe {@link #send(NetEvent)} without a live Netty peer. */
+    private volatile Consumer<NetEvent> testSendHook;
 
     private CoopSession() {
     }
@@ -246,6 +261,47 @@ public final class CoopSession {
         role = CoopSessionRole.NONE;
         state = State.IDLE;
         guestWorldPlaneId = PlaneMeta.HOME_ID;
+        sessionWorld = null;
+        worldHash = "";
+        cachedGates = new CoopPlanarGateEntry[0];
+        testSendHook = null;
+        lastResyncRequestMs = 0L;
+        gatePushScheduled.set(false);
+        suppressGatePush.set(0);
+    }
+
+    /** Test hook: host READY (no Netty). */
+    public void testBecomeHostReady() {
+        role = CoopSessionRole.HOST;
+        state = State.READY;
+        guestWorldPlaneId = PlaneMeta.HOME_ID;
+    }
+
+    /** Test hook: guest READY with a live {@code sessionWorld}. */
+    public void testBecomeGuestReady(final World guestSessionWorld, final String planeId) {
+        role = CoopSessionRole.GUEST;
+        state = State.READY;
+        sessionWorld = guestSessionWorld;
+        guestWorldPlaneId = planeId != null && !planeId.isEmpty() ? planeId : PlaneMeta.HOME_ID;
+        worldHash = CoopWorldSync.hashWorld(guestSessionWorld);
+    }
+
+    /** Test hook: capture {@link #send(NetEvent)} payloads. */
+    public void testSetSendHook(final Consumer<NetEvent> hook) {
+        testSendHook = hook;
+    }
+
+    /** Test hook: run guest gate-update handling (same path as the wire listener). */
+    public void testHandleGateUpdate(final CoopGateUpdateEvent event) {
+        handleGateUpdateOnGl(event);
+    }
+
+    public void beginSuppressGatePush() {
+        suppressGatePush.incrementAndGet();
+    }
+
+    public void endSuppressGatePush() {
+        suppressGatePush.updateAndGet(v -> Math.max(0, v - 1));
     }
 
     /**
@@ -269,29 +325,82 @@ public final class CoopSession {
     }
 
     /**
-     * Host: after any planar-gate change on the live world, refresh the cached
-     * hash/gates and push a {@link CoopGateUpdateEvent} to a connected guest.
-     * Safe to call when solo / not READY — then only the cache updates.
+     * Host: after a planar-gate change on {@code changedWorld}, refresh the cache
+     * and push a {@link CoopGateUpdateEvent} only when that world is the live
+     * current world, the hash actually changed, pushes are not suppressed, and
+     * a guest is READY. Inactive-home stamps / materialize staging are ignored.
      */
-    public void notifyGatesChanged() {
-        refreshHostLiveWorldHash();
-        pushGateUpdateToGuest();
+    public void notifyGatesChanged(final World changedWorld) {
+        if (role != CoopSessionRole.HOST) {
+            return;
+        }
+        try {
+            final WorldSave save = WorldSave.getCurrentSave();
+            if (save == null || save.getWorld() == null || changedWorld == null) {
+                return;
+            }
+            // Identity: only the live current World — not inactive stamps / staging.
+            if (changedWorld != save.getWorld()) {
+                return;
+            }
+            if (suppressGatePush.get() > 0) {
+                refreshHostLiveWorldHash();
+                return;
+            }
+            final String prev = worldHash != null ? worldHash : "";
+            refreshHostLiveWorldHash();
+            if (prev.equals(worldHash)) {
+                return;
+            }
+            scheduleCoalescedGatePush();
+        } catch (final Exception ignored) {
+            // Solo / early init
+        }
+    }
+
+    private void scheduleCoalescedGatePush() {
+        if (role != CoopSessionRole.HOST || state != State.READY) {
+            return;
+        }
+        if (!gatePushScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        final Runnable run = () -> {
+            gatePushScheduled.set(false);
+            if (suppressGatePush.get() > 0 || role != CoopSessionRole.HOST || state != State.READY) {
+                return;
+            }
+            pushGateUpdateToGuest();
+        };
+        if (Gdx.app != null) {
+            worker.execute(() -> {
+                try {
+                    Thread.sleep(GATE_PUSH_COALESCE_MS);
+                } catch (final InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                Gdx.app.postRunnable(run);
+            });
+        } else {
+            // Headless / unit tests: run inline (Gdx.app == null).
+            run.run();
+        }
     }
 
     /**
-     * Host: push the current capped gate list + live hash to the guest on the
-     * same plane. Runs hash collection on the GL thread; wire send off Netty.
+     * Host: push the current capped gate list + live hash to the guest.
+     * Runs on GL without a {@link TransitionScreen}; wire send off Netty.
      * No-op unless {@link CoopSessionRole#HOST} and {@link State#READY}.
      */
     public void pushGateUpdateToGuest() {
         if (role != CoopSessionRole.HOST || state != State.READY) {
             return;
         }
-        final String loadingMsg = Forge.getLocalizer() != null
-                ? Forge.getLocalizer().getMessage("lblLoadingWorld")
-                : "Updating gates…";
-        runWorldOpOnGl(loadingMsg, () -> {
+        runOnGlQuiet(() -> {
             final WorldSave save = WorldSave.getCurrentSave();
+            if (save == null || save.getWorld() == null) {
+                return;
+            }
             final World w = save.getWorld();
             refreshHostLiveWorldHash();
             final String worldPath = w.getWorldConfigPath();
@@ -306,11 +415,17 @@ public final class CoopSession {
                     CoopWorldSync.hostMv2SetCode(save),
                     worldHash,
                     cachedGates);
-            runOffNetty(() -> {
+            final Runnable deliver = () -> {
                 send(update);
                 status("Pushed gate update (" + update.getGates().length + " gates) hash "
                         + worldHash.substring(0, Math.min(8, worldHash.length())) + "…");
-            });
+            };
+            // Headless unit tests: send inline so the test hook sees the event.
+            if (Gdx.app == null) {
+                deliver.run();
+            } else {
+                runOffNetty(deliver);
+            }
         });
     }
 
@@ -547,6 +662,16 @@ public final class CoopSession {
     }
 
     public void send(final NetEvent event) {
+        if (event == null) {
+            return;
+        }
+        final Consumer<NetEvent> hook = testSendHook;
+        if (hook != null) {
+            try {
+                hook.accept(event);
+            } catch (final Exception ignored) {
+            }
+        }
         if (role == CoopSessionRole.HOST) {
             final CoopOverworldServer s = server;
             if (s != null) {
@@ -741,6 +866,75 @@ public final class CoopSession {
     }
 
     /**
+     * Guest GL path for {@link CoopGateUpdateEvent}: in-place {@code placeGateAt}
+     * for missing gates, add only new POI sprites, re-hash. Never rebuilds or
+     * calls {@link #applyGuestSessionWorldRender}. Ignores other planes.
+     * Package-visible via {@link #testHandleGateUpdate}.
+     */
+    void handleGateUpdateOnGl(final CoopGateUpdateEvent event) {
+        if (state != State.READY || role != CoopSessionRole.GUEST || event == null) {
+            return;
+        }
+        final String planeId = event.getWorldPlaneId() != null && !event.getWorldPlaneId().isEmpty()
+                ? event.getWorldPlaneId() : PlaneMeta.HOME_ID;
+        if (!planeId.equalsIgnoreCase(guestWorldPlaneId)) {
+            status("Ignored gate update for plane " + planeId
+                    + " (guest on " + guestWorldPlaneId + ")");
+            return;
+        }
+        final World live = sessionWorld;
+        if (live == null) {
+            requestWorldResync("Gate update with no sessionWorld");
+            return;
+        }
+        // WorldSave / Multiverse only on GL (never on Netty).
+        final WorldSave save = WorldSave.getCurrentSave();
+        final String worldPath = event.getWorldConfigPath() != null && !event.getWorldConfigPath().isEmpty()
+                ? event.getWorldConfigPath() : Paths.WORLD;
+        if (save != null && !PlaneConfigPaths.isAllowed(worldPath, save.getMultiverse())) {
+            status("Rejected gate update path: " + worldPath);
+            return;
+        }
+        final List<PointOfInterest> neu = CoopWorldSync.applyGateDelta(live, event.getGates());
+        addGuestGateSprites(neu);
+        final String localHash = CoopWorldSync.hashWorld(live);
+        if (!CoopWorldHash.matches(localHash, event.getWorldHash())) {
+            requestWorldResync(CoopPorts.GATE_UPDATE_MISMATCH_MESSAGE);
+            return;
+        }
+        worldHash = localHash;
+        status("Applied host gate update (+" + neu.size() + " gates)");
+    }
+
+    private void addGuestGateSprites(final List<PointOfInterest> newPois) {
+        if (newPois == null || newPois.isEmpty()) {
+            return;
+        }
+        try {
+            for (final PointOfInterest poi : newPois) {
+                if (poi == null) {
+                    continue;
+                }
+                WorldStage.getInstance().getSpriteGroup().addActor(new PointOfInterestMapSprite(poi));
+            }
+        } catch (final Throwable ignored) {
+            // Headless / stage unavailable
+        }
+    }
+
+    /** Guest: rate-limited resync request; host answers with a full plane re-offer. */
+    private void requestWorldResync(final String reason) {
+        final long now = System.currentTimeMillis();
+        if (now - lastResyncRequestMs < RESYNC_MIN_INTERVAL_MS) {
+            status(reason + " (resync rate-limited)");
+            return;
+        }
+        lastResyncRequestMs = now;
+        status(reason);
+        send(new CoopWorldResyncRequestEvent(reason, guestWorldPlaneId));
+    }
+
+    /**
      * Guest follow: {@link forge.adventure.util.Current#world()} already resolves to
      * {@link #sessionWorld}; rebuild the stage, exit any POI, and move to host spawn.
      */
@@ -909,6 +1103,30 @@ public final class CoopSession {
     }
 
     /**
+     * Run on the GL thread without a {@link TransitionScreen} (host gate push /
+     * guest in-place gate apply). Headless ({@code Gdx.app == null}): inline.
+     */
+    private void runOnGlQuiet(final Runnable work) {
+        if (Gdx.app != null) {
+            Gdx.app.postRunnable(() -> {
+                try {
+                    work.run();
+                } catch (final Exception e) {
+                    lastError = e.getMessage() != null ? e.getMessage() : e.toString();
+                    status("GL op error: " + lastError);
+                }
+            });
+        } else {
+            try {
+                work.run();
+            } catch (final Exception e) {
+                lastError = e.getMessage() != null ? e.getMessage() : e.toString();
+                status("GL op error: " + lastError);
+            }
+        }
+    }
+
+    /**
      * Run World.generateNew / World.load (or restore) on the GL thread behind a
      * TransitionScreen, matching New Game / Continue. Never schedules on the
      * session worker or Netty threads.
@@ -1026,10 +1244,23 @@ public final class CoopSession {
                 }
                 peerName = "";
                 status("Guest disconnected: " + ((CoopDisconnectEvent) event).getReason());
+            } else if (event instanceof CoopWorldResyncRequestEvent) {
+                if (s != null && s.isGuestAuthenticated()) {
+                    onWorldResyncRequest((CoopWorldResyncRequestEvent) event);
+                }
             } else if (s != null && s.isGuestAuthenticated()) {
                 handleHookMessage(event);
             }
             // Unauthenticated co-op gameplay messages are ignored (CO1 + CO2).
+        }
+
+        private void onWorldResyncRequest(final CoopWorldResyncRequestEvent event) {
+            if (state != State.READY || role != CoopSessionRole.HOST) {
+                return;
+            }
+            status("Guest requested world resync: " + event.getReason()
+                    + " (plane " + event.getWorldPlaneId() + ")");
+            offerCurrentPlaneToGuest();
         }
 
         private void onHello(final CoopHelloEvent hello) {
@@ -1275,64 +1506,13 @@ public final class CoopSession {
         }
 
         /**
-         * Mid-session gate change on the current plane: rebuild + replay gates,
-         * verify host live hash. Keeps guest position (unlike plane switch).
+         * Mid-session gate change: schedule GL work (never touch WorldSave on Netty).
          */
         private void onGateUpdate(final CoopGateUpdateEvent event) {
             if (state != State.READY) {
                 return;
             }
-            final String worldPath = event.getWorldConfigPath() != null && !event.getWorldConfigPath().isEmpty()
-                    ? event.getWorldConfigPath() : Paths.WORLD;
-            if (!PlaneConfigPaths.isAllowed(worldPath, WorldSave.getCurrentSave().getMultiverse())) {
-                status("Rejected gate update path: " + worldPath + " — sessionWorld unchanged");
-                return;
-            }
-            final String loadingMsg = Forge.getLocalizer() != null
-                    ? Forge.getLocalizer().getMessage("lblGeneratingWorld")
-                    : "Updating gates…";
-            runWorldOpOnGl(loadingMsg, () -> {
-                World staging = new World();
-                try {
-                    final String planeId = event.getWorldPlaneId() != null && !event.getWorldPlaneId().isEmpty()
-                            ? event.getWorldPlaneId() : PlaneMeta.HOME_ID;
-                    final String localHash = CoopWorldSync.rebuildFromSeed(
-                            staging, event.getWorldSeed(), worldPath, event.getMv2SetCode(),
-                            event.getGates());
-                    if (!CoopWorldHash.matches(localHash, event.getWorldHash())) {
-                        try {
-                            staging.dispose();
-                        } catch (final Exception ignored) {
-                        }
-                        // Detected divergence — do not silently accept a wrong world.
-                        status("Gate update hash mismatch — sessionWorld unchanged");
-                        return;
-                    }
-                    final World previous = sessionWorld;
-                    sessionWorld = staging;
-                    worldHash = localHash;
-                    guestWorldPlaneId = planeId;
-                    if (previous != null && previous != staging) {
-                        try {
-                            previous.dispose();
-                        } catch (final Exception ignored) {
-                        }
-                    }
-                    try {
-                        final AdventurePlayer ap = WorldSave.getCurrentSave().getPlayer();
-                        applyGuestSessionWorldRender(ap.getWorldPosX(), ap.getWorldPosY());
-                    } catch (final Exception stageEx) {
-                        status("Gates applied; stage rebuild partial: " + stageEx.getMessage());
-                    }
-                    status("Applied host gate update (" + event.getGates().length + " gates)");
-                } catch (final Exception e) {
-                    try {
-                        staging.dispose();
-                    } catch (final Exception ignored) {
-                    }
-                    status("Gate update failed: " + e.getMessage());
-                }
-            });
+            runOnGlQuiet(() -> handleGateUpdateOnGl(event));
         }
 
         private void finishReady(final String hostName) {
