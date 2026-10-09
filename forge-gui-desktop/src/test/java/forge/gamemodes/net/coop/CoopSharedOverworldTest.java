@@ -32,6 +32,10 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Headless CO2 coverage: security, atomic claims, guest mirror snapshots,
  * invite expiry / mutual accept, host-in-interior pause.
+ *
+ * <p>Surefire runs this class in an isolated fork (see forge-gui-desktop pom
+ * {@code netty-coop} execution) so localhost Netty tests are not starved by
+ * the rest of the desktop suite.
  */
 public class CoopSharedOverworldTest {
 
@@ -529,18 +533,20 @@ public class CoopSharedOverworldTest {
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
 
+        final CountDownLatch clientUp = new CountDownLatch(1);
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
-            @Override public void onConnected() {
-                client.send(new CoopPlayerMoveEvent(1f, 1f, 1f, 1L, "X", "sprites/heroes/Human_m.atlas"));
-                client.send(hello(sessionCode));
-                client.send(new CoopPlayerMoveEvent(3f, 3f, 1f, 3L, "X", "sprites/heroes/Human_m.atlas"));
-            }
+            @Override public void onConnected() { clientUp.countDown(); }
             @Override public void onMessage(final NetEvent event) { }
             @Override public void onDisconnected(final String reason) { }
             @Override public void onError(final String message, final Throwable cause) { }
         });
         client.connect();
         Assert.assertTrue(connected.await(5, TimeUnit.SECONDS));
+        Assert.assertTrue(clientUp.await(5, TimeUnit.SECONDS), "client channel not active");
+        // Test-thread sends after both sides are up — avoids channelActive send races.
+        client.send(new CoopPlayerMoveEvent(1f, 1f, 1f, 1L, "X", "sprites/heroes/Human_m.atlas"));
+        client.send(hello(sessionCode));
+        client.send(new CoopPlayerMoveEvent(3f, 3f, 1f, 3L, "X", "sprites/heroes/Human_m.atlas"));
         Assert.assertTrue(moveAfterAuth.await(10, TimeUnit.SECONDS),
                 "post-auth move not delivered");
         Assert.assertEquals(movesBeforeAuth.get(), 0);

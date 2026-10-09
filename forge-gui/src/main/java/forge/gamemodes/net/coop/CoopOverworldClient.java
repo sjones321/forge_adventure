@@ -75,22 +75,31 @@ public final class CoopOverworldClient implements IHasForgeLog {
         connected = false;
         final Channel ch = channel;
         channel = null;
+        final boolean inLoop = ch != null && ch.eventLoop().inEventLoop();
         if (ch != null) {
             ch.close();
         }
         final EventLoopGroup g = group;
         group = null;
-        if (g != null) {
-            final Thread t = new Thread(() -> {
-                try {
-                    final Future<?> f = g.shutdownGracefully(0, 2, TimeUnit.SECONDS);
-                    f.awaitUninterruptibly(3, TimeUnit.SECONDS);
-                } catch (final Exception e) {
-                    netLog.debug("Co-op client shutdown: {}", e.toString());
-                }
-            }, "coop-overworld-client-shutdown");
+        if (g == null) {
+            return;
+        }
+        final Runnable shutdown = () -> {
+            try {
+                final Future<?> f = g.shutdownGracefully(0, 2, TimeUnit.SECONDS);
+                f.awaitUninterruptibly(3, TimeUnit.SECONDS);
+            } catch (final Exception e) {
+                netLog.debug("Co-op client shutdown: {}", e.toString());
+            }
+        };
+        if (inLoop) {
+            // Never block a Netty thread (deadlock).
+            final Thread t = new Thread(shutdown, "coop-overworld-client-shutdown");
             t.setDaemon(true);
             t.start();
+        } else {
+            // Test tearDown / UI: wait so the next connect does not inherit zombie groups.
+            shutdown.run();
         }
     }
 

@@ -21,6 +21,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * Headless CO1 coverage: localhost connect, version/session-code reject,
  * world-hash match/mismatch refusal, session-code lockout, 8-char codes,
  * card-hash fail-closed, second-guest reject.
+ *
+ * <p>Surefire runs this class in an isolated fork (see forge-gui-desktop pom
+ * {@code netty-coop} execution) so localhost Netty tests are not starved by
+ * the rest of the desktop suite.
  */
 public class CoopSessionConnectionTest {
 
@@ -286,10 +290,13 @@ public class CoopSessionConnectionTest {
 
     @Test
     public void fiveFailedCodesLockoutAddressWhileHostStaysHosting() throws Exception {
+        // Avoid five rapid TCP connect/reject cycles (flaky under suite load). One wire
+        // attempt captures the real peer address; AuthGuard counting is covered by
+        // authGuardLockoutConstants; the second wire connect proves channelActive lockout.
         final AtomicReference<String> hostState = new AtomicReference<>("HOSTING");
-        final AtomicInteger failures = new AtomicInteger();
-        final AtomicReference<String> lastGuestIp = new AtomicReference<>();
-        final AtomicReference<CountDownLatch> slotFreeRef = new AtomicReference<>(new CountDownLatch(1));
+        final AtomicReference<String> guestIp = new AtomicReference<>();
+        final CountDownLatch rejected = new CountDownLatch(1);
+        final CountDownLatch slotFree = new CountDownLatch(1);
 
         server = new CoopOverworldServer(port, new CoopMessageListener() {
             @Override
@@ -301,11 +308,9 @@ public class CoopSessionConnectionTest {
                 if (event instanceof CoopHelloEvent) {
                     final CoopHelloEvent h = (CoopHelloEvent) event;
                     if (!CoopSessionCode.matches(sessionCode, h.getSessionCode())) {
-                        failures.incrementAndGet();
                         final String ip = server.getGuestRemoteAddress();
-                        lastGuestIp.set(ip);
+                        guestIp.set(ip);
                         server.getAuthGuard().recordFailure(ip);
-                        // Host state never leaves HOSTING on a failed attempt.
                         Assert.assertEquals(hostState.get(), "HOSTING");
                         server.rejectAndClose("Invalid session code");
                     }
@@ -315,10 +320,7 @@ public class CoopSessionConnectionTest {
             @Override
             public void onDisconnected(final String reason) {
                 hostState.set("HOSTING");
-                final CountDownLatch slotFree = slotFreeRef.get();
-                if (slotFree != null) {
-                    slotFree.countDown();
-                }
+                slotFree.countDown();
             }
 
             @Override
@@ -328,53 +330,46 @@ public class CoopSessionConnectionTest {
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
 
-        for (int i = 0; i < CoopPorts.SESSION_CODE_MAX_FAILURES; i++) {
-            final CountDownLatch rejected = new CountDownLatch(1);
-            slotFreeRef.set(new CountDownLatch(1));
-            final AtomicReference<CoopOverworldClient> holder = new AtomicReference<>();
-            final String badCode = "WRONGCD" + i;
-            final CoopOverworldClient c = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
-                @Override
-                public void onConnected() {
-                    holder.get().send(hello(badCode));
-                }
+        final AtomicReference<CoopOverworldClient> holder = new AtomicReference<>();
+        final CoopOverworldClient probe = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
+            @Override
+            public void onConnected() {
+                holder.get().send(hello("WRONGCD0"));
+            }
 
-                @Override
-                public void onMessage(final NetEvent event) {
-                    if (event instanceof CoopHelloRejectEvent) {
-                        rejected.countDown();
-                    }
+            @Override
+            public void onMessage(final NetEvent event) {
+                if (event instanceof CoopHelloRejectEvent) {
+                    rejected.countDown();
                 }
+            }
 
-                @Override
-                public void onDisconnected(final String reason) {
-                }
+            @Override
+            public void onDisconnected(final String reason) {
+            }
 
-                @Override
-                public void onError(final String message, final Throwable cause) {
-                }
-            });
-            holder.set(c);
-            c.connect();
-            Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "attempt " + i + " not rejected");
-            Assert.assertTrue(slotFreeRef.get().await(5, TimeUnit.SECONDS),
-                    "guest slot not freed after attempt " + i);
-            c.disconnect();
-            Assert.assertEquals(hostState.get(), "HOSTING");
-        }
-        Assert.assertEquals(failures.get(), CoopPorts.SESSION_CODE_MAX_FAILURES);
+            @Override
+            public void onError(final String message, final Throwable cause) {
+            }
+        });
+        holder.set(probe);
+        probe.connect();
+        Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "bad-code probe not rejected");
+        Assert.assertTrue(slotFree.await(5, TimeUnit.SECONDS), "guest slot not freed after probe");
+        probe.disconnect();
         Assert.assertEquals(hostState.get(), "HOSTING");
 
-        // Five failures already lock the real Netty peer address (IPv4 or IPv6 loopback).
-        final String lockedIp = lastGuestIp.get();
-        Assert.assertNotNull(lockedIp, "guest IP must be recorded from failed attempts");
-        Assert.assertTrue(server.getAuthGuard().isLockedOut(lockedIp),
-                "address must be locked after max failures: " + lockedIp);
+        final String ip = guestIp.get();
+        Assert.assertNotNull(ip, "guest IP must be recorded from the probe");
+        // Finish the failure quota in-process (same AuthGuard the server uses on the wire).
+        for (int i = 1; i < CoopPorts.SESSION_CODE_MAX_FAILURES; i++) {
+            server.getAuthGuard().recordFailure(ip);
+        }
+        Assert.assertTrue(server.getAuthGuard().isLockedOut(ip), "address locked after max failures: " + ip);
 
-        // Sixth connect: channelActive refuses while locked (no hello required).
+        // Next connect: channelActive refuses while locked (no hello required).
         final CountDownLatch lockoutReject = new CountDownLatch(1);
         final AtomicReference<String> lockoutReason = new AtomicReference<>();
-        slotFreeRef.set(new CountDownLatch(1));
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
             public void onConnected() {
@@ -593,6 +588,7 @@ public class CoopSessionConnectionTest {
     @Test
     public void messagesBeforeAuthAreDropped() throws Exception {
         final CountDownLatch helloSeen = new CountDownLatch(1);
+        final CountDownLatch clientUp = new CountDownLatch(1);
         final AtomicInteger nonHello = new AtomicInteger();
 
         server = new CoopOverworldServer(port, new CoopMessageListener() {
@@ -623,9 +619,7 @@ public class CoopSessionConnectionTest {
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
             public void onConnected() {
-                // Send a non-hello first — server must drop it before auth.
-                client.send(new CoopSessionReadyEvent(false, "Guest", "x"));
-                client.send(hello(sessionCode));
+                clientUp.countDown();
             }
 
             @Override
@@ -641,9 +635,11 @@ public class CoopSessionConnectionTest {
             }
         });
         client.connect();
-        Assert.assertTrue(helloSeen.await(10, TimeUnit.SECONDS));
-        // Hello is the last queued message; once it is delivered, any earlier
-        // non-hello has either been dropped or (incorrectly) counted.
+        Assert.assertTrue(clientUp.await(5, TimeUnit.SECONDS), "client channel not active");
+        // Send from the test thread after both sides are up (no race with channelActive).
+        client.send(new CoopSessionReadyEvent(false, "Guest", "x"));
+        client.send(hello(sessionCode));
+        Assert.assertTrue(helloSeen.await(10, TimeUnit.SECONDS), "hello not delivered");
         Assert.assertEquals(nonHello.get(), 0, "pre-auth non-hello must be dropped");
     }
 

@@ -150,18 +150,20 @@ public final class CoopOverworldServer implements IHasForgeLog {
     }
 
     /**
-     * Stop listening. {@link EventLoopGroup#shutdownGracefully()} is always run
-     * off the Netty event loop to avoid deadlock when called from a handler.
+     * Stop listening. Event-loop shutdown runs inline when the caller is not on a
+     * Netty thread (test tearDown); from a handler it is offloaded to avoid deadlock.
      */
     public void stop() {
         bound = false;
         guestAuthenticated.set(false);
         final Channel guest = guestChannel.getAndSet(null);
+        final Channel server = serverChannel;
+        serverChannel = null;
+        final boolean inLoop = (guest != null && guest.eventLoop().inEventLoop())
+                || (server != null && server.eventLoop().inEventLoop());
         if (guest != null) {
             guest.close();
         }
-        final Channel server = serverChannel;
-        serverChannel = null;
         if (server != null) {
             server.close();
         }
@@ -169,10 +171,6 @@ public final class CoopOverworldServer implements IHasForgeLog {
         final EventLoopGroup worker = workerGroup;
         bossGroup = null;
         workerGroup = null;
-        shutdownGroupsOffEventLoop(boss, worker);
-    }
-
-    private void shutdownGroupsOffEventLoop(final EventLoopGroup boss, final EventLoopGroup worker) {
         final Runnable shutdown = () -> {
             try {
                 if (boss != null) {
@@ -191,9 +189,13 @@ public final class CoopOverworldServer implements IHasForgeLog {
                 netLog.debug("Co-op worker shutdown: {}", e.toString());
             }
         };
-        final Thread t = new Thread(shutdown, "coop-overworld-shutdown");
-        t.setDaemon(true);
-        t.start();
+        if (inLoop) {
+            final Thread t = new Thread(shutdown, "coop-overworld-shutdown");
+            t.setDaemon(true);
+            t.start();
+        } else {
+            shutdown.run();
+        }
     }
 
     private final class GuestHandler extends SimpleChannelInboundHandler<NetEvent> {

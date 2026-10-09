@@ -31,7 +31,32 @@
                     <systemPropertyVariables>
                         <forge.test.userDir>${project.build.directory}/test-user-home</forge.test.userDir>
                     </systemPropertyVariables>
+                    <!-- Default suite skips Netty co-op classes (run in netty-coop execution). -->
+                    <excludes>
+                        <exclude>**/CoopSessionConnectionTest.java</exclude>
+                        <exclude>**/CoopSharedOverworldTest.java</exclude>
+                    </excludes>
                 </configuration>
+                <executions>
+                    <!-- Fresh JVM for localhost Netty co-op — avoids EventLoop starvation. -->
+                    <execution>
+                        <id>netty-coop</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <excludes combine.self="override"/>
+                            <includes>
+                                <include>**/CoopSessionConnectionTest.java</include>
+                                <include>**/CoopSharedOverworldTest.java</include>
+                            </includes>
+                            <forkCount>1</forkCount>
+                            <reuseForks>false</reuseForks>
+                            <reportNameSuffix>netty-coop</reportNameSuffix>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
