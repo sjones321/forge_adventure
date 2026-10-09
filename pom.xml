@@ -134,6 +134,9 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.1.2</version>
                     <configuration>
+                        <!-- -D on argLine: property must exist from JVM start, before any class
+                             loads ForgeConstants / ExceptionHandler (systemPropertyVariables alone
+                             has raced with early static init in multi-module runs). -->
                         <argLine>
                             --add-opens java.base/java.lang=ALL-UNNAMED
                             --add-opens java.base/java.time=ALL-UNNAMED
@@ -143,6 +146,7 @@
                             --add-opens java.base/java.util.stream=ALL-UNNAMED
                             --add-opens java.base/java.lang.reflect=ALL-UNNAMED
                             --add-opens java.desktop/javax.imageio.spi=ALL-UNNAMED
+                            -Dforge.test.userDir=${project.build.directory}/test-user-home
                         </argLine>
                         <!-- Before any test class loads ForgeConstants: isolate USER_DIR. -->
                         <systemPropertyVariables>

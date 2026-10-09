@@ -27,8 +27,11 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <!-- GL world-gen tests need headroom when the gl profile is enabled. -->
+                    <!-- argLine -D so the property exists from JVM start (before any class load).
+                         systemPropertyVariables alone has raced with early ForgeConstants init. -->
                     <argLine>
                         -Xmx3g
+                        -Dforge.test.userDir=${project.build.directory}/test-user-home
                         --add-opens java.base/java.lang=ALL-UNNAMED
                         --add-opens java.base/java.time=ALL-UNNAMED
                         --add-opens java.base/java.text=ALL-UNNAMED
