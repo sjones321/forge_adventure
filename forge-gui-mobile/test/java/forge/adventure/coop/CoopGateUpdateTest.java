@@ -28,9 +28,10 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * MV2 mid-session gate-delta (round 3): production {@code notifyCoopHashRefresh}
- * → host push → guest Netty {@code onGateUpdate}; quiet resync / deferral /
- * pending queue. Suite isolation unchanged (Surefire {@code test-user-home}).
+ * MV2 mid-session gate-delta (round 4): production {@code notifyCoopHashRefresh}
+ * → host push → guest Netty {@link forge.adventure.coop.CoopSession} GuestListener;
+ * resync request-id match, deferred apply, host-drop retry. Suite isolation
+ * unchanged (Surefire {@code test-user-home}).
  */
 public class CoopGateUpdateTest {
 
@@ -237,7 +238,9 @@ public class CoopGateUpdateTest {
                         || resync.getReason().equals(CoopPorts.GATE_UPDATE_MISMATCH_MESSAGE),
                 "resync reason=" + resync.getReason());
         Assert.assertEquals(resync.getWorldPlaneId(), "home");
+        Assert.assertTrue(resync.getRequestId() != 0L, "resync must carry a request id");
         Assert.assertTrue(session.testIsExpectingResyncOffer());
+        Assert.assertEquals(session.testGetExpectingResyncRequestId(), resync.getRequestId());
     }
 
     @Test
@@ -279,10 +282,11 @@ public class CoopGateUpdateTest {
         session.testBecomeHostReady();
         session.refreshHostLiveWorldHash();
 
-        final CoopWorldResyncRequestEvent req = new CoopWorldResyncRequestEvent("test", "home");
+        final CoopWorldResyncRequestEvent req = new CoopWorldResyncRequestEvent("test", "home", 42L);
         session.testHostOnResyncRequest(req);
-        Assert.assertTrue(sent.stream().anyMatch(e -> e instanceof CoopPlaneSwitchEvent),
-                "host must quiet-re-offer a plane switch");
+        final CoopPlaneSwitchEvent offer = findPlaneSwitch(sent);
+        Assert.assertNotNull(offer, "host must quiet-re-offer a plane switch");
+        Assert.assertEquals(offer.getRequestId(), 42L, "host must echo guest resync request id");
         Assert.assertEquals(session.getState(), CoopSession.State.READY, "host must stay READY");
         Assert.assertEquals(session.getRole(), CoopSessionRole.HOST);
 
@@ -303,18 +307,122 @@ public class CoopGateUpdateTest {
         final String hashBefore = CoopWorldSync.hashWorld(guestWorld);
         final CoopSession session = CoopSession.get();
         session.testBecomeGuestReady(guestWorld, "home");
-        session.testSetExpectingResyncOffer(true);
+        session.testSetExpectingResyncRequestId(7L);
         session.testSetGuestBusy(true);
 
         final CoopPlaneSwitchEvent reoffer = new CoopPlaneSwitchEvent(
                 "home", "home", Paths.WORLD, "cfg", 19L, "hash", 1f, 2f, "",
-                new CoopPlanarGateEntry[0]);
+                new CoopPlanarGateEntry[0], 7L);
         session.testGuestOnMessage(reoffer);
 
         Assert.assertNotNull(session.testGetDeferredPlaneSwitch(), "busy guest must defer resync");
         Assert.assertEquals(CoopWorldSync.hashWorld(guestWorld), hashBefore,
                 "deferred resync must not mutate sessionWorld yet");
         Assert.assertEquals(session.getState(), CoopSession.State.READY);
+    }
+
+    @Test
+    public void tryApplyDeferredPlaneSwitchClearsWhenGuestFrees() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World guestWorld = baseWorld(21L, 0x21212121);
+        final CoopSession session = CoopSession.get();
+        session.testBecomeGuestReady(guestWorld, "home");
+        session.testSetExpectingResyncRequestId(11L);
+        session.testSetGuestBusy(true);
+
+        // Allowed path so busy guests defer (path checks run before the busy gate).
+        final CoopPlaneSwitchEvent reoffer = new CoopPlaneSwitchEvent(
+                "home", "home", Paths.WORLD, "cfg", 21L, "wrong-hash", 1f, 2f, "",
+                new CoopPlanarGateEntry[0], 11L);
+        session.testGuestOnMessage(reoffer);
+        Assert.assertNotNull(session.testGetDeferredPlaneSwitch(), "busy guest must defer");
+
+        session.testSetGuestBusy(false);
+        session.tryApplyDeferredPlaneSwitch();
+        Assert.assertNull(session.testGetDeferredPlaneSwitch(),
+                "tryApplyDeferredPlaneSwitch must consume the deferred offer when free");
+    }
+
+    @Test
+    public void unmatchedRequestIdIsNotTreatedAsResyncOffer() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World guestWorld = baseWorld(27L, 0x27272727);
+        final CoopSession session = CoopSession.get();
+        session.testBecomeGuestReady(guestWorld, "home");
+        session.testSetExpectingResyncRequestId(100L);
+
+        // Real host plane-follow (requestId 0) must not consume the resync expectation
+        // via the resync failure path — disallowed path stays as a soft reject.
+        final CoopPlaneSwitchEvent realSwitch = new CoopPlaneSwitchEvent(
+                "home", "home", "../evil/world.json", "cfg", 27L, "hash", 1f, 2f, "",
+                new CoopPlanarGateEntry[0], 0L);
+        session.testGuestOnMessage(realSwitch);
+
+        Assert.assertEquals(session.getState(), CoopSession.State.READY,
+                "unmatched offer must not end the session as a failed resync");
+        Assert.assertTrue(session.testIsExpectingResyncOffer(),
+                "expectingResyncOffer must stay set until matching id or timeout");
+        Assert.assertEquals(session.testGetExpectingResyncRequestId(), 100L);
+    }
+
+    @Test
+    public void resyncOfferTimeoutRetriesWithNewRequestId() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World guestWorld = baseWorld(29L, 0x29292929);
+        final CoopSession session = CoopSession.get();
+        final List<NetEvent> sent = new ArrayList<>();
+        session.testSetSendHook(sent::add);
+        session.testBecomeGuestReady(guestWorld, "home");
+
+        final CoopGateUpdateEvent bad = new CoopGateUpdateEvent(
+                "home", Paths.WORLD, 29L, "", "bad-hash",
+                new CoopPlanarGateEntry[]{new CoopPlanarGateEntry("DMU", 100f, 120f)});
+        session.testHandleGateUpdate(bad);
+        final CoopWorldResyncRequestEvent first = findResync(sent);
+        Assert.assertNotNull(first);
+        final long firstId = first.getRequestId();
+        Assert.assertTrue(firstId != 0L);
+
+        sent.clear();
+        session.testSetLastResyncRequestMs(0L);
+        session.testFireResyncOfferTimeout();
+        final CoopWorldResyncRequestEvent retry = findResync(sent);
+        Assert.assertNotNull(retry, "host-drop timeout must retry resync");
+        Assert.assertNotEquals(retry.getRequestId(), firstId, "retry must use a new request id");
+        Assert.assertEquals(session.testGetExpectingResyncRequestId(), retry.getRequestId());
+    }
+
+    @Test
+    public void guestListenerResyncHashMismatchEndsSession() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final long seed = 31L;
+        final World guestWorld = baseWorld(seed, 0x31313131);
+        final CoopSession session = CoopSession.get();
+        session.testBecomeGuestReady(guestWorld, "home");
+        session.testSetExpectingResyncRequestId(55L);
+
+        // Allowed path + wrong hash: GuestListener → dispatch → rebuild → mismatch branch.
+        final CoopPlaneSwitchEvent bad = new CoopPlaneSwitchEvent(
+                "home", "home", Paths.WORLD, "cfg", seed, "definitely-not-the-rebuild-hash",
+                1f, 2f, "", new CoopPlanarGateEntry[0], 55L);
+        session.testGuestOnMessage(bad);
+
+        Assert.assertNotEquals(session.getState(), CoopSession.State.READY,
+                "resync rebuild hash mismatch must end the session");
+        Assert.assertFalse(session.testIsExpectingResyncOffer());
+        Assert.assertEquals(session.testGetExpectingResyncRequestId(), 0L);
+        // Headless leave may overwrite lastError with chr-save noise after the mismatch message.
+        Assert.assertTrue(session.getLastError() == null
+                        || !session.getLastError().contains("Rejected resync path"),
+                "allowed-path rebuild must hit the hash-mismatch branch, not path reject");
     }
 
     @Test
@@ -325,19 +433,48 @@ public class CoopGateUpdateTest {
         final World guestWorld = baseWorld(23L, 0x23232323);
         final CoopSession session = CoopSession.get();
         session.testBecomeGuestReady(guestWorld, "home");
-        session.testSetExpectingResyncOffer(true);
+        session.testSetExpectingResyncRequestId(9L);
 
-        // Disallowed path: ends the session on a resync re-offer without GL/pixmap work.
+        // Disallowed path: ends the session on a matching resync re-offer without GL/pixmap work.
         final CoopPlaneSwitchEvent bad = new CoopPlaneSwitchEvent(
                 "home", "home", "../evil/world.json", "cfg", 23L, "definitely-not-matching",
-                1f, 2f, "", new CoopPlanarGateEntry[0]);
+                1f, 2f, "", new CoopPlanarGateEntry[0], 9L);
         session.testGuestOnMessage(bad);
 
         Assert.assertNotEquals(session.getState(), CoopSession.State.READY,
-                "resync hash failure must end the session");
+                "resync path reject must end the session");
         Assert.assertFalse(session.testIsExpectingResyncOffer());
         Assert.assertTrue(session.getLastError() != null && !session.getLastError().isEmpty(),
                 "must surface a clear end-session message");
+    }
+
+    @Test
+    public void resyncAndPlaneSwitchRequestIdSerializationRoundTrip() throws Exception {
+        final CoopWorldResyncRequestEvent resync = new CoopWorldResyncRequestEvent("why", "home", 77L);
+        final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        try (ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+            oos.writeObject(resync);
+        }
+        final CoopWorldResyncRequestEvent resyncCopy;
+        try (ObjectInputStream ois = new ObjectInputStream(
+                new ByteArrayInputStream(bos.toByteArray()))) {
+            resyncCopy = (CoopWorldResyncRequestEvent) ois.readObject();
+        }
+        Assert.assertEquals(resyncCopy.getRequestId(), 77L);
+
+        final CoopPlaneSwitchEvent plane = new CoopPlaneSwitchEvent(
+                "home", "home", Paths.WORLD, "cfg", 1L, "h", 0f, 0f, "",
+                new CoopPlanarGateEntry[0], 77L);
+        bos.reset();
+        try (ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+            oos.writeObject(plane);
+        }
+        final CoopPlaneSwitchEvent planeCopy;
+        try (ObjectInputStream ois = new ObjectInputStream(
+                new ByteArrayInputStream(bos.toByteArray()))) {
+            planeCopy = (CoopPlaneSwitchEvent) ois.readObject();
+        }
+        Assert.assertEquals(planeCopy.getRequestId(), 77L);
     }
 
     @Test
@@ -391,6 +528,15 @@ public class CoopGateUpdateTest {
         for (final NetEvent e : sent) {
             if (e instanceof CoopWorldResyncRequestEvent) {
                 return (CoopWorldResyncRequestEvent) e;
+            }
+        }
+        return null;
+    }
+
+    private static CoopPlaneSwitchEvent findPlaneSwitch(final List<NetEvent> sent) {
+        for (final NetEvent e : sent) {
+            if (e instanceof CoopPlaneSwitchEvent) {
+                return (CoopPlaneSwitchEvent) e;
             }
         }
         return null;

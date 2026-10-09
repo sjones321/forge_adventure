@@ -75,15 +75,16 @@ public final class CoopOverworldClient implements IHasForgeLog {
         connected = false;
         final Channel ch = channel;
         channel = null;
-        final boolean inLoop = ch != null && ch.eventLoop().inEventLoop();
+        final EventLoopGroup g = group;
+        group = null;
         if (ch != null) {
             ch.close();
         }
-        final EventLoopGroup g = group;
-        group = null;
         if (g == null) {
             return;
         }
+        // Prefer the group: channel may already be null while we are still on its loop.
+        final boolean inLoop = g.next().inEventLoop();
         final Runnable shutdown = () -> {
             try {
                 final Future<?> f = g.shutdownGracefully(0, 2, TimeUnit.SECONDS);

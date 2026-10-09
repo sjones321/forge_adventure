@@ -159,8 +159,6 @@ public final class CoopOverworldServer implements IHasForgeLog {
         final Channel guest = guestChannel.getAndSet(null);
         final Channel server = serverChannel;
         serverChannel = null;
-        final boolean inLoop = (guest != null && guest.eventLoop().inEventLoop())
-                || (server != null && server.eventLoop().inEventLoop());
         if (guest != null) {
             guest.close();
         }
@@ -171,6 +169,9 @@ public final class CoopOverworldServer implements IHasForgeLog {
         final EventLoopGroup worker = workerGroup;
         bossGroup = null;
         workerGroup = null;
+        // Prefer the group: channels may already be null while we are still on a loop.
+        final boolean inLoop = (worker != null && worker.next().inEventLoop())
+                || (boss != null && boss.next().inEventLoop());
         final Runnable shutdown = () -> {
             try {
                 if (boss != null) {

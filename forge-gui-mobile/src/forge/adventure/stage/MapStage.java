@@ -1031,6 +1031,10 @@ public class MapStage extends GameStage {
 
         AdventureQuestController.instance().updateQuestsLeave();
         clearIsInMap();
+        try {
+            forge.adventure.coop.CoopSession.get().tryApplyDeferredPlaneSwitch();
+        } catch (final Exception ignored) {
+        }
         AdventureQuestController.instance().showQuestDialogs(this);
         isLoadingMatch = false;
         effect = null; //Reset dungeon effects.

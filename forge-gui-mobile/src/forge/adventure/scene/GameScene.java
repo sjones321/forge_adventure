@@ -79,6 +79,10 @@ public class GameScene extends HudScene {
         // IIRC This is used before and the player will start inside the POI.
         // but we don't allow saving inside the POI anymore.
         // WorldStage.getInstance().handlePointsOfInterestCollision();
+        try {
+            forge.adventure.coop.CoopSession.get().tryApplyDeferredPlaneSwitch();
+        } catch (final Exception ignored) {
+        }
     }
 
     public String getLocationColorID() {

@@ -999,6 +999,10 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         disconnectPolicy.endDuel();
         disconnectGuestClient();
         activeDuelId = 0L;
+        try {
+            CoopSession.get().tryApplyDeferredPlaneSwitch();
+        } catch (final Exception ignored) {
+        }
     }
 
     private void concedeGuestSeat() {

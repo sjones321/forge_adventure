@@ -1359,6 +1359,16 @@ public class WorldStage extends GameStage implements SaveFileContent {
     }
 
     /**
+     * Rebuild overworld chunk sprites/textures from the live world after an
+     * in-place co-op sessionWorld swap (resync / same-plane).
+     */
+    public void rebuildBackgroundChunks() {
+        if (background != null) {
+            background.clear();
+        }
+    }
+
+    /**
      * Mid-session gate / fortress POI: update the chunk sprite cache (avoids
      * double-add when the chunk later reloads from {@link MapSprite#getMapSprites}).
      */
@@ -1401,6 +1411,10 @@ public class WorldStage extends GameStage implements SaveFileContent {
         GridPoint2 pos = background.translateFromWorldToChunk(player.getX(), player.getY());
         background.loadChunk(pos.x, pos.y);
         super.enter();
+        try {
+            forge.adventure.coop.CoopSession.get().tryApplyDeferredPlaneSwitch();
+        } catch (final Exception ignored) {
+        }
     }
 
     @Override
