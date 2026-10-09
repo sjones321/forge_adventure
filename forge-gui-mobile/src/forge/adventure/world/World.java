@@ -1172,15 +1172,17 @@ public class World implements Disposable, SaveFileContent {
             return;
         }
         this.data = worldData;
-        this.width = worldData.width;
-        this.height = worldData.height;
+        this.width = Math.max(1, worldData.width);
+        this.height = Math.max(1, worldData.height);
         this.seed = worldSeed;
-        this.terrainMap = new int[Math.max(1, width)][Math.max(1, height)];
-        int chunk = Math.max(1, worldData.tileSize > 0 ? 16 : 16);
-        int chunksX = Math.max(1, width / chunk);
-        int chunksY = Math.max(1, height / chunk);
-        this.mapPoiIds = new PointOfInterestMap(chunk, worldData.tileSize > 0 ? worldData.tileSize : 16,
-                chunksX, chunksY);
+        this.terrainMap = new int[this.width][this.height];
+        this.biomeMap = new long[this.width][this.height];
+        final int tile = worldData.tileSize > 0 ? worldData.tileSize : 16;
+        final int chunk = 16;
+        final int chunksX = Math.max(1, this.width / chunk);
+        final int chunksY = Math.max(1, this.height / chunk);
+        this.mapPoiIds = new PointOfInterestMap(chunk, tile, chunksX, chunksY);
+        this.mapObjectIds = new SpritesDataMap(chunk, tile, chunksX);
         this.worldDataLoaded = true;
     }
 

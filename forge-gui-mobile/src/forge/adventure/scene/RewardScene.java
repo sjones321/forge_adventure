@@ -224,8 +224,9 @@ public class RewardScene extends UIScene {
         }
         shown = false;
         clearGenerated();
-        // CO5: after duel/loot rewards are in the collection, snapshot the partner.
-        if (type == Type.Loot || type == Type.EventReward || type == Type.QuestReward) {
+        // CO5: after duel/loot/shop purchases are in the collection, snapshot the partner.
+        if (type == Type.Loot || type == Type.EventReward || type == Type.QuestReward
+                || type == Type.Shop) {
             try {
                 forge.adventure.coop.CoopHooks.notifyPartnerProgressChanged(true);
             } catch (final Exception ignored) {

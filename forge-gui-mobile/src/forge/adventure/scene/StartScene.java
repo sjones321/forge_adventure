@@ -13,6 +13,7 @@ import com.github.tommyettinger.textra.TextraLabel;
 import com.github.tommyettinger.textra.TypingLabel;
 import forge.Forge;
 import forge.adventure.coop.CoopSession;
+import forge.adventure.coop.CoopSessionRole;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.GameStage;
 import forge.adventure.stage.MapStage;
@@ -91,11 +92,17 @@ public class StartScene extends UIScene {
     }
 
     public boolean NewGame() {
+        if (blockGuestSlotUi("New Game")) {
+            return true;
+        }
         Forge.switchScene(NewGameScene.instance());
         return true;
     }
 
     public boolean Save() {
+        if (blockGuestSlotUi("Save")) {
+            return true;
+        }
         if (TileMapScene.instance().currentMap().isInMap()) {
             Dialog noSave = createGenericDialog("", Forge.getLocalizer().getMessage("lblGameNotSaved"), Forge.getLocalizer().getMessage("lblOK"),null, null, null);
             showDialog(noSave);
@@ -107,8 +114,22 @@ public class StartScene extends UIScene {
     }
 
     public boolean Load() {
+        if (blockGuestSlotUi("Load")) {
+            return true;
+        }
         SaveLoadScene.instance().setMode(SaveLoadScene.Modes.Load);
         Forge.switchScene(SaveLoadScene.instance());
+        return true;
+    }
+
+    /** CO5: guests must leave co-op before Load / New Game (partner is host-world-bound). */
+    private boolean blockGuestSlotUi(final String action) {
+        if (!CoopSession.get().isGuestSession()) {
+            return false;
+        }
+        showDialog(createGenericDialog("Co-op",
+                action + " is unavailable while joined as a co-op guest.\nLeave the session first.",
+                Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null));
         return true;
     }
 
@@ -218,10 +239,7 @@ public class StartScene extends UIScene {
         hostingDialog = createGenericDialog("Hosting", msg.toString(),
                 Forge.getLocalizer().getMessage("lblOK"), "Stop",
                 this::removeDialog,
-                () -> {
-                    CoopSession.get().disconnect();
-                    removeDialog();
-                });
+                this::confirmStopHosting);
         // One-click copy so the guest can paste instead of typing (address + code in one line).
         final String joinInfo = coopJoinInfo();
         hostingDialog.getContentTable().row();
@@ -542,6 +560,26 @@ public class StartScene extends UIScene {
     }
 
     public boolean Exit() {
+        if (CoopSession.get().getRole() == CoopSessionRole.HOST
+                && CoopSession.get().isHostPartnerDirty()) {
+            showDialog(createGenericDialog("Unsaved partner progress",
+                    "A co-op partner has unsaved progress in this world.\n"
+                            + "Save now before quitting?",
+                    "Save and quit", "Quit without saving",
+                    () -> {
+                        try {
+                            CoopSession.get().saveHostWorldNow();
+                        } catch (final Exception ignored) {
+                        }
+                        removeDialog();
+                        Forge.exit(true);
+                    },
+                    () -> {
+                        removeDialog();
+                        Forge.exit(true);
+                    }));
+            return true;
+        }
         if (exitDialog == null) {
             exitDialog = createGenericDialog(Forge.getLocalizer().getMessage("lblExitForge"),
                     Forge.getLocalizer().getMessage("lblAreYouSureYouWishExitForge"), Forge.getLocalizer().getMessage("lblOK"),
@@ -552,6 +590,31 @@ public class StartScene extends UIScene {
         }
         showDialog(exitDialog);
         return true;
+    }
+
+    private void confirmStopHosting() {
+        if (CoopSession.get().getRole() == CoopSessionRole.HOST
+                && CoopSession.get().isHostPartnerDirty()) {
+            removeDialog();
+            showDialog(createGenericDialog("Unsaved partner progress",
+                    "A co-op partner has unsaved progress.\nSave the world before stopping host?",
+                    "Save and stop", "Stop without saving",
+                    () -> {
+                        try {
+                            CoopSession.get().saveHostWorldNow();
+                        } catch (final Exception ignored) {
+                        }
+                        CoopSession.get().disconnect();
+                        removeDialog();
+                    },
+                    () -> {
+                        CoopSession.get().disconnect();
+                        removeDialog();
+                    }));
+            return;
+        }
+        CoopSession.get().disconnect();
+        removeDialog();
     }
 
     public void switchToClassic() {

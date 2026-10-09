@@ -138,7 +138,12 @@ public final class CoopPartnerStarter {
     public static AdventurePlayer fromLegacy(final SaveFileData legacy) {
         final AdventurePlayer partner = new AdventurePlayer();
         if (legacy != null) {
-            partner.load(legacy);
+            SaveFileData.beginWireFilteredReads();
+            try {
+                partner.load(legacy);
+            } finally {
+                SaveFileData.endWireFilteredReads();
+            }
         }
         partner.setCharacterFlag("coopPartner", 1);
         partner.setCharacterFlag("coopLegacyImport", 1);

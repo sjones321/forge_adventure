@@ -56,6 +56,11 @@ public class WorldSave {
     private final MultiverseState multiverse = new MultiverseState();
     /** CO5: guest partner characters keyed by profile id (host world save only). */
     private final WorldPartners partners = new WorldPartners();
+    /**
+     * Slot last successfully loaded (or saved). Used by co-op host partner flushes so
+     * they never fall back to stale {@code lastActiveSave} / hidden slot 0.
+     */
+    private int loadedSlot = INVALID_SAVE_SLOT;
     private String lastPlaneSwitchError = "";
     /** Test hook: count of {@link forge.adventure.scene.GameScene#enter()} after switches. */
     private int planeSwitchEnterCount;
@@ -247,7 +252,24 @@ public class WorldSave {
             e.printStackTrace();
             return false;
         }
+        // Track the slot that is actually loaded so partner flushes hit the same file.
+        currentSave.loadedSlot = currentSlot;
+        try {
+            Config.instance().getSettingData().lastActiveSave = WorldSave.filename(currentSlot);
+            Config.instance().saveSettings();
+        } catch (final Exception ignored) {
+        }
         return true;
+    }
+
+    /** Slot currently backed by {@link #currentSave}, or {@link #INVALID_SAVE_SLOT}. */
+    public int getLoadedSlot() {
+        return loadedSlot;
+    }
+
+    /** Test / host-create helper: remember which slot this in-memory save belongs to. */
+    public void setLoadedSlot(final int slot) {
+        loadedSlot = slot;
     }
 
     public static boolean isSafeFile(String name) {
@@ -411,6 +433,16 @@ public class WorldSave {
         return load(QUICK_SAVE_SLOT);
     }
 
+    /**
+     * Persist the current world without renaming the save-slot header
+     * (CO5 host partner flush must not retitle the load UI).
+     */
+    public boolean savePreservingHeader(final int currentSlot) {
+        final String keep = header != null && header.name != null && !header.name.isEmpty()
+                ? header.name : "save";
+        return save(keep, currentSlot);
+    }
+
     public boolean save(String text, int currentSlot) {
         if (forge.adventure.coop.CoopSession.get().isGuestSession()) {
             System.err.println("Co-op guest: refusing to write WorldSave slot " + currentSlot);
@@ -507,6 +539,7 @@ public class WorldSave {
 
         Config.instance().getSettingData().lastActiveSave = WorldSave.filename(currentSlot);
         Config.instance().saveSettings();
+        currentSave.loadedSlot = currentSlot;
         if (backupFile.exists() && renamedToOld)
             backupFile.delete();
         finish(null);
@@ -516,9 +549,11 @@ public class WorldSave {
     private void finish(String errors) {
         if (errors != null)
             announceError(errors);
-        Gdx.app.postRunnable(() -> {
-            OverlayText.getInstance().update("");
-        });
+        if (Gdx.app != null) {
+            Gdx.app.postRunnable(() -> {
+                OverlayText.getInstance().update("");
+            });
+        }
     }
 
     public void restoreBackup(String oldFilename, String currentFilename) {

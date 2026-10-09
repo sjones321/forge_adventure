@@ -980,7 +980,13 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (mob != null) {
             WorldStage.getInstance().setCurrentMob(mob);
             WorldStage.getInstance().setWinner(teamWon, false);
-            // Snapshot after rewards are collected (RewardScene.done) via CoopHooks.
+            // Wins: snapshot after rewards (RewardScene.done). Losses never open RewardScene.
+            if (!teamWon) {
+                try {
+                    CoopSession.get().sendPartnerSnapshotNow();
+                } catch (final Exception ignored) {
+                }
+            }
         } else {
             if (teamWon) {
                 ap.win(false);
