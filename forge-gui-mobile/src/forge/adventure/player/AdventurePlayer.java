@@ -49,6 +49,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     private int maxDeckCount = 20;
     // Player profile data.
     private String name;
+    /**
+     * Stable identity for this character across renames and co-op sessions (CO1 / TR1).
+     * Generated once; old saves receive an id on first {@link #load}/{@link #getCharacterId}.
+     */
+    private String characterId;
     private int heroRace;
     private int avatarIndex;
     private boolean isFemale;
@@ -247,6 +252,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         usingCustomDeck = false;
         adventureMode = null;
         blessing = null;
+        characterId = null;
         gold = 0;
         maxLife = 20;
         life = 20;
@@ -532,6 +538,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
         gold = difficultyData.startingMoney;
         name = n;
+        ensureCharacterId();
         heroRace = race;
         avatarIndex = avatar;
         isFemale = !male;
@@ -662,6 +669,22 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     public String getName() {
         return name;
+    }
+
+    /**
+     * Stable character identity (UUID string). Never changes when the display name
+     * changes. Old saves without an id receive one on first access and persist it
+     * on the next save. Used by CO1 guest {@code .chr} files and TR1 trade logs.
+     */
+    public String getCharacterId() {
+        ensureCharacterId();
+        return characterId;
+    }
+
+    private void ensureCharacterId() {
+        if (characterId == null || characterId.isEmpty()) {
+            characterId = java.util.UUID.randomUUID().toString();
+        }
     }
 
     public Boolean isFemale() {
@@ -1261,6 +1284,15 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         // END SPECIAL CASES
 
         name = data.readString("name");
+        if (data.containsKey("characterId")) {
+            characterId = data.readString("characterId");
+            if (characterId != null && characterId.isEmpty()) {
+                characterId = null;
+            }
+        } else {
+            characterId = null;
+        }
+        ensureCharacterId(); // old saves: mint once; next WorldSave persists it
         heroRace = data.readInt("heroRace");
         avatarIndex = data.readInt("avatarIndex");
         isFemale = data.readBool("isFemale");
@@ -1923,6 +1955,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         data.store("rewardMaxFactor", this.difficultyData.rewardMaxFactor);
 
         data.store("name", name);
+        ensureCharacterId();
+        data.store("characterId", characterId);
         data.store("heroRace", heroRace);
         data.store("avatarIndex", avatarIndex);
         data.store("isFemale", isFemale);

@@ -61,7 +61,7 @@ Use your Tailscale IPv4 (`100.x`). Leave empty (`""`) for all interfaces.
    - Host address: Tailscale `100.x.y.z` or LAN IP (port defaults to 36744)
    - **8-character session code** from the host screen
 3. On success the guest rebuilds the world from the host's seed into a **separate session world** (your normal save slots are never overwritten) and verifies a hash. If the hash does not match, co-op refuses with *"Builds or world data differ; update both copies"* and disconnects — there is no world-blob fallback.
-4. On disconnect your normal save is restored; your co-op character file under `characters/` is updated and kept for the next join (solo saves are never overwritten by co-op). First join seeds that file from your solo player once.
+4. On disconnect your normal save is restored; your co-op character file under `characters/guest/<characterId>.chr` is updated and kept for the next join (solo saves are never overwritten by co-op). First join seeds that file from your solo player once. The host never writes into that guest namespace.
 
 ## Windows firewall
 
@@ -126,7 +126,7 @@ World seed rebuild must also produce the same world hash; otherwise the guest re
 | | Host | Guest |
 |---|---|---|
 | World (map, enemies, POIs, nodes) | Owns / saves | Held in a co-op **session world** only; normal save slots untouched |
-| Character (collection, decks, skills, materials, items) | Local | Local — loaded from / saved to `adventure/<plane>/characters/` |
+| Character (collection, decks, skills, materials, items) | Local | Local — guest co-op file under `adventure/<plane>/characters/guest/<characterId>.chr` (stable id, not display name) |
 
 ## CO2 / CO3
 
