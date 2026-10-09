@@ -26,9 +26,11 @@ import forge.adventure.world.WorldSave;
 import forge.util.MyRandom;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Live FT1 fortress orchestration: claim site, persist per-plane, build/demolish,
@@ -300,12 +302,14 @@ public final class FortressService {
         int level = player.getSkills().getLevel(PlayerSkills.Skill.CONSTRUCTION);
 
         int[] playerTile = playerGridInFortress();
+        java.util.Set<Long> mapCollision = mapCollisionCells();
         FortressBuildGrid.PlaceReject reject = FortressBuildGrid.canPlace(
                 current, def, buildMode.getCursorX(), buildMode.getCursorY(),
                 buildMode.getRotationDeg(), level,
                 playerTile[0], playerTile[1],
                 current.getEntryGridX(), current.getEntryGridY(),
-                current.getMapWidthTiles(), current.getMapHeightTiles());
+                current.getMapWidthTiles(), current.getMapHeightTiles(),
+                mapCollision);
         if (reject != FortressBuildGrid.PlaceReject.OK)
             return placeRejectMessage(reject, def);
 
@@ -318,7 +322,8 @@ public final class FortressService {
                 buildMode.getRotationDeg(), level, paid, def.gold,
                 playerTile[0], playerTile[1],
                 current.getEntryGridX(), current.getEntryGridY(),
-                current.getMapWidthTiles(), current.getMapHeightTiles()))
+                current.getMapWidthTiles(), current.getMapHeightTiles(),
+                mapCollision))
             return "Could not place structure.";
 
         // XP only on successful place — never on demolish.
@@ -335,6 +340,8 @@ public final class FortressService {
             return "Build mode is not active.";
         if (!canModifyWorld() || guestForbidden())
             return "Guests cannot demolish in the host's fortress.";
+        if (!isInsideFortressMap())
+            return "Build mode only works inside your fortress.";
         int idx = FortressBuildGrid.structureAt(current, buildMode.getCursorX(), buildMode.getCursorY());
         if (idx < 0)
             return "No structure here.";
@@ -361,12 +368,13 @@ public final class FortressService {
     /** Player grid tile inside the fortress map, or MIN_VALUE when unavailable. */
     public int[] playerGridInFortress() {
         try {
-            float x = MapStage.getInstance().getPlayerSprite().getX();
-            float y = MapStage.getInstance().getPlayerSprite().getY();
-            float tw = 16f;
-            float th = 16f;
-            // MapStage exposes tile size via fortress fields; fall back to 16.
-            return new int[]{(int) (x / tw), (int) (y / th)};
+            MapStage stage = MapStage.getInstance();
+            float x = stage.getPlayerSprite().getX();
+            float y = stage.getPlayerSprite().getY();
+            // Use the loaded map's real tile size — never assume 16px.
+            float tw = stage.getMapTileWidth();
+            float th = stage.getMapTileHeight();
+            return playerGridInFortress(tw, th, x, y);
         } catch (Throwable t) {
             return new int[]{Integer.MIN_VALUE, Integer.MIN_VALUE};
         }
@@ -374,6 +382,15 @@ public final class FortressService {
 
     public int[] playerGridInFortress(float tileW, float tileH, float playerX, float playerY) {
         return new int[]{(int) (playerX / Math.max(1f, tileW)), (int) (playerY / Math.max(1f, tileH))};
+    }
+
+    /** Map collision layer cells for path-to-entry BFS (empty when not in a map). */
+    public java.util.Set<Long> mapCollisionCells() {
+        try {
+            return MapStage.getInstance().fortressPathBlockedCells();
+        } catch (Throwable t) {
+            return java.util.Collections.emptySet();
+        }
     }
 
     private String checkAndPayCost(AdventurePlayer player, FortressStructureData def,

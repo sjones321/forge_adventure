@@ -1,5 +1,6 @@
 package forge.adventure.fortress;
 
+import forge.adventure.data.MaterialListData;
 import forge.adventure.util.SaveFileData;
 
 import java.io.Serializable;
@@ -30,9 +31,18 @@ public final class FortressInstance implements Serializable {
     /** Map size in tiles (for path-to-entry BFS). Defaults match fortress_camp.tmx. */
     private int mapWidthTiles = 24;
     private int mapHeightTiles = 20;
-    /** Entry tile inside the fortress map (spawn / exit). */
+    /**
+     * Entry tile inside the fortress map (spawn / exit). Defaults match fortress_camp.tmx's
+     * spawn entry object; overwritten from the TMX on map load.
+     */
     private int entryGridX = 11;
     private int entryGridY = 1;
+    /**
+     * Material id schema for storage + paid costs. Written as
+     * {@link MaterialListData#MATERIAL_SCHEMA_ORE_LINE} on save; loads with {@code < 3}
+     * migrate copper/iron/mithril/adamant via the existing single-pass helpers.
+     */
+    private int materialSchema = MaterialListData.MATERIAL_SCHEMA_ORE_LINE;
     private final List<PlacedStructure> structures = new ArrayList<>();
     /** Material id → count in fortress storage (FT1 wiring for INV1 overflow hook). */
     private final LinkedHashMap<String, Integer> storage = new LinkedHashMap<>();
@@ -115,6 +125,10 @@ public final class FortressInstance implements Serializable {
         this.entryGridY = y;
     }
 
+    public int getMaterialSchema() {
+        return materialSchema;
+    }
+
     public List<PlacedStructure> getStructures() {
         return Collections.unmodifiableList(structures);
     }
@@ -167,6 +181,7 @@ public final class FortressInstance implements Serializable {
         data.store("mapHeightTiles", mapHeightTiles);
         data.store("entryGridX", entryGridX);
         data.store("entryGridY", entryGridY);
+        data.store("materialSchema", MaterialListData.MATERIAL_SCHEMA_ORE_LINE);
         data.store("structureCount", structures.size());
         for (int i = 0; i < structures.size(); i++) {
             data.store("structure_" + i, structures.get(i).save());
@@ -183,6 +198,7 @@ public final class FortressInstance implements Serializable {
     public void load(SaveFileData data) {
         structures.clear();
         storage.clear();
+        materialSchema = 0;
         if (data == null)
             return;
         planeId = data.readString("planeId");
@@ -205,6 +221,8 @@ public final class FortressInstance implements Serializable {
             entryGridX = data.readInt("entryGridX");
         if (data.containsKey("entryGridY"))
             entryGridY = data.readInt("entryGridY");
+        if (data.containsKey("materialSchema"))
+            materialSchema = data.readInt("materialSchema");
         int n = data.readInt("structureCount");
         for (int i = 0; i < n; i++) {
             SaveFileData sub = data.readSubData("structure_" + i);
@@ -226,6 +244,25 @@ public final class FortressInstance implements Serializable {
                 if (id != null && c != null && c > 0)
                     storage.put(id, c);
             }
+        }
+        // Schema 3: migrate paid costs + storage with the shared single-pass ore-line helpers.
+        // Never chain. Missing schema (old FT1 saves) is treated as 0.
+        if (materialSchema < MaterialListData.MATERIAL_SCHEMA_ORE_LINE) {
+            migrateOreLineIds();
+            materialSchema = MaterialListData.MATERIAL_SCHEMA_ORE_LINE;
+        }
+    }
+
+    /**
+     * Rewrite storage and each placed structure's paid cost map for schema 3.
+     * Reuses {@link MaterialListData#migrateOreLineMaterialCounts} (single-pass, never chained).
+     */
+    void migrateOreLineIds() {
+        MaterialListData.migrateOreLineMaterialCounts(storage);
+        for (PlacedStructure p : structures) {
+            if (p == null || p.paidMaterials.isEmpty())
+                continue;
+            MaterialListData.migrateOreLineMaterialCounts(p.paidMaterials);
         }
     }
 
