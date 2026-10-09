@@ -47,6 +47,11 @@ import java.util.*;
 public class WorldStage extends GameStage implements SaveFileContent {
     private static WorldStage instance = null;
     protected EnemySprite currentMob;
+    /**
+     * EN2: how many times to roll {@link EnemySprite#getRewards()} on a win.
+     * Default 1; co-op partner kills use the tunable so a pair is not worth double.
+     */
+    private int pendingLootRolls = 1;
     protected Random rand = MyRandom.getRandom();
     WorldBackground background;
     private float spawnDelay = 0;
@@ -445,6 +450,15 @@ public class WorldStage extends GameStage implements SaveFileContent {
     }
 
     /** CO3: pin the encounter enemy before a deferred co-op result path runs. */
+    /** EN2: set loot rolls for the next {@link #setWinner} win path; resets after use. */
+    public void setPendingLootRolls(final int rolls) {
+        pendingLootRolls = Math.max(0, Math.min(rolls, 8));
+    }
+
+    public int getPendingLootRolls() {
+        return pendingLootRolls;
+    }
+
     public void setCurrentMob(final EnemySprite mob) {
         currentMob = mob;
     }
@@ -481,7 +495,16 @@ public class WorldStage extends GameStage implements SaveFileContent {
                     currentMob.resetCollisionHeight();
                     float deathDuration = currentMob.getActionAnimationDuration(CharacterSprite.AnimationTypes.Death, 0.3f);
                     startPause(deathDuration, () -> {
-                        RewardScene.instance().loadRewards(currentMob.getRewards(), RewardScene.Type.Loot, null);
+                        final int rolls = Math.max(1, pendingLootRolls);
+                        pendingLootRolls = 1;
+                        final com.badlogic.gdx.utils.Array<Reward> loot = new com.badlogic.gdx.utils.Array<>();
+                        for (int r = 0; r < rolls; r++) {
+                            final com.badlogic.gdx.utils.Array<Reward> one = currentMob.getRewards();
+                            if (one != null) {
+                                loot.addAll(one);
+                            }
+                        }
+                        RewardScene.instance().loadRewards(loot, RewardScene.Type.Loot, null);
                         WorldStage.this.removeEnemy(currentMob);
                         AdventureQuestController.instance().updateQuestsWin(currentMob);
                         AdventureQuestController.instance().showQuestDialogs(MapStage.getInstance());

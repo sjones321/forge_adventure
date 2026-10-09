@@ -18,6 +18,10 @@ import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
 import forge.adventure.util.Current;
+import forge.adventure.util.EnemyCoopPartners;
+import forge.adventure.data.EnemyData;
+import forge.adventure.data.BiomeData;
+import forge.adventure.world.World;
 import forge.deck.Deck;
 import forge.deck.io.DeckSerializer;
 import forge.game.GameRules;
@@ -61,6 +65,7 @@ import forge.toolbox.FOptionPane;
 import forge.util.Localizer;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -108,6 +113,8 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private volatile ScheduledFuture<?> inviteTimeoutFuture;
     private volatile long activeDuelId;
     private volatile long pendingEnemyId;
+    /** EN2: loot rolls for the active co-op duel (default 1). */
+    private volatile int pendingPartnerLootRolls = 1;
     private volatile boolean gameServerStartedByUs;
     private volatile FGameClient guestClient;
     private volatile CoopFightLoadout pendingGuestLoadout;
@@ -736,12 +743,18 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                     ? (Deck) advPlayer.getSelectedDeck().copyTo("HostDeckCopy")
                     : new Deck("Empty");
             final ConfigData cfg = Config.instance().getConfigData();
-            final float lifeFactor = cfg.coopDuelEnemyLifeFactor;
-            final int extraCards = cfg.coopDuelEnemyExtraCards;
             final int baseFreeMulligans = cfg.adventureFreeMulligans;
 
             final List<CoopDuelMatchPlan.EnemySpec> enemies = new ArrayList<>();
-            forge.adventure.data.EnemyData current = mob.getData();
+            EnemyData current = mob.getData();
+            // EN2: attach a same-type different-theme partner when eligible (not boss/gym/nextEnemy).
+            final long encounterSeed = EnemyCoopPartners.encounterSeed(enemyId, current);
+            final EnemyCoopPartners.PartnerPlan partnerPlan = EnemyCoopPartners.planPartner(
+                    current, currentBiomeEnemies(), encounterSeed);
+            pendingPartnerLootRolls = partnerPlan.lootRollsPerPlayer;
+            final float lifeFactor = partnerPlan.lifeFactor;
+            final int extraCards = partnerPlan.extraCards;
+
             for (int i = 0; i < 8 && current != null; i++) {
                 final Deck enemyDeck = current.copyPlayerDeck
                         ? hostDeck
@@ -753,6 +766,18 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                         current.life,
                         baseFreeMulligans));
                 current = current.nextEnemy;
+            }
+            if (partnerPlan.partnerBuilt && partnerPlan.partner != null && enemies.size() == 1) {
+                final EnemyData partner = partnerPlan.partner;
+                final Deck partnerDeck = partner.copyPlayerDeck
+                        ? hostDeck
+                        : partner.generateDeck(advPlayer.isFantasyMode(), false);
+                enemies.add(new CoopDuelMatchPlan.EnemySpec(
+                        partner.getName() != null ? partner.getName() : "Enemy Partner",
+                        "enemy-partner",
+                        partnerDeck != null ? partnerDeck : hostDeck,
+                        partner.life,
+                        baseFreeMulligans));
             }
 
             final CoopDuelMatchPlan plan = CoopDuelMatchPlan.build(
@@ -943,6 +968,8 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private void applyHostLocalResult(final boolean teamWon, final EnemySprite mob) {
         if (mob != null) {
             WorldStage.getInstance().setCurrentMob(mob);
+            WorldStage.getInstance().setPendingLootRolls(pendingPartnerLootRolls);
+            pendingPartnerLootRolls = 1;
             // setWinner also calls CoopOverworldRuntime.onHostDuelEnded().
             WorldStage.getInstance().setWinner(teamWon, false);
             return;
@@ -979,6 +1006,17 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         }
         if (mob != null) {
             WorldStage.getInstance().setCurrentMob(mob);
+            // Recompute EN2 loot rolls from the encounter (deterministic; no wire field).
+            int rolls = 1;
+            try {
+                final EnemyData data = mob.getData();
+                final long seed = EnemyCoopPartners.encounterSeed(event.getEnemyId(), data);
+                final EnemyCoopPartners.PartnerPlan plan =
+                        EnemyCoopPartners.planPartner(data, currentBiomeEnemies(), seed);
+                rolls = plan.lootRollsPerPlayer;
+            } catch (final Exception ignored) {
+            }
+            WorldStage.getInstance().setPendingLootRolls(rolls);
             WorldStage.getInstance().setWinner(teamWon, false);
         } else {
             if (teamWon) {
@@ -1457,6 +1495,36 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 } catch (final Exception ignored) {
                 }
             });
+        }
+    }
+
+    /**
+     * Catalog enemies for the host's current biome — EN2 biome-fallback partner pool.
+     * Empty when the world is unavailable (never throws).
+     */
+    private List<EnemyData> currentBiomeEnemies() {
+        try {
+            final World world = Current.world();
+            if (world == null || world.getData() == null) {
+                return Collections.emptyList();
+            }
+            final WorldStage stage = WorldStage.getInstance();
+            if (stage == null || stage.getPlayerSprite() == null) {
+                return Collections.emptyList();
+            }
+            final float px = stage.getPlayerSprite().getX() + stage.getPlayerSprite().getWidth() / 2f;
+            final float py = stage.getPlayerSprite().getY();
+            final int tile = world.getTileSize();
+            final int currentBiome = World.highestBiome(
+                    world.getBiome((int) (px / tile), (int) (py / tile)));
+            final List<BiomeData> biomes = world.getData().GetBiomes();
+            if (biomes == null || currentBiome < 0 || currentBiome >= biomes.size()) {
+                return Collections.emptyList();
+            }
+            final ArrayList<EnemyData> list = biomes.get(currentBiome).getEnemyList();
+            return list != null ? list : Collections.emptyList();
+        } catch (final Exception e) {
+            return Collections.emptyList();
         }
     }
 

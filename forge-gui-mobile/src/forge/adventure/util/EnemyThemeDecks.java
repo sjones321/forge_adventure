@@ -246,6 +246,41 @@ public final class EnemyThemeDecks {
     }
 
     /**
+     * Themes that list {@code tag} (case-insensitive). Empty when none. Used by EN2
+     * partner pairing and the creature-type tag coverage test.
+     */
+    public static List<EnemyThemeData> themesForTag(String tag) {
+        ensureLoaded();
+        synchronized (LOCK) {
+            if (tag == null || tag.isEmpty() || byTag == null)
+                return Collections.emptyList();
+            List<EnemyThemeData> list = byTag.get(normalizeTag(tag));
+            if (list == null || list.isEmpty())
+                return Collections.emptyList();
+            return Collections.unmodifiableList(new ArrayList<>(list));
+        }
+    }
+
+    /**
+     * Every distinct theme tag → theme count. EN2 requires each creature-type tag
+     * to have two or more themes so a pair never mirrors.
+     */
+    public static Map<String, Integer> themeCountsByTag() {
+        ensureLoaded();
+        synchronized (LOCK) {
+            Map<String, Integer> counts = new HashMap<>();
+            if (byTag == null)
+                return counts;
+            for (Map.Entry<String, List<EnemyThemeData>> e : byTag.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null)
+                    continue;
+                counts.put(e.getKey(), e.getValue().size());
+            }
+            return counts;
+        }
+    }
+
+    /**
      * Picks a theme for an enemy at spawn from its quest tags. Returns null when
      * EN1 is off, the enemy is a boss, or no theme matches.
      */

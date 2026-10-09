@@ -119,6 +119,13 @@ public class CoopDuelTest {
         Assert.assertEquals(CoopDuelScaling.scaleEnemyExtraCards(2, 3), 3);
         Assert.assertEquals(CoopDuelScaling.humanCount(false), 1);
         Assert.assertEquals(CoopDuelScaling.humanCount(true), 2);
+        // EN2: partner present drops boosts; no partner keeps them.
+        Assert.assertEquals(CoopDuelScaling.effectiveLifeFactor(true, 1.0f, 1.5f), 1.0f);
+        Assert.assertEquals(CoopDuelScaling.effectiveExtraCards(true, 0, 1), 0);
+        Assert.assertEquals(CoopDuelScaling.effectiveLifeFactor(false, 1.0f, 1.5f), 1.5f);
+        Assert.assertEquals(CoopDuelScaling.effectiveExtraCards(false, 0, 1), 1);
+        Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(true, 1), 1);
+        Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(false, 5), 1);
     }
 
     @Test

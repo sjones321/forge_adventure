@@ -150,7 +150,9 @@ public class EnemyThemeDecksTest {
                     ids.add(trimmed.substring(q1 + 1, q2));
             }
         }
-        Assert.assertEquals(ids.size(), 16, "expected 8 types × 2 themes: " + ids);
+        Assert.assertEquals(ids.size(), 18, "expected 9 type-groups × 2 themes: " + ids);
+        Assert.assertTrue(ids.contains("merfolk_tempo"));
+        Assert.assertTrue(ids.contains("serpent_leviathan"));
     }
 
     @Test
@@ -158,7 +160,8 @@ public class EnemyThemeDecksTest {
         Path coresDir = resolveEnemyCoresDir();
         Assert.assertTrue(Files.isDirectory(coresDir), "missing " + coresDir);
         String[] ids = {
-                "merfolk_tribal", "kraken_leviathan", "goblin_tribal", "goblin_burn",
+                "merfolk_tribal", "merfolk_tempo", "kraken_leviathan", "serpent_leviathan",
+                "goblin_tribal", "goblin_burn",
                 "zombie_tribal", "zombie_aristocrats", "elf_tribal", "elf_ramp",
                 "vampire_tribal", "vampire_drain", "dragon_tribal", "dragon_ramp",
                 "soldier_tribal", "knight_tribal", "spirit_tribal", "spirit_tempo"
@@ -232,7 +235,9 @@ public class EnemyThemeDecksTest {
         EnemyThemeCatalogData cat = new EnemyThemeCatalogData();
         cat.themes = new EnemyThemeData[]{
                 theme("merfolk_tribal", "Merfolk", "blue", "Merfolk"),
-                theme("kraken_leviathan", "Merfolk", "blue", "Kraken"),
+                theme("merfolk_tempo", "Merfolk", "blue", "Merfolk"),
+                theme("kraken_leviathan", "Kraken", "blue", "Kraken"),
+                theme("serpent_leviathan", "Kraken", "blue", "Serpent"),
                 theme("goblin_tribal", "Goblin", "red", "Goblin"),
                 theme("goblin_burn", "Goblin", "red", "Goblin"),
                 theme("zombie_tribal", "Zombie", "black", "Zombie"),
