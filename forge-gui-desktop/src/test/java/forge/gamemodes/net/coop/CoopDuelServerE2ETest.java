@@ -483,12 +483,12 @@ public class CoopDuelServerE2ETest {
         assertNotNull(netCtrl, "guest NetGameController from FGameClient");
         assertTrue(netCtrl instanceof NetGameController,
                 "guest seat must be NetGameController, was " + netCtrl.getClass().getName());
-        // Hand sync can lag behind controller install on a busy runner; controller
-        // install alone proves the FGameClient → NetGameController path. When a hand
-        // card is available, also assert selectCard hits the wire.
-        if (castCard == null || guestView == null) {
-            return;
-        }
+        // Must FAIL when the match is not synced — do not soft-skip. A missing hand
+        // or guest view means the loopback wire assert cannot prove modern cast.
+        assertNotNull(castCard,
+                "guest hand must sync a card for modern cast over loopback");
+        assertNotNull(guestView,
+                "guest PlayerView must sync for modern cast over loopback");
 
         final AtomicInteger selectCardSends = new AtomicInteger();
         final AtomicReference<CardView> sentCard = new AtomicReference<>();

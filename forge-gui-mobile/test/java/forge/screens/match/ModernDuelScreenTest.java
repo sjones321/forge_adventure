@@ -173,14 +173,41 @@ public class ModernDuelScreenTest {
     }
 
     @Test
-    public void onePressCastForCastableHand() {
-        Assert.assertTrue(ModernDuelActions.isOnePressHandCast(true, true, false));
-        Assert.assertFalse(ModernDuelActions.isOnePressHandCast(true, true, true),
-                "already holding → second A is drop, not re-cast");
-        Assert.assertFalse(ModernDuelActions.isOnePressHandCast(true, false, false),
-                "uncastable hand falls through to stock A");
-        Assert.assertFalse(ModernDuelActions.isOnePressHandCast(false, true, false),
-                "battlefield uses hold+aim, not one-press cast");
+    public void firstTapOfDoubleTapIsDeferredNotActed() {
+        // Modern first tap is deferred; second tap cancels it and zooms instead.
+        Assert.assertTrue(ModernDuelGestures.shouldDeferSingleTap(true, 1));
+        Assert.assertFalse(ModernDuelGestures.shouldDeferSingleTap(true, 2));
+        Assert.assertFalse(ModernDuelGestures.shouldDeferSingleTap(false, 1),
+                "stock must act on first tap immediately");
+        Assert.assertTrue(ModernDuelGestures.shouldCancelDeferredSingleTap(true, 2));
+        Assert.assertTrue(ModernDuelGestures.shouldCancelDeferredSingleTap(true, 3));
+        Assert.assertFalse(ModernDuelGestures.shouldCancelDeferredSingleTap(true, 1));
+        Assert.assertFalse(ModernDuelGestures.shouldCancelDeferredSingleTap(false, 2));
+        Assert.assertEquals(ModernDuelGestures.DOUBLE_TAP_WINDOW_SEC, 0.25f, 0.0001f);
+    }
+
+    @Test
+    public void handHeldSecondARestoresControllerReorder() {
+        // Different hand card → reorder (restores controller path broken by one-press cast).
+        Assert.assertEquals(
+                ModernDuelActions.handHeldSecondA(true, true, false, false),
+                ModernDuelActions.HandHeldSecondA.REORDER);
+        // Same hand card again → confirm cast.
+        Assert.assertEquals(
+                ModernDuelActions.handHeldSecondA(true, true, true, false),
+                ModernDuelActions.HandHeldSecondA.CAST);
+        // Aim at board / non-hand → cast.
+        Assert.assertEquals(
+                ModernDuelActions.handHeldSecondA(true, false, false, false),
+                ModernDuelActions.HandHeldSecondA.CAST);
+        // Missing focus → cancel.
+        Assert.assertEquals(
+                ModernDuelActions.handHeldSecondA(true, false, false, true),
+                ModernDuelActions.HandHeldSecondA.CANCEL);
+        // Battlefield hold still aims/casts on second A (not reorder).
+        Assert.assertEquals(
+                ModernDuelActions.handHeldSecondA(false, false, false, false),
+                ModernDuelActions.HandHeldSecondA.CAST);
     }
 
     @Test
@@ -200,6 +227,33 @@ public class ModernDuelScreenTest {
         // Fresh PlayerView defaults MaxLandPlay=0 until the engine updates the view.
         final PlayerView p = new PlayerView(50, new Tracker());
         Assert.assertFalse(ModernDuelActions.canPlayLandFromViews(p));
+    }
+
+    @Test
+    public void castabilityCountsUntappedLandsAsManaSources() {
+        // Pool alone is not enough for CMC 3 when pool=1; +2 untapped lands → castable.
+        Assert.assertEquals(ModernDuelActions.availableManaEstimate(1, 2), 3);
+        Assert.assertTrue(ModernDuelActions.estimateSpellCastable(
+                3, ModernDuelActions.availableManaEstimate(1, 2)));
+        Assert.assertFalse(ModernDuelActions.estimateSpellCastable(
+                3, ModernDuelActions.availableManaEstimate(1, 0)),
+                "pool-only must not overstate castability");
+        Assert.assertEquals(ModernDuelActions.availableManaEstimate(0, 0), 0);
+        Assert.assertEquals(ModernDuelActions.availableManaEstimate(-1, 2), 2,
+                "negative pool clamped");
+
+        final Tracker tracker = new Tracker();
+        final PlayerView controller = new PlayerView(60, tracker);
+        final CardView untappedLand = battlefieldLand(tracker, 61, false);
+        final CardView tappedLand = battlefieldLand(tracker, 62, true);
+        final CardView creature = zoneCard(ZoneType.Battlefield, 63);
+        controller.set(forge.trackable.TrackableProperty.Battlefield,
+                new forge.util.collect.FCollection<>(java.util.List.of(
+                        untappedLand, tappedLand, creature)));
+        Assert.assertEquals(ModernDuelActions.countUntappedLands(controller), 1,
+                "only untapped lands count as available mana sources");
+        Assert.assertEquals(ModernDuelActions.countUntappedLands(null), 0);
+        Assert.assertEquals(ModernDuelActions.availableManaEstimate(controller), 1);
     }
 
     @Test
@@ -333,5 +387,18 @@ public class ModernDuelScreenTest {
                 return zone;
             }
         };
+    }
+
+    private static CardView battlefieldLand(final Tracker tracker, final int id, final boolean tapped) {
+        final CardView land = new CardView(id, tracker) {
+            @Override
+            public ZoneType getZone() {
+                return ZoneType.Battlefield;
+            }
+        };
+        land.set(forge.trackable.TrackableProperty.Tapped, tapped);
+        land.getCurrentState().set(forge.trackable.TrackableProperty.Type,
+                forge.card.CardType.parse("Basic Land — Forest", true));
+        return land;
     }
 }
