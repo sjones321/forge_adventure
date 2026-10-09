@@ -383,6 +383,9 @@ public class CoopPartnerPersistTest {
 
         // Restore a playable world and re-bind the prior load slot, then New Game.
         ensureMinimalWorldForDiskSave();
+        preparePlayer(save.getPlayer(), "HostHero", SOLO_GOLD);
+        save.header.name = "PreJoinWorld";
+        save.header.preview = null;
         save.setLoadedSlot(hostSlot);
         Assert.assertEquals(save.getLoadedSlot(), hostSlot);
         save.clearLoadedSlotAfterNewGame();
@@ -395,7 +398,8 @@ public class CoopPartnerPersistTest {
         Assert.assertTrue(session.applyHostPartnerCreate(new CoopPartnerCreateEvent(
                 PROFILE_A, "AfterNewGame", true, 0, 0, new byte[0], "")));
         session.partnerSync().markHostPartnerDirty();
-        Assert.assertTrue(session.partnerSync().saveHostWorldNow());
+        Assert.assertTrue(session.partnerSync().saveHostWorldNow(),
+                "saveHostWorldNow must succeed after New Game slot clear");
         Assert.assertEquals(Files.readAllBytes(slotPath), slotBefore,
                 "partner flush after New Game must not overwrite the old host slot");
         Assert.assertTrue(Files.exists(Path.of(WorldSave.getSaveFile(WorldSave.AUTO_SAVE_SLOT))),
