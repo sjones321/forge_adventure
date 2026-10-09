@@ -15,6 +15,78 @@ ore_adamant
 ore_rune
   xy: 48, 16
   size: 16, 16
+ash
+  xy: 0, 32
+  size: 16, 16
+charcoal
+  xy: 16, 32
+  size: 16, 16
+brimstone
+  xy: 32, 32
+  size: 16, 16
+dragonfire_ash
+  xy: 48, 32
+  size: 16, 16
+limestone
+  xy: 0, 48
+  size: 16, 16
+marble
+  xy: 16, 48
+  size: 16, 16
+sunstone
+  xy: 32, 48
+  size: 16, 16
+starstone
+  xy: 48, 48
+  size: 16, 16
+wild_herbs
+  xy: 0, 64
+  size: 16, 16
+tree_sap
+  xy: 16, 64
+  size: 16, 16
+elder_seeds
+  xy: 32, 64
+  size: 16, 16
+worldtree_bark
+  xy: 48, 64
+  size: 16, 16
+bone_fragments
+  xy: 0, 80
+  size: 16, 16
+grave_moss
+  xy: 16, 80
+  size: 16, 16
+ancient_bone
+  xy: 32, 80
+  size: 16, 16
+wraithbloom
+  xy: 48, 80
+  size: 16, 16
+spring_water
+  xy: 0, 96
+  size: 16, 16
+glacier_ice
+  xy: 16, 96
+  size: 16, 16
+purified_water
+  xy: 32, 96
+  size: 16, 16
+elemental_water
+  xy: 48, 96
+  size: 16, 16
+scrap
+  xy: 0, 112
+  size: 16, 16
+brass_gears
+  xy: 16, 112
+  size: 16, 16
+thran_parts
+  xy: 32, 112
+  size: 16, 16
+thran_relic
+  xy: 48, 112
+  size: 16, 16
 Idle
   xy: 0, 16
   size: 16, 16

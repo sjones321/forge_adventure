@@ -41,7 +41,10 @@ import java.util.List;
  * Displays the rewards of a fight or a treasure
  */
 public class RewardScene extends UIScene {
-    private TextraButton doneButton, detailButton, restockButton;
+    private TextraButton doneButton, detailButton, restockButton, nextPackButton;
+    private java.util.function.BooleanSupplier hasNextPack;
+    private Runnable openNextPack;
+    private boolean doneShowsReveal;
     private TextraLabel playerGold, playerShards;
     private TypingLabel headerLabel;
     private Vector2 headerLabelOrigPos;
@@ -95,6 +98,11 @@ public class RewardScene extends UIScene {
         detailButton.setVisible(false);
         doneButton = ui.findActor("done");
         restockButton = ui.findActor("restock");
+        nextPackButton = Controls.newTextButton("[%80]Next\npack", this::nextPack);
+        nextPackButton.setBounds(doneButton.getX(), doneButton.getY() + doneButton.getHeight() * 2 + 20,
+                doneButton.getWidth(), doneButton.getHeight());
+        nextPackButton.setVisible(false);
+        ui.addActor(nextPackButton);
         origDrawable = getBGDrawable();
     }
 
@@ -136,7 +144,44 @@ public class RewardScene extends UIScene {
     float flipCountDown = 1.0f;
     float exitCountDown = 0.0f; //Serves as additional check for when scene is exiting, so you can't double tap too fast.
 
+    /** Set by the inventory when opening a pack, so the player can open the next one from here. */
+    public void setNextPack(java.util.function.BooleanSupplier hasNext, Runnable openNext) {
+        hasNextPack = hasNext;
+        openNextPack = openNext;
+    }
+
+    private void nextPack() {
+        if (openNextPack == null || hasNextPack == null || !hasNextPack.getAsBoolean())
+            return;
+        // Keep this pack's cards (same as leaving with Done), then deal the next pack here.
+        clearGenerated();
+        shown = false;
+        openNextPack.run();
+    }
+
+    private void updatePackButtons() {
+        boolean packs = type == Type.EventReward && openNextPack != null;
+        nextPackButton.setVisible(packs && hasNextPack.getAsBoolean() && !doneClicked);
+        if (type != Type.EventReward && type != Type.Loot && type != Type.QuestReward)
+            return;
+        boolean anyHidden = false;
+        for (Actor actor : new Array.ArrayIterator<>(generated)) {
+            if (actor instanceof RewardActor rewardActor && !rewardActor.isFlipped()) {
+                anyHidden = true;
+                break;
+            }
+        }
+        if (anyHidden != doneShowsReveal) {
+            doneShowsReveal = anyHidden;
+            doneButton.setText(anyHidden ? "[%80]Reveal\nall" : "[+OK]");
+            doneButton.layout();
+        }
+    }
+
     public void quitScene() {
+        openNextPack = null;
+        hasNextPack = null;
+        nextPackButton.setVisible(false);
         for (int i = 0; i < generated.size; i++) {
             Actor actor = generated.get(i);
             if (actor instanceof RewardActor rewardActor) {
@@ -219,6 +264,7 @@ public class RewardScene extends UIScene {
     @Override
     public void act(float delta) {
         stage.act(delta);
+        updatePackButtons();
         ImageCache.getInstance().allowSingleLoad();
         if (doneClicked) {
             if (type == Type.EventReward || type == Type.Loot || type == Type.QuestReward) {
@@ -392,6 +438,7 @@ public class RewardScene extends UIScene {
             addToSelectable(restockButton);
         } else {
             doneButton.setText("[+OK]");
+            doneShowsReveal = false;
         }
         for (Actor actor : new Array.ArrayIterator<>(generated)) {
             actor.remove();
