@@ -90,7 +90,7 @@ public final class AdventurePlayerTradeBag implements CoopTradeBag {
                 return true;
             }
         }
-        final ItemData proto = ItemListData.get(name);
+        final ItemData proto = ItemListData.getItem(name);
         return proto != null && proto.questItem;
     }
 

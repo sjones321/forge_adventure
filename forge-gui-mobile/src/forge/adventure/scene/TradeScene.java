@@ -8,7 +8,6 @@ import forge.adventure.coop.CoopTradeRuntime;
 import forge.adventure.data.ItemData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.Config;
-import forge.adventure.util.Controls;
 import forge.adventure.util.Current;
 import forge.adventure.util.KeyBinding;
 import forge.gamemodes.net.coop.CoopTradeOffer;
