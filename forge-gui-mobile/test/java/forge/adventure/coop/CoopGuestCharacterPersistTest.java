@@ -253,7 +253,7 @@ public class CoopGuestCharacterPersistTest {
         Assert.assertEquals(session.getRole(), CoopSessionRole.NONE);
         Assert.assertEquals(session.getState(), CoopSession.State.DISCONNECTED);
         Assert.assertEquals(player.getGold(), soloGoldSnapshot, "stash must be restored");
-        Assert.assertArrayEquals(corrupt, Files.readAllBytes(guestFile.toPath()),
+        Assert.assertEquals(Files.readAllBytes(guestFile.toPath()), corrupt,
                 "corrupt .chr must not be overwritten on join failure");
         Assert.assertFalse(session.blocksLocalWorldSave(),
                 "after sync restore, autosave must not stay blocked");
