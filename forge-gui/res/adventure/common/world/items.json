@@ -2309,5 +2309,13 @@
     "cost": 0,
     "stackable": true,
     "currencyId": "grand_prix_coin"
+  },
+  {
+    "name": "Fortress Banner",
+    "description": "Plant on walkable land away from towns to claim a fortress site (Ascendant). One per plane.",
+    "iconName": "StrangeKey",
+    "cost": 100,
+    "usableOnWorldMap": true,
+    "commandOnUse": "fortress plant"
   }
 ]

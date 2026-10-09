@@ -441,7 +441,23 @@ public class InventoryBagsTest {
     }
 
     @Test
-    public void fortressHookAcceptsOverflowWhenAtCap() {
+    public void fortressHookAcceptsMaterialOverflowWhenAtCap() {
+        bags.setOverflowCap(1);
+        // Distinct material so it cannot merge into the existing Overflow slot.
+        bags.placeInOverflow(OverflowEntry.ofMaterial("oak", 3));
+        final int[] stored = {0};
+        bags.setFortressStorage((bag, key, amount) -> {
+            stored[0] += amount;
+            return true;
+        });
+        GrantResult r = bags.placeInOverflow(OverflowEntry.ofMaterial("copper", 2));
+        Assert.assertTrue(r.wentToOverflow());
+        Assert.assertEquals(stored[0], 2);
+        Assert.assertEquals(bags.overflowCount(), 1); // first stayed; fortress took second
+    }
+
+    @Test
+    public void fortressHookNeverSwallowsGearOverflow() {
         bags.setOverflowCap(1);
         bags.placeInOverflow(OverflowEntry.ofItem(gear("A", "Right")));
         final int[] stored = {0};
@@ -450,8 +466,7 @@ public class InventoryBagsTest {
             return true;
         });
         GrantResult r = bags.placeInOverflow(OverflowEntry.ofItem(gear("B", "Left")));
-        Assert.assertTrue(r.wentToOverflow());
-        Assert.assertEquals(stored[0], 1);
-        Assert.assertEquals(bags.overflowCount(), 1); // still only first; fortress took second
+        Assert.assertTrue(r.wasAutoSold(), "gear must auto-sell, not go to fortress");
+        Assert.assertEquals(stored[0], 0, "gear must not go to fortress storage without retrieval UI");
     }
 }

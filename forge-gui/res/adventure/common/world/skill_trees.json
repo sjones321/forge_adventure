@@ -5408,5 +5408,130 @@
         }
       }
     ]
+  },
+  {
+    "skill": "CONSTRUCTION",
+    "nodes": [
+      {
+        "id": "const_framing_1",
+        "branch": "framing",
+        "branchName": "Framing",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 1,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Build basic walls and storage"
+      },
+      {
+        "id": "const_framing_2",
+        "branch": "framing",
+        "branchName": "Framing",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": ["const_framing_1"],
+        "exclusiveWith": [],
+        "levelRequired": 15,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Faster framing — unlock mid-tier footprints"
+      },
+      {
+        "id": "const_framing_3",
+        "branch": "framing",
+        "branchName": "Framing",
+        "tier": 3,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": ["const_framing_2"],
+        "exclusiveWith": [],
+        "levelRequired": 40,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Master framing for keep-tier structures"
+      },
+      {
+        "id": "const_salvage_1",
+        "branch": "salvage",
+        "branchName": "Salvage",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 2,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 10,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "+5% demolish refund per rank (FT2 wiring)"
+      },
+      {
+        "id": "const_salvage_2",
+        "branch": "salvage",
+        "branchName": "Salvage",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": ["const_salvage_1"],
+        "exclusiveWith": [],
+        "levelRequired": 30,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Recover rare materials more often when demolishing"
+      },
+      {
+        "id": "const_fortify_1",
+        "branch": "fortify",
+        "branchName": "Fortify",
+        "tier": 1,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": [],
+        "exclusiveWith": [],
+        "levelRequired": 20,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": false,
+        "description": "Walls and towers last longer in raids (FT3)"
+      },
+      {
+        "id": "const_fortify_2",
+        "branch": "fortify",
+        "branchName": "Fortify",
+        "tier": 2,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": ["const_fortify_1"],
+        "exclusiveWith": [],
+        "levelRequired": 50,
+        "duelPerk": false,
+        "capstone": true,
+        "skillCape": false,
+        "description": "Capstone: citadel-grade fortification"
+      },
+      {
+        "id": "const_cape",
+        "branch": "framing",
+        "branchName": "Framing",
+        "tier": 6,
+        "cost": 1,
+        "maxRanks": 1,
+        "requires": ["const_framing_3"],
+        "exclusiveWith": [],
+        "levelRequired": 99,
+        "duelPerk": false,
+        "capstone": false,
+        "skillCape": true,
+        "description": "Construction skill cape"
+      }
+    ]
   }
 ]

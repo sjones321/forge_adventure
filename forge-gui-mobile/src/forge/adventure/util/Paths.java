@@ -16,6 +16,8 @@ public class Paths {
     public static final String RECIPES = "world/recipes.json";
     public static final String GATHERING_METHODS = "world/gathering_methods.json";
     public static final String SKILL_TREES = "world/skill_trees.json";
+    /** FT1 fortress structure catalog. */
+    public static final String STRUCTURES_FORTRESS = "world/structures_fortress.json";
     public static final String GYMS = "world/gyms.json";
     public static final String QUESTS = "world/quests.json";
     public static final String SKIN = "skin/ui_skin.json";
