@@ -139,6 +139,10 @@ public final class CoopTradeState {
      */
     public boolean isCancelAllowed() {
         synchronized (lock) {
+            // Both confirmed → escrow imminent; cancel refused (matches cancelUnlocked).
+            if (status == Status.OPEN && hostConfirmed && guestConfirmed) {
+                return false;
+            }
             return status == Status.OPEN || status == Status.INVITE_SENT
                     || status == Status.INVITE_RECEIVED || status == Status.REQUEST_SENT;
         }

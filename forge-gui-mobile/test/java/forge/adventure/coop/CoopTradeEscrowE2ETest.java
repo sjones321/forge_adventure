@@ -886,20 +886,19 @@ public class CoopTradeEscrowE2ETest {
 
     @Test
     public void staleAndDuplicateIdRejectedBagsUnchanged() throws Exception {
-        dual.openTrade();
-        final long id = dual.host.state.getTradeId();
-        dual.host.log.record(id, CoopTradeLog.Phase.COMPLETED, 1L);
-        // Duplicate id invite rejected.
-        Assert.assertFalse(dual.guest.state.receiveInvite(
-                new CoopTradeInviteEvent(id, "Host", 30), false));
+        // Duplicate / stale id on reconnect: idle side with id already in log.
+        final long staleId = forge.gamemodes.net.coop.CoopTradeIds.next();
+        dual.host.log.record(staleId, CoopTradeLog.Phase.COMPLETED, 1L);
+        CoopTradeGlOps.syncLogAndSave(dual.host.player, dual.host.log);
+        dual.crashReload(dual.host);
+        Assert.assertTrue(dual.host.log.contains(staleId));
+        Assert.assertFalse(dual.host.state.receiveInvite(
+                new CoopTradeInviteEvent(staleId, "Guest", 30), true),
+                "stale/duplicate id after reload must be rejected");
         assertBag(dual.host.player, 100, 5, 0, 2, 0);
         assertBag(dual.guest.player, 80, 0, 4, 0, 1);
 
-        // Stale offer version rejected.
-        dual.host.state.reset();
-        dual.guest.state.reset();
-        dual.host.log.clear();
-        dual.guest.log.clear();
+        // Stale offer version rejected on an open trade.
         dual.openTrade();
         dual.setOffer(dual.host, matsOffer("oak", 1, 5, 0));
         dual.drainAll();
@@ -1035,13 +1034,16 @@ public class CoopTradeEscrowE2ETest {
 
     @Test
     public void duplicateIdGuardOnReceiveInvite() throws Exception {
-        dual.openTrade();
-        final long id = dual.host.state.getTradeId();
-        dual.guest.log.record(id, CoopTradeLog.Phase.ESCROWED, 1L,
-                CoopTradeOffer.empty(), CoopTradeOffer.empty());
-        // Same id again must be rejected (log contains it).
-        Assert.assertFalse(dual.guest.state.receiveInvite(
-                new CoopTradeInviteEvent(id, "Host", 30), false));
+        // Idle guest whose log already knows this id must reject the invite
+        // (status alone is not enough — must hit the trade-log duplicate check).
+        final long id = forge.gamemodes.net.coop.CoopTradeIds.next();
+        final CoopTradeLog log = new CoopTradeLog();
+        log.record(id, CoopTradeLog.Phase.COMPLETED, 1L);
+        final CoopTradeState idle = new CoopTradeState(new CoopRateLimiter(100, 1), log);
+        Assert.assertEquals(idle.getStatus(), CoopTradeState.Status.IDLE);
+        Assert.assertFalse(idle.receiveInvite(new CoopTradeInviteEvent(id, "Host", 30), false));
+        assertBag(dual.host.player, 100, 5, 0, 2, 0);
+        assertBag(dual.guest.player, 80, 0, 4, 0, 1);
     }
 
     /** Minimal GuiBase so ForgeConstants can resolve ASSETS_DIR in headless tests. */
