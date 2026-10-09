@@ -914,7 +914,7 @@ public final class EnemyThemeDecks {
         if (FORMAT_COMMANDER.equals(fmt)) {
             int main = deck.getMain().countAll();
             int cmdN = deck.getCommanders() != null ? deck.getCommanders().size() : 0;
-            if (main != 100 - Math.max(cmdN, 1) || cmdN < 1)
+            if (cmdN < 1 || main != 100 - cmdN)
                 return "Commander main has " + main + " cards with " + cmdN
                         + " commanders (need exactly 99+1)";
             int nonLand = countNonLandsAll(deck);
@@ -2821,12 +2821,23 @@ public final class EnemyThemeDecks {
      * tribal density, swapping off-tribe creatures when needed.
      */
     private static final String[] COMMANDER_INTERACTION_PRIORITY = {
+            // White
             "Swords to Plowshares", "Path to Exile", "Anguished Unmaking", "Mortify",
+            "Oblivion Ring", "Journey to Nowhere", "Generous Gift",
+            "Wrath of God", "Supreme Verdict", "Time Wipe", "Deafening Clarion",
+            "Austere Command", "Farewell",
+            // Black
             "Go for the Throat", "Feed the Swarm", "Infernal Grasp", "Cast Down",
-            "Oblivion Ring", "Journey to Nowhere", "Generous Gift", "Beast Within",
-            "Chaos Warp", "Languish", "Wrath of God", "Supreme Verdict", "Time Wipe",
-            "Deafening Clarion", "Austere Command", "Farewell", "Counterspell",
-            "Negate", "Aetherize", "Engulf the Shore", "River's Rebuke", "Wash Out"
+            "Hero's Downfall", "Languish",
+            // Blue
+            "Counterspell", "Negate", "Aetherize", "Engulf the Shore", "River's Rebuke",
+            "Wash Out", "Pongify", "Rapid Hybridization", "Reality Shift",
+            // Red (mono-R needs more than Chaos Warp alone)
+            "Chaos Warp", "Abrade", "Blasphemous Act", "By Force", "Vandalblast",
+            "Starstorm", "Chain Reaction", "Wild Magic Surge",
+            // Green (mono-G needs more than Beast Within alone)
+            "Beast Within", "Nature's Claim", "Kenrith's Transformation",
+            "Song of the Dryads", "Return to Nature", "Krosan Grip"
     };
 
     /** Minimum fair interaction spells to keep in tribal Commander decks. */

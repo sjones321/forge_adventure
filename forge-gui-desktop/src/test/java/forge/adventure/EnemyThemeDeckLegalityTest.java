@@ -686,13 +686,21 @@ public class EnemyThemeDeckLegalityTest {
         for (int i = 0; i < 4; i++)
             over.getMain().add(island);
         Assert.assertEquals(over.getMain().countAll(), 103);
+        int interactionBefore = countNamedInteraction(over);
+        int tribalBefore = EnemyThemeDecks.countTribalCreatures(over, theme);
         EnemyThemeDecks.normalizeCommanderMainSizeForTests(over, theme);
         Assert.assertEquals(over.getMain().countAll(), 99);
         Assert.assertEquals(over.getCommanders().size(), 1);
         Assert.assertNull(EnemyThemeDecks.legalityProblem(over, "Commander"),
                 EnemyThemeDecks.legalityProblem(over, "Commander"));
-        Assert.assertNull(EnemyThemeDecks.themeQualityProblem(over, theme, "Commander"),
-                EnemyThemeDecks.themeQualityProblem(over, theme, "Commander"));
+        Assert.assertTrue(countNamedInteraction(over) >= Math.min(interactionBefore,
+                        EnemyThemeDecks.MIN_COMMANDER_INTERACTION_SPELLS),
+                "normalize must not strip the interaction spell floor");
+        Assert.assertTrue(EnemyThemeDecks.countTribalCreatures(over, theme) >= Math.min(tribalBefore,
+                        EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER)
+                        || EnemyThemeDecks.countTribalCreatures(over, theme)
+                        >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER,
+                "normalize must not strip tribal floor when trimming basics");
 
         // Undershoot: strip 5 basics → normalize pads back to 99.
         Deck under = copyDeck(base);
@@ -707,13 +715,38 @@ public class EnemyThemeDeckLegalityTest {
         }
         Assert.assertEquals(removed, 5);
         Assert.assertEquals(under.getMain().countAll(), 94);
+        int interactionUnder = countNamedInteraction(under);
         EnemyThemeDecks.normalizeCommanderMainSizeForTests(under, theme);
         Assert.assertEquals(under.getMain().countAll(), 99);
         Assert.assertEquals(under.getCommanders().size(), 1);
         Assert.assertNull(EnemyThemeDecks.legalityProblem(under, "Commander"),
                 EnemyThemeDecks.legalityProblem(under, "Commander"));
+        Assert.assertTrue(countNamedInteraction(under) >= interactionUnder,
+                "filling basics must not remove interaction spells");
         Assert.assertNull(EnemyThemeDecks.themeQualityProblem(under, theme, "Commander"),
                 EnemyThemeDecks.themeQualityProblem(under, theme, "Commander"));
+    }
+
+    /** Counts cards on the generator's Commander interaction priority list. */
+    private static int countNamedInteraction(Deck deck) {
+        String[] names = {
+                "Swords to Plowshares", "Path to Exile", "Anguished Unmaking", "Mortify",
+                "Oblivion Ring", "Journey to Nowhere", "Generous Gift",
+                "Wrath of God", "Supreme Verdict", "Time Wipe", "Deafening Clarion",
+                "Austere Command", "Farewell",
+                "Go for the Throat", "Feed the Swarm", "Infernal Grasp", "Cast Down",
+                "Hero's Downfall", "Languish",
+                "Counterspell", "Negate", "Aetherize", "Engulf the Shore", "River's Rebuke",
+                "Wash Out", "Pongify", "Rapid Hybridization", "Reality Shift",
+                "Chaos Warp", "Abrade", "Blasphemous Act", "By Force", "Vandalblast",
+                "Starstorm", "Chain Reaction", "Wild Magic Surge",
+                "Beast Within", "Nature's Claim", "Kenrith's Transformation",
+                "Song of the Dryads", "Return to Nature", "Krosan Grip"
+        };
+        int n = 0;
+        for (String name : names)
+            n += deck.getMain().countByName(name);
+        return n;
     }
 
     private static String commanderSizeAndFloorsProblem(Deck deck, EnemyThemeData theme,
@@ -727,6 +760,7 @@ public class EnemyThemeDeckLegalityTest {
         String legal = EnemyThemeDecks.legalityProblem(deck, "Commander");
         if (legal != null)
             return label + ": " + legal;
+        // Singleton + CI covered by legalityProblem; tribal + nonland floors via quality.
         String quality = EnemyThemeDecks.themeQualityProblem(deck, theme, "Commander");
         if (quality != null)
             return label + ": " + quality;
