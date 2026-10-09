@@ -531,18 +531,19 @@ public class CoopDuelServerE2ETest {
         assertTrue(netCtrl instanceof NetGameController,
                 "guest seat must be NetGameController, was " + netCtrl.getClass().getName());
 
-        // Hold auto-OK only on local MAIN1 so earlier phases still advance.
+        // Hold auto-OK only on local MAIN1; detect that window from the host Game.
         guestLocalGui.setHoldLocalMain1(true);
         CardView castCard = null;
         int handBefore = 0;
         final long mainDeadline = System.currentTimeMillis() + 90_000;
         while (System.currentTimeMillis() < mainDeadline && castCard == null) {
             answerHost(hostRemote, hostGui, false);
-            final GameView gv = guestLocalGui.getGameView();
-            if (gv != null && gv.getPhase() == forge.game.phase.PhaseType.MAIN1
-                    && gv.getPlayerTurn() != null
-                    && gv.getPlayerTurn().getId() == guestView.getId()
-                    && guestView.getHand() != null) {
+            final forge.game.Game game = match.getGame();
+            final boolean guestMain1 = game != null
+                    && game.getPhaseHandler().getPhase() == forge.game.phase.PhaseType.MAIN1
+                    && game.getPhaseHandler().getPlayerTurn() != null
+                    && guestName.equalsIgnoreCase(game.getPhaseHandler().getPlayerTurn().getName());
+            if (guestMain1 && guestView.getHand() != null) {
                 for (final CardView c : guestView.getHand()) {
                     if (c != null) {
                         castCard = c;
@@ -585,6 +586,21 @@ public class CoopDuelServerE2ETest {
                     if (c != null && c.getId() == toCast.getId()) {
                         applied = true;
                         break;
+                    }
+                }
+            }
+            // Also accept host-side battlefield evidence (client view can lag).
+            final forge.game.Game game = match.getGame();
+            if (!applied && game != null) {
+                for (final forge.game.player.Player p : game.getPlayers()) {
+                    if (p == null || !guestName.equalsIgnoreCase(p.getName())) {
+                        continue;
+                    }
+                    for (final forge.game.card.Card c : p.getCardsIn(forge.game.zone.ZoneType.Battlefield)) {
+                        if (c != null && c.getId() == toCast.getId()) {
+                            applied = true;
+                            break;
+                        }
                     }
                 }
             }

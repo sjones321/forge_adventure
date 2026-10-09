@@ -722,19 +722,20 @@ public class CoopDuelInProcessTest {
 
         final NetGameController netGuest = new NetGameController(bridge);
 
-        // Drive until guest MAIN1, then cast via NetGameController before answering the guest OK.
-        // (Answering guest first would pass priority and skip the cast window.)
+        // Drive until guest MAIN1 (authoritative HostedMatch game), then cast via
+        // NetGameController before answering the guest OK (which would pass priority).
         CardView castCard = null;
         int handBefore = 0;
         final long mainWait = System.currentTimeMillis() + 90_000;
         while (System.currentTimeMillis() < mainWait && castCard == null) {
             answerOne(hostRemote, hostGui, true, false);
             flushEdt();
-            final GameView gv = guestGui.getGameView();
-            if (gv != null && gv.getPhase() == PhaseType.MAIN1
-                    && gv.getPlayerTurn() != null
-                    && guestView.getId() == gv.getPlayerTurn().getId()
-                    && guestView.getHand() != null) {
+            final forge.game.Game game = match.getGame();
+            final boolean guestMain1 = game != null
+                    && game.getPhaseHandler().getPhase() == PhaseType.MAIN1
+                    && game.getPhaseHandler().getPlayerTurn() != null
+                    && "Guest".equalsIgnoreCase(game.getPhaseHandler().getPlayerTurn().getName());
+            if (guestMain1 && guestView.getHand() != null) {
                 for (final CardView c : guestView.getHand()) {
                     if (c != null) {
                         castCard = c;
@@ -747,8 +748,10 @@ public class CoopDuelInProcessTest {
                 }
             }
             // Advance guest only when it is not their MAIN1 cast window.
-            answerOne(guestRemote, guestGui, false, false);
-            flushEdt();
+            if (!guestMain1) {
+                answerOne(guestRemote, guestGui, false, false);
+                flushEdt();
+            }
         }
         assertNotNull(castCard, "guest MAIN1 hand card for modern cast");
 
