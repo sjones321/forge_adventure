@@ -185,6 +185,12 @@ public final class SetPlaneGenerator {
             if ("base".equals(name)) {
                 continue;
             }
+            // Full-map base layers (ocean/waste at 1×1) must stay full size — World.generateNew
+            // fills the entire grid from them; shrinking leaves biomeMap=0 cells that crash
+            // minimap draw (highestBiome → Integer.MIN_VALUE).
+            if (biome.width >= 1.0f && biome.height >= 1.0f) {
+                continue;
+            }
             float share = balance.share(name);
             // Keep a floor so every color biome still appears; scale width/height.
             float factor = 0.45f + share * 1.4f; // share 0 → 0.45, share ~0.33 → ~0.91, share 1 → 1.85
