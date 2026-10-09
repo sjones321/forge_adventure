@@ -109,6 +109,13 @@ public class HeadlessStartupTest {
         try {
             List<String> withHome = new ArrayList<>(jvmArgs);
             withHome.add("-Duser.home=" + fakeHome.getAbsolutePath());
+            // Also redirect ForgeConstants via forge.test.userDir so Main's
+            // registerErrorHandling / pruneForgeLogs never touch the real profile
+            // even if OS dir resolution differs (Windows APPDATA vs user.home).
+            File testUser = new File(fakeHome, ".forge");
+            //noinspection ResultOfMethodCallIgnored
+            testUser.mkdirs();
+            withHome.add("-Dforge.test.userDir=" + testUser.getAbsolutePath());
             return runHeadless(mainClass, false, withHome, fakeHome, args);
         } finally {
             deleteRecursively(fakeHome);
@@ -167,7 +174,33 @@ public class HeadlessStartupTest {
      */
     private static ProbeResult runHeadless(final String mainClass, final boolean forceHeadless,
                                            final String... args) throws Exception {
-        return runHeadless(mainClass, forceHeadless, List.of(), null, args);
+        // Probes that do not use runInThrowawayHome still must not bind ForgeConstants
+        // to the developer profile if they touch GuiDesktop / ForgeConstants.
+        File fakeHome = Files.createTempDirectory("headless-probe-home").toFile();
+        Thread cleanup = new Thread(() -> deleteRecursively(fakeHome));
+        try {
+            Runtime.getRuntime().addShutdownHook(cleanup);
+        } catch (final IllegalStateException alreadyShuttingDown) {
+            cleanup = null;
+        }
+        try {
+            File testUser = new File(fakeHome, ".forge");
+            //noinspection ResultOfMethodCallIgnored
+            testUser.mkdirs();
+            List<String> isolated = new ArrayList<>();
+            isolated.add("-Duser.home=" + fakeHome.getAbsolutePath());
+            isolated.add("-Dforge.test.userDir=" + testUser.getAbsolutePath());
+            return runHeadless(mainClass, forceHeadless, isolated, fakeHome, args);
+        } finally {
+            deleteRecursively(fakeHome);
+            if (cleanup != null) {
+                try {
+                    Runtime.getRuntime().removeShutdownHook(cleanup);
+                } catch (final IllegalStateException alreadyShuttingDown) {
+                    // shutdown will clean up
+                }
+            }
+        }
     }
 
     private static ProbeResult runHeadless(final String mainClass, final boolean forceHeadless,
@@ -177,6 +210,15 @@ public class HeadlessStartupTest {
         command.add(System.getProperty("java.home") + File.separator + "bin" + File.separator + "java");
         if (forceHeadless) {
             command.add("-Djava.awt.headless=true");
+        }
+        // Ensure forge.test.userDir is always present for forked probes (callers may
+        // already have set it; do not override an explicit value).
+        boolean hasTestUserDir = jvmArgs.stream().anyMatch(a -> a.startsWith("-Dforge.test.userDir="));
+        if (!hasTestUserDir && homeOverride != null) {
+            File testUser = new File(homeOverride, ".forge");
+            //noinspection ResultOfMethodCallIgnored
+            testUser.mkdirs();
+            command.add("-Dforge.test.userDir=" + testUser.getAbsolutePath());
         }
         command.addAll(jvmArgs);
         command.add("-cp");

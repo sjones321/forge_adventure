@@ -30,11 +30,12 @@ public final class AdventureGuiBootstrapListener implements ISuiteListener {
         final String testUser = System.getProperty(
                 forge.localinstance.properties.ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
         if (testUser == null || testUser.isBlank()) {
+            // Do not touch ForgeConstants here — reading USER_DIR would bind LOG_FILE to
+            // the real profile when the property is missing.
             throw new IllegalStateException(
                     "AdventureGuiBootstrapListener requires forge.test.userDir "
                             + "(AdventureTestBootstrapListener / Surefire test-user-home). "
-                            + "Refusing to write settings to the real USER_DIR="
-                            + ForgeConstants.USER_DIR);
+                            + "Refusing to write settings to the real user profile.");
         }
         if (GuiBase.getInterface() == null) {
             throw new IllegalStateException(

@@ -21,6 +21,7 @@ package forge.error;
 import forge.FTrace;
 import forge.gui.error.BugReporter;
 import forge.localinstance.properties.ForgeConstants;
+import forge.localinstance.properties.ForgeProfileProperties;
 import forge.util.MultiplexOutputStream;
 
 import java.io.*;
@@ -30,6 +31,8 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
@@ -101,6 +104,30 @@ public class ExceptionHandler implements UncaughtExceptionHandler {
     }
 
     /**
+     * When {@code forge.test.userDir} is set, refuse to open or prune logs outside
+     * that tree. Prevents TestNG / Surefire runs from rotating the developer's real
+     * {@code forge.log} (and holding an exclusive lock that breaks
+     * AdventureTestBootstrapListener's real-dir snapshot).
+     */
+    private static void assertLogParentIsolatedForTests(final File parent) {
+        final String testUserDir = System.getProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
+        if (testUserDir == null || testUserDir.isBlank() || parent == null) {
+            return;
+        }
+        final Path expected = Paths.get(testUserDir).toAbsolutePath().normalize();
+        final Path actual = parent.getAbsoluteFile().toPath().normalize();
+        if (!actual.startsWith(expected)) {
+            throw new IllegalStateException(
+                    "Refusing forge.log I/O against " + actual
+                            + " while " + ForgeProfileProperties.TEST_USER_DIR_PROPERTY + "=" + expected
+                            + " (ForgeConstants.USER_DIR/" + ForgeConstants.LOG_FILE
+                            + " was bound before test isolation; fix Surefire argLine/"
+                            + "systemPropertyVariables or ensure GuiBase is installed before "
+                            + "ForgeConstants loads)");
+        }
+    }
+
+    /**
      * Call this at the beginning to make sure that the class is loaded and the
      * static initializer has run.
      */
@@ -115,6 +142,7 @@ public class ExceptionHandler implements UncaughtExceptionHandler {
         }
 
         File parent = new File(ForgeConstants.LOG_FILE).getParentFile();
+        assertLogParentIsolatedForTests(parent);
         parent.mkdirs();
 
         // Archive slot files whose JVM has exited. FileLock probes liveness:
@@ -193,12 +221,16 @@ public class ExceptionHandler implements UncaughtExceptionHandler {
         if (maxFiles <= 0) return;
         try {
             File dir = new File(ForgeConstants.LOG_FILE).getParentFile();
+            // Tests: fail loud rather than silently deleting the developer's archived logs.
+            assertLogParentIsolatedForTests(dir);
             if (dir == null || !dir.isDirectory()) return;
             File[] archives = dir.listFiles(f -> f.isFile() && ARCHIVE_PATTERN.matcher(f.getName()).matches());
             if (archives == null || archives.length <= maxFiles) return;
             Arrays.sort(archives, Comparator.comparingLong(File::lastModified));
             int toDelete = archives.length - maxFiles;
             for (int i = 0; i < toDelete; i++) archives[i].delete();
+        } catch (IllegalStateException isolation) {
+            throw isolation;
         } catch (Exception ignored) {
             // non-critical — never fail the app over log cleanup
         }
