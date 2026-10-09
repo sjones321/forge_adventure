@@ -251,14 +251,16 @@ public final class FightRewards {
      */
     private static void appendCardRewards(Array<Reward> out, RewardData rdata, List<PaperCard> deckList,
             String setCode, Set<String> coreExclude, Random rng) {
-        if (rdata.probability != 0 && rng.nextFloat() > rdata.probability) {
-            return;
-        }
-        // Named / source-deck rows keep RewardData.generate (quest pins etc.).
+        // Named / source-deck / union rows: let RewardData.generate own the probability
+        // roll (avoid a double roll that halves the intended chance).
         if ((rdata.cardName != null && !rdata.cardName.isEmpty())
                 || (rdata.sourceDeck != null && !rdata.sourceDeck.isEmpty())
                 || rdata.cardUnion != null) {
             out.addAll(rdata.generate(false, deckList, true));
+            return;
+        }
+
+        if (rdata.probability != 0 && rng.nextFloat() > rdata.probability) {
             return;
         }
 
@@ -267,9 +269,8 @@ public final class FightRewards {
             return;
         }
         float share = currentSetShare();
-        int fromSet = setCode == null || setCode.isEmpty()
-                ? 0
-                : Math.min(total, Math.round(total * share));
+        boolean haveSet = setCode != null && !setCode.isEmpty();
+        int fromSet = haveSet ? Math.min(total, Math.round(total * share)) : 0;
         int fromDeck = total - fromSet;
 
         if (fromSet > 0) {
@@ -279,20 +280,37 @@ public final class FightRewards {
                     out.add(new Reward(pc));
                 }
             }
-            // If the set pool was thin, top up from the deck so the player still gets cards.
+            // Thin / empty set pool → top up from the deck (core names excluded).
             int granted = setPicks.size();
             if (granted < fromSet) {
                 fromDeck += fromSet - granted;
             }
         }
         if (fromDeck > 0 && deckList != null && !deckList.isEmpty()) {
-            List<PaperCard> deckPicks = CardUtil.generateCards(deckList, rdata, fromDeck, rng);
+            List<PaperCard> deckPool = excludeNames(deckList, coreExclude);
+            if (deckPool.isEmpty()) {
+                deckPool = deckList;
+            }
+            List<PaperCard> deckPicks = CardUtil.generateCards(deckPool, rdata, fromDeck, rng);
             for (PaperCard pc : deckPicks) {
                 if (pc != null) {
                     out.add(new Reward(pc));
                 }
             }
         }
+    }
+
+    private static List<PaperCard> excludeNames(List<PaperCard> pool, Set<String> exclude) {
+        if (pool == null || pool.isEmpty() || exclude == null || exclude.isEmpty()) {
+            return pool == null ? Collections.emptyList() : pool;
+        }
+        List<PaperCard> out = new ArrayList<>();
+        for (PaperCard pc : pool) {
+            if (pc != null && !exclude.contains(pc.getName())) {
+                out.add(pc);
+            }
+        }
+        return out;
     }
 
     /** Mirrors {@link RewardData#generate} count math for deckCard / card rows. */
@@ -320,9 +338,10 @@ public final class FightRewards {
      * Draw {@code count} cards from the current set using the row's rarity/color
      * filters, then pin printings via {@link #resolvePrinting}.
      * <p>
-     * Pool is every printing of {@code setCode} (not unique preferred arts):
-     * {@link CardUtil.CardPredicate} treats {@code editions} as "has a printing in
-     * this set", so a unique-card pool would accept off-set preferred printings.
+     * Pool is built from {@link RewardData#getAllCards()} (Package K format-aware:
+     * Pauper commons, Commander breadth, Standard window, plus
+     * {@link RewardData#adventureRewardFilter}), then restricted to {@code setCode}
+     * printings. Basics are excluded. CardPredicate rarity/color filters still apply.
      */
     static List<PaperCard> generateFromCurrentSet(RewardData filter, String setCode, int count,
             Set<String> coreExclude, Random rng) {
@@ -330,20 +349,8 @@ public final class FightRewards {
         if (filter == null || setCode == null || setCode.isEmpty() || count <= 0) {
             return out;
         }
-        List<PaperCard> setPool = printingsInSet(setCode);
-        if (coreExclude != null && !coreExclude.isEmpty() && !setPool.isEmpty()) {
-            List<PaperCard> filtered = new ArrayList<>();
-            for (PaperCard pc : setPool) {
-                if (pc != null && !coreExclude.contains(pc.getName())) {
-                    filtered.add(pc);
-                }
-            }
-            // Keep the full set pool only when exclusion would empty a usable pool.
-            if (filtered.size() >= 12) {
-                setPool = filtered;
-            }
-        }
-        if (setPool.isEmpty()) {
+        List<PaperCard> setPool = formatAwareSetPool(setCode, coreExclude);
+        if (setPool.isEmpty() || !SetPlaneRules.setPoolIsUsable(setPool, setCode)) {
             return out;
         }
         // Pool is already set-scoped; leave editions null so CardPredicate does not
@@ -362,10 +369,44 @@ public final class FightRewards {
             PaperCard resolved = resolvePrinting(pc.getName(), setCode);
             if (resolved != null && setCode.equalsIgnoreCase(resolved.getEdition())) {
                 out.add(resolved);
-            } else {
-                // Keep the set-pool printing when the interim hook cannot pin a match.
+            } else if (setCode.equalsIgnoreCase(pc.getEdition())) {
                 out.add(pc);
             }
+        }
+        return out;
+    }
+
+    /**
+     * Format-aware, adventure-filtered printings of {@code setCode} (no basics).
+     * Uses {@link RewardData#getAllCards()} so Pauper planes only see commons, etc.
+     */
+    public static List<PaperCard> formatAwareSetPool(String setCode, Set<String> coreExclude) {
+        List<PaperCard> out = new ArrayList<>();
+        if (setCode == null || setCode.isEmpty()) {
+            return out;
+        }
+        try {
+            // getAllCards already applies adventureRewardFilter + Package K format
+            // (Pauper commons, Commander breadth, Standard window).
+            for (PaperCard pc : RewardData.getAllCards()) {
+                if (pc == null || !setCode.equalsIgnoreCase(pc.getEdition())) {
+                    continue;
+                }
+                if (SetPlaneRules.isBasicLand(pc)) {
+                    continue;
+                }
+                // Pauper planes: only Common printings of this set (no set rares/mythics).
+                if (forge.adventure.world.PlaneFormat.favorsPauperPool()
+                        && pc.getRarity() != forge.card.CardRarity.Common) {
+                    continue;
+                }
+                if (coreExclude != null && coreExclude.contains(pc.getName())) {
+                    continue;
+                }
+                out.add(pc);
+            }
+        } catch (Throwable ignored) {
+            // empty
         }
         return out;
     }
@@ -390,30 +431,10 @@ public final class FightRewards {
         }
     }
 
-    /** Every common-card printing from {@code setCode} (basics included). */
-    static List<PaperCard> printingsInSet(String setCode) {
-        List<PaperCard> out = new ArrayList<>();
-        if (setCode == null || setCode.isEmpty()) {
-            return out;
-        }
-        try {
-            if (FModel.getMagicDb() == null || FModel.getMagicDb().getCommonCards() == null) {
-                return out;
-            }
-            for (PaperCard pc : FModel.getMagicDb().getCommonCards().getAllCards()) {
-                if (pc != null && setCode.equalsIgnoreCase(pc.getEdition())) {
-                    out.add(pc);
-                }
-            }
-        } catch (Throwable ignored) {
-            // empty pool
-        }
-        return out;
-    }
-
     /**
      * Pick up to {@code count} signature cards: theme core names that appear in
      * {@code deckCards}, weighted toward names the player does not own yet.
+     * Full-core fallback is a last resort only when the played deck is unknown/empty.
      */
     public static List<PaperCard> pickSignatures(String themeId, List<PaperCard> deckCards,
             int count, Random rng) {
@@ -421,42 +442,7 @@ public final class FightRewards {
         if (themeId == null || themeId.isEmpty() || count <= 0 || rng == null) {
             return out;
         }
-        EnemyThemeData theme = EnemyThemeDecks.getTheme(themeId);
-        if (theme == null) {
-            return out;
-        }
-        EnemyThemeDecks.ensureCoreLoaded(theme);
-        if (theme.core == null || theme.core.length == 0) {
-            return out;
-        }
-
-        Set<String> inDeck = new HashSet<>();
-        if (deckCards != null) {
-            for (PaperCard pc : deckCards) {
-                if (pc != null && pc.getName() != null) {
-                    inDeck.add(pc.getName());
-                }
-            }
-        }
-
-        List<String> candidates = new ArrayList<>();
-        for (String name : theme.core) {
-            if (name == null || name.isEmpty()) {
-                continue;
-            }
-            if (inDeck.isEmpty() || inDeck.contains(name)) {
-                candidates.add(name);
-            }
-        }
-        // If the played deck missed every core name (thin fallback deck), still
-        // grant from the full core so the signature guarantee holds.
-        if (candidates.isEmpty()) {
-            for (String name : theme.core) {
-                if (name != null && !name.isEmpty()) {
-                    candidates.add(name);
-                }
-            }
-        }
+        List<String> candidates = signatureCandidateNameList(themeId, deckCards);
         if (candidates.isEmpty()) {
             return out;
         }
@@ -475,6 +461,84 @@ public final class FightRewards {
             }
         }
         return out;
+    }
+
+    /**
+     * Core ∩ played-deck names. When {@code deckCards} is null/empty (unknown deck),
+     * last-resort fallback is the full theme core so a signature can still be granted.
+     */
+    static List<String> signatureCandidateNameList(String themeId, Iterable<PaperCard> deckCards) {
+        List<String> core = coreNames(themeId);
+        if (core.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<String> inDeck = new HashSet<>();
+        boolean sawAny = false;
+        if (deckCards != null) {
+            for (PaperCard pc : deckCards) {
+                if (pc != null && pc.getName() != null) {
+                    sawAny = true;
+                    inDeck.add(pc.getName());
+                }
+            }
+        }
+        List<String> candidates = new ArrayList<>();
+        if (!sawAny) {
+            // Last resort: played deck unknown — allow the full core.
+            candidates.addAll(core);
+            return candidates;
+        }
+        for (String name : core) {
+            if (inDeck.contains(name)) {
+                candidates.add(name);
+            }
+        }
+        return candidates;
+    }
+
+    /** Wire helper: core ∩ played-deck names for {@link forge.gamemodes.net.event.coop.CoopDuelResultEvent}. */
+    public static String[] signatureCandidateNames(String themeId, Deck playedDeck) {
+        List<String> names = signatureCandidateNameList(themeId, deckCardsForRewards(playedDeck));
+        return names.toArray(new String[0]);
+    }
+
+    /**
+     * Guest credit from host wire fields. Stamps {@code themeId} onto a copy of the
+     * mirror catalog enemy (or a blank EnemyData) so RW1 applies without a local theme.
+     */
+    public static EnemyData creditFromWire(EnemyData mirrorPrimary, String creditEnemyDataId,
+            String creditThemeId) {
+        EnemyData credit;
+        if (mirrorPrimary != null) {
+            credit = new EnemyData(mirrorPrimary);
+        } else {
+            credit = new EnemyData();
+            credit.name = creditEnemyDataId != null ? creditEnemyDataId : "";
+        }
+        if (creditEnemyDataId != null && !creditEnemyDataId.isEmpty()) {
+            credit.name = creditEnemyDataId;
+        }
+        credit.themeId = creditThemeId != null ? creditThemeId : "";
+        credit.boss = false;
+        return credit;
+    }
+
+    /** Build a minimal deck whose mainboard is the named signature candidates. */
+    public static Deck deckFromCandidateNames(String[] names) {
+        Deck d = new Deck("rw1-credit");
+        if (names == null) {
+            return d;
+        }
+        for (String name : names) {
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+            PaperCard pc = CardUtil.getCardByName(name);
+            if (pc != null) {
+                d.getMain().add(pc);
+            }
+        }
+        return d;
     }
 
     /** Weighted random among {@code names}; unowned names get {@link #UNOWNED_SIGNATURE_WEIGHT}. */

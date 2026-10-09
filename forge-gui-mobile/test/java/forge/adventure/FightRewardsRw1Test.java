@@ -20,9 +20,12 @@ import forge.adventure.util.EnemyThemeDecks;
 import forge.adventure.util.FightRewards;
 import forge.adventure.util.GymUtil;
 import forge.adventure.util.Reward;
+import forge.adventure.world.PlaneFormat;
 import forge.adventure.world.WorldSave;
+import forge.card.CardRarity;
 import forge.deck.Deck;
 import forge.gamemodes.net.coop.CoopDuelRewards;
+import forge.gamemodes.net.event.coop.CoopDuelResultEvent;
 import forge.item.PaperCard;
 import forge.model.FModel;
 import org.testng.Assert;
@@ -92,9 +95,14 @@ public class FightRewardsRw1Test {
     public void tearDown() throws Exception {
         try {
             FightRewards.clearTestOverrides();
+            RewardData.invalidateCardPool();
             EnemyThemeDecks.clearCache();
             EnemyThemeDecks.setEnabledForTests(null);
             EnemyCoopPartners.setEnabledForTests(null);
+            try {
+                AdventurePlayer.current().setLegacyRunFormat(GymUtil.FORMAT_STANDARD);
+            } catch (Throwable ignored) {
+            }
             Config.resetInstanceForTest();
         } finally {
             if (realUserDirSnapshot != null) {
@@ -355,6 +363,135 @@ public class FightRewardsRw1Test {
             deckNames.add(pc.getName());
         }
         Assert.assertTrue(deckNames.contains(sigs.get(0).getName()));
+    }
+
+    @Test
+    public void pauperPlaneSetPoolIsCommonsOnly() {
+        assumeCardDb();
+        AdventurePlayer.current().setLegacyRunFormat(GymUtil.FORMAT_PAUPER);
+        RewardData.invalidateCardPool();
+        Assert.assertEquals(PlaneFormat.resolveCurrent(), GymUtil.FORMAT_PAUPER);
+        Assert.assertTrue(PlaneFormat.favorsPauperPool());
+
+        List<PaperCard> pool = FightRewards.formatAwareSetPool("ZEN", Collections.emptySet());
+        Assert.assertFalse(pool.isEmpty(), "Pauper ZEN pool must be non-empty");
+        for (PaperCard pc : pool) {
+            Assert.assertEquals(pc.getRarity(), CardRarity.Common,
+                    "Pauper set pool must not pay out set rares/mythics: "
+                            + pc.getName() + "[" + pc.getEdition() + "/" + pc.getRarity() + "]");
+            Assert.assertTrue(FightRewards.isEdition(pc, "ZEN"), pc.getEdition());
+        }
+    }
+
+    @Test
+    public void setPoolAppliesAdventureRewardFilterRestrictedAndAlchemy() {
+        assumeCardDb();
+        FightRewards.setCurrentSetCodeForTest("ZEN");
+        RewardData.invalidateCardPool();
+
+        List<PaperCard> pool = FightRewards.formatAwareSetPool("ZEN", Collections.emptySet());
+        Assert.assertFalse(pool.isEmpty(), "ZEN set pool must be non-empty");
+        for (PaperCard pc : pool) {
+            Assert.assertTrue(RewardData.isAdventureRewardReachable(pc),
+                    "set pool must apply adventureRewardFilter: " + pc.getName());
+        }
+        // Power-nine / restricted names from Ascendant config never appear.
+        Set<String> restricted = new HashSet<>();
+        if (ascendantConfig.restrictedCards != null) {
+            Collections.addAll(restricted, ascendantConfig.restrictedCards);
+        }
+        Assert.assertTrue(restricted.contains("Black Lotus"));
+        Assert.assertTrue(pool.stream().noneMatch(pc -> restricted.contains(pc.getName())),
+                "restricted cards must be excluded from the set pool");
+
+        // Ban a live ZEN name via restrictedCards and confirm the rebuild drops it.
+        String banned = pool.get(0).getName();
+        List<String> extended = new ArrayList<>(restricted);
+        extended.add(banned);
+        ascendantConfig.restrictedCards = extended.toArray(new String[0]);
+        Config.installConfigDataForTest(ascendantConfig);
+        RewardData.invalidateCardPool();
+        List<PaperCard> after = FightRewards.formatAwareSetPool("ZEN", Collections.emptySet());
+        Assert.assertTrue(after.stream().noneMatch(pc -> banned.equals(pc.getName())),
+                "newly restricted name must leave the set pool: " + banned);
+    }
+
+    @Test
+    public void noCurrentSetDeckFallbackKeepsExactlyOneSignature() {
+        assumeCardDb();
+        // Window inactive / empty current set → remaining cards from deck, core excluded.
+        FightRewards.setCurrentSetCodeForTest("");
+        Assert.assertEquals(FightRewards.currentSetCode(), "");
+
+        EnemyData enemy = merfolkEnemy();
+        List<PaperCard> deck = deckWithCoreCards("merfolk_tribal");
+        Assert.assertTrue(deck.size() >= 4, "need core + filler for deck fallback");
+
+        Array<Reward> rewards = RewardData.generateThemedFightRewards(enemy, null, deck, true);
+        List<PaperCard> cards = cardRewards(rewards);
+        Set<String> core = new HashSet<>(FightRewards.coreNames("merfolk_tribal"));
+        long coreCount = cards.stream().filter(c -> core.contains(c.getName())).count();
+        Assert.assertEquals(coreCount, 1L,
+                "no-current-set: exactly one signature; cards=" + names(cards));
+
+        List<PaperCard> nonSig = cards.stream()
+                .filter(c -> !core.contains(c.getName()))
+                .collect(java.util.stream.Collectors.toList());
+        Assert.assertFalse(nonSig.isEmpty(), "deck fallback should still grant non-signature cards");
+        Set<String> deckNames = new HashSet<>();
+        for (PaperCard pc : deck) {
+            deckNames.add(pc.getName());
+        }
+        for (PaperCard pc : nonSig) {
+            Assert.assertTrue(deckNames.contains(pc.getName()),
+                    "no-set fallback pick must come from the played deck: " + pc.getName());
+            Assert.assertFalse(core.contains(pc.getName()),
+                    "deck fallback must exclude theme core so signature stays unique");
+        }
+    }
+
+    @Test
+    public void guestMirrorWithoutThemeUsesHostDuelResultCredit() {
+        // Guest SPAWN mirrors have no themeId; host sends credit on CoopDuelResultEvent.
+        assumeCardDb();
+        FightRewards.setCurrentSetCodeForTest("ZEN");
+
+        EnemyData mirror = merfolkEnemy();
+        mirror.themeId = null; // catalog SPAWN — applies() would be false locally
+        Assert.assertFalse(FightRewards.applies(mirror));
+
+        List<PaperCard> partnerDeck = deckWithCoreCards("merfolk_tempo");
+        Assert.assertFalse(partnerDeck.isEmpty());
+        String[] wireSigs = FightRewards.signatureCandidateNames(
+                "merfolk_tempo", deckFromCards(partnerDeck));
+        Assert.assertTrue(wireSigs.length >= 1, "host must send signature candidates");
+
+        CoopDuelResultEvent event = new CoopDuelResultEvent(
+                99L, 0, 42L, "Merfolk Scout", 1,
+                "Merfolk Tidecaller", "merfolk_tempo", wireSigs);
+
+        CoopDuelRuntime.GuestLootCredit resolved =
+                CoopDuelRuntime.guestLootCreditFromEvent(mirror, event);
+        Assert.assertNotNull(resolved.credit);
+        Assert.assertEquals(resolved.credit.themeId, "merfolk_tempo",
+                "wire themeId stamped onto guest credit");
+        Assert.assertEquals(resolved.credit.getName(), "Merfolk Tidecaller");
+        Assert.assertTrue(FightRewards.applies(resolved.credit),
+                "credited enemy must enter RW1 even when the mirror had no theme");
+        Assert.assertNotNull(resolved.creditDeck);
+        Assert.assertFalse(resolved.creditDeck.getMain().isEmpty());
+
+        Array<Reward> loot = FightRewards.rollViaPendingLootRolls(
+                resolved.credit, FightRewards.deckCardsForRewards(resolved.creditDeck),
+                event.getLootRolls());
+        List<PaperCard> cards = cardRewards(loot);
+        Set<String> tempoCore = new HashSet<>(FightRewards.coreNames("merfolk_tempo"));
+        Assert.assertEquals(cards.stream().filter(c -> tempoCore.contains(c.getName())).count(), 1L,
+                "guest-mirror path: exactly one partner-theme signature; " + names(cards));
+        Assert.assertTrue(cards.stream().noneMatch(c ->
+                        FightRewards.coreNames("merfolk_tribal").contains(c.getName())
+                                && !tempoCore.contains(c.getName())),
+                "must not fall back to guest biome / primary theme");
     }
 
     // ---- helpers ----

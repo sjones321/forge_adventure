@@ -115,10 +115,10 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private volatile long pendingEnemyId;
     /** EN2: loot rolls for the active co-op duel (default 1). */
     private volatile int pendingPartnerLootRolls = 1;
-    /** EN2: partner enemy for RW1 loot credit (guest rolls this theme's signature). */
+    /** EN2: partner enemy for RW1 guest loot credit (host stamps wire fields from this). */
     private volatile EnemyData pendingPartnerForLoot;
-    /** Played deck for {@link #pendingPartnerForLoot}, when built. */
-    private volatile Deck pendingPartnerLootDeck;
+    /** Played deck of the EN2 partner — used only to build wire signature candidates. */
+    private volatile Deck pendingPartnerPlayedDeck;
     private volatile boolean gameServerStartedByUs;
     private volatile FGameClient guestClient;
     private volatile CoopFightLoadout pendingGuestLoadout;
@@ -755,7 +755,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                     advPlayer.isFantasyMode(), baseFreeMulligans);
             pendingPartnerLootRolls = enemyBuild.lootRollsPerPlayer;
             pendingPartnerForLoot = enemyBuild.partner;
-            pendingPartnerLootDeck = enemyBuild.partnerDeck;
+            pendingPartnerPlayedDeck = enemyBuild.partnerDeck;
             final List<CoopDuelMatchPlan.EnemySpec> enemies = enemyBuild.enemies;
 
             final CoopDuelMatchPlan plan = CoopDuelMatchPlan.build(
@@ -925,9 +925,28 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         }
         final boolean teamWon = winningTeam == 0;
         final String encounterId = mob != null && mob.getData() != null ? mob.getData().getName() : "";
-        // EN2: host-authoritative loot rolls (guest must not recompute).
+        // EN2 + RW1: host-authoritative loot rolls and guest credit (theme + signature names).
+        final EnemyData guestCredit = forge.adventure.util.FightRewards.creditedLootEnemy(
+                mob != null ? mob.getData() : null, pendingPartnerForLoot, false);
+        final String creditDataId = guestCredit != null && guestCredit.getName() != null
+                ? guestCredit.getName() : "";
+        final String creditThemeId = guestCredit != null && guestCredit.themeId != null
+                ? guestCredit.themeId : "";
+        Deck creditDeck = null;
+        if (pendingPartnerForLoot != null && guestCredit == pendingPartnerForLoot) {
+            creditDeck = pendingPartnerPlayedDeck;
+        } else {
+            try {
+                creditDeck = Current.latestDeck();
+            } catch (final Exception ignored) {
+                creditDeck = null;
+            }
+        }
+        final String[] wireSigs = forge.adventure.util.FightRewards.signatureCandidateNames(
+                creditThemeId, creditDeck);
         final CoopDuelResultEvent result = new CoopDuelResultEvent(
-                duelId, winningTeam, enemyId, encounterId, pendingPartnerLootRolls);
+                duelId, winningTeam, enemyId, encounterId, pendingPartnerLootRolls,
+                creditDataId, creditThemeId, wireSigs);
         CoopSession.get().send(result);
 
         // Local DuelScene / WorldStage result path (loot, removeEnemy, XP, penalties).
@@ -955,7 +974,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             WorldStage.getInstance().setPendingLootCredit(credit, null);
             pendingPartnerLootRolls = 1;
             pendingPartnerForLoot = null;
-            pendingPartnerLootDeck = null;
+            pendingPartnerPlayedDeck = null;
             // setWinner also calls CoopOverworldRuntime.onHostDuelEnded().
             WorldStage.getInstance().setWinner(teamWon, false);
             return;
@@ -994,8 +1013,9 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             WorldStage.getInstance().setCurrentMob(mob);
             // EN2: use host-authoritative loot rolls from the result event (0 allowed).
             WorldStage.getInstance().setPendingLootRolls(event.getLootRolls());
-            // RW1: guest is credited with the EN2 partner (deterministic rebuild; no wire bump).
-            applyGuestLootCredit(mob.getData(), event.getEnemyId());
+            // RW1: host-authoritative guest credit (theme + signature candidates on the wire).
+            // Guest mirrors often lack themeId — never rebuild from local biome/position.
+            applyGuestLootCreditFromEvent(mob.getData(), event);
             WorldStage.getInstance().setWinner(teamWon, false);
         } else {
             if (teamWon) {
@@ -1550,31 +1570,46 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 partnerPlan.extraCards, partnerPlan.lootRollsPerPlayer, partnerData, partnerDeckOut);
     }
 
-    /**
-     * RW1: guest rebuilds the EN2 partner deterministically (same seed as host) and
-     * credits that enemy for signature loot. No wire change — pairing is already
-     * host/guest agreed via {@link EnemyCoopPartners#encounterSeed}.
-     */
-    private void applyGuestLootCredit(final EnemyData primary, final long enemyId) {
-        try {
-            final long seed = EnemyCoopPartners.encounterSeed(enemyId, primary);
-            final EnemyCoopPartners.PartnerPlan plan = EnemyCoopPartners.planPartner(
-                    primary, currentBiomeEnemies(), seed);
-            final EnemyData credit = forge.adventure.util.FightRewards.creditedLootEnemy(
-                    primary, plan.partner, false);
-            Deck creditDeck = null;
-            if (credit != null && plan.partnerBuilt && credit == plan.partner) {
-                try {
-                    creditDeck = credit.generateDeck(
-                            Current.player() != null && Current.player().isFantasyMode(), false);
-                } catch (final Exception ignored) {
-                    creditDeck = null;
-                }
-            }
-            WorldStage.getInstance().setPendingLootCredit(credit, creditDeck);
-        } catch (final Exception ignored) {
-            WorldStage.getInstance().setPendingLootCredit(primary, null);
+    /** RW1 guest credit resolved from a host {@link CoopDuelResultEvent}. */
+    public static final class GuestLootCredit {
+        public final EnemyData credit;
+        public final Deck creditDeck;
+
+        public GuestLootCredit(final EnemyData credit, final Deck creditDeck) {
+            this.credit = credit;
+            this.creditDeck = creditDeck;
         }
+    }
+
+    /**
+     * RW1: resolve host-authoritative guest loot credit from {@link CoopDuelResultEvent}.
+     * Stamps {@code themeId} onto a copy of the mirror's catalog data so RW1 applies
+     * even when the guest SPAWN mirror had no theme. Signature candidates on the wire
+     * become the played-deck intersection for {@link forge.adventure.util.FightRewards}.
+     * Same logic {@link #applyGuestLocalResult} uses (no biome / position rebuild).
+     */
+    public static GuestLootCredit guestLootCreditFromEvent(final EnemyData mirrorPrimary,
+            final CoopDuelResultEvent event) {
+        if (event == null) {
+            return new GuestLootCredit(mirrorPrimary, null);
+        }
+        try {
+            final EnemyData credit = forge.adventure.util.FightRewards.creditFromWire(
+                    mirrorPrimary,
+                    event.getCreditEnemyDataId(),
+                    event.getCreditThemeId());
+            final Deck creditDeck = forge.adventure.util.FightRewards.deckFromCandidateNames(
+                    event.getSignatureCandidates());
+            return new GuestLootCredit(credit, creditDeck);
+        } catch (final Exception ignored) {
+            return new GuestLootCredit(mirrorPrimary, null);
+        }
+    }
+
+    private void applyGuestLootCreditFromEvent(final EnemyData mirrorPrimary,
+            final CoopDuelResultEvent event) {
+        final GuestLootCredit resolved = guestLootCreditFromEvent(mirrorPrimary, event);
+        WorldStage.getInstance().setPendingLootCredit(resolved.credit, resolved.creditDeck);
     }
 
     /**

@@ -24,10 +24,10 @@ import java.util.function.Predicate;
 public class CoopDuelTest {
 
     @Test
-    public void protocolVersionIsExactlyTenForPackageK() {
-        // CO2=5; CO3=6; MV1=7; MV2=8; EN2 lootRolls=9; Package K planeFormat=10.
-        // Exact equality only. Set to (feature/set-start) + 1 at review.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
+    public void protocolVersionIsExactlyElevenForRw1() {
+        // CO2=5; CO3=6; MV1=7; MV2=8; EN2 lootRolls=9; Package K planeFormat=10;
+        // RW1 guest loot credit=11. Exact equality only (set-start + 1 at review).
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
     }
 
     @Test
@@ -139,6 +139,23 @@ public class CoopDuelTest {
         Assert.assertEquals(one.getLootRolls(), 1);
         // Legacy 4-arg ctor defaults to 1.
         Assert.assertEquals(new CoopDuelResultEvent(3L, 1, 0L, "x").getLootRolls(), 1);
+    }
+
+    @Test
+    public void resultEventCarriesRw1GuestLootCredit() {
+        final String[] cands = new String[]{"Lord of Atlantis", "Merfolk Looter"};
+        final CoopDuelResultEvent ev = new CoopDuelResultEvent(
+                4L, 0, 9L, "Merfolk", 1, "Merfolk Tidecaller", "merfolk_tempo", cands);
+        Assert.assertEquals(ev.getCreditEnemyDataId(), "Merfolk Tidecaller");
+        Assert.assertEquals(ev.getCreditThemeId(), "merfolk_tempo");
+        Assert.assertEquals(ev.getSignatureCandidates().length, 2);
+        Assert.assertEquals(ev.getSignatureCandidates()[0], "Lord of Atlantis");
+        // Empty credit fields remain safe on the legacy 5-arg ctor.
+        Assert.assertEquals(oneArgLegacy().getCreditThemeId(), "");
+    }
+
+    private static CoopDuelResultEvent oneArgLegacy() {
+        return new CoopDuelResultEvent(5L, 0, 1L, "x", 1);
     }
 
     @Test
