@@ -4,11 +4,13 @@ import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.ui.*;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
 import com.badlogic.gdx.utils.Align;
+import com.badlogic.gdx.utils.Array;
 import com.github.tommyettinger.textra.TextraButton;
 import com.github.tommyettinger.textra.TextraLabel;
 import forge.Forge;
 import forge.Graphics;
 import forge.adventure.data.RewardData;
+import forge.adventure.util.AdventureTitles;
 import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 import forge.assets.ImageCache;
@@ -44,7 +46,7 @@ public class SettingsScene extends UIScene {
 
     private void copyNewPlane() {
         Localizer localizer = Forge.getLocalizer();
-        String plane = selectSourcePlane.getSelected();
+        String plane = AdventureTitles.planeIdFromDisplayName(selectSourcePlane.getSelected());
         Path source = Paths.get(Config.instance().getPlanePath(plane));
         Path destination = Paths.get(Config.instance().getPlanePath("<user>" + newPlaneName.getText()));
         AtomicBoolean somethingWentWrong = new AtomicBoolean(false);
@@ -94,9 +96,18 @@ public class SettingsScene extends UIScene {
             createNewPlane.text("Set new plane name");
             createNewPlane.getContentTable().row();
             createNewPlane.getContentTable().add(newPlaneName);
-            newPlaneName.setText(selectSourcePlane.getSelected() + "_copy");
+            newPlaneName.setText(AdventureTitles.planeIdFromDisplayName(selectSourcePlane.getSelected()) + "_copy");
         }
         showDialog(createNewPlane);
+    }
+
+    private static Array<String> planeDisplayLabels() {
+        Array<String> ids = Config.instance().getAllAdventures();
+        Array<String> labels = new Array<>(ids.size);
+        for (String id : ids) {
+            labels.add(AdventureTitles.planeDisplayName(id));
+        }
+        return labels;
     }
 
     private SettingsScene() {
@@ -106,11 +117,13 @@ public class SettingsScene extends UIScene {
         settingGroup = new Table();
         selectSourcePlane = Controls.newComboBox();
         newPlaneName = Controls.newTextField("");
-        selectSourcePlane.setItems(Config.instance().getAllAdventures());
-        SelectBox plane = Controls.newComboBox(Config.instance().getAllAdventures(), Config.instance().getSettingData().plane, o -> {
-            Config.instance().getSettingData().plane = (String) o;
+        selectSourcePlane.setItems(planeDisplayLabels());
+        SelectBox plane = Controls.newComboBox(planeDisplayLabels(),
+                AdventureTitles.planeDisplayName(Config.instance().getSettingData().plane), o -> {
+            String planeId = AdventureTitles.planeIdFromDisplayName((String) o);
+            Config.instance().getSettingData().plane = planeId;
             Config.instance().saveSettings();
-            Forge.getLocalizer().loadAdventureBundle(Config.instance().getPlanePath((String) o) + "languages/");
+            Forge.getLocalizer().loadAdventureBundle(Config.instance().getPlanePath(planeId) + "languages/");
             return null;
         });
         plane.addListener(new ChangeListener() {

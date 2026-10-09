@@ -16,6 +16,7 @@ import forge.adventure.coop.CoopSession;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.GameStage;
 import forge.adventure.stage.MapStage;
+import forge.adventure.util.AdventureTitles;
 import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 import forge.adventure.world.WorldSave;
@@ -46,7 +47,9 @@ public class StartScene extends UIScene {
     Dialog exitDialog, backupDialog, zipDialog, unzipDialog, joinDialog, hostingDialog;
     TextraButton saveButton, resumeButton, continueButton, hostButton, joinButton;
     TextField joinAddressField, joinCodeField;
-    TypingLabel version = Controls.newTypingLabel("{GRADIENT}[%80]v." + Forge.getDeviceAdapter().getVersionString() + "{ENDGRADIENT}");
+    TypingLabel version = Controls.newTypingLabel("{GRADIENT}[%80]"
+            + (Config.ascendant() ? AdventureTitles.GAME_TITLE + " " : "")
+            + "v." + Forge.getDeviceAdapter().getVersionString() + "{ENDGRADIENT}");
 
 
     public StartScene() {
@@ -190,7 +193,7 @@ public class StartScene extends UIScene {
 
     private void showHostingDialog() {
         final StringBuilder msg = new StringBuilder();
-        msg.append("HOSTING Ascendant co-op\n\n");
+        msg.append("HOSTING ").append(AdventureTitles.GAME_TITLE).append(" co-op\n\n");
         msg.append("Session code: ").append(CoopSession.get().getSessionCode()).append("\n");
         msg.append("(guest must enter this ").append(CoopPorts.SESSION_CODE_LENGTH)
                 .append("-character code)\n\n");
