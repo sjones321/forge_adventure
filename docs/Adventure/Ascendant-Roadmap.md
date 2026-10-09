@@ -711,6 +711,24 @@ All input still goes through `getGameController().selectCard/selectPlayer`, so i
   (each player sees banners for their own spells).
 - Tests: a countered spell and a fizzled spell each raise exactly one banner event for the right player.
 
+### DS4. Take back your last action (misclick fix; unlimited; no turn restart)
+- A **Take back** button (and key, e.g. Ctrl+Z) undoes the player's **last action**: playing a land, casting a spell
+  or activating an ability, restoring the game to the moment before it was clicked.
+- **Unlimited uses**, but only while nothing new has happened since that action: no card drawn, no shuffle, no reveal
+  or look at hidden cards, no coin flip or random choice, no opponent action or decision, no trigger resolved, and the
+  priority/phase hasn't moved on. Once any of those happens the action is locked in and the button greys out.
+- **No turn restart** (decided by Steve).
+- Built on Forge's existing snapshot support (`GameSnapshot`, `Game.stashGameState`/`restoreGameState`,
+  `MATCH_EXPERIMENTAL_RESTORE`): snapshot before each of the player's own actions. The button only shows when a
+  snapshot was taken successfully; if a restore fails, the game continues unchanged with a message, never a broken
+  board.
+- Works on both duel screens (classic and DS1 modern); LLM opponent unaffected (it never acted in between).
+- **Co-op:** each player can take back only their own last action, and only before their partner has acted after it;
+  the host performs the restore and both clients resync.
+- Tests: play a land then take it back (land in hand, land drop available again); cast a spell then take back (mana
+  and card restored); take back refused after a draw, a reveal and an opponent response; restore failure leaves the
+  game unchanged.
+
 ## AI opponent: bring your own
 
 The LLM opponent (`forge-ai/.../llm/LlmOpponent.java`, settings in `%APPDATA%\Forge\llm_opponent.properties`)
