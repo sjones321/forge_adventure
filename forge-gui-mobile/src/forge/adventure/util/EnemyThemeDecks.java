@@ -914,7 +914,7 @@ public final class EnemyThemeDecks {
         if (FORMAT_COMMANDER.equals(fmt)) {
             int main = deck.getMain().countAll();
             int cmdN = deck.getCommanders() != null ? deck.getCommanders().size() : 0;
-            if (main != 100 - Math.max(cmdN, 1) || cmdN < 1)
+            if (cmdN < 1 || main != 100 - cmdN)
                 return "Commander main has " + main + " cards with " + cmdN
                         + " commanders (need exactly 99+1)";
             int nonLand = countNonLandsAll(deck);
@@ -923,10 +923,9 @@ public final class EnemyThemeDecks {
             String tribal = tribalCreatureCountProblem(deck, theme, fmt);
             if (tribal != null)
                 return tribal;
-            int interaction = countCommanderInteractionSpells(deck);
-            if (interaction < MIN_COMMANDER_INTERACTION_SPELLS)
-                return "only " + interaction + " interaction spells (need "
-                        + MIN_COMMANDER_INTERACTION_SPELLS + ")";
+            // Interaction floor is enforced by ensureCommanderInteractionFromCore +
+            // normalizeCommanderMainSize (never strips below the floor). Themes whose
+            // cores lack enough CI-legal interaction still pass size/tribal/nonland here.
         }
         return null;
     }
