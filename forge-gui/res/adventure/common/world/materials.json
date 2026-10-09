@@ -72,8 +72,8 @@
     "color": ""
   },
   {
-    "id": "copper",
-    "name": "Copper Ore",
+    "id": "ore_iron",
+    "name": "Iron Ore",
     "family": "ore",
     "tier": 1,
     "skill": "Mining",
@@ -87,11 +87,13 @@
       "amount": 1
     },
     "nodeType": "vein",
-    "color": "C"
+    "color": "C",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "ore_iron"
   },
   {
-    "id": "iron",
-    "name": "Iron Ore",
+    "id": "ore_mithral",
+    "name": "Mithral Ore",
     "family": "ore",
     "tier": 2,
     "skill": "Mining",
@@ -105,11 +107,13 @@
       "amount": 1
     },
     "nodeType": "vein",
-    "color": "C"
+    "color": "C",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "ore_mithral"
   },
   {
-    "id": "mithril",
-    "name": "Mithril Ore",
+    "id": "ore_adamant",
+    "name": "Adamant Ore",
     "family": "ore",
     "tier": 3,
     "skill": "Mining",
@@ -123,11 +127,13 @@
       "amount": 1
     },
     "nodeType": "vein",
-    "color": "C"
+    "color": "C",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "ore_adamant"
   },
   {
-    "id": "adamant",
-    "name": "Adamant Ore",
+    "id": "ore_rune",
+    "name": "Rune Ore",
     "family": "ore",
     "tier": 4,
     "skill": "Mining",
@@ -141,7 +147,9 @@
       "amount": 1
     },
     "nodeType": "vein",
-    "color": "C"
+    "color": "C",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
+    "nodeRegion": "ore_rune"
   },
   {
     "id": "ash",

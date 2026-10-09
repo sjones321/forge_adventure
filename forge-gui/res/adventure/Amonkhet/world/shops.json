@@ -583,9 +583,9 @@
     { "type": "item","count":1, "itemName": "Traveler's Amulet"  },
     { "type": "item","count":1, "itemName": "Magic Shard"  },
     { "type": "item","count":1, "itemName": "Spell Book"  },
-    { "type": "item","count":1, "itemName": "Mithril Armor"  },
-    { "type": "item","count":1, "itemName": "Mithril Boots"  },
-    { "type": "item","count":1, "itemName": "Mithril Shield"  }
+    { "type": "item","count":1, "itemName": "Mithral Armor"  },
+    { "type": "item","count":1, "itemName": "Mithral Boots"  },
+    { "type": "item","count":1, "itemName": "Mithral Shield"  }
     
     ]
 

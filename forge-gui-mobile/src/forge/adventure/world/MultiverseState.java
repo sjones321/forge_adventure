@@ -111,7 +111,24 @@ public final class MultiverseState {
         if (!CompressedPlaneBlob.isCompressedPayload(compressed)) {
             return null;
         }
-        return CompressedPlaneBlob.decompress(compressed);
+        SaveFileData blob = CompressedPlaneBlob.decompress(compressed);
+        migrateInactivePlaneBlob(blob);
+        return blob;
+    }
+
+    /**
+     * Schema 3: rewrite ore material ids inside an inactive plane's world-stage payload.
+     * Idempotent for already-migrated ids.
+     */
+    static void migrateInactivePlaneBlob(SaveFileData blob) {
+        if (blob == null) {
+            return;
+        }
+        SaveFileData stage = PlaneBlob.worldStage(blob);
+        if (stage != null) {
+            forge.adventure.data.MaterialListData.migrateWorldStageNodeMaterialIds(stage);
+            blob.store("worldStage", stage);
+        }
     }
 
     /** @deprecated use {@link #readInactiveBlob(String)} */
@@ -303,7 +320,13 @@ public final class MultiverseState {
                 }
                 Object raw = data.readObject("cz_" + planeId);
                 if (raw instanceof byte[] compressed && CompressedPlaneBlob.isCompressedPayload(compressed)) {
-                    compressedBlobs.put(planeId, compressed);
+                    try {
+                        SaveFileData blob = CompressedPlaneBlob.decompress(compressed);
+                        migrateInactivePlaneBlob(blob);
+                        compressedBlobs.put(planeId, CompressedPlaneBlob.compress(blob));
+                    } catch (IOException e) {
+                        compressedBlobs.put(planeId, compressed);
+                    }
                     inactivePlaneIds.add(planeId);
                 }
             }

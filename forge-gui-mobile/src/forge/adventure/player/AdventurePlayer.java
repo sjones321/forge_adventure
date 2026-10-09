@@ -131,8 +131,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     private double adventurePlaySeconds = 0d;
     /** T1 tools granted free at New Game and on old Ascendant saves. Package E crafts higher tiers. */
     public static final String[] STARTER_GATHERING_TOOLS = {
-            "Copper Hatchet", "Copper Pickaxe", "Copper Chisel",
-            "Copper Sickle", "Copper Probe", "Copper Spanner"
+            "Iron Hatchet", "Iron Pickaxe", "Iron Chisel",
+            "Iron Sickle", "Iron Probe", "Iron Spanner"
     };
     /**
      * Ascendant gym badges (Package G). Badge ids from gyms.json. Order of earning is preserved.
@@ -1292,8 +1292,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
         // Package A → color-line renames (rough_stone→limestone, nightshade→bone_fragments, …).
         // Only once: some old ids (marble) are also new ids, so re-running would shift tiers every load.
-        if (!data.containsKey("materialSchema"))
+        // Schema 3: ore line copper/iron/mithril/adamant → ore_iron/ore_mithral/ore_adamant/ore_rune (single-pass).
+        int materialSchema = data.containsKey("materialSchema") ? data.readInt("materialSchema") : 0;
+        if (materialSchema < 2)
             MaterialListData.migrateMaterialCounts(materials);
+        if (materialSchema < MaterialListData.MATERIAL_SCHEMA_ORE_LINE)
+            MaterialListData.migrateOreLineMaterialCounts(materials);
         starterToolsGranted = data.containsKey("starterToolsGranted") && data.readBool("starterToolsGranted");
         toolbelt.clear();
         if (data.containsKey("toolbeltFamilies") && data.containsKey("toolbeltItems")) {
@@ -1308,6 +1312,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             }
         }
         MaterialListData.migrateToolbeltFamilies(toolbelt);
+        if (materialSchema < MaterialListData.MATERIAL_SCHEMA_ORE_LINE)
+            MaterialListData.migrateOreLineToolbeltItems(toolbelt);
         badges.clear();
         if (data.containsKey("badgeIds")) {
             Object rawBadges = data.readObject("badgeIds");
@@ -1406,6 +1412,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 }
             }
         }
+        if (materialSchema < MaterialListData.MATERIAL_SCHEMA_ORE_LINE) {
+            for (CampState st : camps.values()) {
+                if (st != null)
+                    MaterialListData.migrateOreLineMaterialFloatCounts(st.storedByMaterial);
+            }
+        }
         adventurePlaySeconds = 0d;
         // Double key avoids mis-reading old float-encoded adventurePlaySeconds blobs.
         if (data.containsKey("adventurePlaySecondsD"))
@@ -1427,6 +1439,20 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 for (int i = 0; i < inv.length; i++) {
                     ItemData itemData = inv[i];
                     if (itemData != null) {
+                        if (materialSchema < MaterialListData.MATERIAL_SCHEMA_ORE_LINE
+                                && itemData.name != null) {
+                            String migratedName = MaterialListData.migrateOreLineItemName(itemData.name);
+                            if (!migratedName.equals(itemData.name)) {
+                                ItemData canonical = ItemListData.getItem(migratedName);
+                                if (canonical != null) {
+                                    long keepId = itemData.longID;
+                                    itemData = new ItemData(canonical);
+                                    itemData.longID = keepId;
+                                } else {
+                                    itemData.name = migratedName;
+                                }
+                            }
+                        }
                         inventoryItems.add(itemData);
                     }
                 }
@@ -1761,7 +1787,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
 
         // Bags (and Overflow) must be loaded before starter tools are granted, or a tool sent to Overflow is wiped.
-        loadInventoryBags(data);
+        loadInventoryBags(data, materialSchema);
         ensureStarterGatheringTools();
 
         RewardData.invalidateCardPool();
@@ -1788,7 +1814,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return new ConfigData();
     }
 
-    private void loadInventoryBags(SaveFileData data) {
+    private void loadInventoryBags(SaveFileData data, int materialSchema) {
         ConfigData cfg = safeConfigData();
         bags.resetToDefaults(cfg);
         if (data != null && data.containsKey("bagTypes") && data.containsKey("bagSlots")) {
@@ -1810,6 +1836,32 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (data != null && data.containsKey("overflowEntries")) {
             try {
                 OverflowEntry[] entries = (OverflowEntry[]) data.readObject("overflowEntries");
+                if (materialSchema < MaterialListData.MATERIAL_SCHEMA_ORE_LINE && entries != null) {
+                    for (OverflowEntry e : entries) {
+                        if (e == null)
+                            continue;
+                        if (e.kind == OverflowEntry.Kind.MATERIAL && e.key != null)
+                            e.key = MaterialListData.migrateOreLineMaterialId(e.key);
+                        else if (e.kind == OverflowEntry.Kind.ITEM) {
+                            if (e.item != null && e.item.name != null) {
+                                String migratedName = MaterialListData.migrateOreLineItemName(e.item.name);
+                                if (!migratedName.equals(e.item.name)) {
+                                    ItemData canonical = ItemListData.getItem(migratedName);
+                                    if (canonical != null) {
+                                        long keepId = e.item.longID;
+                                        e.item = new ItemData(canonical);
+                                        e.item.longID = keepId;
+                                    } else {
+                                        e.item.name = migratedName;
+                                    }
+                                    e.key = migratedName;
+                                }
+                            } else if (e.key != null) {
+                                e.key = MaterialListData.migrateOreLineItemName(e.key);
+                            }
+                        }
+                    }
+                }
                 bags.loadOverflowEntries(entries);
             } catch (Exception ignored) {
                 bags.clearOverflow();
@@ -1904,7 +1956,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             for (int i = 0; i < materialIds.length; i++)
                 materialCounts[i] = materials.getOrDefault(materialIds[i], 0);
             data.storeObject("materialIds", materialIds);
-            data.store("materialSchema", 2);
+            data.store("materialSchema", MaterialListData.MATERIAL_SCHEMA_ORE_LINE);
             data.store("starterToolsGranted", starterToolsGranted);
             data.storeObject("materialCounts", materialCounts);
         }
