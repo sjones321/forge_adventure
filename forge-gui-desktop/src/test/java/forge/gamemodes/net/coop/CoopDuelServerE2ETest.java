@@ -469,11 +469,12 @@ public class CoopDuelServerE2ETest {
         }
         assertNotNull(remoteGui, "FServerManager.getGui(1) after FGameClient connect");
 
-        final RegisteredPlayer hostRp = new RegisteredPlayer(landDeck("Host", "Drifting Meadow"))
+        // Plains avoids cycling prompts that stall MAIN1 in headless loopback runs.
+        final RegisteredPlayer hostRp = new RegisteredPlayer(landDeck("Host", "Plains"))
                 .setPlayer(new LobbyPlayerHuman("Host"));
         hostRp.setTeamNumber(0);
         hostRp.setStartingLife(20);
-        final RegisteredPlayer guestRp = new RegisteredPlayer(landDeck("Guest", "Drifting Meadow"))
+        final RegisteredPlayer guestRp = new RegisteredPlayer(landDeck("Guest", "Plains"))
                 .setPlayer(new LobbyPlayerHuman(guestName));
         guestRp.setTeamNumber(0);
         guestRp.setStartingLife(20);

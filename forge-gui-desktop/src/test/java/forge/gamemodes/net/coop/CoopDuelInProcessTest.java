@@ -627,8 +627,9 @@ public class CoopDuelInProcessTest {
         final RecordingRemote guestRemote = new RecordingRemote();
         final ProtocolGuiGame guestGui = new ProtocolGuiGame(guestRemote);
 
-        final RegisteredPlayer host = human("Host", landDeck("H", "Drifting Meadow"), 0);
-        final RegisteredPlayer guest = human("Guest", landDeck("G", "Drifting Meadow"), 0);
+        // Plains avoids cycling prompts that stall MAIN1 advancement in headless runs.
+        final RegisteredPlayer host = human("Host", landDeck("H", "Plains"), 0);
+        final RegisteredPlayer guest = human("Guest", landDeck("G", "Plains"), 0);
         final RegisteredPlayer enemy = ai("Enemy", landDeck("E", "Plains"), 1);
 
         final Map<RegisteredPlayer, forge.gui.interfaces.IGuiGame> guis = new HashMap<>();
