@@ -1,5 +1,6 @@
 package forge.adventure.coop;
 
+import forge.adventure.IsolatedAdventureUserDir;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.DifficultyData;
 import forge.adventure.data.ItemListData;
@@ -46,6 +47,7 @@ import forge.util.FSerializableFunction;
 import forge.util.ImageFetcher;
 import org.jupnp.UpnpServiceConfiguration;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
@@ -89,7 +91,9 @@ public class CoopTradeEscrowE2ETest {
     private DualNet dual;
 
     @BeforeClass
-    public void installHeadlessGui() {
+    public void installHeadlessGui() throws Exception {
+        // Before GuiBase / Config / WorldSave touch the real user tree.
+        IsolatedAdventureUserDir.install();
         if (GuiBase.getInterface() == null) {
             GuiBase.setInterface(new HeadlessAssetsGui());
         }
@@ -99,8 +103,15 @@ public class CoopTradeEscrowE2ETest {
         CoopVersion.setCardDataHashSupplier(() -> CoopVersion.sha256Hex("tr1-test-cards"));
     }
 
+    @AfterClass(alwaysRun = true)
+    public void restoreIsolatedUserDir() throws Exception {
+        IsolatedAdventureUserDir.restoreAndAssertUntouched();
+    }
+
     @BeforeMethod
     public void setUp() throws Exception {
+        // Idempotent if suite listener already installed; required when run alone.
+        IsolatedAdventureUserDir.install();
         SoundSystem.instance.setIgnorePlayRequests(true);
         final ConfigData cfg = Config.instance().getConfigData();
         cfg.ascendantRules = true;
@@ -113,8 +124,8 @@ public class CoopTradeEscrowE2ETest {
         dual = DualNet.start(tempChars);
     }
 
-    @AfterMethod
-    public void tearDown() {
+    @AfterMethod(alwaysRun = true)
+    public void tearDown() throws Exception {
         if (dual != null) {
             dual.close();
             dual = null;
@@ -125,6 +136,8 @@ public class CoopTradeEscrowE2ETest {
         if (tempChars != null) {
             deleteTree(tempChars);
         }
+        // Pair the per-method install(); suite listener / @AfterClass still hold the redirect.
+        IsolatedAdventureUserDir.restoreAndAssertUntouched();
     }
 
     // ---- fixtures ----------------------------------------------------------

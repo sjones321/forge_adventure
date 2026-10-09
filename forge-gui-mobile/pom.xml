@@ -22,6 +22,34 @@
                     <target>17</target>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>
+                        -Xmx2g
+                        --add-opens java.base/java.lang=ALL-UNNAMED
+                        --add-opens java.base/java.time=ALL-UNNAMED
+                        --add-opens java.base/java.text=ALL-UNNAMED
+                        --add-opens java.base/java.util=ALL-UNNAMED
+                        --add-opens java.base/java.util.regex=ALL-UNNAMED
+                        --add-opens java.base/java.util.stream=ALL-UNNAMED
+                        --add-opens java.base/java.lang.reflect=ALL-UNNAMED
+                        --add-opens java.desktop/javax.imageio.spi=ALL-UNNAMED
+                    </argLine>
+                    <!-- Redirect USER_DIR / USER_ADVENTURE_DIR to a temp tree for the
+                         whole suite so TR1 (and other adventure) tests never overwrite
+                         the developer's real settings.json / saves / characters.
+                         MV2 (#30) is adding the same shared-listener approach; until
+                         that merges, register ours here. -->
+                    <properties>
+                        <property>
+                            <name>listener</name>
+                            <value>forge.adventure.AdventureIsolatedUserDirListener</value>
+                        </property>
+                    </properties>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
     <repositories>
