@@ -337,6 +337,9 @@ public final class CoopSession {
         guestLeaveInFlight.set(false);
         partnerSync.resetGuest();
         partnerSync.resetHost();
+        sessionCode = "";
+        lastError = "";
+        activeHostListener = null;
     }
 
     /** Test hook: Package K guest wire accept (length + known-token gate). */
@@ -427,6 +430,21 @@ public final class CoopSession {
     /** Test hook: run the real leave path (final ack + unload + menu flags). */
     public void testGuestLeaveToMenu() {
         disconnectInternal("test leave", true);
+    }
+
+    /** Test hook: arm leave-in-flight so a second {@link #disconnect()} is a no-op. */
+    public void testArmGuestLeaveInFlight() {
+        guestLeaveInFlight.set(true);
+    }
+
+    /** Test hook: whether a leave is currently in flight. */
+    public boolean testIsGuestLeaveInFlight() {
+        return guestLeaveInFlight.get();
+    }
+
+    /** Test hook: clear leave-in-flight after a no-op double-disconnect check. */
+    public void testClearGuestLeaveInFlight() {
+        guestLeaveInFlight.set(false);
     }
 
     /**

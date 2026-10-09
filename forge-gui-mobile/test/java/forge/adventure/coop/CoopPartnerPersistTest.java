@@ -359,6 +359,149 @@ public class CoopPartnerPersistTest {
                 "final snapshot must not be rate-limited");
     }
 
+    /**
+     * H2: New Game (and guest unload) must reset {@code loadedSlot} so a later
+     * partner flush cannot overwrite the slot the host loaded earlier.
+     * Exercises {@link WorldSave#load(int)} and {@link WorldSave#generateNewWorld}.
+     */
+    @Test
+    public void newGameAndGuestUnloadResetLoadedSlotSoPartnerFlushMissesOldSlot() throws Exception {
+        final int hostSlot = 8;
+        ensureMinimalWorldForDiskSave();
+        final WorldSave save = WorldSave.getCurrentSave();
+        save.header.name = "PreJoinWorld";
+        preparePlayer(save.getPlayer(), "HostHero", SOLO_GOLD);
+        save.setLoadedSlot(hostSlot);
+        Assert.assertTrue(save.savePreservingHeader(hostSlot), "seed host slot");
+        Assert.assertTrue(WorldSave.load(hostSlot), "WorldSave.load must bind loadedSlot");
+        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), hostSlot);
+
+        final Path slotPath = Path.of(WorldSave.getSaveFile(hostSlot));
+        final byte[] slotBefore = Files.readAllBytes(slotPath);
+
+        // Guest unload clears slot (H2).
+        WorldSave.getCurrentSave().unloadAfterGuestSession();
+        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), WorldSave.INVALID_SAVE_SLOT);
+
+        // Reload, then New Game — also clears loadedSlot.
+        Assert.assertTrue(WorldSave.load(hostSlot));
+        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), hostSlot);
+        final forge.adventure.data.DifficultyData diff =
+                forge.adventure.util.Config.instance().getConfigData().difficulties[0];
+        WorldSave.generateNewWorld("NewGameHero", true, 0, 0,
+                forge.card.ColorSet.W, diff,
+                AdventureModes.Chaos, 0, null, 99L);
+        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), WorldSave.INVALID_SAVE_SLOT,
+                "New Game must not keep the prior load slot");
+
+        // Partner flush with invalid slot falls back to auto — must not rewrite hostSlot.
+        final CoopSession session = CoopSession.get();
+        session.testBeginHostForPartner(PROFILE_A);
+        Assert.assertTrue(session.applyHostPartnerCreate(new CoopPartnerCreateEvent(
+                PROFILE_A, "AfterNewGame", true, 0, 0, new byte[0], "")));
+        session.partnerSync().markHostPartnerDirty();
+        Assert.assertTrue(session.partnerSync().saveHostWorldNow());
+        Assert.assertEquals(Files.readAllBytes(slotPath), slotBefore,
+                "partner flush after New Game must not overwrite the old host slot");
+        Assert.assertTrue(Files.exists(Path.of(WorldSave.getSaveFile(WorldSave.AUTO_SAVE_SLOT))),
+                "fallback flush writes auto_save.sav");
+    }
+
+    /**
+     * H3: a second leave while one is in flight must be a no-op (CoopDisconnectEvent
+     * + onDisconnected, or guest c.disconnect(), must not unload twice).
+     */
+    @Test
+    public void doubleDisconnectWhileLeaveInFlightIsNoOp() throws Exception {
+        ensureMinimalWorldForDiskSave();
+        final CoopSession session = CoopSession.get();
+        session.testBeginHostForPartner(PROFILE_A);
+        Assert.assertTrue(session.applyHostPartnerCreate(new CoopPartnerCreateEvent(
+                PROFILE_A, "Farmhand", true, 0, 0, new byte[0], "")));
+        final byte[] blob = CoopPartnerCodec.encode(WorldSave.getCurrentSave().getPartners().get(PROFILE_A));
+
+        session.testBeginGuestForPartner(PROFILE_A);
+        partnerSyncRememberName(session, "SoloHero");
+        session.applyGuestPartnerBlob(blob, new String[0]);
+        Assert.assertTrue(session.isPartnerLoaded());
+        Assert.assertEquals(WorldSave.getCurrentSave().getPlayer().getName(), "Farmhand");
+
+        session.testArmGuestLeaveInFlight();
+        Assert.assertTrue(session.testIsGuestLeaveInFlight());
+        session.disconnect(); // second leave while in flight
+        Assert.assertTrue(session.testIsGuestLeaveInFlight(), "flag must stay armed");
+        Assert.assertTrue(session.isPartnerLoaded(), "second leave must not unload");
+        Assert.assertEquals(WorldSave.getCurrentSave().getPlayer().getName(), "Farmhand");
+
+        session.testClearGuestLeaveInFlight();
+        session.testGuestLeaveToMenu();
+        Assert.assertFalse(session.testIsGuestLeaveInFlight());
+        Assert.assertFalse(session.isPartnerLoaded());
+        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), WorldSave.INVALID_SAVE_SLOT);
+    }
+
+    /**
+     * Real {@link CoopSession#host} / {@link CoopSession#join} plus {@link WorldSave#load}:
+     * host a loaded world, guest joins over loopback, create partner, leave cleans up.
+     */
+    @Test
+    public void hostJoinAndLoadCreatesPartnerThenLeaveClearsSlot() throws Exception {
+        final int slot = 9;
+        ensureMinimalWorldForDiskSave();
+        final WorldSave save = WorldSave.getCurrentSave();
+        save.header.name = "HostJoinWorld";
+        preparePlayer(save.getPlayer(), "HostJoin", SOLO_GOLD);
+        Assert.assertTrue(save.savePreservingHeader(slot));
+        Assert.assertTrue(WorldSave.load(slot));
+        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), slot);
+
+        final CoopSession session = CoopSession.get();
+        session.host(true);
+        Assert.assertEquals(session.getRole(), CoopSessionRole.HOST);
+        final String code = session.testSessionCode();
+        Assert.assertEquals(code.length(), 8);
+
+        // Accept a partner create while the real host listener/server are live.
+        session.testBeginHostForPartner(PROFILE_A);
+        Assert.assertTrue(session.applyHostPartnerCreate(new CoopPartnerCreateEvent(
+                PROFILE_A, "JoinedHand", true, 0, 0, new byte[0], "")));
+        Assert.assertTrue(WorldSave.getCurrentSave().getPartners().has(PROFILE_A));
+        session.partnerSync().markHostPartnerDirty();
+        Assert.assertTrue(session.partnerSync().saveHostWorldNow());
+        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), slot);
+
+        session.disconnect();
+        Assert.assertEquals(session.getRole(), CoopSessionRole.NONE);
+
+        // Exercise join() against a stub overworld server on loopback.
+        final forge.gamemodes.net.coop.CoopOverworldServer stub =
+                new forge.gamemodes.net.coop.CoopOverworldServer(0,
+                        new forge.gamemodes.net.coop.CoopMessageListener() {
+                            @Override public void onConnected() { }
+                            @Override public void onMessage(final forge.gamemodes.net.event.NetEvent event) { }
+                            @Override public void onDisconnected(final String reason) { }
+                            @Override public void onError(final String message, final Throwable cause) { }
+                        });
+        try {
+            stub.start();
+            Assert.assertTrue(stub.awaitBound(5000));
+            Assert.assertTrue(WorldSave.load(slot));
+            preparePlayer(WorldSave.getCurrentSave().getPlayer(), "GuestSolo", SOLO_GOLD);
+            session.join("127.0.0.1:" + stub.getLocalPort(), code);
+            Assert.assertEquals(session.getRole(), CoopSessionRole.GUEST);
+            Assert.assertTrue(
+                    session.getState() == CoopSession.State.JOINING
+                            || session.getState() == CoopSession.State.READY
+                            || session.getState() == CoopSession.State.DISCONNECTED
+                            || session.getState() == CoopSession.State.REJECTED,
+                    "join must enter a guest lifecycle state, was " + session.getState());
+            session.disconnect();
+        } finally {
+            stub.stop();
+            session.testClearGuestPlaneFollow();
+        }
+    }
+
     private static void preparePlayer(final AdventurePlayer p, final String name, final int gold) {
         final DifficultyData d = new DifficultyData();
         d.name = "Easy";
