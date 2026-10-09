@@ -114,6 +114,8 @@ public class WorldSave {
             GamePlayerUtil.getGuiPlayer().setName("");
         } catch (final Exception ignored) {
         }
+        // H2: do not let a later host partner flush overwrite the pre-join slot.
+        loadedSlot = INVALID_SAVE_SLOT;
     }
 
     /** MV1 current plane instance id ({@link PlaneMeta#HOME_ID} for legacy / home). */
@@ -330,6 +332,8 @@ public class WorldSave {
                     currentSave.player.getWorldPosX(),
                     currentSave.player.getWorldPosY());
         }
+        // H2: New Game is not bound to a prior load slot until the player saves.
+        currentSave.loadedSlot = INVALID_SAVE_SLOT;
         currentSave.onLoadList.emit();
         return currentSave;
     }

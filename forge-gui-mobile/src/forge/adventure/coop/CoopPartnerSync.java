@@ -35,6 +35,9 @@ public final class CoopPartnerSync {
     private volatile boolean hostSaveScheduled;
     private volatile String lastGuiPlayerName = "";
     private volatile String lastFinalAckWarning = "";
+    /** True while leave is waiting for a final-snapshot ack (suppresses debounced snaps). */
+    private volatile boolean awaitingFinalAck;
+    private volatile boolean finalAckAccepted;
 
     public CoopPartnerSync(final CoopSession session) {
         this.session = session;
@@ -51,6 +54,8 @@ public final class CoopPartnerSync {
         pendingAckLatch = null;
         trailingScheduled = false;
         lastFinalAckWarning = "";
+        awaitingFinalAck = false;
+        finalAckAccepted = false;
     }
 
     public void resetHost() {
@@ -83,12 +88,17 @@ public final class CoopPartnerSync {
 
     /**
      * Guest: send a snapshot now. {@code finalSnapshot} bypasses rate limits on the host
-     * and is used for leave.
+     * and is used for leave. Must build the player blob on the GL thread (caller ensures).
+     * Non-final snapshots are suppressed while a final-ack wait is in progress so a
+     * debounced snap cannot steal {@code pendingSequence} and cause a false timeout.
      *
      * @return sequence number sent, or 0 if not sent
      */
     public long sendSnapshot(final boolean finalSnapshot) {
         if (session.getRole() != CoopSessionRole.GUEST || !session.isPartnerLoaded()) {
+            return 0L;
+        }
+        if (awaitingFinalAck && !finalSnapshot) {
             return 0L;
         }
         try {
@@ -103,6 +113,8 @@ public final class CoopPartnerSync {
             pendingSequence = seq;
             if (finalSnapshot) {
                 pendingAckLatch = new CountDownLatch(1);
+                awaitingFinalAck = true;
+                finalAckAccepted = false;
             }
             session.send(new CoopPartnerSnapshotEvent(session.getGuestProfileId(), seq, finalSnapshot, blob));
             return seq;
@@ -119,6 +131,9 @@ public final class CoopPartnerSync {
      */
     public void requestDebouncedSnapshot() {
         if (session.getRole() != CoopSessionRole.GUEST || !session.isPartnerLoaded()) {
+            return;
+        }
+        if (awaitingFinalAck) {
             return;
         }
         if (trailingScheduled) {
@@ -161,32 +176,62 @@ public final class CoopPartnerSync {
     }
 
     /**
-     * Guest leave: send final snapshot and wait for ack (timeout → visible warning).
-     * Callers must not invoke this on the GL or Netty threads — use a worker.
+     * Build and send the final leave snapshot on the GL thread, then wait for an
+     * <em>accepted</em> ack on the calling (worker) thread. Never call the await
+     * portion on GL/Netty.
      *
-     * @return true if ack received
+     * @return true if an accepted ack arrived before timeout
      */
     public boolean sendFinalSnapshotAndAwaitAck(final long timeoutMs) {
-        final long seq = sendSnapshot(true);
-        if (seq == 0L) {
+        final long[] seqHolder = {0L};
+        final CountDownLatch sent = new CountDownLatch(1);
+        runOnGl(() -> {
+            try {
+                seqHolder[0] = sendSnapshot(true);
+            } finally {
+                sent.countDown();
+            }
+        });
+        try {
+            if (!sent.await(Math.max(500L, timeoutMs), TimeUnit.MILLISECONDS)) {
+                lastFinalAckWarning = "Could not send final partner snapshot";
+                notifyGuest(lastFinalAckWarning);
+                awaitingFinalAck = false;
+                return false;
+            }
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            lastFinalAckWarning = "Interrupted waiting for partner save ack";
+            notifyGuest(lastFinalAckWarning);
+            awaitingFinalAck = false;
+            return false;
+        }
+        if (seqHolder[0] == 0L) {
             lastFinalAckWarning = "Could not send final partner snapshot";
             notifyGuest(lastFinalAckWarning);
+            awaitingFinalAck = false;
             return false;
         }
         final CountDownLatch latch = pendingAckLatch;
         if (latch == null) {
+            awaitingFinalAck = false;
             return false;
         }
         try {
-            final boolean ok = latch.await(Math.max(500L, timeoutMs), TimeUnit.MILLISECONDS);
-            if (!ok) {
+            final boolean arrived = latch.await(Math.max(500L, timeoutMs), TimeUnit.MILLISECONDS);
+            awaitingFinalAck = false;
+            if (!arrived || !finalAckAccepted) {
                 lastFinalAckWarning = FINAL_ACK_TIMEOUT_MSG;
                 notifyGuest(FINAL_ACK_TIMEOUT_MSG);
-                session.status("Final partner snapshot ack timed out");
+                session.status(arrived
+                        ? "Final partner snapshot rejected"
+                        : "Final partner snapshot ack timed out");
+                return false;
             }
-            return ok;
+            return true;
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
+            awaitingFinalAck = false;
             lastFinalAckWarning = "Interrupted waiting for partner save ack";
             notifyGuest(lastFinalAckWarning);
             return false;
@@ -208,6 +253,9 @@ public final class CoopPartnerSync {
         }
         final CountDownLatch latch = pendingAckLatch;
         if (latch != null && ack.getSequence() == pendingSequence) {
+            if (ack.isAccepted()) {
+                finalAckAccepted = true;
+            }
             latch.countDown();
         }
     }
@@ -334,7 +382,10 @@ public final class CoopPartnerSync {
 
     /**
      * Host: persist world (with partners) if not blocked by an interior map.
-     * Writes the slot that is actually loaded; never retitles the save header.
+     * Writes {@link WorldSave#getLoadedSlot()} (the slot last loaded or saved —
+     * including auto/quick after F5/F8); never retitles the save header.
+     * When deferred (in-map) or when the write fails, {@link #hostPartnerDirty}
+     * stays true so a later flush or quit warning still fires.
      */
     public boolean saveHostWorldNow() {
         if (session.getRole() != CoopSessionRole.HOST && session.getRole() != CoopSessionRole.NONE) {
@@ -342,7 +393,7 @@ public final class CoopPartnerSync {
         }
         try {
             if (MapStage.getInstance().isInMap()) {
-                // Defer — schedule again.
+                // Defer — keep dirty; schedule again.
                 scheduleHostWorldSave();
                 return false;
             }
@@ -361,6 +412,7 @@ public final class CoopPartnerSync {
                 hostLastWorldSaveMs = System.currentTimeMillis();
                 session.status("Host world saved (partners)");
             }
+            // Failed write: leave hostPartnerDirty set.
             return ok;
         } catch (final Exception e) {
             session.status("Host world save failed: " + e.getMessage());

@@ -567,11 +567,24 @@ public class StartScene extends UIScene {
                             + "Save now before quitting?",
                     "Save and quit", "Quit without saving",
                     () -> {
+                        boolean saved = false;
                         try {
-                            CoopSession.get().saveHostWorldNow();
+                            saved = CoopSession.get().saveHostWorldNow();
                         } catch (final Exception ignored) {
                         }
                         removeDialog();
+                        if (!saved && CoopSession.get().isHostPartnerDirty()) {
+                            showDialog(createGenericDialog("Save deferred",
+                                    "Could not save yet (still in a map, or write failed).\n"
+                                            + "Partner progress is still marked unsaved.\nQuit anyway?",
+                                    "Quit", "Stay",
+                                    () -> {
+                                        removeDialog();
+                                        Forge.exit(true);
+                                    },
+                                    this::removeDialog));
+                            return;
+                        }
                         Forge.exit(true);
                     },
                     () -> {
@@ -600,9 +613,23 @@ public class StartScene extends UIScene {
                     "A co-op partner has unsaved progress.\nSave the world before stopping host?",
                     "Save and stop", "Stop without saving",
                     () -> {
+                        boolean saved = false;
                         try {
-                            CoopSession.get().saveHostWorldNow();
+                            saved = CoopSession.get().saveHostWorldNow();
                         } catch (final Exception ignored) {
+                        }
+                        if (!saved && CoopSession.get().isHostPartnerDirty()) {
+                            removeDialog();
+                            showDialog(createGenericDialog("Save deferred",
+                                    "Could not save yet (still in a map, or write failed).\n"
+                                            + "Partner progress is still marked unsaved.\nStop hosting anyway?",
+                                    "Stop", "Stay",
+                                    () -> {
+                                        CoopSession.get().disconnect();
+                                        removeDialog();
+                                    },
+                                    this::removeDialog));
+                            return;
                         }
                         CoopSession.get().disconnect();
                         removeDialog();

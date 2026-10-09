@@ -494,7 +494,14 @@ public abstract class GameStage extends Stage {
         }
         if (keycode == Input.Keys.F8)//todo config
         {
-            if (!TileMapScene.instance().currentMap().isInMap()) {
+            // CO5: guests must not quickload over a host-world partner session.
+            if (forge.adventure.coop.CoopSession.get().isGuestSession()) {
+                try {
+                    forge.adventure.stage.GameHUD.getInstance().addNotification(
+                            "Quickload unavailable while joined as a co-op guest");
+                } catch (final Exception ignored) {
+                }
+            } else if (!TileMapScene.instance().currentMap().isInMap()) {
                 WorldSave.getCurrentSave().quickLoad();
                 enter();
             }

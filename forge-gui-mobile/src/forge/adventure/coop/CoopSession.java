@@ -56,7 +56,6 @@ import forge.adventure.scene.StartScene;
 import forge.gui.FThreads;
 import forge.player.GamePlayerUtil;
 import forge.screens.TransitionScreen;
-import forge.toolbox.FOptionPane;
 import forge.util.URLValidator;
 
 import java.io.File;
@@ -125,6 +124,8 @@ public final class CoopSession {
     private volatile boolean guestLeaveGuard;
     /** CO5: legacy .chr chosen during create prompt; marked imported only after host accepts. */
     private volatile File pendingLegacyImport;
+    /** CO5: true after guest sent a create — a second needCreate means host rejected. */
+    private volatile boolean createAlreadySent;
     /** CO5: true while a final-ack worker is finishing disconnect (avoid re-entry). */
     private final AtomicBoolean guestLeaveInFlight = new AtomicBoolean(false);
     /** CO5: snapshot seq/ack, trailing debounce, host world save. */
@@ -312,6 +313,7 @@ public final class CoopSession {
         partnerLoaded = false;
         guestLeaveGuard = false;
         pendingLegacyImport = null;
+        createAlreadySent = false;
         guestLeaveInFlight.set(false);
         partnerSync.resetGuest();
         partnerSync.resetHost();
@@ -633,46 +635,53 @@ public final class CoopSession {
      *                     pass {@code false} so the solo game stays intact.
      */
     private void disconnectInternal(final String reason, final boolean returnToMenu) {
+        // H3: CoopDisconnectEvent + onDisconnected (or c.disconnect()) must not unload twice.
+        if (!guestLeaveInFlight.compareAndSet(false, true)) {
+            return;
+        }
         final CoopSessionRole previousRole = role;
         final State previousState = state;
         final boolean hadPartner = partnerLoaded;
 
         // Guest leave with progress: final ack on a worker — never block GL/Netty for 8s.
+        // Snapshot blob is built on the GL thread inside sendFinalSnapshotAndAwaitAck.
         if (previousRole == CoopSessionRole.GUEST && hadPartner && returnToMenu) {
             guestLeaveGuard = true;
-            if (guestLeaveInFlight.compareAndSet(false, true)) {
-                final Runnable afterAck = () -> {
-                    try {
-                        finishDisconnectAfterFinalAck(reason, previousRole, previousState, true);
-                    } finally {
-                        guestLeaveInFlight.set(false);
-                    }
-                };
-                if (shouldOffloadFinalAckWait()) {
-                    final Thread worker = new Thread(() -> {
-                        try {
-                            partnerSync.sendFinalSnapshotAndAwaitAck(8_000L);
-                        } catch (final Exception ignored) {
-                        }
-                        CoopPartnerSync.runOnGl(afterAck);
-                    }, "coop-final-partner-ack");
-                    worker.setDaemon(true);
-                    worker.start();
-                    return;
-                }
+            final Runnable afterAck = () -> {
                 try {
-                    partnerSync.sendFinalSnapshotAndAwaitAck(8_000L);
-                } catch (final Exception ignored) {
+                    finishDisconnectAfterFinalAck(reason, previousRole, previousState, true);
+                } finally {
+                    guestLeaveInFlight.set(false);
                 }
-                afterAck.run();
+            };
+            if (shouldOffloadFinalAckWait()) {
+                final Thread worker = new Thread(() -> {
+                    try {
+                        partnerSync.sendFinalSnapshotAndAwaitAck(8_000L);
+                    } catch (final Exception ignored) {
+                    }
+                    CoopPartnerSync.runOnGl(afterAck);
+                }, "coop-final-partner-ack");
+                worker.setDaemon(true);
+                worker.start();
                 return;
             }
+            try {
+                partnerSync.sendFinalSnapshotAndAwaitAck(8_000L);
+            } catch (final Exception ignored) {
+            }
+            afterAck.run();
+            return;
         }
 
         if (previousRole == CoopSessionRole.GUEST && returnToMenu) {
             guestLeaveGuard = true;
         }
-        finishDisconnectAfterFinalAck(reason, previousRole, previousState, returnToMenu);
+        try {
+            finishDisconnectAfterFinalAck(reason, previousRole, previousState, returnToMenu);
+        } finally {
+            guestLeaveInFlight.set(false);
+        }
     }
 
     /** True on GL or Netty — final-ack await must run on a worker instead. */
@@ -754,7 +763,20 @@ public final class CoopSession {
         }
         peerName = "";
         joinHostAddress = "";
-        guestProfileId = "";
+        // Keep guestProfileId until GL-queued snapshot applies have drained (host peer path
+        // also defers clear). Guest local leave can clear immediately — no more snaps to apply.
+        if (previousRole == CoopSessionRole.GUEST) {
+            guestProfileId = "";
+        } else if (previousRole == CoopSessionRole.HOST) {
+            final String keepId = guestProfileId;
+            CoopPartnerSync.runOnGl(() -> {
+                if (keepId != null && keepId.equals(guestProfileId)) {
+                    guestProfileId = "";
+                }
+            });
+        } else {
+            guestProfileId = "";
+        }
         partnerLoaded = false;
         if (previousRole == CoopSessionRole.HOST) {
             sessionCode = "";
@@ -782,14 +804,16 @@ public final class CoopSession {
     }
 
     /**
-     * CO5: return to the main menu after unload. Shows final-ack timeout warning
-     * before switching scenes. Restores the pre-join GUI name and refreshes StartScene.
+     * CO5: return to the main menu after unload. Clears {@link #guestLeaveGuard}
+     * before any leave-timeout dialog so a stuck overlay can never block the menu.
+     * Warning is shown on StartScene (adventure Scene2D) after the switch — never
+     * via {@code FOptionPane}, which adventure mode does not draw.
      */
     private void returnGuestToMainMenu() {
         guestWorldPlaneId = PlaneMeta.HOME_ID;
         final String restoreName = partnerSync.getLastGuiPlayerName();
         final String warning = partnerSync.consumeFinalAckWarning();
-        final Runnable switchMenu = () -> {
+        final Runnable go = () -> {
             try {
                 try {
                     if (restoreName != null && !restoreName.isEmpty()) {
@@ -807,16 +831,12 @@ public final class CoopSession {
             } finally {
                 guestLeaveGuard = false;
             }
-        };
-        final Runnable go = () -> {
-            if (warning != null && !warning.isEmpty() && Gdx.app != null) {
+            if (warning != null && !warning.isEmpty()) {
                 try {
-                    FOptionPane.showMessageDialog(warning, "Co-op", null, result -> switchMenu.run());
-                    return;
+                    CoopAdventureDialogs.showMessage("Co-op", warning);
                 } catch (final Exception ignored) {
                 }
             }
-            switchMenu.run();
         };
         CoopPartnerSync.runOnGl(go);
     }
@@ -868,6 +888,7 @@ public final class CoopSession {
         final String id = CoopProfileId.sanitize(event.getProfileId());
         if (id.isEmpty() || !id.equals(guestProfileId)) {
             status("Rejected partner create: profile mismatch");
+            rejectPartnerCreate(id, "profile mismatch");
             return false;
         }
         if (WorldSave.getCurrentSave().getPartners().has(id)) {
@@ -881,19 +902,44 @@ public final class CoopSession {
             if (legacy != null && legacy.length > 0) {
                 if (!CoopPartnerValidator.blobSizeOk(legacy)) {
                     status("Rejected legacy import: size");
+                    rejectPartnerCreate(id, "legacy import too large");
                     return false;
                 }
                 final SaveFileData legacyData = CoopPartnerCodec.decodeSafe(legacy);
                 if (legacyData == null) {
                     status("Rejected legacy import: decode");
+                    rejectPartnerCreate(id, "legacy import could not be read");
                     return false;
                 }
-                // Keep imported name and look (roadmap).
-                partner = CoopPartnerStarter.fromLegacy(legacyData);
+                // Cap name before load/store so a bad import cannot lock this world.
+                final String capped = CoopPartnerValidator.capName(legacyData.readString("name"));
+                if (!capped.isEmpty()) {
+                    legacyData.store("name", capped);
+                }
+                final String problem = CoopPartnerValidator.validateDecoded(legacyData);
+                if (problem != null) {
+                    status("Rejected legacy import: " + problem);
+                    rejectPartnerCreate(id, problem);
+                    return false;
+                }
+                try {
+                    partner = CoopPartnerStarter.fromLegacy(legacyData);
+                } catch (final Throwable t) {
+                    status("Rejected legacy import: " + t.getMessage());
+                    rejectPartnerCreate(id, "legacy import failed");
+                    return false;
+                }
+                final String after = CoopPartnerValidator.validateDecoded(partner.save());
+                if (after != null) {
+                    status("Rejected legacy import after load: " + after);
+                    rejectPartnerCreate(id, after);
+                    return false;
+                }
             } else {
                 final String name = CoopPartnerValidator.capName(event.getCharacterName());
                 if (name.isEmpty()) {
                     status("Rejected partner create: name");
+                    rejectPartnerCreate(id, "name required");
                     return false;
                 }
                 final boolean allowCopy = Config.instance().getConfigData().coopPartnerAllowCopySoloDeck;
@@ -906,9 +952,19 @@ public final class CoopSession {
             sendPartnerOffer(id, false);
             status("Created partner \"" + partner.getName() + "\"");
             return true;
-        } catch (final Exception e) {
+        } catch (final Throwable e) {
             status("Partner create failed: " + e.getMessage());
+            rejectPartnerCreate(id, "create failed");
             return false;
+        }
+    }
+
+    /** Re-offer needCreate so the guest is not stuck in JOINING after a reject. */
+    private void rejectPartnerCreate(final String profileId, final String reason) {
+        try {
+            sendPartnerOffer(profileId, true);
+            status("Told guest to retry partner create (" + reason + ")");
+        } catch (final Exception ignored) {
         }
     }
 
@@ -1258,7 +1314,13 @@ public final class CoopSession {
                 } catch (final Exception ignored) {
                 }
                 peerName = "";
-                guestProfileId = "";
+                // Defer clearing profile id so GL-queued final snapshots still match.
+                final String keepId = guestProfileId;
+                CoopPartnerSync.runOnGl(() -> {
+                    if (keepId != null && keepId.equals(guestProfileId)) {
+                        guestProfileId = "";
+                    }
+                });
                 status("Guest disconnected: " + ((CoopDisconnectEvent) event).getReason());
             } else if (event instanceof CoopPartnerCreateEvent) {
                 if (s != null && s.isGuestAuthenticated()) {
@@ -1414,10 +1476,18 @@ public final class CoopSession {
             if (offer.isNeedCreate()) {
                 status("Host needs a new partner character for this world");
                 if (Gdx.app == null) {
+                    createAlreadySent = true;
                     send(new CoopPartnerCreateEvent(guestProfileId, "Partner",
                             true, 0, 0, new byte[0], ""));
                 } else {
-                    Gdx.app.postRunnable(() -> promptPartnerCreateAsync(offer.isAllowCopySoloDeck()));
+                    final boolean rejectedRetry = createAlreadySent;
+                    Gdx.app.postRunnable(() -> {
+                        if (rejectedRetry) {
+                            CoopAdventureDialogs.showMessage("Co-op partner",
+                                    "The host rejected that partner create. Try again.");
+                        }
+                        promptPartnerCreateAsync(offer.isAllowCopySoloDeck());
+                    });
                 }
                 return;
             }
@@ -1429,6 +1499,7 @@ public final class CoopSession {
                     () -> {
                         try {
                             applyGuestPartnerBlob(blob, hostSets);
+                            createAlreadySent = false;
                             status("Loaded partner \""
                                     + WorldSave.getCurrentSave().getPlayer().getName() + "\"");
                             if (state == State.JOINING && sessionWorld != null
@@ -1440,6 +1511,7 @@ public final class CoopSession {
                             state = State.REJECTED;
                             status(lastError);
                             pendingLegacyImport = null;
+                            createAlreadySent = false;
                             // Return to main menu with StartScene refreshed + GUI name restored.
                             endGuestSession(lastError, true);
                         }
@@ -1447,8 +1519,8 @@ public final class CoopSession {
         }
 
         /**
-         * Async FOptionPane chain on the GL thread (never blocking WaitCallback /
-         * assertExecutedByEdt). Marks legacy import only after host accepts.
+         * Adventure Scene2D dialogs (never FOptionPane — invisible under Adventure.render).
+         * Marks legacy import only after host accepts.
          */
         private void promptPartnerCreateAsync(final boolean allowCopySoloDeck) {
             try {
@@ -1477,9 +1549,10 @@ public final class CoopSession {
                         labels.add("Show host-export matches…");
                         options.add(null);
                     }
-                    FOptionPane.showOptionDialog(
+                    CoopAdventureDialogs.showOptions(
+                            "Co-op partner",
                             "Bring an existing co-op character into this world?",
-                            "Co-op partner", null, labels,
+                            labels,
                             idx -> {
                                 int choice = idx == null || idx < 0 ? 0 : idx;
                                 if (hasHostExports && choice == options.size() - 1
@@ -1496,6 +1569,7 @@ public final class CoopSession {
                 }
                 promptFreshPartnerLook(allowCopySoloDeck);
             } catch (final Exception e) {
+                createAlreadySent = true;
                 send(new CoopPartnerCreateEvent(guestProfileId, "Partner", true, 0, 0, new byte[0], ""));
             }
         }
@@ -1507,9 +1581,10 @@ public final class CoopSession {
             for (final File f : hostExports) {
                 hostLabels.add(f.getName() + " (matches solo name)");
             }
-            FOptionPane.showOptionDialog(
+            CoopAdventureDialogs.showOptions(
+                    "Co-op partner",
                     "These look like old host exports of your solo character.",
-                    "Co-op partner", null, hostLabels,
+                    hostLabels,
                     hostIdx -> {
                         if (hostIdx != null && hostIdx > 0 && hostIdx <= hostExports.size()) {
                             sendCreateWithLegacy(hostExports.get(hostIdx - 1), allowCopySoloDeck);
@@ -1530,7 +1605,8 @@ public final class CoopSession {
                 keep = null;
             }
             if (keep != null && legacyBlob.length > 0) {
-                pendingLegacyImport = keep; // markImported only after host accepts + load
+                pendingLegacyImport = keep;
+                createAlreadySent = true;
                 send(new CoopPartnerCreateEvent(guestProfileId, "Partner", true, 0, 0, legacyBlob, ""));
             } else {
                 promptFreshPartnerLook(allowCopySoloDeck);
@@ -1538,20 +1614,20 @@ public final class CoopSession {
         }
 
         private void promptFreshPartnerLook(final boolean allowCopySoloDeck) {
-            FOptionPane.showInputDialog("Partner name (max 32 chars)", "Co-op partner", "Partner", null,
+            CoopAdventureDialogs.showInput("Co-op partner", "Partner name (max 32 chars)", "Partner",
                     typed -> {
                         String name = "Partner";
                         if (typed != null && !typed.trim().isEmpty()) {
                             name = CoopPartnerValidator.capName(typed);
                         }
                         final String finalName = name;
-                        FOptionPane.showOptionDialog("Choose gender", "Co-op partner look", null,
+                        CoopAdventureDialogs.showOptions("Co-op partner look", "Choose gender",
                                 Arrays.asList("Male", "Female"),
                                 genderIdx -> {
                                     final boolean male = genderIdx == null || genderIdx != 1;
                                     promptRaceThenAvatar(finalName, male, allowCopySoloDeck);
                                 });
-                    }, false);
+                    });
         }
 
         private void promptRaceThenAvatar(final String name, final boolean male,
@@ -1571,7 +1647,7 @@ public final class CoopSession {
                 promptAvatarThenSend(name, male, 0, allowCopySoloDeck);
                 return;
             }
-            FOptionPane.showOptionDialog("Choose race", "Co-op partner look", null, raceLabels,
+            CoopAdventureDialogs.showOptions("Co-op partner look", "Choose race", raceLabels,
                     raceIdx -> {
                         final int race = raceIdx != null && raceIdx >= 0 && raceIdx < raceLabels.size()
                                 ? raceIdx : 0;
@@ -1585,7 +1661,7 @@ public final class CoopSession {
             for (int i = 0; i < 8; i++) {
                 avatarLabels.add("Avatar " + (i + 1));
             }
-            FOptionPane.showOptionDialog("Choose look", "Co-op partner look", null, avatarLabels,
+            CoopAdventureDialogs.showOptions("Co-op partner look", "Choose look", avatarLabels,
                     avatarIdx -> {
                         final int avatar = avatarIdx != null && avatarIdx >= 0 ? avatarIdx : 0;
                         String soloDeck = "";
@@ -1599,6 +1675,7 @@ public final class CoopSession {
                             }
                         }
                         pendingLegacyImport = null;
+                        createAlreadySent = true;
                         send(new CoopPartnerCreateEvent(guestProfileId, name, male, race, avatar,
                                 new byte[0], soloDeck));
                     });

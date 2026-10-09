@@ -564,6 +564,11 @@ public class WorldStage extends GameStage implements SaveFileContent {
             startPause(resultAnimationDuration, () -> {
                 currentMob.resetCollisionHeight();
                 boolean defeated = Current.player().defeated();
+                // CO5: snapshot after defeated() so gold/life penalties are included.
+                try {
+                    forge.adventure.coop.CoopHooks.notifyPartnerProgressChanged(true);
+                } catch (final Exception ignored) {
+                }
                 AdventureQuestController.instance().updateQuestsLose(currentMob);
                 AdventureQuestController.instance().showQuestDialogs(MapStage.getInstance());
                 boolean defeatedFromBoss = currentMob.getData().boss && !isArena;

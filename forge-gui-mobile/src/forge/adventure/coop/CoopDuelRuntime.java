@@ -982,14 +982,9 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             WorldStage.getInstance().setCurrentMob(mob);
             // EN2: use host-authoritative loot rolls from the result event (0 allowed).
             WorldStage.getInstance().setPendingLootRolls(event.getLootRolls());
+            // Wins: snapshot after rewards (RewardScene.done). Losses: WorldStage.setWinner
+            // calls CoopHooks after defeated() so gold/life penalties are included.
             WorldStage.getInstance().setWinner(teamWon, false);
-            // Wins: snapshot after rewards (RewardScene.done). Losses never open RewardScene.
-            if (!teamWon) {
-                try {
-                    CoopSession.get().sendPartnerSnapshotNow();
-                } catch (final Exception ignored) {
-                }
-            }
         } else {
             if (teamWon) {
                 ap.win(false);
