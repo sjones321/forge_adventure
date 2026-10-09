@@ -11,7 +11,6 @@ import forge.adventure.util.Config;
 import forge.adventure.util.Current;
 import forge.gamemodes.net.coop.CoopInviteUiState;
 import forge.gamemodes.net.coop.CoopRateLimiter;
-import forge.gamemodes.net.coop.CoopTradeApply;
 import forge.gamemodes.net.coop.CoopTradeBag;
 import forge.gamemodes.net.coop.CoopTradeLog;
 import forge.gamemodes.net.coop.CoopTradeOffer;
@@ -29,6 +28,7 @@ import forge.gamemodes.net.event.coop.CoopTradeRequestEvent;
 import forge.gamemodes.net.event.coop.CoopTradeResponseEvent;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Ascendant TR1 player trading — forward-only escrow.
@@ -43,6 +43,9 @@ import java.util.List;
 public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
     private static final CoopTradeRuntime INSTANCE = new CoopTradeRuntime();
 
+    /** Test hook: when set, replaces {@code Gdx.app.postRunnable}. */
+    private static volatile Consumer<Runnable> glPoster;
+
     private final CoopTradeLog tradeLog = new CoopTradeLog();
     private final CoopTradeState state = new CoopTradeState(
             new CoopRateLimiter(CoopTradeWireLimits.DEFAULT_MAX_PER_WINDOW,
@@ -51,6 +54,11 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
 
     private CoopTradeRuntime() {
         tradeLog.setListener(entry -> syncLogToPlayerAndSave());
+    }
+
+    /** Install a controllable GL queue (tests). Pass null to restore Gdx. */
+    public static void setGlPoster(final Consumer<Runnable> poster) {
+        glPoster = poster;
     }
 
     public static CoopTradeRuntime get() {
@@ -455,26 +463,11 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             closeTradeUi("Trade failed");
             return;
         }
-        final long id = state.getTradeId();
-        if (tradeLog.hasEscrowed(id)) {
-            final CoopTradeEscrowedEvent again = state.markEscrowed(System.currentTimeMillis());
-            if (again != null) {
-                CoopSession.get().send(again);
-            }
-            if (state.shouldDeliver()) {
-                performDeliver();
-            }
-            return;
-        }
         final CoopTradeBag bag = new AdventurePlayerTradeBag(ap);
-        final CoopTradeBag.Snapshot snap = bag.snapshot();
-        final CoopTradeOffer own = state.getLocalOffer();
-        final CoopTradeApply.Result result = CoopTradeApply.escrowIdempotent(
-                id, tradeLog, bag, own, snap);
-        if (!result.applied) {
-            // Goods unchanged (snap restore). abortPreEscrow is allowed before ESCROWED.
-            final CoopTradeCancelEvent cancel = state.abortPreEscrow(
-                    "escrow failed: " + result.detail);
+        final boolean ok = CoopTradeGlOps.performEscrow(state, tradeLog, bag,
+                ev -> CoopSession.get().send(ev));
+        if (!ok && !tradeLog.hasEscrowed(state.getTradeId())) {
+            final CoopTradeCancelEvent cancel = state.abortPreEscrow("escrow failed");
             notifyHud("Escrow failed — nothing moved");
             if (cancel != null) {
                 CoopSession.get().send(cancel);
@@ -482,13 +475,13 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             closeTradeUi("Trade cancelled");
             return;
         }
-        final CoopTradeEscrowedEvent escrowed = state.markEscrowed(System.currentTimeMillis());
-        if (escrowed != null) {
-            CoopSession.get().send(escrowed);
-        }
-        // syncLogToPlayerAndSave via listener
-        if (state.shouldDeliver()) {
-            performDeliver();
+        if (state.getStatus() == CoopTradeState.Status.COMPLETED
+                || (state.getStatus() == CoopTradeState.Status.DELIVERED && state.isPeerDelivered())) {
+            closeTradeUi("Trade complete");
+            notifyHud("Trade complete");
+        } else if (tradeLog.hasDelivered(state.getTradeId())) {
+            refreshUi();
+            notifyHud("Goods received — waiting for partner");
         } else {
             refreshUi();
             notifyHud("Offer locked in escrow…");
@@ -500,27 +493,8 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         if (ap == null) {
             return;
         }
-        final long id = state.getTradeId();
-        if (tradeLog.hasDelivered(id)) {
-            final CoopTradeDeliveredEvent again = state.markDelivered(System.currentTimeMillis());
-            if (again != null) {
-                CoopSession.get().send(again);
-            }
-            return;
-        }
         final CoopTradeBag bag = new AdventurePlayerTradeBag(ap);
-        final CoopTradeBag.Snapshot snap = bag.snapshot();
-        final CoopTradeOffer peer = state.getPeerOffer();
-        final CoopTradeApply.Result result = CoopTradeApply.deliverIdempotent(
-                id, tradeLog, bag, peer, snap);
-        if (!result.applied) {
-            notifyHud("Deliver failed — will retry on reconnect");
-            return;
-        }
-        final CoopTradeDeliveredEvent delivered = state.markDelivered(System.currentTimeMillis());
-        if (delivered != null) {
-            CoopSession.get().send(delivered);
-        }
+        CoopTradeGlOps.performDeliver(state, tradeLog, bag, ev -> CoopSession.get().send(ev));
         if (state.getStatus() == CoopTradeState.Status.COMPLETED || state.isPeerDelivered()) {
             closeTradeUi("Trade complete");
             notifyHud("Trade complete");
@@ -545,9 +519,15 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             case DELIVER:
                 performDeliver();
                 break;
-            case REFUND:
-                performRefund();
+            case REFUND: {
+                final AdventurePlayer ap = Current.player();
+                if (ap != null) {
+                    CoopTradeGlOps.performRefund(state, tradeLog, new AdventurePlayerTradeBag(ap));
+                    closeTradeUi("Trade refunded — partner never escrowed");
+                    notifyHud("Your escrow was refunded");
+                }
                 break;
+            }
             case COMPLETE:
                 closeTradeUi("Trade complete (reconciled)");
                 notifyHud("Trade complete");
@@ -557,48 +537,12 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         }
     }
 
-    private void performRefund() {
-        final AdventurePlayer ap = Current.player();
-        if (ap == null) {
-            return;
-        }
-        final long id = state.getTradeId();
-        final CoopTradeLog.Entry entry = tradeLog.get(id);
-        if (entry == null || tradeLog.hasDelivered(id)) {
-            return;
-        }
-        final CoopTradeOffer own = localRole() == CoopTradeRole.HOST
-                ? entry.hostOffer : entry.guestOffer;
-        final CoopTradeApply.Result result = CoopTradeApply.refundEscrow(
-                new AdventurePlayerTradeBag(ap), own);
-        if (!result.applied) {
-            notifyHud("Refund failed");
-            return;
-        }
-        state.markRefunded(System.currentTimeMillis());
-        closeTradeUi("Trade refunded — partner never escrowed");
-        notifyHud("Your escrow was refunded");
-    }
-
     private void loadTradeLogFromPlayer() {
-        try {
-            final AdventurePlayer ap = Current.player();
-            if (ap != null) {
-                tradeLog.decode(ap.getTradeLogBlob());
-            }
-        } catch (final Exception ignored) {
-        }
+        CoopTradeGlOps.loadLogFromPlayer(Current.player(), tradeLog);
     }
 
     private void syncLogToPlayerAndSave() {
-        try {
-            final AdventurePlayer ap = Current.player();
-            if (ap != null) {
-                ap.setTradeLogBlob(tradeLog.encode());
-                CoopCharacterStore.savePlayer(ap);
-            }
-        } catch (final Exception ignored) {
-        }
+        CoopTradeGlOps.syncLogAndSave(Current.player(), tradeLog);
     }
 
     private CoopTradeRole localRole() {
@@ -666,10 +610,16 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
     }
 
     /**
-     * Netty → GL only. When Gdx is absent (headless tests), run inline.
+     * Netty → GL only. Tests may install {@link #setGlPoster}; otherwise Gdx,
+     * otherwise inline.
      */
     static void postGl(final Runnable r) {
         if (r == null) {
+            return;
+        }
+        final Consumer<Runnable> poster = glPoster;
+        if (poster != null) {
+            poster.accept(r);
             return;
         }
         try {

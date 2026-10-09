@@ -133,8 +133,9 @@ public final class AdventurePlayerTradeBag implements CoopTradeBag {
         if (name == null || name.isEmpty() || amount <= 0) {
             return false;
         }
+        // updateEvent=false: trade apply must not touch quest listeners / Current.player().
         for (int i = 0; i < amount; i++) {
-            if (!player.addItem(name, true)) {
+            if (!player.addItem(name, false)) {
                 return false;
             }
         }

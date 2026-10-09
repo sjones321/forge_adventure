@@ -23,10 +23,23 @@ import java.util.zip.InflaterInputStream;
  * so the bag and TR1 trade log commit together or not at all.
  */
 public final class CoopCharacterStore {
+    /** Test hook: redirect character files to a temp directory. */
+    private static volatile File charactersDirOverride;
+
     private CoopCharacterStore() {
     }
 
+    public static void setCharactersDirOverride(final File dir) {
+        charactersDirOverride = dir;
+    }
+
     public static File charactersDir() {
+        final File override = charactersDirOverride;
+        if (override != null) {
+            //noinspection ResultOfMethodCallIgnored
+            override.mkdirs();
+            return override;
+        }
         final File dir = new File(ForgeConstants.USER_ADVENTURE_DIR
                 + Config.instance().getPlane() + File.separator + "characters");
         //noinspection ResultOfMethodCallIgnored
