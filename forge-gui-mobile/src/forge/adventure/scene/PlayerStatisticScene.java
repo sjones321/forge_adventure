@@ -341,12 +341,13 @@ public class PlayerStatisticScene extends UIScene {
                 () -> Forge.switchScene(AchievementsScene.instance(lastGameScene), true));
         awards.setName("achievements");
         if (Forge.isLandscapeMode()) {
-            // Left of toggleAward (x=285); clear of blessingInfo (x=308..452, y=143..215).
-            awards.setBounds(228, 224, 54, 30);
-        } else {
-            // Portrait: tuck between skills (112) and return (190).
-            awards.setBounds(160, 440, 28, 30);
+            // Right of scrollWindow (ends x=271), left of blessingInfo (x=308), above nav (y=224).
+            awards.setBounds(273, 190, 34, 30);
             awards.setText("Awd");
+        } else {
+            // Portrait: above toggleAward / nav row — not between skills (112) and return (190).
+            awards.setBounds(5, 408, 55, 28);
+            awards.setText("Awards");
         }
         ui.addActor(awards);
         addToSelectable(awards);

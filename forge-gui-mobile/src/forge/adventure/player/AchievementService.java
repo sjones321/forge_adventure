@@ -1,11 +1,13 @@
 package forge.adventure.player;
 
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.utils.JsonReader;
 import com.badlogic.gdx.utils.JsonValue;
 import forge.adventure.data.AchievementConditionData;
 import forge.adventure.data.AchievementData;
 import forge.adventure.data.AchievementListData;
 import forge.adventure.data.ConfigData;
+import forge.adventure.data.RewardData;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.util.AtomicJsonFiles;
 import forge.adventure.util.Config;
@@ -13,6 +15,7 @@ import forge.card.CardEdition;
 import forge.deck.CardPool;
 import forge.item.PaperCard;
 import forge.model.FModel;
+import forge.gui.FThreads;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -340,22 +343,56 @@ public final class AchievementService {
     // ---- evaluation ----
 
     /**
-     * Incremental collection check after cards are added. Rebuilds nothing if
-     * {@code added} is empty; re-checks only affected reachable sets.
+     * Call on every player load and new game. Rebuilds {@code nameCounts} from
+     * this collection (so save A's cards never count for save B), invalidates
+     * the player-dependent reward filter, warms the reachable-set cache off the
+     * GL thread when possible, and evaluates already-complete sets once.
+     */
+    public synchronized List<String> onPlayerCollectionReady(CardPool collection) {
+        ensureLoaded();
+        RewardData.invalidateRewardFilterCache();
+        setTracker.invalidateReachable();
+        setTracker.rebuildNameCounts(collection);
+        precomputeReachableOffGlThread();
+        return evaluateCollection(collection);
+    }
+
+    /** Warm reachable Bellwarden sets without hitching the first card add / Awards open. */
+    private void precomputeReachableOffGlThread() {
+        final AchievementSetTracker tracker = setTracker;
+        Runnable warm = () -> {
+            try {
+                tracker.precomputeReachable();
+            } catch (Throwable ignored) {
+            }
+        };
+        try {
+            if (Gdx.app != null) {
+                FThreads.invokeInBackgroundThread(warm);
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+        warm.run();
+    }
+
+    /**
+     * Incremental collection check after cards are added. Re-checks only
+     * affected reachable sets. Does not rebuild the full name map when counts
+     * are already ready for this player.
      */
     public synchronized List<String> onCardsAdded(CardPool collection, Iterable<PaperCard> added) {
         ensureLoaded();
         if (collection == null) {
             return Collections.emptyList();
         }
-        if (setTracker.getNameCounts().isEmpty()) {
+        if (!setTracker.isNameCountsReady()) {
             setTracker.rebuildNameCounts(collection);
         } else {
             setTracker.applyAdds(added);
         }
         Set<String> affected = setTracker.affectedSets(added);
         if (affected.isEmpty() && added != null) {
-            // Still allow a no-op when nothing maps to a reachable set.
             return Collections.emptyList();
         }
         List<String> justCompleted = new ArrayList<>();
@@ -371,7 +408,24 @@ public final class AchievementService {
     }
 
     /**
-     * Full collection rebuild + set evaluation (rare; not for every screen open).
+     * After sell / salvage / auto-salvage / deck-loss removals: decrement
+     * nameCounts so selling the last copy un-owns the card. Does not revoke
+     * already-unlocked set achievements.
+     */
+    public synchronized void onCardsRemoved(Iterable<PaperCard> removed) {
+        ensureLoaded();
+        if (removed == null) {
+            return;
+        }
+        if (!setTracker.isNameCountsReady()) {
+            return;
+        }
+        setTracker.applyRemoves(removed);
+    }
+
+    /**
+     * Full collection rebuild + set evaluation (player load / rare full sync).
+     * Not for every Awards screen open.
      */
     public synchronized List<String> evaluateCollection(CardPool collection) {
         ensureLoaded();
@@ -623,18 +677,29 @@ public final class AchievementService {
     }
 
     private void emitToast(String msg) {
-        if (toastSink != null) {
-            toastSink.accept(msg);
-            return;
-        }
+        final String text = msg;
+        Runnable show = () -> {
+            if (toastSink != null) {
+                toastSink.accept(text);
+                return;
+            }
+            try {
+                GameHUD hud = GameHUD.getInstance();
+                if (hud != null) {
+                    hud.addNotification(text);
+                }
+            } catch (Throwable ignored) {
+                // HUD unavailable in tests / menus.
+            }
+        };
         try {
-            GameHUD hud = GameHUD.getInstance();
-            if (hud != null) {
-                hud.addNotification(msg);
+            if (Gdx.app != null) {
+                Gdx.app.postRunnable(show);
+                return;
             }
         } catch (Throwable ignored) {
-            // HUD unavailable in tests / menus.
         }
+        show.run();
     }
 
     /** Whether this achievement's toast has already fired this session. */

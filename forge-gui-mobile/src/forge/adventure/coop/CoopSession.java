@@ -127,10 +127,11 @@ public final class CoopSession {
     }
 
     /**
-     * AC1: bump the account-wide {@code coopSessions} counter when a co-op
-     * session becomes ready (host or guest). Local only — never sent on the wire.
+     * AC1: bump the account-wide {@code coopSessions} counter when a READY
+     * co-op session finishes (disconnect). Matches “Together” / finished-session
+     * wording. Local only — never sent on the wire.
      */
-    static void noteCoopSessionStarted() {
+    static void noteCoopSessionFinished() {
         try {
             if (!forge.adventure.util.Config.ascendant()) {
                 return;
@@ -486,6 +487,9 @@ public final class CoopSession {
     private void disconnectInternal(final String reason, final boolean restoreGuest) {
         final CoopSessionRole previousRole = role;
         final State previousState = state;
+        if (previousState == State.READY) {
+            noteCoopSessionFinished();
+        }
 
         final CoopOverworldClient c = client;
         client = null;
@@ -859,7 +863,6 @@ public final class CoopSession {
                 peerName = ((CoopSessionReadyEvent) event).getPeerName();
                 attachDuelRuntime();
                 status("Session ready with " + peerName);
-                noteCoopSessionStarted();
                 try {
                     CoopOverworldRuntime.get().onSessionReady();
                 } catch (final Exception ignored) {
@@ -1107,7 +1110,6 @@ public final class CoopSession {
             attachDuelRuntime();
             send(new CoopSessionReadyEvent(false, WorldSave.getCurrentSave().getPlayer().getName(), worldHash));
             status("Session ready with host " + hostName);
-            noteCoopSessionStarted();
             try {
                 CoopOverworldRuntime.get().onSessionReady();
             } catch (final Exception ignored) {

@@ -1,5 +1,6 @@
 package forge.adventure.player;
 
+import forge.StaticData;
 import forge.adventure.data.RewardData;
 import forge.card.CardEdition;
 import forge.deck.CardPool;
@@ -23,6 +24,9 @@ import java.util.Set;
  *
  * <p>"Every set" = Bellwarden booster sets that can host a generatable set plane
  * (enough reward-reachable main-list cards; matches MV2's {@code MIN_SET_POOL_SIZE}).
+ *
+ * <p>{@code nameCounts} is rebuilt on every player load / new game and adjusted on
+ * add and remove — never carried across saves.
  */
 public final class AchievementSetTracker {
     /** Same floor as MV2 {@code SetPlaneRules.MIN_SET_POOL_SIZE}. */
@@ -31,6 +35,7 @@ public final class AchievementSetTracker {
     private final Map<String, Set<String>> setNamesCache = new HashMap<>();
     private final Map<String, Integer> nameCounts = new HashMap<>();
     private List<String> reachableCache;
+    private boolean nameCountsReady;
 
     public AchievementSetTracker() {
     }
@@ -38,13 +43,18 @@ public final class AchievementSetTracker {
     public void clearCaches() {
         setNamesCache.clear();
         nameCounts.clear();
+        nameCountsReady = false;
         reachableCache = null;
     }
 
-    /** Invalidate reachable-set list (e.g. after card-DB / config change). */
+    /** Invalidate reachable-set list and per-set name caches (player / filter change). */
     public void invalidateReachable() {
         reachableCache = null;
         setNamesCache.clear();
+    }
+
+    public boolean isNameCountsReady() {
+        return nameCountsReady;
     }
 
     /**
@@ -61,11 +71,12 @@ public final class AchievementSetTracker {
         }
         LinkedHashSet<String> names = new LinkedHashSet<>();
         try {
-            if (FModel.getMagicDb() == null) {
+            StaticData db = magicDb();
+            if (db == null) {
                 setNamesCache.put(setCode, Collections.unmodifiableSet(names));
                 return setNamesCache.get(setCode);
             }
-            CardEdition ed = FModel.getMagicDb().getEditions().get(setCode);
+            CardEdition ed = db.getEditions().get(setCode);
             if (ed == null || ed.getCards() == null) {
                 setNamesCache.put(setCode, Collections.unmodifiableSet(names));
                 return setNamesCache.get(setCode);
@@ -84,6 +95,45 @@ public final class AchievementSetTracker {
         Set<String> frozen = Collections.unmodifiableSet(names);
         setNamesCache.put(setCode, frozen);
         return frozen;
+    }
+
+    /**
+     * All main-list names for a set with no reward filter (real-data assertions).
+     */
+    public static Set<String> rawMainListNames(String setCode) {
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        try {
+            StaticData db = magicDb();
+            if (db == null) {
+                return names;
+            }
+            CardEdition ed = db.getEditions().get(setCode);
+            if (ed == null || ed.getCards() == null) {
+                return names;
+            }
+            for (CardEdition.EditionEntry e : ed.getCards()) {
+                if (e != null && e.name() != null && !e.name().isEmpty()) {
+                    names.add(e.name());
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return names;
+    }
+
+    private static StaticData magicDb() {
+        try {
+            StaticData fromModel = FModel.getMagicDb();
+            if (fromModel != null) {
+                return fromModel;
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            return StaticData.instance();
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     /**
@@ -110,23 +160,30 @@ public final class AchievementSetTracker {
         return reachableCache;
     }
 
+    /** Warm the reachable-set cache (safe to call off the GL thread). */
+    public void precomputeReachable() {
+        reachableBellwardenSetCodes();
+    }
+
     /** Rebuild the name→count map from the full collection. */
     public void rebuildNameCounts(CardPool collection) {
         nameCounts.clear();
-        if (collection == null) {
-            return;
-        }
-        for (Map.Entry<PaperCard, Integer> e : collection) {
-            if (e.getKey() == null || e.getKey().getName() == null) {
-                continue;
+        if (collection != null) {
+            for (Map.Entry<PaperCard, Integer> e : collection) {
+                if (e.getKey() == null || e.getKey().getName() == null) {
+                    continue;
+                }
+                String name = e.getKey().getName();
+                int n = e.getValue() == null ? 0 : e.getValue();
+                if (n > 0) {
+                    nameCounts.merge(name, n, Integer::sum);
+                }
             }
-            String name = e.getKey().getName();
-            int n = e.getValue() == null ? 0 : e.getValue();
-            nameCounts.merge(name, n, Integer::sum);
         }
+        nameCountsReady = true;
     }
 
-    /** Apply adds to the name→count map (does not remove). */
+    /** Apply adds to the name→count map. */
     public void applyAdds(Iterable<PaperCard> added) {
         if (added == null) {
             return;
@@ -136,6 +193,43 @@ public final class AchievementSetTracker {
                 continue;
             }
             nameCounts.merge(pc.getName(), 1, Integer::sum);
+        }
+        nameCountsReady = true;
+    }
+
+    /** Apply removals; selling the last copy un-owns the card. */
+    public void applyRemoves(Iterable<PaperCard> removed) {
+        if (removed == null) {
+            return;
+        }
+        List<String> names = new ArrayList<>();
+        for (PaperCard pc : removed) {
+            if (pc != null && pc.getName() != null) {
+                names.add(pc.getName());
+            }
+        }
+        applyRemoveNames(names);
+    }
+
+    /** Decrement ownership by card name (one count per entry). */
+    public void applyRemoveNames(Iterable<String> names) {
+        if (names == null) {
+            return;
+        }
+        for (String name : names) {
+            if (name == null) {
+                continue;
+            }
+            Integer cur = nameCounts.get(name);
+            if (cur == null) {
+                continue;
+            }
+            int next = cur - 1;
+            if (next <= 0) {
+                nameCounts.remove(name);
+            } else {
+                nameCounts.put(name, next);
+            }
         }
     }
 
@@ -251,5 +345,6 @@ public final class AchievementSetTracker {
         } else {
             nameCounts.put(name, count);
         }
+        nameCountsReady = true;
     }
 }

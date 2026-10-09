@@ -332,6 +332,31 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
     }
 
+    /** AC1: keep nameCounts in sync when copies leave the collection. */
+    private void afterCardsRemoved(Iterable<PaperCard> removed) {
+        if (!Config.ascendant() || removed == null) {
+            return;
+        }
+        try {
+            AchievementService.get().onCardsRemoved(removed);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * AC1: rebuild ownership map for this save and evaluate already-complete sets.
+     * Call after load / new game so a previous save's cards never count.
+     */
+    private void notifyAchievementsCollectionReady() {
+        if (!Config.ascendant()) {
+            return;
+        }
+        try {
+            AchievementService.get().onPlayerCollectionReady(cards);
+        } catch (Throwable ignored) {
+        }
+    }
+
     public final ItemPool<PaperCard> newCards = new ItemPool<>(PaperCard.class);
     public final ItemPool<PaperCard> autoSellCards = new ItemPool<>(PaperCard.class);
     public final Set<PaperCard> favoriteCards = new HashSet<>();
@@ -568,6 +593,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         onGoldChangeList.emit();
         onLifeTotalChangeList.emit();
         onShardsChangeList.emit();
+        notifyAchievementsCollectionReady();
     }
 
     public void setSelectedDeckSlot(int slot) {
@@ -1816,6 +1842,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         onMaterialChangeList.emit();
         onGoldChangeList.emit();
         onBlessing.emit();
+        notifyAchievementsCollectionReady();
     }
 
     /**
@@ -3037,6 +3064,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             return 0;
         if(!cards.remove(card, amountToSell))
             return 0; //Failed to sell?
+        List<PaperCard> removed = new ArrayList<>(amountToSell);
+        for (int i = 0; i < amountToSell; i++)
+            removed.add(card);
+        afterCardsRemoved(removed);
         return cardSellPrice(card) * amountToSell;
     }
 
@@ -3109,6 +3140,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
         if (!cards.remove(card, toSalvage))
             return 0;
+        List<PaperCard> removed = new ArrayList<>(toSalvage);
+        for (int i = 0; i < toSalvage; i++)
+            removed.add(card);
+        afterCardsRemoved(removed);
         int autoMarked = Math.min(toSalvage, autoSellCards.count(card));
         if (autoMarked > 0)
             autoSellCards.remove(card, autoMarked);
@@ -4309,6 +4344,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             deck.getMain().remove(card, nToRemoveFromThisDeck);
         }
         Current.player().getCards().remove(card, 1);
+        afterCardsRemoved(Collections.singletonList(card));
     }
 
     public CardPool getCollectionCards(boolean allCards) {

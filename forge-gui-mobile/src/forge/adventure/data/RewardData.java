@@ -104,6 +104,23 @@ public class RewardData implements Serializable {
     private static Iterable<PaperCard> allCards;
     private static Iterable<PaperCard> allEnemyCards;
 
+    /** Cached restricted-names set (built with the filter list). */
+    private static Set<String> cachedRestrictedNames;
+    /** Combined adventure reward predicate; rebuilt when player / config changes. */
+    private static Predicate<PaperCard> cachedRewardFilter;
+    /** Whether the RemNonCommanderDecks clause was applied when the cache was built. */
+    private static boolean cachedFilterExcludesNonCommander;
+
+    /**
+     * Drop the cached reachability predicate (and card pool). Call when the
+     * player changes — {@code getRemNonCommanderDecks} is player-dependent —
+     * or when plane / settings that feed the filter change.
+     */
+    public static synchronized void invalidateRewardFilterCache() {
+        cachedRestrictedNames = null;
+        cachedRewardFilter = null;
+    }
+
     /**
      * Base Ascendant reward filters (restricted cards, obtainability / editions,
      * no-script / unsupported, alchemy, ante, custom adventure art). Does
@@ -111,8 +128,22 @@ public class RewardData implements Serializable {
      * reachability (AC1) and the shared card pool.
      */
     public static List<Predicate<PaperCard>> baseAdventureRewardFilters() {
-        ConfigData configData = Config.instance().getConfigData();
+        try {
+            return baseAdventureRewardFilters(Config.instance().getConfigData());
+        } catch (Throwable t) {
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Build the filter list from an explicit {@link ConfigData} (production via
+     * {@link #baseAdventureRewardFilters()}; tests pass Ascendant config JSON).
+     */
+    public static List<Predicate<PaperCard>> baseAdventureRewardFilters(ConfigData configData) {
         List<Predicate<PaperCard>> filters = new ArrayList<>();
+        if (configData == null) {
+            return filters;
+        }
 
         RewardData legals = configData.legalCards;
         if (legals != null)
@@ -126,11 +157,19 @@ public class RewardData implements Serializable {
         else
             filters.add(PaperCardPredicates.isObtainableAnyEdition());
 
-        if (Config.instance().getSettingData().excludeAlchemyVariants)
-            filters.add(PaperCardPredicates.IS_REBALANCED.negate());
+        try {
+            if (Config.instance() != null && Config.instance().getSettingData() != null
+                    && Config.instance().getSettingData().excludeAlchemyVariants)
+                filters.add(PaperCardPredicates.IS_REBALANCED.negate());
+        } catch (Throwable ignored) {
+        }
 
-        if (!FModel.getPreferences().getPrefBoolean(FPref.UI_ANTE))
-            filters.add(pc -> !pc.getRules().hasKeyword("Remove CARDNAME from your deck before playing if you're not playing for ante."));
+        try {
+            if (FModel.getPreferences() != null
+                    && !FModel.getPreferences().getPrefBoolean(FPref.UI_ANTE))
+                filters.add(pc -> !pc.getRules().hasKeyword("Remove CARDNAME from your deck before playing if you're not playing for ante."));
+        } catch (Throwable ignored) {
+        }
 
         try {
             if (AdventurePlayer.current() != null && !AdventurePlayer.current().hasCommanderDeck())
@@ -139,12 +178,13 @@ public class RewardData implements Serializable {
             // Headless / early boot: skip commander-deck filter.
         }
 
-        filters.add(pc -> !(pc.getRules().isCustom() && pc.getImageKey(false).startsWith(ImageKeys.ADVENTURECARD_PREFIX)));
+        filters.add(pc -> pc != null && pc.getRules() != null
+                && !(pc.getRules().isCustom() && pc.getImageKey(false).startsWith(ImageKeys.ADVENTURECARD_PREFIX)));
 
         // Ascendant restrictedCards + cards with no script (unsupported).
         Set<String> restrictedCards = configData.restrictedCards == null
                 ? Collections.emptySet()
-                : new HashSet<>(Arrays.asList(configData.restrictedCards));
+                : Collections.unmodifiableSet(new HashSet<>(Arrays.asList(configData.restrictedCards)));
         filters.add(pc -> pc != null && pc.getName() != null && !restrictedCards.contains(pc.getName()));
         filters.add(pc -> pc != null && pc.getRules() != null && !pc.getRules().isUnsupported());
 
@@ -152,15 +192,62 @@ public class RewardData implements Serializable {
     }
 
     /**
+     * Cached combined predicate (restricted-names set + filter list built once).
+     * Invalidate via {@link #invalidateRewardFilterCache()} when the player changes.
+     */
+    public static synchronized Predicate<PaperCard> adventureRewardFilter() {
+        boolean excludeNonCommander = false;
+        try {
+            excludeNonCommander = AdventurePlayer.current() != null
+                    && !AdventurePlayer.current().hasCommanderDeck();
+        } catch (Throwable ignored) {
+        }
+        if (cachedRewardFilter == null || cachedFilterExcludesNonCommander != excludeNonCommander) {
+            List<Predicate<PaperCard>> filters = baseAdventureRewardFilters();
+            ConfigData cfg = null;
+            try {
+                cfg = Config.instance().getConfigData();
+            } catch (Throwable ignored) {
+            }
+            cachedRestrictedNames = cfg == null || cfg.restrictedCards == null
+                    ? Collections.emptySet()
+                    : Collections.unmodifiableSet(new HashSet<>(Arrays.asList(cfg.restrictedCards)));
+            cachedRewardFilter = filters.isEmpty()
+                    ? pc -> false
+                    : IterableUtil.and(filters);
+            cachedFilterExcludesNonCommander = excludeNonCommander;
+        }
+        return cachedRewardFilter;
+    }
+
+    /** Restricted card names from the last {@link #adventureRewardFilter()} build. */
+    public static synchronized Set<String> cachedRestrictedCardNames() {
+        adventureRewardFilter();
+        return cachedRestrictedNames == null ? Collections.emptySet() : cachedRestrictedNames;
+    }
+
+    /**
+     * Install a prebuilt filter (real-data tests with Ascendant {@link ConfigData}).
+     */
+    public static synchronized void installRewardFilterForTest(Predicate<PaperCard> filter,
+                                                              Set<String> restrictedNames) {
+        cachedRewardFilter = filter == null ? pc -> false : filter;
+        cachedRestrictedNames = restrictedNames == null
+                ? Collections.emptySet()
+                : Collections.unmodifiableSet(new HashSet<>(restrictedNames));
+        cachedFilterExcludesNonCommander = false;
+    }
+
+    /**
      * True when a printing can appear in Ascendant player rewards (shops / loot /
-     * Spell Smith base pool). Reuses {@link #baseAdventureRewardFilters()}.
+     * Spell Smith base pool). Reuses {@link #adventureRewardFilter()}.
      */
     public static boolean isAdventureRewardReachable(PaperCard pc) {
         if (pc == null) {
             return false;
         }
         try {
-            return IterableUtil.and(baseAdventureRewardFilters()).test(pc);
+            return adventureRewardFilter().test(pc);
         } catch (Throwable t) {
             return false;
         }
@@ -179,7 +266,7 @@ public class RewardData implements Serializable {
             if (printings == null || printings.isEmpty()) {
                 return false;
             }
-            Predicate<PaperCard> filter = IterableUtil.and(baseAdventureRewardFilters());
+            Predicate<PaperCard> filter = adventureRewardFilter();
             for (PaperCard pc : printings) {
                 if (filter.test(pc)) {
                     return true;
@@ -192,11 +279,11 @@ public class RewardData implements Serializable {
     }
 
     static private void initializeAllCards() {
-        List<Predicate<PaperCard>> filters = baseAdventureRewardFilters();
+        Predicate<PaperCard> filter = adventureRewardFilter();
 
         // Filter out specific cards.
         List<PaperCard> basePool = CardUtil.getFullCardPool(false).stream()
-                .filter(IterableUtil.and(filters))
+                .filter(filter)
                 .collect(Collectors.toList());
 
         // Rotating Standard: shops, loot and Spell Smith only see the current window's sets plus this
@@ -224,6 +311,7 @@ public class RewardData implements Serializable {
 
     public static void invalidateCardPool() {
         allCards = null;
+        invalidateRewardFilterCache();
     }
 
     public Array<Reward> generate(boolean isForEnemy, boolean useSeedlessRandom) {
