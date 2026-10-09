@@ -72,6 +72,11 @@ public final class AdventureTestUserDir {
     public static void requireIsolatedUserDir() {
         final Path expected = configuredTestUserDir();
         assertConstantsUse(expected);
+        // LOG_FILE is what ExceptionHandler.registerErrorHandling / pruneForgeLogs use.
+        final Path logFile = Paths.get(ForgeConstants.LOG_FILE).toAbsolutePath().normalize();
+        Assert.assertTrue(logFile.startsWith(expected),
+                "LOG_FILE must be under forge.test.userDir: " + logFile + " vs " + expected
+                        + " (a prior init bound ForgeConstants to the real profile)");
     }
 
     /**
