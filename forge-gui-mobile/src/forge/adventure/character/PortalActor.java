@@ -135,18 +135,13 @@ public class PortalActor extends EntryActor {
             if (!save.getMultiverse().hasCompressedBlob(id)
                     && !id.equals(save.getMultiverse().getCurrentPlaneId())) {
                 final String planeIdFinal = id;
-                final String loadingMsg = Forge.getLocalizer() != null
-                        ? Forge.getLocalizer().getMessage("lblGeneratingWorld")
-                        : "Opening a portal…";
-                forge.adventure.world.SetPlaneLoading.runWithLoadingScreen(loadingMsg, () -> {
-                    try {
-                        save.materializeSetPlane(planeIdFinal);
-                        finishPortalTravel(planeIdFinal);
-                    } catch (Exception e) {
-                        notifyPortal("Could not create plane: "
-                                + (e.getMessage() != null ? e.getMessage() : "unknown error"));
-                    }
-                });
+                try {
+                    materializePlaneWithLoadingScreen(save, planeIdFinal,
+                            () -> finishPortalTravel(planeIdFinal));
+                } catch (Exception e) {
+                    notifyPortal("Could not create plane: "
+                            + (e.getMessage() != null ? e.getMessage() : "unknown error"));
+                }
                 return true;
             }
             return finishPortalTravel(id);
@@ -154,6 +149,61 @@ public class PortalActor extends EntryActor {
             notifyPortal("Portal failed: " + (e.getMessage() != null ? e.getMessage() : "unknown error"));
             return false;
         }
+    }
+
+    /**
+     * Loading screen + {@link WorldSave#materializeSetPlane} — same path portal travel uses.
+     *
+     * @param afterMaterialize optional work after a successful materialize (still inside the loading runnable)
+     * @return whether a loading screen was requested
+     */
+    public static boolean materializePlaneWithLoadingScreen(WorldSave save, String planeId,
+                                                            Runnable afterMaterialize) {
+        if (save == null || planeId == null || planeId.isEmpty()) {
+            return false;
+        }
+        return materializePlaneWithLoadingScreen(() -> {
+            save.materializeSetPlane(planeId);
+            if (afterMaterialize != null) {
+                afterMaterialize.run();
+            }
+        });
+    }
+
+    /**
+     * Portal loading-screen wrapper around materialize work. Production passes
+     * {@code () -> save.materializeSetPlane(id)}; tests inject a stand-in when
+     * {@link WorldSave} cannot initialize headless.
+     */
+    public static boolean materializePlaneWithLoadingScreen(Runnable materializeWork) {
+        if (materializeWork == null) {
+            return false;
+        }
+        String loadingMsg = "Opening a portal…";
+        try {
+            if (Forge.getLocalizer() != null) {
+                final String localized = Forge.getLocalizer().getMessage("lblGeneratingWorld");
+                if (localized != null && !localized.isEmpty()) {
+                    loadingMsg = localized;
+                }
+            }
+        } catch (Throwable ignored) {
+            // Headless / missing bundle
+        }
+        final String msg = loadingMsg;
+        final Exception[] failure = new Exception[1];
+        final boolean shown = forge.adventure.world.SetPlaneLoading.runWithLoadingScreen(msg, () -> {
+            try {
+                materializeWork.run();
+            } catch (Exception e) {
+                failure[0] = e;
+            }
+        });
+        if (failure[0] != null) {
+            throw new IllegalStateException(failure[0].getMessage() != null
+                    ? failure[0].getMessage() : "materializeSetPlane failed", failure[0]);
+        }
+        return shown;
     }
 
     /**

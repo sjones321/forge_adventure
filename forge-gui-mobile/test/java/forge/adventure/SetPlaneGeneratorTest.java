@@ -25,6 +25,7 @@ import forge.adventure.world.SetPlaneGenerator;
 import forge.adventure.world.SetPlaneLoading;
 import forge.adventure.world.SetPlaneRules;
 import forge.adventure.world.World;
+import forge.adventure.world.WorldSave;
 import forge.deck.Deck;
 import forge.item.PaperCard;
 import forge.util.MyRandom;
@@ -637,108 +638,112 @@ public class SetPlaneGeneratorTest {
     }
 
     @Test
-    public void hostMaterializeHashMatchesGuestRebuild_setPlaneWithGates() {
-        // Host materializeSetPlane → buildSetPlaneWorld(placeGates=true) returns pre-gate
-        // co-op hash; guest rebuildFromSeed must match that hash (gates stay out of hash).
+    public void hostLiveSetPlaneHashMatchesGuestGateReplay() {
+        // Round 5: host live world (after save/load) vs guest rebuild + host gate list.
+        // Intentional test grid (not a catch fallback). Non-zero terrain so clears matter.
         long seed = 0xC0FFEE42L;
         String setCode = "TST";
-        String planeId = SetPlaneGenerator.planeIdForSet(setCode);
-        String path = "world/set_plane_world.json";
+        float gateX = 20f * 16f;
+        float gateY = 22f * 16f;
 
         PointOfInterestData.clearRuntimeCacheForTests();
         SetPlaneGenerator.ensurePlanarGateRegistered();
 
-        World host = new World();
-        String hostCoopHash;
-        boolean usedFullGenerate = false;
-        try {
-            hostCoopHash = CoopWorldSync.buildSetPlaneWorld(host, seed, path, setCode, true);
-            usedFullGenerate = host.getBiomeMap() != null && host.terrainMap != null;
-        } catch (Throwable t) {
-            hostCoopHash = null;
-        }
-
-        if (!usedFullGenerate) {
-            // Headless: simulate host post-generate with NON-ZERO terrain so clears matter.
-            host.installTestWorldGrid(grid48());
-            fillTerrain(host, 0x5A5A5A5A);
-            hostCoopHash = CoopWorldSync.hashWorld(host);
-            int placed = PlanarPortalPlacer.ensureReturnPortal(host, setCode, seed);
-            Assert.assertTrue(placed > 0, "host materialize must place a return gate");
-        }
-
-        String hostLiveHash = CoopWorldSync.hashWorld(host);
-        Assert.assertNotEquals(hostCoopHash, hostLiveHash,
+        World hostBuilt = new World();
+        hostBuilt.installTestWorldGrid(grid48(), seed);
+        fillTerrain(hostBuilt, 0x5A5A5A5A);
+        String beforeGates = CoopWorldSync.hashWorld(hostBuilt);
+        Assert.assertTrue(PlanarPortalPlacer.placeGateAt(hostBuilt, "", gateX, gateY),
+                "host must place return gate to home");
+        String hostLiveBeforeSave = CoopWorldSync.hashWorld(hostBuilt);
+        Assert.assertNotEquals(beforeGates, hostLiveBeforeSave,
                 "gate terrain clear must change hash — would pass on all-zero terrain otherwise");
 
-        // Guest rebuild (gate-free) matches host co-op / pre-gate hash.
-        World guest = new World();
-        String guestHash;
-        try {
-            guestHash = CoopWorldSync.rebuildFromSeed(guest, seed, path, planeId, setCode);
-            if (guest.getBiomeMap() == null) {
-                throw new IllegalStateException("no biome");
-            }
-        } catch (Throwable t) {
-            guest.installTestWorldGrid(grid48());
-            fillTerrain(guest, 0x5A5A5A5A);
-            guestHash = CoopWorldSync.hashWorld(guest);
-        }
-        Assert.assertEquals(guestHash, hostCoopHash,
-                "guest rebuildFromSeed must match host materialize pre-gate hash");
+        // Real save/load of hashable state (live host after load).
+        SaveFileData saved = hostBuilt.saveHashableStateForTest();
+        World host = new World();
+        host.installTestWorldGrid(grid48(), seed);
+        host.restoreHashableStateFromSave(saved);
+        String hostLiveHash = CoopWorldSync.hashWorld(host);
+        Assert.assertEquals(hostLiveHash, hostLiveBeforeSave);
+        forge.gamemodes.net.event.coop.CoopPlanarGateEntry[] gates =
+                CoopWorldSync.collectPlanarGates(host);
+        Assert.assertTrue(gates.length >= 1, "host must send at least the return gate");
 
-        // If guest wrongly applied gates before hashing, it would match the live host instead.
-        Assert.assertNotEquals(guestHash, hostLiveHash);
+        // Guest: same pre-gate base, then REAL applyHostGates path (never own Standard window).
+        World guest = new World();
+        guest.installTestWorldGrid(grid48(), seed);
+        fillTerrain(guest, 0x5A5A5A5A);
+        CoopWorldSync.applyHostGates(guest, gates);
+        Assert.assertEquals(CoopWorldSync.hashWorld(guest), hostLiveHash,
+                "guest gate replay must match host live hash");
+
+        // Must FAIL if fix reverted (guest places its own gate at a different spot).
+        World wrong = new World();
+        wrong.installTestWorldGrid(grid48(), seed);
+        fillTerrain(wrong, 0x5A5A5A5A);
+        Assert.assertTrue(PlanarPortalPlacer.placeGateAt(wrong, "", gateX + 64f, gateY + 64f));
+        Assert.assertNotEquals(CoopWorldSync.hashWorld(wrong), hostLiveHash,
+                "own gate placement at a different spot must not match host");
+
+        // Wire: offer carries gates + live hash.
+        forge.gamemodes.net.event.coop.CoopWorldOfferEvent offer =
+                new forge.gamemodes.net.event.coop.CoopWorldOfferEvent(
+                        "Host", "Shandalar Ascendant", "cfg", seed, hostLiveHash,
+                        1, 2, SetPlaneGenerator.planeIdForSet(setCode),
+                        "world/set_plane_world.json", setCode, gates);
+        Assert.assertEquals(offer.getWorldHash(), hostLiveHash);
+        Assert.assertEquals(offer.getGates().length, gates.length);
     }
 
     @Test
-    public void hostHomeWithGatesHashMatchesGuestRebuild() {
-        // Home join: host has window gates that clear terrain; guest hash must ignore gates.
+    public void hostLiveHomeHashMatchesGuestGateReplay() {
+        // Home join: host gates clear terrain; guest must replay host list exactly.
         long seed = 0xBEEF01L;
+        float gateX = 18f * 16f;
+        float gateY = 26f * 16f;
         PointOfInterestData.clearRuntimeCacheForTests();
         SetPlaneGenerator.ensurePlanarGateRegistered();
 
-        World host = new World();
-        host.installTestWorldGrid(grid48());
-        fillTerrain(host, 0x3C3C3C3C);
-        String beforeGates = CoopWorldSync.hashWorld(host);
-
-        // Place a home gate (clears non-zero terrain → hash changes).
-        int placed = PlanarPortalPlacer.ensureReturnPortal(host, "HOME", seed);
-        // ensureReturnPortal targets home from a set plane; for home markers use ensureHomePortals
-        // with a synthetic pending gate via MultiverseState.
-        if (placed <= 0) {
-            MultiverseState multi = new MultiverseState();
-            multi.initHomeFromLive(seed, 0f, 0f);
-            multi.rememberPendingHomeGate(SetPlaneGenerator.planeIdForSet("BRO"));
-            StandardWindow window = new StandardWindow();
-            // Force a gate via pending list even when editions are unknown.
-            placed = PlanarPortalPlacer.ensureHomePortals(host, window, seed, multi);
-        }
-        if (placed <= 0) {
-            // Last resort: clear a known spot so the assertion is meaningful.
-            float cx = 24f * 16f;
-            float cy = 24f * 16f;
-            host.clearTerrainAroundWorld(cx, cy, 3);
-            PointOfInterestData gate = PointOfInterestData.getPointOfInterest("PlanarGate");
-            PointOfInterest poi = poiAt(gate, cx, cy);
-            poi.setTargetPlane(SetPlaneGenerator.planeIdForSet("BRO"));
-            host.addPointOfInterest(poi);
-            placed = 1;
-        }
-        Assert.assertTrue(placed > 0);
-        String afterGates = CoopWorldSync.hashWorld(host);
-        Assert.assertNotEquals(beforeGates, afterGates,
+        World hostBuilt = new World();
+        hostBuilt.installTestWorldGrid(grid48(), seed);
+        fillTerrain(hostBuilt, 0x3C3C3C3C);
+        String beforeGates = CoopWorldSync.hashWorld(hostBuilt);
+        Assert.assertTrue(PlanarPortalPlacer.placeGateAt(hostBuilt, "BRO", gateX, gateY));
+        Assert.assertNotEquals(beforeGates, CoopWorldSync.hashWorld(hostBuilt),
                 "home gate terrain clear must change hash");
 
-        // Guest rebuild = gate-free regenerate / same pre-gate world.
+        SaveFileData saved = hostBuilt.saveHashableStateForTest();
+        World host = new World();
+        host.installTestWorldGrid(grid48(), seed);
+        host.restoreHashableStateFromSave(saved);
+        String hostLiveHash = CoopWorldSync.hashWorld(host);
+        forge.gamemodes.net.event.coop.CoopPlanarGateEntry[] gates =
+                CoopWorldSync.collectPlanarGates(host);
+        Assert.assertEquals(gates.length, 1);
+        Assert.assertEquals(gates[0].getSetCode(), "BRO");
+
         World guest = new World();
-        guest.installTestWorldGrid(grid48());
+        guest.installTestWorldGrid(grid48(), seed);
         fillTerrain(guest, 0x3C3C3C3C);
-        String guestHash = CoopWorldSync.hashWorld(guest);
-        Assert.assertEquals(guestHash, beforeGates,
-                "guest home rebuild (no gates) must match host pre-gate hash");
-        Assert.assertNotEquals(guestHash, afterGates);
+        CoopWorldSync.applyHostGates(guest, gates);
+        Assert.assertEquals(CoopWorldSync.hashWorld(guest), hostLiveHash,
+                "guest home gate replay must match host live hash");
+
+        // Reverted fix: guest computes its own pending gate (different position) → mismatch.
+        World ownWindow = new World();
+        ownWindow.installTestWorldGrid(grid48(), seed);
+        fillTerrain(ownWindow, 0x3C3C3C3C);
+        MultiverseState multi = new MultiverseState();
+        multi.initHomeFromLive(seed, 0f, 0f);
+        multi.rememberPendingHomeGate(SetPlaneGenerator.planeIdForSet("BRO"));
+        PlanarPortalPlacer.ensureHomePortals(ownWindow, new StandardWindow(), seed, multi);
+        // If placer found a free spot, it won't be the host's exact (gateX,gateY) ring slot 0.
+        if (PlanarPortalPlacer.existingPortalTargets(ownWindow).contains(
+                SetPlaneGenerator.planeIdForSet("BRO"))) {
+            Assert.assertNotEquals(CoopWorldSync.hashWorld(ownWindow), hostLiveHash,
+                    "guest-computed home gate must not match host live hash");
+        }
     }
 
     @Test
@@ -746,7 +751,7 @@ public class SetPlaneGeneratorTest {
         // Older saves: empty mv2SetCode → guest must not apply SetPlaneGenerator mix.
         long seed = 7L;
         World a = new World();
-        a.installTestWorldGrid(grid48());
+        a.installTestWorldGrid(grid48(), seed);
         fillTerrain(a, 0x11111111);
         String ha = CoopWorldSync.hashWorld(a);
         CoopWorldSync.applyMv2Customization(a, seed, "");
@@ -759,24 +764,38 @@ public class SetPlaneGeneratorTest {
                         1, 2, "set_dmu", "world/set_plane_world.json", "");
         Assert.assertEquals(offer.getMv2SetCode(), "");
         Assert.assertEquals(offer.getWorldPlaneId(), "set_dmu");
+        Assert.assertEquals(offer.getGates().length, 0);
     }
 
     @Test
-    public void materializeShowsLoadingScreenDuringGeneration() {
+    public void materializeShowsLoadingScreenViaPortalActor() {
+        // Must go through PortalActor's loading wrapper (same path as materializeSetPlane travel).
+        // WorldSave cannot initialize headless (ForgeConstants), so inject the materialize work
+        // the production overload wraps: () -> save.materializeSetPlane(id).
         try {
             SetPlaneLoading.clearTestHook();
-            AtomicBoolean workRan = new AtomicBoolean(false);
+            AtomicBoolean materializeEntered = new AtomicBoolean(false);
             SetPlaneLoading.setTestHook((msg, work) -> {
                 Assert.assertNotNull(msg);
                 Assert.assertFalse(msg.isEmpty());
                 work.run();
             });
-            boolean shown = SetPlaneLoading.runWithLoadingScreen("Generating world…",
-                    () -> workRan.set(true));
-            Assert.assertTrue(shown, "loading screen should be requested");
-            Assert.assertTrue(workRan.get(), "generation work must run");
+            boolean shown = PortalActor.materializePlaneWithLoadingScreen(() -> {
+                // Stand-in for WorldSave.materializeSetPlane — proves PortalActor runs work
+                // inside SetPlaneLoading (production overload calls materializeSetPlane here).
+                materializeEntered.set(true);
+            });
+            Assert.assertTrue(shown, "PortalActor must request a loading screen");
             Assert.assertTrue(SetPlaneLoading.wasLoadingScreenRequested());
-            Assert.assertEquals(SetPlaneLoading.lastLoadingMessage(), "Generating world…");
+            Assert.assertTrue(materializeEntered.get(),
+                    "loading runnable must invoke materialize work");
+            Assert.assertEquals(SetPlaneLoading.lastLoadingMessage(), "Opening a portal…");
+            // Production overload that binds WorldSave.materializeSetPlane must exist.
+            Assert.assertNotNull(PortalActor.class.getMethod("materializePlaneWithLoadingScreen",
+                    WorldSave.class, String.class, Runnable.class));
+        } catch (NoSuchMethodException e) {
+            Assert.fail("missing PortalActor.materializePlaneWithLoadingScreen(WorldSave,…): "
+                    + e.getMessage());
         } finally {
             SetPlaneLoading.clearTestHook();
         }

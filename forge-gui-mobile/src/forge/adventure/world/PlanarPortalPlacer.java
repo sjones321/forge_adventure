@@ -98,6 +98,9 @@ public final class PlanarPortalPlacer {
             }
             placed++;
         }
+        if (placed > 0) {
+            notifyCoopHashRefresh();
+        }
         return placed;
     }
 
@@ -126,7 +129,57 @@ public final class PlanarPortalPlacer {
         poi.setTargetPlane(PlaneMeta.HOME_ID);
         world.addPointOfInterest(poi);
         world.clearTerrainAroundWorld(pos.x, pos.y, 3);
+        notifyCoopHashRefresh();
         return 1;
+    }
+
+    /**
+     * Place a Planar Gate at an exact world position (co-op guest replay / tests).
+     * {@code setCode} empty → target home. Clears terrain at the spot. Idempotent
+     * per destination target.
+     *
+     * @return true when a new gate was placed
+     */
+    public static boolean placeGateAt(World world, String setCode, float x, float y) {
+        if (world == null || !ascendantGatesEnabled()) {
+            return false;
+        }
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+        PointOfInterestData template = PointOfInterestData.getPointOfInterest(SetPlaneGenerator.PLANAR_GATE_POI);
+        if (template == null) {
+            return false;
+        }
+        final String planeId = (setCode == null || setCode.isEmpty())
+                ? PlaneMeta.HOME_ID
+                : SetPlaneGenerator.planeIdForSet(setCode);
+        if (existingPortalTargets(world).contains(planeId)) {
+            return false;
+        }
+        String display = "Planar Gate";
+        if (PlaneMeta.HOME_ID.equals(planeId)) {
+            display = "Portal to Home";
+        } else if (setCode != null && !setCode.isEmpty()) {
+            display = "Portal to " + SetPlaneGenerator.displayNameForSet(setCode);
+        }
+        PointOfInterestData gate = copyGate(template, planeId, display);
+        // Deterministic sprite pick from position so guest POI geometry matches host.
+        Random rng = new Random((((long) Float.floatToIntBits(x)) << 32)
+                ^ Float.floatToIntBits(y) ^ planeId.hashCode());
+        PointOfInterest poi = new PointOfInterest(gate, new Vector2(x, y), rng);
+        poi.setDisplayName(display);
+        poi.setTargetPlane(planeId);
+        world.addPointOfInterest(poi);
+        world.clearTerrainAroundWorld(x, y, 3);
+        return true;
+    }
+
+    /** After host gate placement: refresh co-op live-world hash if hosting. */
+    private static void notifyCoopHashRefresh() {
+        try {
+            forge.adventure.coop.CoopSession.get().refreshHostLiveWorldHash();
+        } catch (Throwable ignored) {
+            // Co-op optional / headless
+        }
     }
 
     /**

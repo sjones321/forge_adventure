@@ -177,6 +177,11 @@ public class WorldSave {
                     } catch (Exception ignored) {
                         // Gate placement must not block load.
                     }
+                    // H1: cache live co-op hash after plane load + gates.
+                    try {
+                        forge.adventure.coop.CoopSession.get().refreshHostLiveWorldHash();
+                    } catch (Exception ignored) {
+                    }
                 } else {
                     currentSave.multiverse.initHomeFromLive(
                             currentSave.world.getSeed(),
@@ -588,7 +593,7 @@ public class WorldSave {
         if (!PlaneConfigPaths.isAllowed(template, multiverse)) {
             throw new IllegalStateException("Disallowed set-plane template: " + template);
         }
-        String setCode = SetPlaneGenerator.setCodeFromPlaneId(planeId);
+        String setCode = SetPlaneRules.restrictableSetCode(SetPlaneGenerator.setCodeFromPlaneId(planeId));
         String label = displayName != null && !displayName.isEmpty()
                 ? displayName
                 : (setCode.isEmpty() ? planeId : SetPlaneGenerator.displayNameForSet(setCode));
@@ -597,9 +602,8 @@ public class WorldSave {
             seed = world.getSeed() ^ ((long) setCode.hashCode() << 32) ^ planeId.hashCode();
         }
         PlaneMeta meta = multiverse.registerSetPlane(planeId, seed, template, label);
-        if (!setCode.isEmpty()) {
-            meta.setSetCode(setCode);
-        }
+        // M1: stamp known editions only (clear otherwise).
+        meta.setSetCode(setCode);
         if (!materializeNow) {
             return meta;
         }
@@ -652,10 +656,9 @@ public class WorldSave {
                 : (world.getSeed() ^ ((long) planeId.hashCode() << 32));
 
         // Temporary World — must not touch the live stage. Caller must be on GL thread.
-        // Co-op hash uses the pre-gate world; gates are placed after for gameplay only.
+        // Live co-op hash includes gates; guest replays the host gate list.
         World generated = new World();
-        final String mv2Code = (setCode != null && !setCode.isEmpty()
-                && SetPlaneRules.isKnownEdition(setCode)) ? setCode : "";
+        final String mv2Code = SetPlaneRules.restrictableSetCode(setCode);
         try {
             forge.adventure.coop.CoopWorldSync.buildSetPlaneWorld(
                     generated, seed, template, mv2Code, true);
@@ -664,10 +667,8 @@ public class WorldSave {
             throw new IllegalStateException("Failed to generate set plane " + planeId
                     + ": " + e.getMessage(), e);
         }
-        // Stamp setCode only when MV2 customisation actually ran (pre-MV2 stays empty).
-        if (!mv2Code.isEmpty()) {
-            meta.setSetCode(mv2Code);
-        }
+        // M1: stamp only when MV2 customisation ran; clear when skipped (unknown/pre-MV2).
+        meta.setSetCode(mv2Code);
         meta.setSeed(generated.getSeed());
         float startX = (float) (generated.getData().playerStartPosX * generated.getData().width
                 * generated.getTileSize());
@@ -876,6 +877,11 @@ public class WorldSave {
                 PlanarPortalPlacer.ensureMissingGatesOnLoad(this);
             } catch (Exception ignored) {
                 // Gate placement must not fail the switch.
+            }
+            // H1: cache live hash after load/switch + gate ensure (GL path).
+            try {
+                forge.adventure.coop.CoopSession.get().refreshHostLiveWorldHash();
+            } catch (Exception ignored) {
             }
             onLoadList.emit();
             enterGameSceneOnceAfterSwitch();

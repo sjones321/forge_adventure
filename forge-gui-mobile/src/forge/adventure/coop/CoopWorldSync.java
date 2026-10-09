@@ -1,38 +1,48 @@
 package forge.adventure.coop;
 
-import forge.Forge;
+import com.badlogic.gdx.math.Vector2;
+import forge.adventure.data.PointOfInterestData;
 import forge.adventure.data.WorldData;
-import forge.adventure.player.StandardWindow;
+import forge.adventure.pointofintrest.PointOfInterest;
 import forge.adventure.util.Config;
 import forge.adventure.util.Paths;
-import forge.adventure.world.MultiverseState;
 import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.PlanarPortalPlacer;
 import forge.adventure.world.SetPlaneGenerator;
+import forge.adventure.world.SetPlaneRules;
 import forge.adventure.world.World;
 import forge.adventure.world.WorldSave;
 import forge.gamemodes.net.coop.CoopVersion;
 import forge.gamemodes.net.coop.CoopWorldHash;
+import forge.gamemodes.net.event.coop.CoopPlanarGateEntry;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * Guest rebuilds the host world from seed + plane config into a dedicated
- * session {@link World}, then verifies a hash. On mismatch the session refuses
+ * session {@link World}, replays the host's planar-gate list, then verifies a
+ * hash against the host's <em>live</em> world. On mismatch the session refuses
  * — there is no world-blob fallback.
  *
  * <p>{@link World#generateNew} / {@link World#load} must be called on the GL
  * thread (see {@link CoopSession}).
  *
- * <p><strong>MV2 co-op hashing:</strong> planar-gate placement clears terrain, so
- * gates are kept <em>out</em> of the hashed world. Host and guest both hash a
- * gate-free rebuild ({@link #rebuildFromSeed}). After the hash matches, the guest
- * places gates locally for gameplay ({@link #applyGatesAfterCoopHash}). This is
- * consistent for home (window gates) and set planes (return portal).
+ * <p><strong>MV2 co-op hashing:</strong> the host hashes its live world on the
+ * GL thread (including gate terrain clears) and sends that hash plus an exact,
+ * capped gate list. The guest regenerates from seed, applies the host's gates
+ * at the host's positions (never computing its own Standard window), then
+ * hashes. Matching proves guest == host.
  *
  * <p>MV2 customisation runs only when the host sends a non-empty
- * {@code mv2SetCode} (stamped on {@link PlaneMeta} at materialize). Pre-MV2 set
- * planes with empty setCode rebuild as plain template worlds.
+ * {@code mv2SetCode} (stamped on {@link PlaneMeta} at materialize for known
+ * editions only). Pre-MV2 / unknown set codes rebuild as plain template worlds.
  */
 public final class CoopWorldSync {
+    /** Soft cap on planar gates shipped on the wire (Standard window + pending + return). */
+    public static final int MAX_PLANAR_GATES_ON_WIRE = 64;
+
     private CoopWorldSync() {
     }
 
@@ -72,72 +82,137 @@ public final class CoopWorldSync {
     }
 
     /**
-     * Host: hash the current plane the same way the guest will rebuild it —
-     * gate-free staging regenerate. Never hash the live world (gates may have
-     * cleared terrain).
+     * Host: hash the <em>live</em> world on the GL thread. Does not regenerate.
+     * Call after plane load/switch and after any gate change; send the same hash
+     * the guest will compare against after replaying {@link #collectPlanarGates}.
      */
     public static String hashPlaneForOffer(final WorldSave save) {
         if (save == null || save.getWorld() == null) {
             return hashWorld(null);
         }
-        final World staging = new World();
-        try {
-            final PlaneMeta meta = save.getMultiverse().getCurrentMeta();
-            final String planeId = save.getCurrentPlaneId();
-            final String path = save.getWorld().getWorldConfigPath();
-            final long seed = save.getWorld().getSeed();
-            final String mv2SetCode = meta != null ? meta.getSetCode() : "";
-            return rebuildFromSeed(staging, seed, path, planeId, mv2SetCode);
-        } finally {
-            Forge.safeDispose(staging);
-        }
+        return hashWorld(save.getWorld());
     }
 
-    /** Regenerate into a dedicated session {@link World}. Call on the GL thread. */
+    /**
+     * Host-stamped MV2 set code for the wire: known editions only (same filter as
+     * materialize / registration). Empty for home, pre-MV2, or unknown codes.
+     */
+    public static String hostMv2SetCode(final WorldSave save) {
+        if (save == null || save.getMultiverse() == null) {
+            return "";
+        }
+        final PlaneMeta meta = save.getMultiverse().getCurrentMeta();
+        if (meta == null) {
+            return "";
+        }
+        return SetPlaneRules.restrictableSetCode(meta.getSetCode());
+    }
+
+    /**
+     * Collect planar gates / legacy return portals from the live world for the wire.
+     * Each entry is destination set code (empty = home) plus world position. Capped.
+     */
+    public static CoopPlanarGateEntry[] collectPlanarGates(final World world) {
+        if (world == null) {
+            return new CoopPlanarGateEntry[0];
+        }
+        final List<CoopPlanarGateEntry> list = new ArrayList<>();
+        for (final PointOfInterest poi : world.getAllPointOfInterest()) {
+            if (poi == null) {
+                continue;
+            }
+            final String target = poi.getTargetPlane();
+            if (target == null || target.isEmpty()) {
+                continue;
+            }
+            // PlanarGate POIs and any legacy portal POI that carries a targetPlane.
+            final PointOfInterestData d = poi.getData();
+            final boolean isGate = d != null && (SetPlaneGenerator.PLANAR_GATE_POI.equals(d.name)
+                    || "planar_gate".equals(d.type));
+            final boolean legacyReturn = !isGate && (PlaneMeta.HOME_ID.equalsIgnoreCase(target)
+                    || SetPlaneGenerator.setCodeFromPlaneId(target).length() > 0);
+            if (!isGate && !legacyReturn) {
+                continue;
+            }
+            final String setCode = PlaneMeta.HOME_ID.equalsIgnoreCase(target)
+                    ? ""
+                    : SetPlaneGenerator.setCodeFromPlaneId(target);
+            final Vector2 pos = poi.getPosition() != null ? poi.getPosition() : poi.getCenter();
+            if (pos == null) {
+                continue;
+            }
+            list.add(new CoopPlanarGateEntry(setCode, pos.x, pos.y));
+            if (list.size() >= MAX_PLANAR_GATES_ON_WIRE) {
+                break;
+            }
+        }
+        list.sort(Comparator
+                .comparing(CoopPlanarGateEntry::getSetCode)
+                .thenComparingDouble(CoopPlanarGateEntry::getX)
+                .thenComparingDouble(CoopPlanarGateEntry::getY));
+        return list.toArray(new CoopPlanarGateEntry[0]);
+    }
+
+    /**
+     * Guest: place the host's gates at exact positions and clear terrain there.
+     * Never consults the guest's Standard window.
+     */
+    public static int applyHostGates(final World target, final CoopPlanarGateEntry[] gates) {
+        if (target == null || gates == null || gates.length == 0) {
+            return 0;
+        }
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+        int placed = 0;
+        final int limit = Math.min(gates.length, MAX_PLANAR_GATES_ON_WIRE);
+        for (int i = 0; i < limit; i++) {
+            final CoopPlanarGateEntry g = gates[i];
+            if (g == null) {
+                continue;
+            }
+            if (PlanarPortalPlacer.placeGateAt(target, g.getSetCode(), g.getX(), g.getY())) {
+                placed++;
+            }
+        }
+        return placed;
+    }
+
+    /**
+     * Rebuild for co-op hash verification: generate from seed (+ optional MV2
+     * customisation), replay host gates, return the live-equivalent hash.
+     */
     public static String rebuildFromSeed(final World target, final long seed) {
-        return rebuildFromSeed(target, seed, Paths.WORLD, null, "");
+        return rebuildFromSeed(target, seed, Paths.WORLD, null, "", null);
     }
 
     public static String rebuildFromSeed(final World target, final long seed, final String worldConfigPath) {
-        return rebuildFromSeed(target, seed, worldConfigPath, null, "");
+        return rebuildFromSeed(target, seed, worldConfigPath, null, "", null);
     }
 
-    /**
-     * @deprecated use {@link #rebuildFromSeed(World, long, String, String, String)}
-     * with an explicit {@code mv2SetCode} (empty for home / pre-MV2).
-     */
-    @Deprecated
-    public static String rebuildFromSeed(final World target, final long seed,
-                                         final String worldConfigPath, final String worldPlaneId) {
-        // Legacy: infer set code from plane id only for known editions — prefer explicit mv2SetCode.
-        final String inferred = worldPlaneId != null
-                ? SetPlaneGenerator.setCodeFromPlaneId(worldPlaneId) : "";
-        return rebuildFromSeed(target, seed, worldConfigPath, worldPlaneId, inferred);
-    }
-
-    /**
-     * Rebuild for co-op hash verification. Applies MV2 set customisation only when
-     * {@code mv2SetCode} is non-empty (host-authoritative). Does <strong>not</strong>
-     * place planar gates — those stay out of the hashed terrain.
-     */
     public static String rebuildFromSeed(final World target, final long seed,
                                          final String worldConfigPath, final String worldPlaneId,
                                          final String mv2SetCode) {
+        return rebuildFromSeed(target, seed, worldConfigPath, worldPlaneId, mv2SetCode, null);
+    }
+
+    public static String rebuildFromSeed(final World target, final long seed,
+                                         final String worldConfigPath, final String worldPlaneId,
+                                         final String mv2SetCode, final CoopPlanarGateEntry[] gates) {
         if (target == null) {
             throw new IllegalArgumentException("target world required");
         }
         final String path = worldConfigPath != null && !worldConfigPath.isEmpty()
                 ? worldConfigPath : Paths.WORLD;
-        generateHashedContent(target, seed, path, mv2SetCode);
+        generateBaseContent(target, seed, path, mv2SetCode);
+        applyHostGates(target, gates);
         return hashWorld(target);
     }
 
     /**
-     * Shared host/guest generation for the co-op hash (no gates).
+     * Shared host materialize / guest generate: world grid + optional MV2 mix, no gates.
      * {@code mv2SetCode} empty → plain template (home or pre-MV2 set plane).
      */
-    public static void generateHashedContent(final World target, final long seed,
-                                             final String worldConfigPath, final String mv2SetCode) {
+    public static void generateBaseContent(final World target, final long seed,
+                                           final String worldConfigPath, final String mv2SetCode) {
         if (target == null) {
             return;
         }
@@ -150,21 +225,25 @@ public final class CoopWorldSync {
     }
 
     /**
-     * Host materialize pipeline: hashed content, then gates for gameplay.
-     * Returns the co-op hash (pre-gate). Used by {@link WorldSave#materializeSetPlane}.
+     * Host materialize pipeline: base content, then return portal for gameplay.
+     * Returns the <em>live</em> (post-gate) hash. {@code setCode} must already be
+     * known-edition-filtered by the caller (see {@link SetPlaneRules#restrictableSetCode}).
      */
     public static String buildSetPlaneWorld(final World target, final long seed,
                                             final String worldConfigPath, final String setCode,
                                             final boolean placeGates) {
-        generateHashedContent(target, seed, worldConfigPath, setCode);
-        final String coopHash = hashWorld(target);
+        generateBaseContent(target, seed, worldConfigPath, setCode);
         if (placeGates && setCode != null && !setCode.isEmpty()) {
             PlanarPortalPlacer.ensureReturnPortal(target, setCode, seed);
         }
-        return coopHash;
+        return hashWorld(target);
     }
 
-    /** Apply MV2 biome customisation only when the host stamped a set code. */
+    /**
+     * Apply MV2 biome customisation when {@code mv2SetCode} is non-empty.
+     * Host stamps / offers only known editions ({@link #hostMv2SetCode}); the guest
+     * trusts that stamp and does not re-derive a set code from the plane id.
+     */
     public static void applyMv2Customization(final World target, final long seed, final String mv2SetCode) {
         if (target == null || mv2SetCode == null || mv2SetCode.isEmpty()) {
             return;
@@ -174,50 +253,6 @@ public final class CoopWorldSync {
             target.overrideWorldData(custom);
         } catch (final Exception e) {
             System.err.println("MV2 co-op set-plane customise failed for " + mv2SetCode + ": " + e.getMessage());
-        }
-    }
-
-    /**
-     * After a co-op hash match: place gates for local gameplay. Must not run
-     * before hashing. Home uses the Standard window; set planes get a return portal
-     * when {@code mv2SetCode} is non-empty.
-     */
-    public static void applyGatesAfterCoopHash(final World target, final long seed,
-                                               final String worldPlaneId, final String mv2SetCode,
-                                               final StandardWindow window, final MultiverseState multi) {
-        if (target == null) {
-            return;
-        }
-        if (worldPlaneId == null || worldPlaneId.isEmpty()
-                || PlaneMeta.HOME_ID.equalsIgnoreCase(worldPlaneId)) {
-            PlanarPortalPlacer.ensureHomePortals(target, window, seed, multi);
-            return;
-        }
-        if (mv2SetCode != null && !mv2SetCode.isEmpty()) {
-            PlanarPortalPlacer.ensureReturnPortal(target, mv2SetCode, seed);
-        }
-    }
-
-    /** @deprecated use {@link #applyMv2Customization} with host-stamped set code. */
-    @Deprecated
-    public static void applySetPlaneCustomization(final World target, final long seed,
-                                                  final String worldPlaneId) {
-        if (worldPlaneId == null || PlaneMeta.HOME_ID.equalsIgnoreCase(worldPlaneId)) {
-            return;
-        }
-        applyMv2Customization(target, seed, SetPlaneGenerator.setCodeFromPlaneId(worldPlaneId));
-    }
-
-    /** @deprecated gates must not run before co-op hash — use {@link #applyGatesAfterCoopHash}. */
-    @Deprecated
-    public static void applySetPlaneGates(final World target, final long seed,
-                                          final String worldPlaneId) {
-        if (worldPlaneId == null || PlaneMeta.HOME_ID.equalsIgnoreCase(worldPlaneId)) {
-            return;
-        }
-        final String setCode = SetPlaneGenerator.setCodeFromPlaneId(worldPlaneId);
-        if (!setCode.isEmpty()) {
-            PlanarPortalPlacer.ensureReturnPortal(target, setCode, seed);
         }
     }
 }

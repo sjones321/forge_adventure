@@ -1163,12 +1163,18 @@ public class World implements Disposable, SaveFileContent {
      * can run without a full generate. No-op when {@code worldData} is null.
      */
     public void installTestWorldGrid(WorldData worldData) {
+        installTestWorldGrid(worldData, 0L);
+    }
+
+    /** Same as {@link #installTestWorldGrid(WorldData)} with an explicit world seed. */
+    public void installTestWorldGrid(WorldData worldData, long worldSeed) {
         if (worldData == null) {
             return;
         }
         this.data = worldData;
         this.width = worldData.width;
         this.height = worldData.height;
+        this.seed = worldSeed;
         this.terrainMap = new int[Math.max(1, width)][Math.max(1, height)];
         int chunk = Math.max(1, worldData.tileSize > 0 ? 16 : 16);
         int chunksX = Math.max(1, width / chunk);
@@ -1176,6 +1182,41 @@ public class World implements Disposable, SaveFileContent {
         this.mapPoiIds = new PointOfInterestMap(chunk, worldData.tileSize > 0 ? worldData.tileSize : 16,
                 chunksX, chunksY);
         this.worldDataLoaded = true;
+    }
+
+    /**
+     * Tests: pack seed / maps / POIs (the co-op hash inputs + gates) without pixmaps
+     * or Config. Pair with {@link #restoreHashableStateFromSave}.
+     */
+    public SaveFileData saveHashableStateForTest() {
+        SaveFileData out = new SaveFileData();
+        out.storeObject("biomeMap", biomeMap);
+        out.storeObject("terrainMap", terrainMap);
+        out.store("width", width);
+        out.store("height", height);
+        out.store("seed", seed);
+        if (mapPoiIds != null) {
+            out.store("mapPoiIds", mapPoiIds.save());
+        }
+        return out;
+    }
+
+    /**
+     * Tests: restore seed / maps / POIs from {@link #saveHashableStateForTest()} without
+     * reloading world.json. Caller must {@link #installTestWorldGrid} first.
+     */
+    public void restoreHashableStateFromSave(SaveFileData saveFileData) {
+        if (saveFileData == null) {
+            return;
+        }
+        biomeMap = (long[][]) saveFileData.readObject("biomeMap");
+        terrainMap = (int[][]) saveFileData.readObject("terrainMap");
+        width = saveFileData.readInt("width");
+        height = saveFileData.readInt("height");
+        seed = saveFileData.readLong("seed");
+        if (mapPoiIds != null && saveFileData.containsKey("mapPoiIds")) {
+            mapPoiIds.load(saveFileData.readSubData("mapPoiIds"));
+        }
     }
 
     public int getChunkSize() {
