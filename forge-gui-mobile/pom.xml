@@ -37,17 +37,14 @@
                         --add-opens java.base/java.lang.reflect=ALL-UNNAMED
                         --add-opens java.desktop/javax.imageio.spi=ALL-UNNAMED
                     </argLine>
-                    <!-- Redirect USER_DIR / USER_ADVENTURE_DIR to a temp tree for the
-                         whole suite so TR1 (and other adventure) tests never overwrite
-                         the developer's real settings.json / saves / characters.
-                         MV2 (#30) is adding the same shared-listener approach; until
-                         that merges, register ours here. -->
-                    <properties>
-                        <property>
-                            <name>listener</name>
-                            <value>forge.adventure.AdventureIsolatedUserDirListener</value>
-                        </property>
-                    </properties>
+                    <!-- CO1 (#38) shared isolation: forge.test.userDir is read in
+                         ForgeProfileProperties.load() before USER_* resolve, so the
+                         suite never writes Steve's real settings.json / saves /
+                         characters. Same property + AdventureTestUserDir as #38. -->
+                    <systemPropertyVariables>
+                        <forge.test.userDir>${project.build.directory}/forge-test-user</forge.test.userDir>
+                        <forge.test.cacheDir>${project.build.directory}/forge-test-user/cache</forge.test.cacheDir>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>

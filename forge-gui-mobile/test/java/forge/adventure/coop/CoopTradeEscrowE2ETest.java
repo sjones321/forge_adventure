@@ -1,9 +1,13 @@
 package forge.adventure.coop;
 
-import forge.adventure.IsolatedAdventureUserDir;
+import com.badlogic.gdx.files.FileHandle;
+import com.badlogic.gdx.utils.Json;
+import com.badlogic.gdx.utils.JsonWriter;
+import forge.adventure.AdventureTestUserDir;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.DifficultyData;
 import forge.adventure.data.ItemListData;
+import forge.adventure.data.SettingData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.AdventureModes;
 import forge.adventure.util.Config;
@@ -39,12 +43,15 @@ import forge.gui.interfaces.IGuiGame;
 import forge.gamemodes.match.HostedMatch;
 import forge.gui.download.GuiDownloadService;
 import forge.item.PaperCard;
+import forge.localinstance.properties.ForgeConstants;
+import forge.localinstance.properties.ForgeProfileProperties;
 import forge.localinstance.skin.FSkinProp;
 import forge.localinstance.skin.ISkinImage;
 import forge.sound.IAudioClip;
 import forge.sound.IAudioMusic;
 import forge.util.FSerializableFunction;
 import forge.util.ImageFetcher;
+import org.apache.commons.lang3.StringUtils;
 import org.jupnp.UpnpServiceConfiguration;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
@@ -62,11 +69,14 @@ import java.io.ObjectOutputStream;
 import java.lang.reflect.Field;
 import java.net.ServerSocket;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -81,37 +91,71 @@ import java.util.zip.InflaterInputStream;
  * simulated world save; guest into co-op {@code .chr}. Crash/reload never calls
  * {@code restoreFromLog} — only {@code recoverPendingFromLog} after loading the
  * durable blob.
+ *
+ * <p>User-dir isolation matches CO1 (#38): {@code forge.test.userDir} (surefire
+ * {@code systemPropertyVariables} and/or {@link AdventureTestUserDir}) so
+ * {@link ForgeProfileProperties#load} never points {@code USER_ADVENTURE_DIR}
+ * at the real profile. After the class, assert the real OS user dir snapshot
+ * (existence / size / mtime) is unchanged.
  */
 public class CoopTradeEscrowE2ETest {
 
     private static final String ITEM_A = "Chandra's Stone";
     private static final String ITEM_B = "Liliana's Stone";
 
+    private static Path tempUserDir;
+    private static Path realUserDir;
+    private static Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
+    private static boolean installedOwnTempUserDir;
+
     private File tempChars;
     private DualNet dual;
 
     @BeforeClass
     public void installHeadlessGui() throws Exception {
-        // Before GuiBase / Config / WorldSave touch the real user tree.
-        IsolatedAdventureUserDir.install();
+        // Snapshot the real OS user dir BEFORE ForgeConstants / profile load can touch it.
+        realUserDir = AdventureTestUserDir.defaultRealUserDir();
+        realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
+
+        // Surefire sets forge.test.userDir suite-wide; IDE runs install a temp here.
+        final String existing = System.getProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
+        if (StringUtils.isBlank(existing)) {
+            tempUserDir = AdventureTestUserDir.installTempUserDir();
+            installedOwnTempUserDir = true;
+        } else {
+            tempUserDir = Paths.get(existing).toAbsolutePath().normalize();
+            Files.createDirectories(tempUserDir);
+            installedOwnTempUserDir = false;
+        }
+
         if (GuiBase.getInterface() == null) {
             GuiBase.setInterface(new HeadlessAssetsGui());
         }
         SoundSystem.instance.setIgnorePlayRequests(true);
+        // First ForgeConstants touch resolves USER_* from forge.test.userDir.
         final String langDir = GuiBase.getInterface().getAssetsDir() + "res/languages";
         forge.util.Localizer.getInstance().initialize("en-US", langDir);
+        AdventureTestUserDir.assertConstantsUse(tempUserDir);
+        writeAscendantSettingsUnderIsolatedUserDir();
         CoopVersion.setCardDataHashSupplier(() -> CoopVersion.sha256Hex("tr1-test-cards"));
     }
 
     @AfterClass(alwaysRun = true)
-    public void restoreIsolatedUserDir() throws Exception {
-        IsolatedAdventureUserDir.restoreAndAssertUntouched();
+    public void assertRealUserDirUntouchedAndCleanup() throws Exception {
+        try {
+            AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
+                    "CoopTradeEscrowE2ETest");
+        } finally {
+            if (installedOwnTempUserDir) {
+                AdventureTestUserDir.clearTempUserDirProperty();
+                deleteTree(tempUserDir != null ? tempUserDir.toFile() : null);
+            }
+        }
     }
 
     @BeforeMethod
     public void setUp() throws Exception {
-        // Idempotent if suite listener already installed; required when run alone.
-        IsolatedAdventureUserDir.install();
+        AdventureTestUserDir.assertConstantsUse(tempUserDir);
         SoundSystem.instance.setIgnorePlayRequests(true);
         final ConfigData cfg = Config.instance().getConfigData();
         cfg.ascendantRules = true;
@@ -125,7 +169,7 @@ public class CoopTradeEscrowE2ETest {
     }
 
     @AfterMethod(alwaysRun = true)
-    public void tearDown() throws Exception {
+    public void tearDown() {
         if (dual != null) {
             dual.close();
             dual = null;
@@ -136,8 +180,26 @@ public class CoopTradeEscrowE2ETest {
         if (tempChars != null) {
             deleteTree(tempChars);
         }
-        // Pair the per-method install(); suite listener / @AfterClass still hold the redirect.
-        IsolatedAdventureUserDir.restoreAndAssertUntouched();
+    }
+
+    /** Config.instance() reads settings.json from USER_ADVENTURE_DIR — keep it under temp. */
+    private static void writeAscendantSettingsUnderIsolatedUserDir() {
+        final File dir = new File(ForgeConstants.USER_ADVENTURE_DIR);
+        //noinspection ResultOfMethodCallIgnored
+        dir.mkdirs();
+        final SettingData settings = new SettingData();
+        settings.plane = "Shandalar Ascendant";
+        settings.width = 1280;
+        settings.height = 720;
+        settings.videomode = "720p";
+        new FileHandle(ForgeConstants.USER_ADVENTURE_DIR + "settings.json")
+                .writeString(new Json(JsonWriter.OutputType.json).prettyPrint(settings), false, "UTF-8");
+        try {
+            final Field f = Config.class.getDeclaredField("currentConfig");
+            f.setAccessible(true);
+            f.set(null, null);
+        } catch (final ReflectiveOperationException ignored) {
+        }
     }
 
     // ---- fixtures ----------------------------------------------------------
