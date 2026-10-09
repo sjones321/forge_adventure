@@ -99,23 +99,31 @@ public class CoopSharedOverworldTest {
         Assert.assertTrue(server.awaitBound(5000));
 
         final CountDownLatch guestReady = new CountDownLatch(1);
+        final CountDownLatch clientUp = new CountDownLatch(1);
+        final CountDownLatch gotOffer = new CountDownLatch(1);
+        final AtomicReference<CoopWorldOfferEvent> offerRef = new AtomicReference<>();
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
-            @Override public void onConnected() { client.send(hello(sessionCode)); }
+            @Override public void onConnected() { clientUp.countDown(); }
             @Override public void onMessage(final NetEvent event) {
                 if (event instanceof CoopWorldOfferEvent) {
-                    final CoopWorldOfferEvent offer = (CoopWorldOfferEvent) event;
-                    final String local = CoopWorldHash.hash(offer.getWorldSeed(), 4, 4,
-                            sampleBiome(4), sampleTerrain(4));
-                    client.send(new CoopSessionReadyEvent(false, "Guest", local));
-                    guestReady.countDown();
-                    client.send(new CoopPlayerMoveEvent(100f, 200f, 1f, System.currentTimeMillis(),
-                            "Guest", "sprites/heroes/Human_m.atlas"));
+                    offerRef.set((CoopWorldOfferEvent) event);
+                    gotOffer.countDown();
                 }
             }
             @Override public void onDisconnected(final String reason) { }
             @Override public void onError(final String message, final Throwable cause) { }
         });
         client.connect();
+        Assert.assertTrue(clientUp.await(5, TimeUnit.SECONDS), "client channel not active");
+        client.send(hello(sessionCode));
+        Assert.assertTrue(gotOffer.await(10, TimeUnit.SECONDS), "no world offer");
+        final CoopWorldOfferEvent offer = offerRef.get();
+        final String local = CoopWorldHash.hash(offer.getWorldSeed(), 4, 4,
+                sampleBiome(4), sampleTerrain(4));
+        client.send(new CoopSessionReadyEvent(false, "Guest", local));
+        guestReady.countDown();
+        client.send(new CoopPlayerMoveEvent(100f, 200f, 1f, System.currentTimeMillis(),
+                "Guest", "sprites/heroes/Human_m.atlas"));
         Assert.assertTrue(guestReady.await(10, TimeUnit.SECONDS));
         Assert.assertTrue(ready.await(10, TimeUnit.SECONDS));
         Assert.assertTrue(gotMove.await(10, TimeUnit.SECONDS));
