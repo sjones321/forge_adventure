@@ -39,58 +39,15 @@ import java.util.List;
  * {@code mv2SetCode} (stamped on {@link PlaneMeta} at materialize for known
  * editions only). Pre-MV2 / unknown set codes rebuild as plain template worlds.
  *
- * <p>Package K may append {@link #PLANE_FORMAT_WIRE_MARK}{@code Format} to that
- * same string; callers must {@link #unpackMv2SetCode} before rebuild.
+ * <p>Package K plane format travels as a separate plain-data field on
+ * {@link forge.gamemodes.net.event.coop.CoopWorldOfferEvent} /
+ * {@link forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent}, not in {@code mv2SetCode}.
  */
 public final class CoopWorldSync {
     /** Soft cap on planar gates shipped on the wire (Standard window + pending + return). */
     public static final int MAX_PLANAR_GATES_ON_WIRE = 64;
 
-    /**
-     * Package K: plane format rides on the existing {@code mv2SetCode} string so
-     * offer / plane-switch keep their field layout (no protocol bump). Wire form
-     * is {@code SET#k:Format} or {@code #k:Format} when the set code is empty.
-     * Pre-K peers that do not understand the suffix treat the whole token as an
-     * unknown set code (rebuild without MV2 mix → hash mismatch → refuse), which
-     * is safer than a silent wrong format.
-     */
-    public static final String PLANE_FORMAT_WIRE_MARK = "#k:";
-
     private CoopWorldSync() {
-    }
-
-    /** Pack set code + plane format into the existing {@code mv2SetCode} wire field. */
-    public static String packMv2Wire(final String setCode, final String planeFormat) {
-        final String code = setCode != null ? setCode : "";
-        final String fmt = planeFormat != null ? planeFormat.trim() : "";
-        if (fmt.isEmpty()) {
-            return code;
-        }
-        return code + PLANE_FORMAT_WIRE_MARK + fmt;
-    }
-
-    /** Set-code portion of a packed {@code mv2SetCode} (empty when only format was sent). */
-    public static String unpackMv2SetCode(final String wire) {
-        if (wire == null || wire.isEmpty()) {
-            return "";
-        }
-        final int i = wire.indexOf(PLANE_FORMAT_WIRE_MARK);
-        if (i < 0) {
-            return wire;
-        }
-        return wire.substring(0, i);
-    }
-
-    /** Plane-format portion of a packed {@code mv2SetCode}; empty when absent (pre-K). */
-    public static String unpackPlaneFormat(final String wire) {
-        if (wire == null || wire.isEmpty()) {
-            return "";
-        }
-        final int i = wire.indexOf(PLANE_FORMAT_WIRE_MARK);
-        if (i < 0) {
-            return "";
-        }
-        return wire.substring(i + PLANE_FORMAT_WIRE_MARK.length()).trim();
     }
 
     public static String planeConfigHash() {

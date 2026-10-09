@@ -213,6 +213,81 @@ public class CoopSessionConnectionTest {
         Assert.assertTrue(reason.get().toLowerCase().contains("card"), reason.get());
     }
 
+    /**
+     * Package K: old peers (protocol before planeFormat field) must be refused at
+     * hello — same check {@code CoopSession} runs — not misread as empty format.
+     */
+    @Test
+    public void oldProtocolPeerIsRefusedAtHandshake() throws Exception {
+        final CountDownLatch rejected = new CountDownLatch(1);
+        final AtomicReference<String> reason = new AtomicReference<>();
+        final int oldProtocol = CoopPorts.PROTOCOL_VERSION - 1;
+        Assert.assertTrue(oldProtocol >= 1, "need a prior protocol to refuse");
+
+        server = new CoopOverworldServer(port, new CoopMessageListener() {
+            @Override
+            public void onConnected() {
+            }
+
+            @Override
+            public void onMessage(final NetEvent event) {
+                if (event instanceof CoopHelloEvent) {
+                    final CoopHelloEvent h = (CoopHelloEvent) event;
+                    // Mirror CoopSession.onHello protocol gate (before build-hash check).
+                    if (h.getProtocolVersion() != CoopPorts.PROTOCOL_VERSION) {
+                        server.rejectAndClose("VERSION MISMATCH (not the code): co-op protocol "
+                                + CoopPorts.PROTOCOL_VERSION + " on the host, "
+                                + h.getProtocolVersion() + " on the guest.");
+                        return;
+                    }
+                    Assert.fail("old protocol peer must not pass the handshake gate");
+                }
+            }
+
+            @Override
+            public void onDisconnected(final String reason) {
+            }
+
+            @Override
+            public void onError(final String message, final Throwable cause) {
+            }
+        });
+        server.start();
+        Assert.assertTrue(server.awaitBound(5000));
+
+        client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
+            @Override
+            public void onConnected() {
+                // Deliberately stale protocol number (pre-K / MV2).
+                client.send(new CoopHelloEvent(oldProtocol,
+                        CoopVersion.buildHash(), CoopVersion.cardDataHash(),
+                        "Guest", "Guest", sessionCode));
+            }
+
+            @Override
+            public void onMessage(final NetEvent event) {
+                if (event instanceof CoopHelloRejectEvent) {
+                    reason.set(((CoopHelloRejectEvent) event).getReason());
+                    rejected.countDown();
+                }
+            }
+
+            @Override
+            public void onDisconnected(final String reason) {
+            }
+
+            @Override
+            public void onError(final String message, final Throwable cause) {
+            }
+        });
+        client.connect();
+        Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "reject not received");
+        Assert.assertNotNull(reason.get());
+        Assert.assertTrue(reason.get().toLowerCase().contains("protocol"), reason.get());
+        Assert.assertTrue(reason.get().contains(String.valueOf(CoopPorts.PROTOCOL_VERSION)), reason.get());
+        Assert.assertTrue(reason.get().contains(String.valueOf(oldProtocol)), reason.get());
+    }
+
     @Test
     public void wrongSessionCodeIsRejected() throws Exception {
         final CountDownLatch rejected = new CountDownLatch(1);

@@ -766,11 +766,10 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsExactlyEightForMv2() {
-        // CO3=6; MV1 plane-follow=7; MV2 live hash + host gate list + mv2SetCode=8.
-        // Exact equality only. Open claims: gate-sync (#40)=9; TR1 (#27)=next after merge.
-        // Package K packs format into mv2SetCode (#k:) and does not bump.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 8);
+    public void protocolVersionIsExactlyNineForPackageK() {
+        // CO3=6; MV1 plane-follow=7; MV2 live hash + host gate list + mv2SetCode=8;
+        // Package K planeFormat on offer/switch=9 (set-start + 1 at review).
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
     }
 
     private static long[][] sampleBiome(final int n) {

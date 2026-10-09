@@ -280,6 +280,11 @@ public final class CoopSession {
         guestPlaneFormat = "";
     }
 
+    /** Test hook: Package K guest wire accept (length + known-token gate). */
+    public static String testAcceptGuestPlaneFormat(final String raw) {
+        return acceptGuestPlaneFormat(raw);
+    }
+
     /**
      * Host: re-hash the live world and refresh the cached gate list.
      * Must run on the GL thread (or when the live world is not being mutated).
@@ -322,10 +327,8 @@ public final class CoopSession {
                 return;
             }
             // L1: planeConfigHash uses the same path that is sent on the wire.
-            // Package K: format rides on mv2SetCode (#k: suffix) — no new wire field / no bump.
-            final String mv2Wire = CoopWorldSync.packMv2Wire(
-                    CoopWorldSync.hostMv2SetCode(save),
-                    forge.adventure.world.PlaneFormat.resolveCurrent());
+            final String mv2SetCode = CoopWorldSync.hostMv2SetCode(save);
+            final String planeFormat = hostWirePlaneFormat();
             final CoopPlaneSwitchEvent switchEvent = new CoopPlaneSwitchEvent(
                     Config.instance().getPlane(),
                     save.getCurrentPlaneId(),
@@ -335,8 +338,9 @@ public final class CoopSession {
                     worldHash,
                     save.getPlayer().getWorldPosX(),
                     save.getPlayer().getWorldPosY(),
-                    mv2Wire,
-                    cachedGates);
+                    mv2SetCode,
+                    cachedGates,
+                    planeFormat);
             runOffNetty(() -> {
                 send(switchEvent);
                 status("Offered plane switch → " + save.getCurrentPlaneId()
@@ -357,9 +361,8 @@ public final class CoopSession {
         final String safePath = PlaneConfigPaths.isAllowed(worldPath, save.getMultiverse())
                 ? worldPath : Paths.WORLD;
         // L1: hash/config use the same path that is sent on the wire.
-        final String mv2Wire = CoopWorldSync.packMv2Wire(
-                CoopWorldSync.hostMv2SetCode(save),
-                forge.adventure.world.PlaneFormat.resolveCurrent());
+        final String mv2SetCode = CoopWorldSync.hostMv2SetCode(save);
+        final String planeFormat = hostWirePlaneFormat();
         return new CoopWorldOfferEvent(
                 save.getPlayer().getName(),
                 Config.instance().getPlane(),
@@ -370,8 +373,39 @@ public final class CoopSession {
                 overworldPort,
                 save.getCurrentPlaneId(),
                 safePath,
-                mv2Wire,
-                cachedGates);
+                mv2SetCode,
+                cachedGates,
+                planeFormat);
+    }
+
+    /**
+     * Package K: host-authoritative plane format for the wire — always a known
+     * canonical token, length-capped via {@link forge.gamemodes.net.coop.CoopWireLimits}.
+     */
+    private static String hostWirePlaneFormat() {
+        final String fmt = forge.adventure.world.PlaneFormat.resolveCurrent();
+        final String accepted = forge.gamemodes.net.coop.CoopWireLimits.acceptPlaneFormat(fmt);
+        if (accepted == null || accepted.isEmpty()
+                || !forge.adventure.world.PlaneFormat.isKnown(accepted)) {
+            return forge.adventure.world.PlaneFormat.defaultFormat();
+        }
+        return forge.adventure.world.PlaneFormat.normalize(accepted);
+    }
+
+    /**
+     * Package K: guest accepts host {@code planeFormat} from offer / plane-switch.
+     * Over-long or unknown tokens → empty (resolver applies the default); known
+     * tokens → canonical form. Never throws.
+     */
+    private static String acceptGuestPlaneFormat(final String raw) {
+        final String accepted = forge.gamemodes.net.coop.CoopWireLimits.acceptPlaneFormat(raw);
+        if (accepted == null || accepted.isEmpty()) {
+            return "";
+        }
+        if (!forge.adventure.world.PlaneFormat.isKnown(accepted)) {
+            return "";
+        }
+        return forge.adventure.world.PlaneFormat.normalize(accepted);
     }
 
     public void addStatusListener(final Consumer<String> listener) {
@@ -1169,9 +1203,8 @@ public final class CoopSession {
                     // Rebuild + replay host gates, then compare to host live hash.
                     final String offerPlaneId = offer.getWorldPlaneId() != null && !offer.getWorldPlaneId().isEmpty()
                             ? offer.getWorldPlaneId() : PlaneMeta.HOME_ID;
-                    final String mv2Wire = offer.getMv2SetCode();
-                    final String mv2SetCode = CoopWorldSync.unpackMv2SetCode(mv2Wire);
-                    final String offeredFormat = CoopWorldSync.unpackPlaneFormat(mv2Wire);
+                    final String mv2SetCode = offer.getMv2SetCode();
+                    final String offeredFormat = acceptGuestPlaneFormat(offer.getPlaneFormat());
                     final String localHash = CoopWorldSync.rebuildFromSeed(
                             staging, offer.getWorldSeed(), worldPath, mv2SetCode,
                             offer.getGates());
@@ -1231,9 +1264,8 @@ public final class CoopSession {
                 try {
                     final String switchPlaneId = event.getWorldPlaneId() != null && !event.getWorldPlaneId().isEmpty()
                             ? event.getWorldPlaneId() : PlaneMeta.HOME_ID;
-                    final String mv2Wire = event.getMv2SetCode();
-                    final String mv2SetCode = CoopWorldSync.unpackMv2SetCode(mv2Wire);
-                    final String switchFormat = CoopWorldSync.unpackPlaneFormat(mv2Wire);
+                    final String mv2SetCode = event.getMv2SetCode();
+                    final String switchFormat = acceptGuestPlaneFormat(event.getPlaneFormat());
                     final String localHash = CoopWorldSync.rebuildFromSeed(
                             staging, event.getWorldSeed(), worldPath, mv2SetCode,
                             event.getGates());

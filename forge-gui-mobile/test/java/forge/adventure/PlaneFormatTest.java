@@ -1,7 +1,6 @@
 package forge.adventure;
 
 import forge.adventure.coop.CoopSession;
-import forge.adventure.coop.CoopWorldSync;
 import forge.adventure.data.ConfigData;
 import forge.adventure.util.Config;
 import forge.adventure.util.GymUtil;
@@ -9,14 +8,23 @@ import forge.adventure.util.SaveFileData;
 import forge.adventure.world.MultiverseState;
 import forge.adventure.world.PlaneFormat;
 import forge.adventure.world.PlaneMeta;
+import forge.gamemodes.net.coop.CoopWireLimits;
+import forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent;
+import forge.gamemodes.net.event.coop.CoopPlanarGateEntry;
+import forge.gamemodes.net.event.coop.CoopWorldOfferEvent;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+
 /**
  * Package K: plane format storage, migration, resolver fallbacks, and co-op
- * {@code mv2SetCode} packing (no protocol bump).
+ * {@code planeFormat} on world offer / plane switch (protocol bump).
  */
 public class PlaneFormatTest {
 
@@ -104,27 +112,64 @@ public class PlaneFormatTest {
     }
 
     @Test
-    public void mv2WirePackUnpackPreservesSetCodeAndFormat() {
-        String wire = CoopWorldSync.packMv2Wire("DMU", GymUtil.FORMAT_HISTORIC);
-        Assert.assertEquals(wire, "DMU" + CoopWorldSync.PLANE_FORMAT_WIRE_MARK + GymUtil.FORMAT_HISTORIC);
-        Assert.assertEquals(CoopWorldSync.unpackMv2SetCode(wire), "DMU");
-        Assert.assertEquals(CoopWorldSync.unpackPlaneFormat(wire), GymUtil.FORMAT_HISTORIC);
+    public void worldOfferPlaneFormatRoundTrips() throws Exception {
+        final CoopWorldOfferEvent offer = new CoopWorldOfferEvent(
+                "Host", "Shandalar Ascendant", "cfg", 42L, "hash",
+                36743, 36744, "home", "world/world.json", "DMU",
+                new CoopPlanarGateEntry[0], GymUtil.FORMAT_HISTORIC);
+        Assert.assertEquals(offer.getPlaneFormat(), GymUtil.FORMAT_HISTORIC);
+        Assert.assertEquals(offer.getMv2SetCode(), "DMU");
+
+        final CoopWorldOfferEvent decoded = roundTrip(offer);
+        Assert.assertEquals(decoded.getPlaneFormat(), GymUtil.FORMAT_HISTORIC);
+        Assert.assertEquals(decoded.getMv2SetCode(), "DMU");
+        Assert.assertEquals(decoded.getWorldPlaneId(), "home");
     }
 
     @Test
-    public void mv2WireHomePlaneFormatOnly() {
-        String wire = CoopWorldSync.packMv2Wire("", GymUtil.FORMAT_PAUPER);
-        Assert.assertEquals(wire, CoopWorldSync.PLANE_FORMAT_WIRE_MARK + GymUtil.FORMAT_PAUPER);
-        Assert.assertEquals(CoopWorldSync.unpackMv2SetCode(wire), "");
-        Assert.assertEquals(CoopWorldSync.unpackPlaneFormat(wire), GymUtil.FORMAT_PAUPER);
+    public void planeSwitchPlaneFormatRoundTrips() throws Exception {
+        final CoopPlaneSwitchEvent sw = new CoopPlaneSwitchEvent(
+                "Shandalar Ascendant", "set_dmu", "world/set_plane_world.json",
+                "cfg", 7L, "hash", 10f, 20f, "ONE",
+                new CoopPlanarGateEntry[0], GymUtil.FORMAT_PAUPER);
+        Assert.assertEquals(sw.getPlaneFormat(), GymUtil.FORMAT_PAUPER);
+        Assert.assertEquals(sw.getMv2SetCode(), "ONE");
+
+        final CoopPlaneSwitchEvent decoded = roundTrip(sw);
+        Assert.assertEquals(decoded.getPlaneFormat(), GymUtil.FORMAT_PAUPER);
+        Assert.assertEquals(decoded.getMv2SetCode(), "ONE");
+        Assert.assertEquals(decoded.getWorldPlaneId(), "set_dmu");
     }
 
     @Test
-    public void mv2WireWithoutMarkIsPreKCompatible() {
-        Assert.assertEquals(CoopWorldSync.unpackMv2SetCode("ONE"), "ONE");
-        Assert.assertEquals(CoopWorldSync.unpackPlaneFormat("ONE"), "");
-        Assert.assertEquals(CoopWorldSync.packMv2Wire("ONE", ""), "ONE");
-        Assert.assertEquals(CoopWorldSync.packMv2Wire("ONE", null), "ONE");
+    public void wireLimitsRejectOverlongPlaneFormat() {
+        final StringBuilder longFmt = new StringBuilder();
+        for (int i = 0; i < CoopWireLimits.MAX_PLANE_FORMAT_LEN + 5; i++) {
+            longFmt.append('x');
+        }
+        Assert.assertNull(CoopWireLimits.acceptPlaneFormat(longFmt.toString()));
+        Assert.assertEquals(CoopWireLimits.acceptPlaneFormat("Pauper"), "Pauper");
+        Assert.assertEquals(CoopWireLimits.acceptPlaneFormat(null), "");
+    }
+
+    @Test
+    public void unknownFormatIsNotKnown() {
+        Assert.assertFalse(PlaneFormat.isKnown("Vintage"));
+        Assert.assertFalse(PlaneFormat.isKnown(""));
+        Assert.assertTrue(PlaneFormat.isKnown(GymUtil.FORMAT_STANDARD));
+    }
+
+    @Test
+    public void guestRejectsUnknownFormatGracefully() {
+        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat("Vintage"), "");
+        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat(""), "");
+        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat(null), "");
+        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat("pauper"), GymUtil.FORMAT_PAUPER);
+        final StringBuilder longFmt = new StringBuilder();
+        for (int i = 0; i < CoopWireLimits.MAX_PLANE_FORMAT_LEN + 3; i++) {
+            longFmt.append('Z');
+        }
+        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat(longFmt.toString()), "");
     }
 
     @Test
@@ -144,5 +189,16 @@ public class PlaneFormatTest {
             Assert.assertFalse(cfg.kStrictOverworldLegalDecks);
         }
         Assert.assertFalse(PlaneFormat.strictOverworldLegalDecks());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T roundTrip(final T event) throws Exception {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {
+            out.writeObject(event);
+        }
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return (T) in.readObject();
+        }
     }
 }

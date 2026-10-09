@@ -16,13 +16,12 @@ public final class CoopPorts {
      * CO2 (merged #18) is protocol 5; CO3 is 6.
      * MV1 {@code CoopPlaneSwitchEvent} (host plane follow) = 7.
      * MV2 = 8: live world hash + host gate list + {@code mv2SetCode} on offer/switch.
+     * Package K = 9: {@code planeFormat} plain-data field on world offer / plane switch.
      *
-     * <p>Open claims (renumber at merge time): MV2 gate-sync (#40) takes 9;
-     * TR1 (#27) takes the next free number after whatever has merged.
-     * Package K does <em>not</em> bump — plane format rides on {@code mv2SetCode}
-     * ({@code SET#k:Format}) so offer / switch keep their field layout.
+     * <p>Rule: set to {@code (feature/set-start PROTOCOL_VERSION) + 1} at review time;
+     * Steve checks the number at merge.
      */
-    public static final int PROTOCOL_VERSION = 8;
+    public static final int PROTOCOL_VERSION = 9;
 
     /** Length of the short session code shown by the host. */
     public static final int SESSION_CODE_LENGTH = 8;
