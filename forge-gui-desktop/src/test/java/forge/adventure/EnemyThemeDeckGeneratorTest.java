@@ -21,12 +21,13 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * One-shot / maintenance generator for EN1 fixed decks under
+ * Opt-in maintenance generator for EN1 fixed decks under
  * {@code forge-gui/res/adventure/common/decks/enemy/<theme>/<format>_1.dck}.
  * <p>
- * Always safe to run: skips themes that already have a legal deck for the format.
+ * Normal {@code mvn test} skips rewriting {@code res/}. Pass {@code -Den1.generate=true}
+ * to rebuild every theme×format list from the hand-picked cores.
  * Run with:
- * {@code mvn -pl forge-gui-desktop -am test -Dtest=EnemyThemeDeckGeneratorTest -DfailIfNoTests=false}
+ * {@code mvn -pl forge-gui-desktop -am test -Dtest=EnemyThemeDeckGeneratorTest -Den1.generate=true -DfailIfNoTests=false}
  */
 public class EnemyThemeDeckGeneratorTest {
 
@@ -39,7 +40,6 @@ public class EnemyThemeDeckGeneratorTest {
         TestUtils.ensureFModelInitialized();
         FModel.getPreferences().setPref(FPref.ENFORCE_DECK_LEGALITY, false);
         enemyDeckRoot = resolveEnemyDeckRoot();
-        Files.createDirectories(enemyDeckRoot);
         themes = loadThemes();
         for (EnemyThemeData t : themes)
             EnemyThemeDecks.ensureCoreLoaded(t);

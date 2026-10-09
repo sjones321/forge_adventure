@@ -16,7 +16,7 @@
     },
     "nodeType": "tree",
     "color": "",
-    "nodeAtlas": "maps/tileset/resource_nodes_tall.atlas",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
     "nodeRegion": "tree_oak"
   },
   {
@@ -36,7 +36,7 @@
     },
     "nodeType": "tree",
     "color": "",
-    "nodeAtlas": "maps/tileset/resource_nodes_tall.atlas",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
     "nodeRegion": "tree_willow"
   },
   {
@@ -56,7 +56,7 @@
     },
     "nodeType": "tree",
     "color": "",
-    "nodeAtlas": "maps/tileset/resource_nodes_tall.atlas",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
     "nodeRegion": "tree_yew"
   },
   {
@@ -76,7 +76,7 @@
     },
     "nodeType": "tree",
     "color": "",
-    "nodeAtlas": "maps/tileset/resource_nodes_tall.atlas",
+    "nodeAtlas": "maps/tileset/resource_nodes.atlas",
     "nodeRegion": "tree_ironwood"
   },
   {
