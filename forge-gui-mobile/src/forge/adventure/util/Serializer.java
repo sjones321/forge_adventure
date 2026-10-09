@@ -35,7 +35,7 @@ public abstract class Serializer {
 
         int length = in.readInt();
         if (length == 0)
-            return new Pixmap(1, 1, Pixmap.Format.RGBA8888);
+            return null; // matches WritePixmap(null) — avoid allocating Pixmap in headless loads
 
         byte[] data = new byte[length];
         in.readFully(data, 0, length);

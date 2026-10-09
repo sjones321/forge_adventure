@@ -419,14 +419,28 @@ public class WorldSave {
         if (forge.adventure.coop.CoopSession.get().isGuestSession()) {
             return false;
         }
-        return save("auto save" + SaveLoadScene.instance().getSaveFileSuffix(), AUTO_SAVE_SLOT);
+        if (currentSave.world.getData() == null) {
+            return false;
+        }
+        return save("auto save" + saveFileSuffixSafe(), AUTO_SAVE_SLOT);
     }
 
     public boolean quickSave() {
         if (forge.adventure.coop.CoopSession.get().isGuestSession()) {
             return false;
         }
-        return save("quick save" + SaveLoadScene.instance().getSaveFileSuffix(), QUICK_SAVE_SLOT);
+        if (currentSave.world.getData() == null) {
+            return false;
+        }
+        return save("quick save" + saveFileSuffixSafe(), QUICK_SAVE_SLOT);
+    }
+
+    private static String saveFileSuffixSafe() {
+        try {
+            return SaveLoadScene.instance().getSaveFileSuffix();
+        } catch (final Throwable t) {
+            return "";
+        }
     }
 
     public boolean quickLoad() {
@@ -476,7 +490,13 @@ public class WorldSave {
 
                 SaveFileData player = currentSave.player.save();
                 SaveFileData world = currentSave.world.save();
-                SaveFileData worldStage = WorldStage.getInstance().save();
+                SaveFileData worldStage;
+                try {
+                    worldStage = WorldStage.getInstance().save();
+                } catch (final Throwable t) {
+                    // Headless / pre-GL: still persist player + world + partners.
+                    worldStage = new SaveFileData();
+                }
                 SaveFileData poiChanges = currentSave.pointOfInterestChanges.save();
                 SaveFileData multi = Config.ascendant() ? currentSave.multiverse.saveRegistry() : null;
                 SaveFileData fortress = Config.ascendant() ? FortressService.get().saveCurrent() : null;
@@ -578,7 +598,11 @@ public class WorldSave {
     }
 
     private void announceError(String message) {
-        currentSave.player.getCurrentGameStage().setExtraAnnouncement("Error Saving File!\n" + message);
+        try {
+            currentSave.player.getCurrentGameStage().setExtraAnnouncement("Error Saving File!\n" + message);
+        } catch (final Throwable t) {
+            System.err.println("Error Saving File!\n" + message);
+        }
     }
 
     public void clearChanges() {

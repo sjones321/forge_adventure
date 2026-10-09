@@ -18,12 +18,15 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.zip.DeflaterOutputStream;
+import java.util.zip.InflaterInputStream;
 
 /**
  * CO5 partner behaviour against {@code forge.test.userDir}.
@@ -241,8 +244,8 @@ public class CoopPartnerPersistTest {
         Assert.assertTrue(Files.exists(savPath));
         forge.adventure.world.WorldSaveHeader diskHeader;
         SaveFileData mainData;
-        try (java.io.FileInputStream fos = new java.io.FileInputStream(savPath.toFile());
-             java.util.zip.InflaterInputStream inf = new java.util.zip.InflaterInputStream(fos);
+        try (FileInputStream fos = new FileInputStream(savPath.toFile());
+             InflaterInputStream inf = new InflaterInputStream(fos);
              ObjectInputStream oos = new ObjectInputStream(inf)) {
             diskHeader = (forge.adventure.world.WorldSaveHeader) oos.readObject();
             mainData = (SaveFileData) oos.readObject();
