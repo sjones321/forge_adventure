@@ -6,6 +6,7 @@ import forge.adventure.data.ItemListData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.AdventureModes;
 import forge.adventure.util.Config;
+import forge.adventure.util.SaveFileData;
 import forge.gui.GuiBase;
 import forge.gui.interfaces.IGuiBase;
 import forge.gamemodes.net.WireClassFilter;
@@ -13,9 +14,7 @@ import forge.gamemodes.net.coop.CoopMessageListener;
 import forge.gamemodes.net.coop.CoopOverworldClient;
 import forge.gamemodes.net.coop.CoopOverworldServer;
 import forge.gamemodes.net.coop.CoopPorts;
-import forge.gamemodes.net.coop.CoopRateLimiter;
 import forge.gamemodes.net.coop.CoopSessionCode;
-import forge.gamemodes.net.coop.CoopTradeApply;
 import forge.gamemodes.net.coop.CoopTradeBag;
 import forge.gamemodes.net.coop.CoopTradeLog;
 import forge.gamemodes.net.coop.CoopTradeOffer;
@@ -54,9 +53,15 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.lang.reflect.Field;
 import java.net.ServerSocket;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Collections;
@@ -66,14 +71,15 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.zip.DeflaterOutputStream;
+import java.util.zip.InflaterInputStream;
 
 /**
- * TR1 escrow E2E: real {@link AdventurePlayer} bags via
- * {@link AdventurePlayerTradeBag}, real overworld Netty
- * ({@link CoopOverworldServer}/{@link CoopOverworldClient} — the production
- * trade transport), and a controllable GL queue standing in for
- * {@code Gdx.app.postRunnable}. Crash/reload uses {@link CoopCharacterStore}
- * atomic temp+move with the trade log inside the character save.
+ * TR1 escrow E2E via production {@link CoopTradeRuntime} (with {@code setGlPoster}),
+ * real overworld Netty, and a shared controllable GL queue. Host persists into a
+ * simulated world save; guest into co-op {@code .chr}. Crash/reload never calls
+ * {@code restoreFromLog} — only {@code recoverPendingFromLog} after loading the
+ * durable blob.
  */
 public class CoopTradeEscrowE2ETest {
 
@@ -85,32 +91,27 @@ public class CoopTradeEscrowE2ETest {
 
     @BeforeClass
     public void installHeadlessGui() {
-        // ForgeConstants / SoundSystem need GuiBase before any class init.
         if (GuiBase.getInterface() == null) {
             GuiBase.setInterface(new HeadlessAssetsGui());
         }
         SoundSystem.instance.setIgnorePlayRequests(true);
-        // AdventurePlayer.clearDecks() needs Localizer strings.
         final String langDir = GuiBase.getInterface().getAssetsDir() + "res/languages";
         forge.util.Localizer.getInstance().initialize("en-US", langDir);
-        // Avoid StaticData for hello handshake.
         CoopVersion.setCardDataHashSupplier(() -> CoopVersion.sha256Hex("tr1-test-cards"));
     }
 
     @BeforeMethod
     public void setUp() throws Exception {
         SoundSystem.instance.setIgnorePlayRequests(true);
-        // Force Ascendant rules for Overflow / trade eligibility.
         final ConfigData cfg = Config.instance().getConfigData();
         cfg.ascendantRules = true;
         Assert.assertTrue(Config.ascendant());
-        // Touch ItemListData so items.json is loaded from common/.
         Assert.assertNotNull(ItemListData.getItem(ITEM_A), "items.json must resolve " + ITEM_A);
         Assert.assertNotNull(ItemListData.getItem(ITEM_B), "items.json must resolve " + ITEM_B);
 
         tempChars = Files.createTempDirectory("tr1-chars").toFile();
         CoopCharacterStore.setCharactersDirOverride(tempChars);
-        dual = DualNet.start();
+        dual = DualNet.start(tempChars);
     }
 
     @AfterMethod
@@ -121,6 +122,7 @@ public class CoopTradeEscrowE2ETest {
         }
         CoopCharacterStore.setCharactersDirOverride(null);
         CoopTradeRuntime.setGlPoster(null);
+        CoopTradeGlOps.setSaveOverride(null);
         if (tempChars != null) {
             deleteTree(tempChars);
         }
@@ -131,7 +133,6 @@ public class CoopTradeEscrowE2ETest {
     private static AdventurePlayer player(final String name, final int gold) throws Exception {
         final AdventurePlayer p = new AdventurePlayer();
         setField(p, "name", name);
-        // AdventurePlayer.save() requires a non-null mode and difficulty name.
         setField(p, "adventureMode", AdventureModes.Standard);
         final DifficultyData[] diffs = Config.instance().getConfigData().difficulties;
         if (diffs != null && diffs.length > 0 && diffs[0] != null && diffs[0].name != null) {
@@ -148,7 +149,6 @@ public class CoopTradeEscrowE2ETest {
         }
         SoundSystem.instance.setIgnorePlayRequests(true);
         p.giveGold(gold);
-        // Ascendant bags from current config.
         p.getBags().resetToDefaults(Config.instance().getConfigData());
         return p;
     }
@@ -198,41 +198,96 @@ public class CoopTradeEscrowE2ETest {
         f.delete();
     }
 
+    /** Host world-save path (ObjectOutputStream + deflate of player.save()). */
+    static void saveHostWorld(final AdventurePlayer p, final File file) throws IOException {
+        if (p == null || file == null) {
+            return;
+        }
+        final File parent = file.getParentFile();
+        if (parent != null) {
+            //noinspection ResultOfMethodCallIgnored
+            parent.mkdirs();
+        }
+        final SaveFileData data = p.save();
+        final File tmp = new File(file.getPath() + ".tmp");
+        try (FileOutputStream fos = new FileOutputStream(tmp);
+             DeflaterOutputStream def = new DeflaterOutputStream(fos);
+             ObjectOutputStream oos = new ObjectOutputStream(def)) {
+            oos.writeObject(data);
+            oos.flush();
+        }
+        try {
+            Files.move(tmp.toPath(), file.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (final java.nio.file.AtomicMoveNotSupportedException ex) {
+            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    static boolean loadHostWorld(final AdventurePlayer target, final File file)
+            throws IOException, ClassNotFoundException {
+        if (target == null || file == null || !file.isFile()) {
+            return false;
+        }
+        try (FileInputStream fis = new FileInputStream(file);
+             InflaterInputStream inf = new InflaterInputStream(fis);
+             ObjectInputStream ois = new ObjectInputStream(inf)) {
+            final SaveFileData data = (SaveFileData) ois.readObject();
+            target.load(data);
+            return true;
+        }
+    }
+
+    // ---- DualNet -----------------------------------------------------------
+
     /**
-     * Dual peer over real overworld Netty. Each side has its own GL queue;
-     * Netty handlers only enqueue — mutations run when the queue is drained.
+     * Dual peer over real overworld Netty. One shared GL queue; Netty invokes
+     * production {@code onTrade*} which {@code postGl} themselves.
      */
     private static final class DualNet {
-        final Side host;
-        final Side guest;
+        final CoopTradeRuntime hostRt;
+        final CoopTradeRuntime guestRt;
+        final AtomicReference<AdventurePlayer> hostPlayer;
+        final AtomicReference<AdventurePlayer> guestPlayer;
+        final AtomicReference<String> hostPeerId;
+        final AtomicReference<String> guestPeerId;
+        final Queue<Runnable> gl = new ArrayDeque<>();
         final CoopOverworldServer server;
         final CoopOverworldClient client;
+        final File hostWorldFile;
         final String sessionCode;
         final int port;
         volatile boolean hostLinked = true;
         volatile boolean guestLinked = true;
-        /**
-         * When true, escrow still removes goods and sends escrowed(id), but does not
-         * auto-deliver — lets tests freeze after both ESCROWED before either DELIVERED.
-         */
-        volatile boolean suppressAutoDeliver = false;
+        /** Drop Escrowed/Delivered on the wire so both sides can escrow without auto-deliver. */
+        volatile boolean dropEscrowWire = false;
 
-        private DualNet(final Side host, final Side guest, final CoopOverworldServer server,
-                        final CoopOverworldClient client, final String sessionCode, final int port) {
-            this.host = host;
-            this.guest = guest;
+        private DualNet(final CoopTradeRuntime hostRt, final CoopTradeRuntime guestRt,
+                        final AtomicReference<AdventurePlayer> hostPlayer,
+                        final AtomicReference<AdventurePlayer> guestPlayer,
+                        final AtomicReference<String> hostPeerId,
+                        final AtomicReference<String> guestPeerId,
+                        final CoopOverworldServer server, final CoopOverworldClient client,
+                        final File hostWorldFile, final String sessionCode, final int port) {
+            this.hostRt = hostRt;
+            this.guestRt = guestRt;
+            this.hostPlayer = hostPlayer;
+            this.guestPlayer = guestPlayer;
+            this.hostPeerId = hostPeerId;
+            this.guestPeerId = guestPeerId;
             this.server = server;
             this.client = client;
+            this.hostWorldFile = hostWorldFile;
             this.sessionCode = sessionCode;
             this.port = port;
         }
 
-        static DualNet start() throws Exception {
+        static DualNet start(final File tempChars) throws Exception {
             Exception last = null;
             for (int attempt = 0; attempt < 4; attempt++) {
                 DualNet dual = null;
                 try {
-                    dual = startOnce();
+                    dual = startOnce(tempChars);
                     return dual;
                 } catch (final Exception | AssertionError e) {
                     if (dual != null) {
@@ -245,24 +300,60 @@ public class CoopTradeEscrowE2ETest {
             throw last != null ? last : new IllegalStateException("DualNet.start failed");
         }
 
-        private static DualNet startOnce() throws Exception {
+        private static DualNet startOnce(final File tempChars) throws Exception {
             final int port;
             try (ServerSocket ss = new ServerSocket(0)) {
                 port = ss.getLocalPort();
             }
             final String code = CoopSessionCode.generate();
-            final Side host = new Side(true, player("HostHero", 100));
-            final Side guest = new Side(false, player("GuestHero", 80));
-            giveMaterial(host.player, "oak", 5);
-            giveMaterial(guest.player, "iron", 4);
-            giveItem(host.player, ITEM_A, 2);
-            giveItem(guest.player, ITEM_B, 1);
+            final AtomicReference<AdventurePlayer> hostPlayer =
+                    new AtomicReference<>(player("HostHero", 100));
+            final AtomicReference<AdventurePlayer> guestPlayer =
+                    new AtomicReference<>(player("GuestHero", 80));
+            giveMaterial(hostPlayer.get(), "oak", 5);
+            giveMaterial(guestPlayer.get(), "iron", 4);
+            giveItem(hostPlayer.get(), ITEM_A, 2);
+            giveItem(guestPlayer.get(), ITEM_B, 1);
+
+            final File hostWorldFile = new File(tempChars, "host-world.sav");
+            // Baseline durable snapshot (trade has not started). Crash reload must
+            // not call syncLogAndSave — only listener saves during escrow/deliver.
+            saveHostWorld(hostPlayer.get(), hostWorldFile);
+            CoopCharacterStore.savePlayer(guestPlayer.get());
 
             final AtomicReference<DualNet> self = new AtomicReference<>();
             final AtomicReference<CoopOverworldServer> serverRef = new AtomicReference<>();
             final AtomicReference<CoopOverworldClient> clientRef = new AtomicReference<>();
             final CountDownLatch ready = new CountDownLatch(2);
             final AtomicReference<String> netError = new AtomicReference<>();
+
+            final AtomicReference<String> hostPeerId = new AtomicReference<>("GuestHero");
+            final AtomicReference<String> guestPeerId = new AtomicReference<>("HostHero");
+
+            final CoopTradeRuntime hostRt = CoopTradeRuntime.createForTest();
+            final CoopTradeRuntime guestRt = CoopTradeRuntime.createForTest();
+
+            CoopTradeRuntime.setGlPoster(r -> {
+                final DualNet d = self.get();
+                if (d != null) {
+                    synchronized (d.gl) {
+                        d.gl.add(r);
+                    }
+                } else {
+                    r.run();
+                }
+            });
+            CoopTradeGlOps.setSaveOverride(p -> {
+                try {
+                    if (p != null && "HostHero".equals(p.getName())) {
+                        saveHostWorld(p, hostWorldFile);
+                    } else {
+                        CoopCharacterStore.savePlayer(p);
+                    }
+                } catch (final IOException e) {
+                    throw new IllegalStateException("trade save failed", e);
+                }
+            });
 
             final CoopOverworldServer server = new CoopOverworldServer(port, new CoopMessageListener() {
                 @Override public void onConnected() { }
@@ -292,8 +383,8 @@ public class CoopTradeEscrowE2ETest {
                     if (d == null || !d.hostLinked) {
                         return;
                     }
-                    // Netty → GL only.
-                    d.host.gl.add(() -> d.host.handle(event, d));
+                    // onTrade* postGl themselves.
+                    dispatch(d.hostRt, event);
                 }
             });
             serverRef.set(server);
@@ -322,7 +413,7 @@ public class CoopTradeEscrowE2ETest {
                             if (d == null || !d.guestLinked) {
                                 return;
                             }
-                            d.guest.gl.add(() -> d.guest.handle(event, d));
+                            dispatch(d.guestRt, event);
                         }
                     });
             clientRef.set(client);
@@ -331,52 +422,95 @@ public class CoopTradeEscrowE2ETest {
             Assert.assertTrue(ready.await(5, TimeUnit.SECONDS),
                     "session ready" + (netError.get() != null ? " (" + netError.get() + ")" : ""));
 
-            final DualNet dual = new DualNet(host, guest, server, client, code, port);
+            final DualNet dual = new DualNet(hostRt, guestRt, hostPlayer, guestPlayer,
+                    hostPeerId, guestPeerId, server, client, hostWorldFile, code, port);
             self.set(dual);
-            // Both sides can validate the peer bag at confirm (receiver gold overflow).
-            host.state.setBagLookup(r -> r == CoopTradeRole.HOST ? host.bag : guest.bag);
-            guest.state.setBagLookup(r -> r == CoopTradeRole.HOST ? host.bag : guest.bag);
-            host.send = ev -> {
-                if (dual.guestLinked) {
-                    server.send(ev);
+
+            final Consumer<NetEvent> hostSend = ev -> {
+                if (ev == null || !dual.guestLinked) {
+                    return;
                 }
-            };
-            guest.send = ev -> {
-                if (dual.hostLinked) {
-                    client.send(ev);
+                if (dual.dropEscrowWire && (ev instanceof CoopTradeEscrowedEvent
+                        || ev instanceof CoopTradeDeliveredEvent)) {
+                    return;
                 }
+                server.send(ev);
             };
-            // Bind trade-log save into character on phase advance.
-            host.log.setListener(e -> CoopTradeGlOps.syncLogAndSave(host.player, host.log));
-            guest.log.setListener(e -> CoopTradeGlOps.syncLogAndSave(guest.player, guest.log));
+            final Consumer<NetEvent> guestSend = ev -> {
+                if (ev == null || !dual.hostLinked) {
+                    return;
+                }
+                if (dual.dropEscrowWire && (ev instanceof CoopTradeEscrowedEvent
+                        || ev instanceof CoopTradeDeliveredEvent)) {
+                    return;
+                }
+                client.send(ev);
+            };
+
+            hostRt.setSendOverride(hostSend);
+            guestRt.setSendOverride(guestSend);
+            hostRt.setPlayerOverride(hostPlayer::get);
+            guestRt.setPlayerOverride(guestPlayer::get);
+            hostRt.setHostOverride(() -> Boolean.TRUE);
+            guestRt.setHostOverride(() -> Boolean.FALSE);
+            hostRt.setPeerIdOverride(hostPeerId::get);
+            guestRt.setPeerIdOverride(guestPeerId::get);
+            hostRt.setSkipSessionListener(true);
+            guestRt.setSkipSessionListener(true);
+            hostRt.attachForTest();
+            guestRt.attachForTest();
             return dual;
         }
 
+        static void dispatch(final CoopTradeRuntime rt, final NetEvent event) {
+            if (event instanceof CoopTradeRequestEvent) {
+                rt.onTradeRequest((CoopTradeRequestEvent) event);
+            } else if (event instanceof CoopTradeInviteEvent) {
+                // Bypass invite UI / CoopOverworldRuntime HUD; still use production state path.
+                try {
+                    rt.onTradeInvite((CoopTradeInviteEvent) event);
+                } catch (final Exception ex) {
+                    final CoopTradeInviteEvent inv = (CoopTradeInviteEvent) event;
+                    rt.getState().receiveInvite(inv, false);
+                }
+            } else if (event instanceof CoopTradeResponseEvent) {
+                rt.onTradeResponse((CoopTradeResponseEvent) event);
+            } else if (event instanceof CoopTradeOfferEvent) {
+                rt.onTradeOffer((CoopTradeOfferEvent) event);
+            } else if (event instanceof CoopTradeConfirmEvent) {
+                rt.onTradeConfirm((CoopTradeConfirmEvent) event);
+            } else if (event instanceof CoopTradeCancelEvent) {
+                rt.onTradeCancel((CoopTradeCancelEvent) event);
+            } else if (event instanceof CoopTradeEscrowedEvent) {
+                rt.onTradeEscrowed((CoopTradeEscrowedEvent) event);
+            } else if (event instanceof CoopTradeDeliveredEvent) {
+                rt.onTradeDelivered((CoopTradeDeliveredEvent) event);
+            } else if (event instanceof CoopTradeReconcileEvent) {
+                rt.onTradeReconcile((CoopTradeReconcileEvent) event);
+            }
+        }
+
         void drainAll() throws InterruptedException {
-            // Interleave GL with brief Netty flush waits.
             for (int i = 0; i < 200; i++) {
-                boolean progress = false;
-                if (!host.gl.isEmpty()) {
-                    host.gl.poll().run();
-                    progress = true;
+                final Runnable r;
+                synchronized (gl) {
+                    r = gl.poll();
                 }
-                if (!guest.gl.isEmpty()) {
-                    guest.gl.poll().run();
-                    progress = true;
+                if (r != null) {
+                    r.run();
+                    continue;
                 }
-                if (!progress) {
-                    Thread.sleep(5);
-                    if (host.gl.isEmpty() && guest.gl.isEmpty()) {
-                        // one more quiet poll for late Netty deliveries
+                Thread.sleep(5);
+                synchronized (gl) {
+                    if (gl.isEmpty()) {
                         Thread.sleep(15);
-                        if (host.gl.isEmpty() && guest.gl.isEmpty()) {
+                        if (gl.isEmpty()) {
                             return;
                         }
                     }
                 }
             }
-            Assert.fail("GL queues did not drain: host=" + host.gl.size()
-                    + " guest=" + guest.gl.size());
+            Assert.fail("GL queue did not drain: size=" + gl.size());
         }
 
         void drainUntil(final java.util.function.BooleanSupplier done) throws InterruptedException {
@@ -384,10 +518,12 @@ public class CoopTradeEscrowE2ETest {
                 if (done.getAsBoolean()) {
                     return;
                 }
-                if (!host.gl.isEmpty()) {
-                    host.gl.poll().run();
-                } else if (!guest.gl.isEmpty()) {
-                    guest.gl.poll().run();
+                final Runnable r;
+                synchronized (gl) {
+                    r = gl.poll();
+                }
+                if (r != null) {
+                    r.run();
                 } else {
                     Thread.sleep(5);
                 }
@@ -396,136 +532,98 @@ public class CoopTradeEscrowE2ETest {
         }
 
         void openTrade() throws InterruptedException {
-            guest.gl.add(() -> {
-                final CoopTradeRequestEvent req = guest.state.beginRequest("GuestHero");
-                Assert.assertNotNull(req);
-                guest.send.accept(req);
-            });
+            synchronized (gl) {
+                gl.add(() -> {
+                    final CoopTradeRequestEvent req = guestRt.getState().beginRequest("GuestHero");
+                    Assert.assertNotNull(req);
+                    // sendOverride is private; drive via Netty client directly.
+                    if (hostLinked) {
+                        client.send(req);
+                    }
+                });
+            }
             drainAll();
-            Assert.assertEquals(host.state.getStatus(), CoopTradeState.Status.INVITE_SENT);
-            Assert.assertTrue(host.state.getTradeId() != 0L);
-            Assert.assertEquals(guest.state.getStatus(), CoopTradeState.Status.INVITE_RECEIVED);
-            guest.gl.add(() -> {
-                final CoopTradeResponseEvent resp = guest.state.respondInvite(true);
-                Assert.assertNotNull(resp);
-                guest.send.accept(resp);
-            });
+            Assert.assertEquals(hostRt.getState().getStatus(), CoopTradeState.Status.INVITE_SENT);
+            Assert.assertTrue(hostRt.getState().getTradeId() != 0L);
+            Assert.assertEquals(guestRt.getState().getStatus(), CoopTradeState.Status.INVITE_RECEIVED);
+            guestRt.acceptTradeInvite();
             drainAll();
-            Assert.assertEquals(host.state.getStatus(), CoopTradeState.Status.OPEN);
-            Assert.assertEquals(guest.state.getStatus(), CoopTradeState.Status.OPEN);
-            Assert.assertEquals(guest.state.getTradeId(), host.state.getTradeId());
+            Assert.assertEquals(hostRt.getState().getStatus(), CoopTradeState.Status.OPEN);
+            Assert.assertEquals(guestRt.getState().getStatus(), CoopTradeState.Status.OPEN);
+            Assert.assertEquals(guestRt.getState().getTradeId(), hostRt.getState().getTradeId());
         }
 
-        void setOffer(final Side side, final CoopTradeOffer offer) {
-            side.gl.add(() -> {
-                final int next = side.state.getLocalOfferVersion() + 1;
-                final CoopTradeOfferEvent ev = new CoopTradeOfferEvent(
-                        side.state.getTradeId(), side.role, offer, next);
-                Assert.assertNotNull(side.state.acceptOffer(ev), "offer rejected");
-                side.send.accept(ev);
-            });
+        void setOffer(final boolean asHost, final CoopTradeOffer offer) {
+            (asHost ? hostRt : guestRt).updateLocalOffer(offer);
         }
 
-        void confirm(final Side side) {
-            side.gl.add(() -> {
-                final CoopTradeConfirmEvent ev = new CoopTradeConfirmEvent(
-                        side.state.getTradeId(), side.role, true,
-                        side.state.getLocalOfferVersion(), side.state.getPeerOfferVersion());
-                final CoopTradeState.ConfirmResult result = side.state.acceptConfirm(ev);
-                Assert.assertNotEquals(result, CoopTradeState.ConfirmResult.IGNORED);
-                side.send.accept(ev);
-                if (result == CoopTradeState.ConfirmResult.BEGIN_ESCROW) {
-                    Assert.assertTrue(escrowNow(side));
-                }
-            });
+        void confirm(final boolean asHost) {
+            (asHost ? hostRt : guestRt).setLocalConfirmed(true);
         }
 
-        /** Escrow; optionally skip the auto-deliver that production runs when peer already escrowed. */
-        boolean escrowNow(final Side side) {
-            if (!suppressAutoDeliver) {
-                return CoopTradeGlOps.performEscrow(
-                        side.state, side.log, side.bag, side.send::accept);
-            }
-            final long id = side.state.getTradeId();
-            if (id == 0L) {
-                return false;
-            }
-            if (!side.log.hasEscrowed(id)) {
-                final CoopTradeBag.Snapshot snap = side.bag.snapshot();
-                final CoopTradeApply.Result result = CoopTradeApply.escrowIdempotent(
-                        id, side.log, side.bag, side.state.getLocalOffer(), snap);
-                if (!result.applied) {
-                    return false;
-                }
-            }
-            final CoopTradeEscrowedEvent escrowed = side.state.markEscrowed(System.currentTimeMillis());
-            if (escrowed != null) {
-                side.send.accept(escrowed);
-            }
-            return true;
-        }
-
-        /** Drive both confirms with auto-deliver suppressed until both are ESCROWED. */
+        /**
+         * Confirm both while dropping Escrowed/Delivered on the wire so each side
+         * escrows locally without receiving peer escrowed (no auto-deliver).
+         */
         void confirmEscrowBothFreeze() throws InterruptedException {
-            suppressAutoDeliver = true;
-            confirm(host);
-            confirm(guest);
-            drainUntil(() -> host.log.hasEscrowed(host.state.getTradeId())
-                    && guest.log.hasEscrowed(guest.state.getTradeId())
-                    && !host.log.hasDelivered(host.state.getTradeId())
-                    && !guest.log.hasDelivered(guest.state.getTradeId()));
+            dropEscrowWire = true;
+            confirm(true);
+            confirm(false);
+            drainUntil(() -> hostRt.getTradeLog().hasEscrowed(hostRt.getState().getTradeId())
+                    && guestRt.getTradeLog().hasEscrowed(guestRt.getState().getTradeId())
+                    && !hostRt.getTradeLog().hasDelivered(hostRt.getState().getTradeId())
+                    && !guestRt.getTradeLog().hasDelivered(guestRt.getState().getTradeId()));
             freezeAtStep();
-            suppressAutoDeliver = false;
+            dropEscrowWire = false;
         }
 
-        /** Drop pending Netty→GL work without running it (freeze after a step). */
         void discardPendingGl() {
-            host.gl.clear();
-            guest.gl.clear();
+            synchronized (gl) {
+                gl.clear();
+            }
         }
 
-        /** Unlink peers and discard unprocessed GL so the frozen step stays exact. */
         void freezeAtStep() {
             hostLinked = false;
             guestLinked = false;
             discardPendingGl();
         }
 
-        /** Crash one side: atomic character save already done; discard memory; reload. */
-        void crashReload(final Side side) throws Exception {
-            CoopTradeGlOps.syncLogAndSave(side.player, side.log);
-            final String name = side.player.getName();
+        /**
+         * Crash host: discard memory, load lasting world save, swap playerOverride,
+         * reload log + recoverPendingFromLog. Does NOT call restoreFromLog or
+         * syncLogAndSave before discard.
+         */
+        void crashReloadHost() throws Exception {
+            final AdventurePlayer fresh = new AdventurePlayer();
+            Assert.assertTrue(loadHostWorld(fresh, hostWorldFile),
+                    "host-world.sav missing at " + hostWorldFile.getAbsolutePath());
+            hostPlayer.set(fresh);
+            hostRt.getTradeLog().clear();
+            CoopTradeGlOps.loadLogFromPlayer(fresh, hostRt.getTradeLog());
+            hostRt.getState().reset();
+            hostRt.getState().recoverPendingFromLog();
+        }
+
+        void crashReloadGuest() throws Exception {
+            final String name = guestPlayer.get().getName();
             final File chr = CoopCharacterStore.characterFile(name);
-            Assert.assertTrue(chr.isFile(), "character file missing for " + name
-                    + " at " + chr.getAbsolutePath());
-            final long id = side.state.getTradeId();
-            final CoopTradeRole role = side.role;
+            Assert.assertTrue(chr.isFile(), "guest .chr missing at " + chr.getAbsolutePath());
             final AdventurePlayer fresh = new AdventurePlayer();
             Assert.assertTrue(CoopCharacterStore.loadPlayer(fresh, name),
                     "loadPlayer failed for " + name);
-            side.player = fresh;
-            side.bag = new AdventurePlayerTradeBag(fresh);
-            side.log.clear();
-            CoopTradeGlOps.loadLogFromPlayer(fresh, side.log);
-            side.state.reset();
-            // Refresh both sides' bag lookups after reload.
-            host.state.setBagLookup(r -> r == CoopTradeRole.HOST ? host.bag : guest.bag);
-            guest.state.setBagLookup(r -> r == CoopTradeRole.HOST ? host.bag : guest.bag);
-            side.state.restoreFromLog(id, role);
-            side.log.setListener(e -> CoopTradeGlOps.syncLogAndSave(side.player, side.log));
+            guestPlayer.set(fresh);
+            guestRt.getTradeLog().clear();
+            CoopTradeGlOps.loadLogFromPlayer(fresh, guestRt.getTradeLog());
+            guestRt.getState().reset();
+            guestRt.getState().recoverPendingFromLog();
         }
 
         void reconcileBoth() throws InterruptedException {
-            host.gl.add(() -> {
-                for (final CoopTradeReconcileEvent ev : host.state.buildReconcileRequests(true)) {
-                    host.send.accept(ev);
-                }
-            });
-            guest.gl.add(() -> {
-                for (final CoopTradeReconcileEvent ev : guest.state.buildReconcileRequests(true)) {
-                    guest.send.accept(ev);
-                }
-            });
+            hostLinked = true;
+            guestLinked = true;
+            hostRt.onSessionReadyReconcile();
+            guestRt.onSessionReadyReconcile();
             drainAll();
         }
 
@@ -535,99 +633,8 @@ public class CoopTradeEscrowE2ETest {
             try { Thread.sleep(50); } catch (final InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
-        }
-    }
-
-    private static final class Side {
-        final boolean weAreHost;
-        final CoopTradeRole role;
-        final CoopTradeLog log = new CoopTradeLog();
-        final CoopTradeState state = new CoopTradeState(new CoopRateLimiter(100, 1), log);
-        final Queue<Runnable> gl = new ArrayDeque<>();
-        AdventurePlayer player;
-        AdventurePlayerTradeBag bag;
-        ConsumerSend send = ev -> { };
-
-        Side(final boolean weAreHost, final AdventurePlayer player) {
-            this.weAreHost = weAreHost;
-            this.role = weAreHost ? CoopTradeRole.HOST : CoopTradeRole.GUEST;
-            this.player = player;
-            this.bag = new AdventurePlayerTradeBag(player);
-            state.setBagLookup(r -> bag);
-        }
-
-        @FunctionalInterface
-        interface ConsumerSend {
-            void accept(NetEvent ev);
-        }
-
-        void handle(final NetEvent event, final DualNet dual) {
-            if (event instanceof CoopTradeRequestEvent) {
-                if (!weAreHost) {
-                    return;
-                }
-                final CoopTradeInviteEvent invite = state.acceptRequest(
-                        (CoopTradeRequestEvent) event, player.getName(), 30,
-                        System.currentTimeMillis());
-                Assert.assertNotNull(invite);
-                send.accept(invite);
-            } else if (event instanceof CoopTradeInviteEvent) {
-                Assert.assertTrue(state.receiveInvite((CoopTradeInviteEvent) event, weAreHost));
-            } else if (event instanceof CoopTradeResponseEvent) {
-                Assert.assertTrue(state.applyPeerResponse(
-                        (CoopTradeResponseEvent) event, weAreHost));
-            } else if (event instanceof CoopTradeOfferEvent) {
-                final CoopTradeOfferEvent ev = (CoopTradeOfferEvent) event;
-                if (ev.getFromRole() == role) {
-                    return;
-                }
-                Assert.assertNotNull(state.acceptOffer(ev));
-                if (weAreHost) {
-                    send.accept(ev);
-                }
-            } else if (event instanceof CoopTradeConfirmEvent) {
-                final CoopTradeConfirmEvent ev = (CoopTradeConfirmEvent) event;
-                if (ev.getFromRole() == role) {
-                    return;
-                }
-                final CoopTradeState.ConfirmResult result = state.acceptConfirm(ev);
-                if (weAreHost && result != CoopTradeState.ConfirmResult.IGNORED) {
-                    send.accept(ev);
-                }
-                if (result == CoopTradeState.ConfirmResult.BEGIN_ESCROW) {
-                    Assert.assertTrue(dual.escrowNow(this));
-                }
-            } else if (event instanceof CoopTradeEscrowedEvent) {
-                final CoopTradeEscrowedEvent ev = (CoopTradeEscrowedEvent) event;
-                state.receivePeerEscrowed(ev.getTradeId(), ev.getFromRole());
-                if (!dual.suppressAutoDeliver && state.shouldDeliver()) {
-                    Assert.assertTrue(CoopTradeGlOps.performDeliver(state, log, bag, send::accept));
-                }
-            } else if (event instanceof CoopTradeDeliveredEvent) {
-                final CoopTradeDeliveredEvent ev = (CoopTradeDeliveredEvent) event;
-                state.receivePeerDelivered(ev.getTradeId(), ev.getFromRole());
-            } else if (event instanceof CoopTradeCancelEvent) {
-                state.receiveCancel((CoopTradeCancelEvent) event);
-            } else if (event instanceof CoopTradeReconcileEvent) {
-                final CoopTradeReconcileEvent ev = (CoopTradeReconcileEvent) event;
-                if (ev.isRequest()) {
-                    final CoopTradeLog.Entry local = log.get(ev.getTradeId());
-                    final CoopTradeLog.Phase phase = local != null
-                            ? local.phase : CoopTradeLog.Phase.NONE;
-                    send.accept(new CoopTradeReconcileEvent(ev.getTradeId(), role, phase, false));
-                }
-                final CoopTradeLog.ReconcileAction action =
-                        state.applyReconcile(ev, System.currentTimeMillis());
-                if (action == CoopTradeLog.ReconcileAction.DELIVER) {
-                    Assert.assertTrue(CoopTradeGlOps.performDeliver(state, log, bag, send::accept));
-                } else if (action == CoopTradeLog.ReconcileAction.REFUND) {
-                    Assert.assertTrue(CoopTradeGlOps.performRefund(state, log, bag));
-                } else if (action == CoopTradeLog.ReconcileAction.RESEND_ESCROWED) {
-                    send.accept(new CoopTradeEscrowedEvent(ev.getTradeId(), role));
-                } else if (action == CoopTradeLog.ReconcileAction.RESEND_DELIVERED) {
-                    send.accept(new CoopTradeDeliveredEvent(ev.getTradeId(), role));
-                }
-            }
+            CoopTradeRuntime.setGlPoster(null);
+            CoopTradeGlOps.setSaveOverride(null);
         }
     }
 
@@ -655,83 +662,78 @@ public class CoopTradeEscrowE2ETest {
     @Test
     public void happyPathExactBagsViaNettyAndGl() throws Exception {
         dual.openTrade();
-        // Host: 100g, oak×5, ITEM_A×2. Guest: 80g, iron×4, ITEM_B×1.
-        // Trade: host gives oak×2 + 25g; guest gives iron×1 + 10g.
-        dual.setOffer(dual.host, matsOffer("oak", 2, 5, 25));
-        dual.setOffer(dual.guest, matsOffer("iron", 1, 4, 10));
+        dual.setOffer(true, matsOffer("oak", 2, 5, 25));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 10));
         dual.drainAll();
-        dual.confirm(dual.host);
-        dual.confirm(dual.guest);
+        dual.confirm(true);
+        dual.confirm(false);
         dual.drainAll();
 
-        Assert.assertTrue(dual.host.log.hasDelivered(dual.host.state.getTradeId()));
-        Assert.assertTrue(dual.guest.log.hasDelivered(dual.guest.state.getTradeId()));
-        Assert.assertEquals(dual.host.state.getStatus(), CoopTradeState.Status.COMPLETED);
-        Assert.assertEquals(dual.guest.state.getStatus(), CoopTradeState.Status.COMPLETED);
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
+        Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+        Assert.assertEquals(dual.hostRt.getState().getStatus(), CoopTradeState.Status.COMPLETED);
+        Assert.assertEquals(dual.guestRt.getState().getStatus(), CoopTradeState.Status.COMPLETED);
 
-        // Exact bags: host has iron×1 (was 0), oak×3, gold 85; guest has oak×2, iron×3, gold 95.
-        assertBag(dual.host.player, 85, 3, 1, 2, 0);
-        assertBag(dual.guest.player, 95, 2, 3, 0, 1);
+        assertBag(dual.hostPlayer.get(), 85, 3, 1, 2, 0);
+        assertBag(dual.guestPlayer.get(), 95, 2, 3, 0, 1);
     }
 
     @Test
     public void crashReloadAfterEscrowThenReconcileBothDeliverExact() throws Exception {
         dual.openTrade();
-        dual.setOffer(dual.host, matsOffer("oak", 2, 5, 0));
-        dual.setOffer(dual.guest, matsOffer("iron", 2, 4, 0));
+        dual.setOffer(true, matsOffer("oak", 2, 5, 0));
+        dual.setOffer(false, matsOffer("iron", 2, 4, 0));
         dual.drainAll();
         dual.confirmEscrowBothFreeze();
-        Assert.assertTrue(dual.host.log.hasEscrowed(dual.host.state.getTradeId()));
-        Assert.assertTrue(dual.guest.log.hasEscrowed(dual.guest.state.getTradeId()));
-        Assert.assertFalse(dual.host.log.hasDelivered(dual.host.state.getTradeId()));
-        Assert.assertFalse(dual.guest.log.hasDelivered(dual.guest.state.getTradeId()));
-        // Escrow removed own goods only: host oak×3 (no iron), guest iron×2 (no oak).
-        assertBag(dual.host.player, 100, 3, 0, 2, 0);
-        assertBag(dual.guest.player, 80, 0, 2, 0, 1);
+        final long id = dual.hostRt.getState().getTradeId();
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasEscrowed(id));
+        Assert.assertTrue(dual.guestRt.getTradeLog().hasEscrowed(id));
+        Assert.assertFalse(dual.hostRt.getTradeLog().hasDelivered(id));
+        Assert.assertFalse(dual.guestRt.getTradeLog().hasDelivered(id));
+        assertBag(dual.hostPlayer.get(), 100, 3, 0, 2, 0);
+        assertBag(dual.guestPlayer.get(), 80, 0, 2, 0, 1);
 
-        dual.crashReload(dual.host);
-        dual.hostLinked = true;
-        dual.guestLinked = true;
+        dual.crashReloadHost();
         dual.reconcileBoth();
 
-        Assert.assertTrue(dual.host.log.hasDelivered(dual.host.state.getTradeId()),
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(id),
                 "host must be DELIVERED after reconcile");
-        Assert.assertTrue(dual.guest.log.hasDelivered(dual.guest.state.getTradeId()),
+        Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(id),
                 "guest must be DELIVERED after reconcile");
-        // Host offered oak×2, guest iron×2 → host: oak×3 iron×2; guest: oak×2 iron×2.
-        assertBag(dual.host.player, 100, 3, 2, 2, 0);
-        assertBag(dual.guest.player, 80, 2, 2, 0, 1);
+        assertBag(dual.hostPlayer.get(), 100, 3, 2, 2, 0);
+        assertBag(dual.guestPlayer.get(), 80, 2, 2, 0, 1);
     }
 
     @Test
     public void afterOneDeliverDisconnectCrashReloadReconcileExact() throws Exception {
         dual.openTrade();
-        dual.setOffer(dual.host, matsOffer("oak", 1, 5, 0));
-        dual.setOffer(dual.guest, matsOffer("iron", 1, 4, 0));
+        dual.setOffer(true, matsOffer("oak", 1, 5, 0));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 0));
         dual.drainAll();
-        dual.confirm(dual.host);
-        dual.confirm(dual.guest);
+        dual.confirm(true);
+        dual.confirm(false);
 
-        // Drain until exactly one side has DELIVERED, then freeze (do not drain the other).
-        dual.drainUntil(() -> dual.host.log.hasDelivered(dual.host.state.getTradeId())
-                ^ dual.guest.log.hasDelivered(dual.guest.state.getTradeId()));
+        dual.drainUntil(() -> dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId())
+                ^ dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
         dual.freezeAtStep();
-        Assert.assertTrue(dual.host.log.hasDelivered(dual.host.state.getTradeId())
-                ^ dual.guest.log.hasDelivered(dual.guest.state.getTradeId()),
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId())
+                ^ dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()),
                 "must remain exactly-one-delivered after freeze");
 
-        final boolean hostHadDelivered = dual.host.log.hasDelivered(dual.host.state.getTradeId());
-        final Side toCrash = hostHadDelivered ? dual.guest : dual.host;
-        dual.crashReload(toCrash);
+        final boolean hostHadDelivered =
+                dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId());
+        if (hostHadDelivered) {
+            dual.crashReloadGuest();
+        } else {
+            dual.crashReloadHost();
+        }
 
-        dual.hostLinked = true;
-        dual.guestLinked = true;
         dual.reconcileBoth();
 
-        Assert.assertTrue(dual.host.log.hasDelivered(dual.host.state.getTradeId()));
-        Assert.assertTrue(dual.guest.log.hasDelivered(dual.guest.state.getTradeId()));
-        assertBag(dual.host.player, 100, 4, 1, 2, 0);
-        assertBag(dual.guest.player, 80, 1, 3, 0, 1);
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
+        Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+        assertBag(dual.hostPlayer.get(), 100, 4, 1, 2, 0);
+        assertBag(dual.guestPlayer.get(), 80, 1, 3, 0, 1);
     }
 
     @Test
@@ -744,254 +746,240 @@ public class CoopTradeEscrowE2ETest {
             final String step = steps[i];
             if (i > 0) {
                 dual.close();
-                dual = DualNet.start();
+                dual = DualNet.start(tempChars);
             }
             dual.openTrade();
             if ("after-open".equals(step)) {
-                dual.host.state.onDisconnect();
-                Assert.assertEquals(dual.host.state.getStatus(), CoopTradeState.Status.CANCELLED);
-                assertBag(dual.host.player, 100, 5, 0, 2, 0);
-                assertBag(dual.guest.player, 80, 0, 4, 0, 1);
+                dual.hostRt.onSessionPeerDisconnected();
+                dual.drainAll();
+                Assert.assertEquals(dual.hostRt.getState().getStatus(), CoopTradeState.Status.CANCELLED);
+                assertBag(dual.hostPlayer.get(), 100, 5, 0, 2, 0);
+                assertBag(dual.guestPlayer.get(), 80, 0, 4, 0, 1);
                 continue;
             }
-            dual.setOffer(dual.host, matsOffer("oak", 1, 5, 0));
-            dual.setOffer(dual.guest, matsOffer("iron", 1, 4, 0));
+            dual.setOffer(true, matsOffer("oak", 1, 5, 0));
+            dual.setOffer(false, matsOffer("iron", 1, 4, 0));
             dual.drainAll();
             if ("after-offer".equals(step)) {
-                dual.guest.state.onDisconnect();
-                Assert.assertEquals(dual.guest.state.getStatus(), CoopTradeState.Status.CANCELLED);
-                assertBag(dual.host.player, 100, 5, 0, 2, 0);
-                assertBag(dual.guest.player, 80, 0, 4, 0, 1);
+                dual.guestRt.onSessionPeerDisconnected();
+                dual.drainAll();
+                Assert.assertEquals(dual.guestRt.getState().getStatus(), CoopTradeState.Status.CANCELLED);
+                assertBag(dual.hostPlayer.get(), 100, 5, 0, 2, 0);
+                assertBag(dual.guestPlayer.get(), 80, 0, 4, 0, 1);
                 continue;
             }
             if ("after-one-confirm".equals(step)) {
-                dual.confirm(dual.host);
+                dual.confirm(true);
                 dual.drainAll();
-                dual.host.state.onDisconnect();
-                Assert.assertEquals(dual.host.state.getStatus(), CoopTradeState.Status.CANCELLED);
-                assertBag(dual.host.player, 100, 5, 0, 2, 0);
-                assertBag(dual.guest.player, 80, 0, 4, 0, 1);
+                dual.hostRt.onSessionPeerDisconnected();
+                dual.drainAll();
+                Assert.assertEquals(dual.hostRt.getState().getStatus(), CoopTradeState.Status.CANCELLED);
+                assertBag(dual.hostPlayer.get(), 100, 5, 0, 2, 0);
+                assertBag(dual.guestPlayer.get(), 80, 0, 4, 0, 1);
                 continue;
             }
             if ("after-escrow".equals(step)) {
                 dual.confirmEscrowBothFreeze();
-                dual.host.state.onDisconnect();
-                dual.guest.state.onDisconnect();
-                Assert.assertEquals(dual.host.state.getStatus(), CoopTradeState.Status.NEEDS_RECONCILE);
-                Assert.assertEquals(dual.guest.state.getStatus(), CoopTradeState.Status.NEEDS_RECONCILE);
-                Assert.assertNull(dual.host.state.cancel("abandon"));
-                dual.crashReload(dual.host);
-                dual.crashReload(dual.guest);
-                dual.hostLinked = true;
-                dual.guestLinked = true;
+                dual.hostRt.onSessionPeerDisconnected();
+                dual.guestRt.onSessionPeerDisconnected();
+                dual.drainAll();
+                Assert.assertEquals(dual.hostRt.getState().getStatus(), CoopTradeState.Status.NEEDS_RECONCILE);
+                Assert.assertEquals(dual.guestRt.getState().getStatus(), CoopTradeState.Status.NEEDS_RECONCILE);
+                Assert.assertNull(dual.hostRt.getState().cancel("abandon"));
+                dual.crashReloadHost();
+                dual.crashReloadGuest();
                 dual.reconcileBoth();
-                Assert.assertTrue(dual.host.log.hasDelivered(dual.host.state.getTradeId()));
-                Assert.assertTrue(dual.guest.log.hasDelivered(dual.guest.state.getTradeId()));
-                assertBag(dual.host.player, 100, 4, 1, 2, 0);
-                assertBag(dual.guest.player, 80, 1, 3, 0, 1);
+                Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
+                Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+                assertBag(dual.hostPlayer.get(), 100, 4, 1, 2, 0);
+                assertBag(dual.guestPlayer.get(), 80, 1, 3, 0, 1);
                 continue;
             }
             // after-one-deliver
-            dual.confirm(dual.host);
-            dual.confirm(dual.guest);
-            dual.drainUntil(() -> dual.host.log.hasDelivered(dual.host.state.getTradeId())
-                    ^ dual.guest.log.hasDelivered(dual.guest.state.getTradeId()));
+            dual.confirm(true);
+            dual.confirm(false);
+            dual.drainUntil(() -> dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId())
+                    ^ dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
             dual.freezeAtStep();
-            dual.host.state.onDisconnect();
-            dual.guest.state.onDisconnect();
-            dual.crashReload(dual.host);
-            dual.crashReload(dual.guest);
-            dual.hostLinked = true;
-            dual.guestLinked = true;
+            dual.hostRt.onSessionPeerDisconnected();
+            dual.guestRt.onSessionPeerDisconnected();
+            dual.drainAll();
+            dual.crashReloadHost();
+            dual.crashReloadGuest();
             dual.reconcileBoth();
-            Assert.assertTrue(dual.host.log.hasDelivered(dual.host.state.getTradeId()));
-            Assert.assertTrue(dual.guest.log.hasDelivered(dual.guest.state.getTradeId()));
-            assertBag(dual.host.player, 100, 4, 1, 2, 0);
-            assertBag(dual.guest.player, 80, 1, 3, 0, 1);
+            Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
+            Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+            assertBag(dual.hostPlayer.get(), 100, 4, 1, 2, 0);
+            assertBag(dual.guestPlayer.get(), 80, 1, 3, 0, 1);
         }
     }
 
     @Test
     public void crashAndReloadAtEachStepExact() throws Exception {
-        // after-open crash: bags unchanged, empty trade log.
-        CoopTradeGlOps.syncLogAndSave(dual.host.player, dual.host.log);
-        dual.crashReload(dual.host);
-        assertBag(dual.host.player, 100, 5, 0, 2, 0);
+        // after-open crash: bags unchanged from baseline world save (no pre-save).
+        dual.crashReloadHost();
+        assertBag(dual.hostPlayer.get(), 100, 5, 0, 2, 0);
 
         dual.close();
-        dual = DualNet.start();
-        // after-offer crash: no bag change.
+        dual = DualNet.start(tempChars);
         dual.openTrade();
-        dual.setOffer(dual.host, matsOffer("oak", 1, 5, 0));
+        dual.setOffer(true, matsOffer("oak", 1, 5, 0));
         dual.drainAll();
-        CoopTradeGlOps.syncLogAndSave(dual.host.player, dual.host.log);
-        dual.crashReload(dual.host);
-        assertBag(dual.host.player, 100, 5, 0, 2, 0);
+        dual.crashReloadHost();
+        assertBag(dual.hostPlayer.get(), 100, 5, 0, 2, 0);
 
         dual.close();
-        dual = DualNet.start();
-        // after-one-confirm crash: still no escrow, bags unchanged.
+        dual = DualNet.start(tempChars);
         dual.openTrade();
-        dual.setOffer(dual.host, matsOffer("oak", 1, 5, 0));
-        dual.setOffer(dual.guest, matsOffer("iron", 1, 4, 0));
+        dual.setOffer(true, matsOffer("oak", 1, 5, 0));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 0));
         dual.drainAll();
-        dual.confirm(dual.host);
+        dual.confirm(true);
         dual.drainAll();
-        CoopTradeGlOps.syncLogAndSave(dual.host.player, dual.host.log);
-        dual.crashReload(dual.host);
-        assertBag(dual.host.player, 100, 5, 0, 2, 0);
-        assertBag(dual.guest.player, 80, 0, 4, 0, 1);
+        dual.crashReloadHost();
+        assertBag(dual.hostPlayer.get(), 100, 5, 0, 2, 0);
+        assertBag(dual.guestPlayer.get(), 80, 0, 4, 0, 1);
 
         dual.close();
-        dual = DualNet.start();
-        // after-escrow crash+reload both, reconcile → exact swap.
+        dual = DualNet.start(tempChars);
         dual.openTrade();
-        dual.setOffer(dual.host, matsOffer("oak", 1, 5, 0));
-        dual.setOffer(dual.guest, matsOffer("iron", 1, 4, 0));
+        dual.setOffer(true, matsOffer("oak", 1, 5, 0));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 0));
         dual.drainAll();
         dual.confirmEscrowBothFreeze();
-        dual.crashReload(dual.host);
-        dual.crashReload(dual.guest);
-        dual.hostLinked = true;
-        dual.guestLinked = true;
+        dual.crashReloadHost();
+        dual.crashReloadGuest();
         dual.reconcileBoth();
-        Assert.assertTrue(dual.host.log.hasDelivered(dual.host.state.getTradeId()));
-        Assert.assertTrue(dual.guest.log.hasDelivered(dual.guest.state.getTradeId()));
-        assertBag(dual.host.player, 100, 4, 1, 2, 0);
-        assertBag(dual.guest.player, 80, 1, 3, 0, 1);
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
+        Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+        assertBag(dual.hostPlayer.get(), 100, 4, 1, 2, 0);
+        assertBag(dual.guestPlayer.get(), 80, 1, 3, 0, 1);
 
         dual.close();
-        dual = DualNet.start();
-        // after-one-deliver crash of the non-delivered side → reconcile completes.
+        dual = DualNet.start(tempChars);
         dual.openTrade();
-        dual.setOffer(dual.host, matsOffer("oak", 1, 5, 0));
-        dual.setOffer(dual.guest, matsOffer("iron", 1, 4, 0));
+        dual.setOffer(true, matsOffer("oak", 1, 5, 0));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 0));
         dual.drainAll();
-        dual.confirm(dual.host);
-        dual.confirm(dual.guest);
-        dual.drainUntil(() -> dual.host.log.hasDelivered(dual.host.state.getTradeId())
-                ^ dual.guest.log.hasDelivered(dual.guest.state.getTradeId()));
+        dual.confirm(true);
+        dual.confirm(false);
+        dual.drainUntil(() -> dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId())
+                ^ dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
         dual.freezeAtStep();
-        final Side lagging = dual.host.log.hasDelivered(dual.host.state.getTradeId())
-                ? dual.guest : dual.host;
-        dual.crashReload(lagging);
-        dual.hostLinked = true;
-        dual.guestLinked = true;
+        final boolean hostDone =
+                dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId());
+        if (hostDone) {
+            dual.crashReloadGuest();
+        } else {
+            dual.crashReloadHost();
+        }
         dual.reconcileBoth();
-        Assert.assertTrue(dual.host.log.hasDelivered(dual.host.state.getTradeId()));
-        Assert.assertTrue(dual.guest.log.hasDelivered(dual.guest.state.getTradeId()));
-        assertBag(dual.host.player, 100, 4, 1, 2, 0);
-        assertBag(dual.guest.player, 80, 1, 3, 0, 1);
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
+        Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+        assertBag(dual.hostPlayer.get(), 100, 4, 1, 2, 0);
+        assertBag(dual.guestPlayer.get(), 80, 1, 3, 0, 1);
     }
 
     @Test
     public void staleAndDuplicateIdRejectedBagsUnchanged() throws Exception {
-        // Duplicate / stale id on reconnect: idle side with id already in log.
         final long staleId = forge.gamemodes.net.coop.CoopTradeIds.next();
-        dual.host.log.record(staleId, CoopTradeLog.Phase.COMPLETED, 1L);
-        CoopTradeGlOps.syncLogAndSave(dual.host.player, dual.host.log);
-        dual.crashReload(dual.host);
-        Assert.assertTrue(dual.host.log.contains(staleId));
-        Assert.assertFalse(dual.host.state.receiveInvite(
+        dual.hostRt.getTradeLog().record(staleId, CoopTradeLog.Phase.COMPLETED, 1L);
+        CoopTradeGlOps.syncLogAndSave(dual.hostPlayer.get(), dual.hostRt.getTradeLog());
+        dual.crashReloadHost();
+        Assert.assertTrue(dual.hostRt.getTradeLog().contains(staleId));
+        Assert.assertFalse(dual.hostRt.getState().receiveInvite(
                 new CoopTradeInviteEvent(staleId, "Guest", 30), true),
                 "stale/duplicate id after reload must be rejected");
-        assertBag(dual.host.player, 100, 5, 0, 2, 0);
-        assertBag(dual.guest.player, 80, 0, 4, 0, 1);
+        assertBag(dual.hostPlayer.get(), 100, 5, 0, 2, 0);
+        assertBag(dual.guestPlayer.get(), 80, 0, 4, 0, 1);
 
-        // Stale offer version rejected on an open trade.
         dual.openTrade();
-        dual.setOffer(dual.host, matsOffer("oak", 1, 5, 0));
+        dual.setOffer(true, matsOffer("oak", 1, 5, 0));
         dual.drainAll();
-        final int ver = dual.host.state.getHostOfferVersion();
-        Assert.assertNull(dual.host.state.acceptOffer(new CoopTradeOfferEvent(
-                dual.host.state.getTradeId(), CoopTradeRole.HOST,
+        final int ver = dual.hostRt.getState().getHostOfferVersion();
+        Assert.assertNull(dual.hostRt.getState().acceptOffer(new CoopTradeOfferEvent(
+                dual.hostRt.getState().getTradeId(), CoopTradeRole.HOST,
                 matsOffer("oak", 2, 5, 0), ver)));
-        assertBag(dual.host.player, 100, 5, 0, 2, 0);
+        assertBag(dual.hostPlayer.get(), 100, 5, 0, 2, 0);
     }
 
     @Test
     public void hostileCompletedEscrowedDeliveredUnknownIdBagsUnchanged() throws Exception {
         dual.openTrade();
-        final long realId = dual.host.state.getTradeId();
-        // Unknown id claiming COMPLETED.
-        Assert.assertEquals(dual.host.state.applyReconcile(
+        final long realId = dual.hostRt.getState().getTradeId();
+        Assert.assertEquals(dual.hostRt.getState().applyReconcile(
                 new CoopTradeReconcileEvent(99999L, CoopTradeRole.GUEST,
                         CoopTradeLog.Phase.COMPLETED, false), 1L),
                 CoopTradeLog.ReconcileAction.IGNORE_HOSTILE);
-        Assert.assertFalse(dual.host.state.receivePeerEscrowed(88888L, CoopTradeRole.GUEST));
-        Assert.assertFalse(dual.host.state.receivePeerDelivered(88888L, CoopTradeRole.GUEST));
-        // Peer claims delivered for our open trade before we escrowed.
-        Assert.assertFalse(dual.host.state.receivePeerDelivered(realId, CoopTradeRole.GUEST));
-        assertBag(dual.host.player, 100, 5, 0, 2, 0);
-        assertBag(dual.guest.player, 80, 0, 4, 0, 1);
+        Assert.assertFalse(dual.hostRt.getState().receivePeerEscrowed(88888L, CoopTradeRole.GUEST));
+        Assert.assertFalse(dual.hostRt.getState().receivePeerDelivered(88888L, CoopTradeRole.GUEST));
+        Assert.assertFalse(dual.hostRt.getState().receivePeerDelivered(realId, CoopTradeRole.GUEST));
+        assertBag(dual.hostPlayer.get(), 100, 5, 0, 2, 0);
+        assertBag(dual.guestPlayer.get(), 80, 0, 4, 0, 1);
     }
 
     @Test
     public void cancelRefusedAfterBothConfirm() throws Exception {
         dual.openTrade();
-        dual.setOffer(dual.host, matsOffer("oak", 1, 5, 5));
-        dual.setOffer(dual.guest, matsOffer("iron", 1, 4, 5));
+        dual.setOffer(true, matsOffer("oak", 1, 5, 5));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 5));
         dual.drainAll();
-        dual.confirm(dual.host);
+        dual.confirm(true);
         dual.drainAll();
-        Assert.assertTrue(dual.host.state.isCancelAllowed());
-        dual.confirm(dual.guest);
+        Assert.assertTrue(dual.hostRt.getState().isCancelAllowed());
+        dual.confirm(false);
         dual.drainAll();
-        Assert.assertFalse(dual.host.state.isCancelAllowed());
-        Assert.assertNull(dual.host.state.cancel("nope"));
-        Assert.assertNull(dual.guest.state.cancel("nope"));
+        Assert.assertFalse(dual.hostRt.getState().isCancelAllowed());
+        Assert.assertNull(dual.hostRt.getState().cancel("nope"));
+        Assert.assertNull(dual.guestRt.getState().cancel("nope"));
     }
 
     @Test
     public void overflowOnDeliverExact() throws Exception {
-        // Shrink host backpack to 1; already holds ITEM_A×1 → receiving ITEM_B overflows.
         final ConfigData cfg = Config.instance().getConfigData();
         cfg.backpackSlots = 1;
-        dual.host.player.getBags().resetToDefaults(cfg);
-        // Reset inventory to a single stone.
-        while (itemCount(dual.host.player, ITEM_A) > 0) {
-            Assert.assertTrue(dual.host.bag.takeItem(ITEM_A, 1));
+        dual.hostPlayer.get().getBags().resetToDefaults(cfg);
+        final AdventurePlayerTradeBag hostBag = new AdventurePlayerTradeBag(dual.hostPlayer.get());
+        while (itemCount(dual.hostPlayer.get(), ITEM_A) > 0) {
+            Assert.assertTrue(hostBag.takeItem(ITEM_A, 1));
         }
-        while (itemCount(dual.host.player, ITEM_B) > 0) {
-            Assert.assertTrue(dual.host.bag.takeItem(ITEM_B, 1));
+        while (itemCount(dual.hostPlayer.get(), ITEM_B) > 0) {
+            Assert.assertTrue(hostBag.takeItem(ITEM_B, 1));
         }
-        giveItem(dual.host.player, ITEM_A, 1);
-        Assert.assertEquals(itemCount(dual.host.player, ITEM_A), 1);
+        giveItem(dual.hostPlayer.get(), ITEM_A, 1);
+        Assert.assertEquals(itemCount(dual.hostPlayer.get(), ITEM_A), 1);
 
         dual.openTrade();
-        dual.setOffer(dual.host, new CoopTradeOffer(1, null, null, null));
-        dual.setOffer(dual.guest, itemOffer(ITEM_B, 1, 1));
+        dual.setOffer(true, new CoopTradeOffer(1, null, null, null));
+        dual.setOffer(false, itemOffer(ITEM_B, 1, 1));
         dual.drainAll();
-        dual.confirm(dual.host);
-        dual.confirm(dual.guest);
+        dual.confirm(true);
+        dual.confirm(false);
         dual.drainAll();
 
-        Assert.assertTrue(dual.host.log.hasDelivered(dual.host.state.getTradeId()));
-        Assert.assertEquals(itemCount(dual.host.player, ITEM_A), 1);
-        Assert.assertEquals(itemCount(dual.host.player, ITEM_B), 0);
-        Assert.assertTrue(dual.host.player.getBags().getOverflow().size() >= 1,
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
+        Assert.assertEquals(itemCount(dual.hostPlayer.get(), ITEM_A), 1);
+        Assert.assertEquals(itemCount(dual.hostPlayer.get(), ITEM_B), 0);
+        Assert.assertTrue(dual.hostPlayer.get().getBags().getOverflow().size() >= 1,
                 "ITEM_B must land in Overflow");
-        // Restore bag config for later tests in this JVM.
         cfg.backpackSlots = 20;
     }
 
     @Test
     public void characterSaveRoundTripsTradeLogAtomically() throws Exception {
         dual.openTrade();
-        dual.setOffer(dual.host, matsOffer("oak", 1, 5, 0));
-        dual.setOffer(dual.guest, matsOffer("iron", 1, 4, 0));
+        dual.setOffer(true, matsOffer("oak", 1, 5, 0));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 0));
         dual.drainAll();
         dual.confirmEscrowBothFreeze();
-        final long id = dual.host.state.getTradeId();
-        Assert.assertEquals(dual.host.log.get(id).phase, CoopTradeLog.Phase.ESCROWED);
-        CoopTradeGlOps.syncLogAndSave(dual.host.player, dual.host.log);
-
-        final File chr = CoopCharacterStore.characterFile(dual.host.player.getName());
-        Assert.assertTrue(chr.isFile());
-        Assert.assertFalse(new File(chr.getPath() + ".tmp").exists(), "tmp must be gone after atomic move");
+        final long id = dual.hostRt.getState().getTradeId();
+        Assert.assertEquals(dual.hostRt.getTradeLog().get(id).phase, CoopTradeLog.Phase.ESCROWED);
+        Assert.assertTrue(dual.hostWorldFile.isFile());
+        Assert.assertFalse(new File(dual.hostWorldFile.getPath() + ".tmp").exists(),
+                "tmp must be gone after atomic move");
 
         final AdventurePlayer loaded = new AdventurePlayer();
-        Assert.assertTrue(CoopCharacterStore.loadPlayer(loaded, dual.host.player.getName()));
+        Assert.assertTrue(loadHostWorld(loaded, dual.hostWorldFile));
         Assert.assertEquals(loaded.getGold(), 100);
         Assert.assertEquals(loaded.getMaterial("oak"), 4, "host escrowed oak×1");
         Assert.assertEquals(loaded.getMaterial("iron"), 0, "host must not hold guest iron yet");
@@ -1002,48 +990,177 @@ public class CoopTradeEscrowE2ETest {
         Assert.assertFalse(reloaded.hasDelivered(id));
     }
 
-    /**
-     * Mutation check: if deliver is allowed before peer escrowed, the happy-path
-     * exact-bag test's invariant {@link CoopTradeGlOps#performDeliver} refuses.
-     * Documented in the PR report — this method asserts the guard itself.
-     */
     @Test
     public void deliverGuardRequiresPeerEscrowed() throws Exception {
         dual.openTrade();
-        dual.setOffer(dual.host, matsOffer("oak", 1, 5, 0));
-        dual.setOffer(dual.guest, matsOffer("iron", 1, 4, 0));
+        dual.setOffer(true, matsOffer("oak", 1, 5, 0));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 0));
         dual.drainAll();
-        // Escrow host only (local confirm both on host bag lookup, then only host escrows).
-        dual.host.gl.add(() -> {
-            dual.host.state.acceptConfirm(new CoopTradeConfirmEvent(
-                    dual.host.state.getTradeId(), CoopTradeRole.HOST, true, 1, 1));
-            dual.host.state.acceptConfirm(new CoopTradeConfirmEvent(
-                    dual.host.state.getTradeId(), CoopTradeRole.GUEST, true, 1, 1));
-            Assert.assertTrue(CoopTradeGlOps.performEscrow(
-                    dual.host.state, dual.host.log, dual.host.bag, dual.host.send::accept));
-        });
+        dual.freezeAtStep();
+        synchronized (dual.gl) {
+            dual.gl.add(() -> {
+                final long id = dual.hostRt.getState().getTradeId();
+                final int hv = dual.hostRt.getState().getHostOfferVersion();
+                final int gv = dual.hostRt.getState().getGuestOfferVersion();
+                dual.hostRt.getState().acceptConfirm(new CoopTradeConfirmEvent(
+                        id, CoopTradeRole.HOST, true, hv, gv));
+                dual.hostRt.getState().acceptConfirm(new CoopTradeConfirmEvent(
+                        id, CoopTradeRole.GUEST, true, hv, gv));
+                Assert.assertTrue(CoopTradeGlOps.performEscrow(
+                        dual.hostRt.getState(), dual.hostRt.getTradeLog(),
+                        new AdventurePlayerTradeBag(dual.hostPlayer.get()),
+                        ev -> { /* no wire — peer must not learn we escrowed */ }));
+            });
+        }
         dual.drainAll();
-        Assert.assertTrue(dual.host.log.hasEscrowed(dual.host.state.getTradeId()));
-        Assert.assertFalse(dual.host.state.isPeerEscrowed());
-        // Deliver must refuse — peer never escrowed.
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasEscrowed(dual.hostRt.getState().getTradeId()));
+        Assert.assertFalse(dual.hostRt.getState().isPeerEscrowed());
         Assert.assertFalse(CoopTradeGlOps.performDeliver(
-                dual.host.state, dual.host.log, dual.host.bag, dual.host.send::accept));
-        // Host still missing iron (did not receive guest goods).
-        Assert.assertEquals(dual.host.player.getMaterial("iron"), 0);
+                dual.hostRt.getState(), dual.hostRt.getTradeLog(),
+                new AdventurePlayerTradeBag(dual.hostPlayer.get()), ev -> { }));
+        Assert.assertEquals(dual.hostPlayer.get().getMaterial("iron"), 0);
     }
 
     @Test
     public void duplicateIdGuardOnReceiveInvite() throws Exception {
-        // Idle guest whose log already knows this id must reject the invite
-        // (status alone is not enough — must hit the trade-log duplicate check).
         final long id = forge.gamemodes.net.coop.CoopTradeIds.next();
-        final CoopTradeLog log = new CoopTradeLog();
-        log.record(id, CoopTradeLog.Phase.COMPLETED, 1L);
-        final CoopTradeState idle = new CoopTradeState(new CoopRateLimiter(100, 1), log);
-        Assert.assertEquals(idle.getStatus(), CoopTradeState.Status.IDLE);
-        Assert.assertFalse(idle.receiveInvite(new CoopTradeInviteEvent(id, "Host", 30), false));
-        assertBag(dual.host.player, 100, 5, 0, 2, 0);
-        assertBag(dual.guest.player, 80, 0, 4, 0, 1);
+        dual.guestRt.getTradeLog().record(id, CoopTradeLog.Phase.COMPLETED, 1L);
+        Assert.assertEquals(dual.guestRt.getState().getStatus(), CoopTradeState.Status.IDLE);
+        Assert.assertFalse(dual.guestRt.getState().receiveInvite(
+                new CoopTradeInviteEvent(id, "Host", 30), false));
+        assertBag(dual.hostPlayer.get(), 100, 5, 0, 2, 0);
+        assertBag(dual.guestPlayer.get(), 80, 0, 4, 0, 1);
+    }
+
+    @Test
+    public void refundWhenPeerNeverEscrowedExact() throws Exception {
+        dual.openTrade();
+        dual.setOffer(true, matsOffer("oak", 2, 5, 0));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 0));
+        dual.drainAll();
+        dual.freezeAtStep();
+        synchronized (dual.gl) {
+            dual.gl.add(() -> {
+                final long id = dual.hostRt.getState().getTradeId();
+                final int hv = dual.hostRt.getState().getHostOfferVersion();
+                final int gv = dual.hostRt.getState().getGuestOfferVersion();
+                dual.hostRt.getState().acceptConfirm(new CoopTradeConfirmEvent(
+                        id, CoopTradeRole.HOST, true, hv, gv));
+                dual.hostRt.getState().acceptConfirm(new CoopTradeConfirmEvent(
+                        id, CoopTradeRole.GUEST, true, hv, gv));
+                Assert.assertTrue(CoopTradeGlOps.performEscrow(
+                        dual.hostRt.getState(), dual.hostRt.getTradeLog(),
+                        new AdventurePlayerTradeBag(dual.hostPlayer.get()),
+                        ev -> { }));
+            });
+        }
+        dual.drainAll();
+        final long id = dual.hostRt.getState().getTradeId();
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasEscrowed(id));
+        assertBag(dual.hostPlayer.get(), 100, 3, 0, 2, 0);
+
+        dual.hostRt.onSessionPeerDisconnected();
+        dual.drainAll();
+        dual.crashReloadHost();
+        Assert.assertEquals(dual.hostRt.getState().getStatus(), CoopTradeState.Status.NEEDS_RECONCILE);
+
+        // Peer answers NONE (never escrowed) → host refunds own offer.
+        dual.hostLinked = true;
+        dual.guestLinked = true;
+        synchronized (dual.gl) {
+            dual.gl.add(() -> {
+                final CoopTradeLog.ReconcileAction action = dual.hostRt.getState().applyReconcile(
+                        new CoopTradeReconcileEvent(id, CoopTradeRole.GUEST,
+                                CoopTradeLog.Phase.NONE, false),
+                        System.currentTimeMillis(), dual.hostPeerId.get());
+                Assert.assertEquals(action, CoopTradeLog.ReconcileAction.REFUND);
+                Assert.assertTrue(CoopTradeGlOps.performRefund(
+                        dual.hostRt.getState(), dual.hostRt.getTradeLog(),
+                        new AdventurePlayerTradeBag(dual.hostPlayer.get())));
+            });
+        }
+        dual.drainAll();
+        assertBag(dual.hostPlayer.get(), 100, 5, 0, 2, 0);
+        Assert.assertEquals(dual.hostRt.getTradeLog().get(id).phase, CoopTradeLog.Phase.REFUNDED);
+    }
+
+    @Test
+    public void wrongPeerReconcileDoesNotRefund() throws Exception {
+        dual.openTrade();
+        dual.setOffer(true, matsOffer("oak", 2, 5, 0));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 0));
+        dual.drainAll();
+        dual.freezeAtStep();
+        synchronized (dual.gl) {
+            dual.gl.add(() -> {
+                final long id = dual.hostRt.getState().getTradeId();
+                final int hv = dual.hostRt.getState().getHostOfferVersion();
+                final int gv = dual.hostRt.getState().getGuestOfferVersion();
+                dual.hostRt.getState().acceptConfirm(new CoopTradeConfirmEvent(
+                        id, CoopTradeRole.HOST, true, hv, gv));
+                dual.hostRt.getState().acceptConfirm(new CoopTradeConfirmEvent(
+                        id, CoopTradeRole.GUEST, true, hv, gv));
+                Assert.assertTrue(CoopTradeGlOps.performEscrow(
+                        dual.hostRt.getState(), dual.hostRt.getTradeLog(),
+                        new AdventurePlayerTradeBag(dual.hostPlayer.get()),
+                        ev -> { }));
+            });
+        }
+        dual.drainAll();
+        final long id = dual.hostRt.getState().getTradeId();
+        assertBag(dual.hostPlayer.get(), 100, 3, 0, 2, 0);
+
+        Assert.assertEquals(dual.hostRt.getState().applyReconcile(
+                new CoopTradeReconcileEvent(id, CoopTradeRole.GUEST,
+                        CoopTradeLog.Phase.NONE, false),
+                System.currentTimeMillis(), "OtherGuest"),
+                CoopTradeLog.ReconcileAction.IGNORE_HOSTILE);
+        assertBag(dual.hostPlayer.get(), 100, 3, 0, 2, 0);
+        Assert.assertEquals(dual.hostRt.getTradeLog().get(id).phase, CoopTradeLog.Phase.ESCROWED);
+    }
+
+    @Test
+    public void hostRestartRestoresRoleFromLog() throws Exception {
+        dual.openTrade();
+        dual.setOffer(true, matsOffer("oak", 1, 5, 0));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 0));
+        dual.drainAll();
+        dual.confirmEscrowBothFreeze();
+        final long id = dual.hostRt.getState().getTradeId();
+        Assert.assertEquals(dual.hostRt.getState().getLocalRole(), CoopTradeRole.HOST);
+        Assert.assertEquals(dual.hostRt.getTradeLog().get(id).localRole, CoopTradeRole.HOST);
+
+        dual.crashReloadHost();
+        // C1: role comes from the durable log entry, not reset() default GUEST.
+        Assert.assertEquals(dual.hostRt.getState().getLocalRole(), CoopTradeRole.HOST);
+        Assert.assertEquals(dual.hostRt.getState().getTradeId(), id);
+        Assert.assertEquals(dual.hostRt.getState().getStatus(), CoopTradeState.Status.NEEDS_RECONCILE);
+        Assert.assertEquals(dual.hostRt.getTradeLog().get(id).localRole, CoopTradeRole.HOST);
+    }
+
+    /**
+     * Guest crash/rejoin loads the co-op {@code .chr} (trade log + bags).
+     * CO1 C2 (restoreGuestSave wipe) is not merged — this test assumes {@code .chr}
+     * persists via {@link CoopCharacterStore} without that wipe; full rejoin waits
+     * for the CO1 fix PR.
+     */
+    @Test
+    public void guestRejoinLoadsChr() throws Exception {
+        dual.openTrade();
+        dual.setOffer(true, matsOffer("oak", 1, 5, 0));
+        dual.setOffer(false, matsOffer("iron", 1, 4, 0));
+        dual.drainAll();
+        dual.confirmEscrowBothFreeze();
+        final long id = dual.guestRt.getState().getTradeId();
+        Assert.assertTrue(dual.guestRt.getTradeLog().hasEscrowed(id));
+        assertBag(dual.guestPlayer.get(), 80, 0, 3, 0, 1);
+
+        dual.crashReloadGuest();
+        Assert.assertEquals(dual.guestRt.getState().getLocalRole(), CoopTradeRole.GUEST);
+        Assert.assertEquals(dual.guestRt.getState().getTradeId(), id);
+        Assert.assertEquals(dual.guestRt.getState().getStatus(), CoopTradeState.Status.NEEDS_RECONCILE);
+        assertBag(dual.guestPlayer.get(), 80, 0, 3, 0, 1);
+        Assert.assertEquals(dual.guestRt.getTradeLog().get(id).phase, CoopTradeLog.Phase.ESCROWED);
     }
 
     /** Minimal GuiBase so ForgeConstants can resolve ASSETS_DIR in headless tests. */
