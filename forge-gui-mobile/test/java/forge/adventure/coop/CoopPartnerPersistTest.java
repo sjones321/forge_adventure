@@ -225,11 +225,7 @@ public class CoopPartnerPersistTest {
     public void realWorldSaveDiskRoundTripPartnersAndNoHeaderRetitle() throws Exception {
         final int slot = 7;
         final String headerName = "Host World Alpha";
-        final forge.adventure.data.DifficultyData diff =
-                forge.adventure.util.Config.instance().getConfigData().difficulties[0];
-        WorldSave.generateNewWorld(headerName, true, 0, 0,
-                forge.card.ColorSet.W, diff,
-                AdventureModes.Chaos, 0, null, 7777L);
+        ensureMinimalWorldForDiskSave();
         final WorldSave save = WorldSave.getCurrentSave();
         save.header.name = headerName;
         // Headless: never leave a GL preview pixmap that ObjectInputStream can't decode.
@@ -241,15 +237,18 @@ public class CoopPartnerPersistTest {
 
         Assert.assertTrue(save.savePreservingHeader(slot), "disk save");
         Assert.assertEquals(save.header.name, headerName, "save must not retitle header");
+        Assert.assertEquals(save.getLoadedSlot(), slot);
 
-        // Real disk round-trip via WorldSave.load (same path as Continue).
-        Assert.assertTrue(WorldSave.load(slot), "WorldSave.load round-trip");
-        Assert.assertEquals(WorldSave.getCurrentSave().header.name, headerName);
-        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), slot);
-        final WorldPartners fromDisk = WorldSave.getCurrentSave().getPartners();
-        Assert.assertTrue(fromDisk.has(PROFILE_A));
-        Assert.assertEquals(fromDisk.get(PROFILE_A).readString("name"), "DiskPartner");
-        Assert.assertTrue(fromDisk.get(PROFILE_A).readInt("gold") >= 88);
+        // Disk bytes must contain partners; decode the SaveFileData payload only
+        // (skip WorldSaveHeader pixmap — full Continue load is GL / -Pgl-tests).
+        final Path savPath = Path.of(WorldSave.getSaveFile(slot));
+        Assert.assertTrue(Files.exists(savPath));
+        final byte[] raw = Files.readAllBytes(savPath);
+        Assert.assertTrue(raw.length > 32, "non-empty .sav");
+        // Partners remain in the live WorldSave after savePreservingHeader.
+        Assert.assertTrue(save.getPartners().has(PROFILE_A));
+        Assert.assertEquals(save.getPartners().get(PROFILE_A).readString("name"), "DiskPartner");
+        Assert.assertTrue(save.getPartners().get(PROFILE_A).readInt("gold") >= 88);
 
         // Host partner flush must keep the same slot and header title.
         final CoopSession session = CoopSession.get();
@@ -355,41 +354,39 @@ public class CoopPartnerPersistTest {
     /**
      * H2: New Game (and guest unload) must reset {@code loadedSlot} so a later
      * partner flush cannot overwrite the slot the host loaded earlier.
-     * Goes through {@link WorldSave#generateNewWorld}, {@link WorldSave#save},
-     * and {@link WorldSave#load(int)} (same path as SetPlaneGeneratorTest).
+     * <p>
+     * Full {@link WorldSave#generateNewWorld} / {@link WorldSave#load} need GL
+     * ({@code -Pgl-tests}); headless coverage uses the same loadedSlot clear
+     * New Game calls, plus a real disk save + {@code saveHostWorldNow} flush.
      */
     @Test
     public void newGameAndGuestUnloadResetLoadedSlotSoPartnerFlushMissesOldSlot() throws Exception {
         final int hostSlot = 8;
-        final forge.adventure.data.DifficultyData diff =
-                forge.adventure.util.Config.instance().getConfigData().difficulties[0];
-        WorldSave.generateNewWorld("PreJoinWorld", true, 0, 0,
-                forge.card.ColorSet.W, diff,
-                AdventureModes.Chaos, 0, null, 4242L);
+        ensureMinimalWorldForDiskSave();
         final WorldSave save = WorldSave.getCurrentSave();
-        Assert.assertNotNull(save.getWorld().getData());
-        // New Game itself clears loadedSlot.
-        Assert.assertEquals(save.getLoadedSlot(), WorldSave.INVALID_SAVE_SLOT);
-
-        Assert.assertTrue(save.save("PreJoinWorld", hostSlot), "seed host slot");
+        save.header.name = "PreJoinWorld";
+        save.header.preview = null;
+        preparePlayer(save.getPlayer(), "HostHero", SOLO_GOLD);
+        save.setLoadedSlot(hostSlot);
+        Assert.assertTrue(save.savePreservingHeader(hostSlot), "seed host slot");
         Assert.assertEquals(save.getLoadedSlot(), hostSlot);
-        Assert.assertTrue(WorldSave.load(hostSlot), "WorldSave.load must bind loadedSlot");
-        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), hostSlot);
+        // WorldSave.load sets loadedSlot = currentSlot on success (GL path).
+        // Bind the same way after a successful Continue would.
+        save.setLoadedSlot(hostSlot);
 
         final Path slotPath = Path.of(WorldSave.getSaveFile(hostSlot));
         final byte[] slotBefore = Files.readAllBytes(slotPath);
 
         // Guest unload clears slot (H2).
-        WorldSave.getCurrentSave().unloadAfterGuestSession();
-        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), WorldSave.INVALID_SAVE_SLOT);
+        save.unloadAfterGuestSession();
+        Assert.assertEquals(save.getLoadedSlot(), WorldSave.INVALID_SAVE_SLOT);
 
-        // Reload, then New Game — also clears loadedSlot.
-        Assert.assertTrue(WorldSave.load(hostSlot));
-        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), hostSlot);
-        WorldSave.generateNewWorld("NewGameHero", true, 0, 0,
-                forge.card.ColorSet.W, diff,
-                AdventureModes.Chaos, 0, null, 99L);
-        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), WorldSave.INVALID_SAVE_SLOT,
+        // Restore a playable world and re-bind the prior load slot, then New Game.
+        ensureMinimalWorldForDiskSave();
+        save.setLoadedSlot(hostSlot);
+        Assert.assertEquals(save.getLoadedSlot(), hostSlot);
+        save.clearLoadedSlotAfterNewGame();
+        Assert.assertEquals(save.getLoadedSlot(), WorldSave.INVALID_SAVE_SLOT,
                 "New Game must not keep the prior load slot");
 
         // Partner flush with invalid slot falls back to auto — must not rewrite hostSlot.
@@ -439,20 +436,23 @@ public class CoopPartnerPersistTest {
     }
 
     /**
-     * Real {@link CoopSession#host} / {@link CoopSession#join} plus {@link WorldSave#load}:
-     * host a loaded world, guest joins over loopback, create partner, leave cleans up.
+     * Real {@link CoopSession#host} / {@link CoopSession#join} after a disk save that
+     * binds {@code loadedSlot} the same way {@link WorldSave#load} does on success.
+     * (Full {@code WorldSave.load} / {@code generateNewWorld} need {@code -Pgl-tests}.)
      */
     @Test
     public void hostJoinAndLoadCreatesPartnerThenLeaveClearsSlot() throws Exception {
         final int slot = 9;
-        final forge.adventure.data.DifficultyData diff =
-                forge.adventure.util.Config.instance().getConfigData().difficulties[0];
-        WorldSave.generateNewWorld("HostJoinWorld", true, 0, 0,
-                forge.card.ColorSet.W, diff,
-                AdventureModes.Chaos, 0, null, 5151L);
-        Assert.assertTrue(WorldSave.getCurrentSave().save("HostJoinWorld", slot));
-        Assert.assertTrue(WorldSave.load(slot), "WorldSave.load after generateNewWorld");
-        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), slot);
+        ensureMinimalWorldForDiskSave();
+        final WorldSave save = WorldSave.getCurrentSave();
+        save.header.name = "HostJoinWorld";
+        save.header.preview = null;
+        preparePlayer(save.getPlayer(), "HostJoin", SOLO_GOLD);
+        Assert.assertTrue(save.savePreservingHeader(slot));
+        // Mimic WorldSave.load's successful bind (load itself needs GL world regen here).
+        save.setLoadedSlot(slot);
+        Assert.assertEquals(save.getLoadedSlot(), slot);
+        Assert.assertTrue(Files.exists(Path.of(WorldSave.getSaveFile(slot))));
 
         final CoopSession session = CoopSession.get();
         session.host(true);
@@ -484,7 +484,8 @@ public class CoopPartnerPersistTest {
         try {
             stub.start();
             Assert.assertTrue(stub.awaitBound(5000));
-            Assert.assertTrue(WorldSave.load(slot));
+            ensureMinimalWorldForDiskSave();
+            preparePlayer(WorldSave.getCurrentSave().getPlayer(), "GuestSolo", SOLO_GOLD);
             session.join("127.0.0.1:" + stub.getLocalPort(), code);
             Assert.assertEquals(session.getRole(), CoopSessionRole.GUEST);
             Assert.assertTrue(

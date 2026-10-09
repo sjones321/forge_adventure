@@ -361,9 +361,17 @@ public class WorldSave {
             currentSave.player.setLegacyRunFormat(fmt);
         }
         // H2: New Game is not bound to a prior load slot until the player saves.
-        currentSave.loadedSlot = INVALID_SAVE_SLOT;
+        currentSave.clearLoadedSlotAfterNewGame();
         currentSave.onLoadList.emit();
         return currentSave;
+    }
+
+    /**
+     * Same {@code loadedSlot} clear as New Game. Package-visible for headless tests
+     * that cannot run {@link #generateNewWorld} (needs GL / {@code -Pgl-tests}).
+     */
+    void clearLoadedSlotAfterNewGame() {
+        loadedSlot = INVALID_SAVE_SLOT;
     }
 
     /**
