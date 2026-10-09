@@ -621,6 +621,119 @@ public class EnemyThemeDeckLegalityTest {
     }
 
     @Test
+    public void everyFixedAndGeneratedCommanderDeckIsExactly99PlusCommander() {
+        List<String> problems = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
+        for (EnemyThemeData theme : themes) {
+            if (theme == null || theme.id == null || !seenIds.add(theme.id))
+                continue;
+            EnemyThemeDecks.ensureCoreLoaded(theme);
+            // Fixed lists.
+            for (Path deckPath : listFixedDecks(theme.id, "Commander")) {
+                Deck deck = DeckSerializer.fromFile(deckPath.toFile());
+                if (deck == null) {
+                    problems.add(deckPath + ": failed to parse");
+                    continue;
+                }
+                deck.getMain();
+                if (deck.has(DeckSection.Commander))
+                    deck.get(DeckSection.Commander);
+                String p = commanderSizeAndFloorsProblem(deck, theme, deckPath.getFileName().toString());
+                if (p != null)
+                    problems.add(p);
+            }
+            // Generated (includes EN2 merfolk_tempo / serpent_leviathan).
+            Deck generated = null;
+            for (int attempt = 0; attempt < 16 && generated == null; attempt++) {
+                try {
+                    generated = EnemyThemeDecks.buildFixedDeck(theme, "Commander",
+                            theme.id.hashCode() * 31L + attempt * 17L);
+                } catch (RuntimeException ex) {
+                    problems.add(theme.id + " generated: " + ex.getMessage());
+                    break;
+                }
+            }
+            if (generated == null) {
+                problems.add(theme.id + " generated: build returned null");
+                continue;
+            }
+            String gp = commanderSizeAndFloorsProblem(generated, theme, theme.id + " generated");
+            if (gp != null)
+                problems.add(gp);
+        }
+        Assert.assertTrue(seenIds.contains("merfolk_tempo"), "expected EN2 merfolk_tempo theme");
+        Assert.assertTrue(seenIds.contains("serpent_leviathan"), "expected EN2 serpent_leviathan theme");
+        Assert.assertTrue(problems.isEmpty(),
+                "Commander 99+1 / floors problems:\n" + String.join("\n", problems));
+    }
+
+    @Test
+    public void normalizeCommanderMainSizeFixesOvershootAndUndershoot() {
+        EnemyThemeData theme = themeById("spirit_tempo");
+        Assert.assertNotNull(theme);
+        EnemyThemeDecks.ensureCoreLoaded(theme);
+        Deck base = EnemyThemeDecks.buildFixedDeck(theme, "Commander", 42L);
+        Assert.assertNotNull(base);
+        Assert.assertEquals(base.getMain().countAll(), 99);
+        Assert.assertEquals(base.getCommanders().size(), 1);
+
+        PaperCard island = FModel.getMagicDb().getCommonCards()
+                .getCard("Island", EnemyThemeDecks.PREFERRED_BASIC_LAND_EDITION);
+        Assert.assertNotNull(island);
+
+        // Overshoot: +4 basics → normalize back to 99 without touching core/spells.
+        Deck over = copyDeck(base);
+        for (int i = 0; i < 4; i++)
+            over.getMain().add(island);
+        Assert.assertEquals(over.getMain().countAll(), 103);
+        EnemyThemeDecks.normalizeCommanderMainSizeForTests(over, theme);
+        Assert.assertEquals(over.getMain().countAll(), 99);
+        Assert.assertEquals(over.getCommanders().size(), 1);
+        Assert.assertNull(EnemyThemeDecks.legalityProblem(over, "Commander"),
+                EnemyThemeDecks.legalityProblem(over, "Commander"));
+        Assert.assertNull(EnemyThemeDecks.themeQualityProblem(over, theme, "Commander"),
+                EnemyThemeDecks.themeQualityProblem(over, theme, "Commander"));
+
+        // Undershoot: strip 5 basics → normalize pads back to 99.
+        Deck under = copyDeck(base);
+        int removed = 0;
+        for (PaperCard pc : new ArrayList<>(under.getMain().toFlatList())) {
+            if (removed >= 5)
+                break;
+            if (pc.getRules() != null && pc.getRules().getType().isBasicLand()) {
+                under.getMain().remove(pc);
+                removed++;
+            }
+        }
+        Assert.assertEquals(removed, 5);
+        Assert.assertEquals(under.getMain().countAll(), 94);
+        EnemyThemeDecks.normalizeCommanderMainSizeForTests(under, theme);
+        Assert.assertEquals(under.getMain().countAll(), 99);
+        Assert.assertEquals(under.getCommanders().size(), 1);
+        Assert.assertNull(EnemyThemeDecks.legalityProblem(under, "Commander"),
+                EnemyThemeDecks.legalityProblem(under, "Commander"));
+        Assert.assertNull(EnemyThemeDecks.themeQualityProblem(under, theme, "Commander"),
+                EnemyThemeDecks.themeQualityProblem(under, theme, "Commander"));
+    }
+
+    private static String commanderSizeAndFloorsProblem(Deck deck, EnemyThemeData theme,
+                                                        String label) {
+        if (deck.getCommanders() == null || deck.getCommanders().isEmpty())
+            return label + ": missing commander";
+        int main = deck.getMain().countAll();
+        int cmd = deck.getCommanders().size();
+        if (main != 99 || cmd != 1)
+            return label + ": size main=" + main + " commanders=" + cmd + " (need 99+1)";
+        String legal = EnemyThemeDecks.legalityProblem(deck, "Commander");
+        if (legal != null)
+            return label + ": " + legal;
+        String quality = EnemyThemeDecks.themeQualityProblem(deck, theme, "Commander");
+        if (quality != null)
+            return label + ": " + quality;
+        return null;
+    }
+
+    @Test
     public void legalityRejectsBrokenCommanderAndPauperDecks() {
         Deck legalCommander = loadFirstDeck("Commander");
         Assert.assertNotNull(legalCommander, "need a committed Commander theme deck");
