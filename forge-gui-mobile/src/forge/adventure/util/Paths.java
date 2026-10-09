@@ -20,10 +20,14 @@ public class Paths {
     /** FT1 fortress structure catalog. */
     public static final String STRUCTURES_FORTRESS = "world/structures_fortress.json";
     public static final String GYMS = "world/gyms.json";
-    /** EN1 enemy themes (tags → themes → format decks / Standard recipes). */
+/** EN1 enemy themes (tags → themes → format decks / Standard recipes). */
     public static final String ENEMY_THEMES = "world/enemy_themes.json";
     /** Per-theme hand-picked cores: {@code world/enemy_cores/<themeId>.json}. */
     public static final String ENEMY_CORES_DIR = "world/enemy_cores/";
+    /** EN1 overworld power-level ban list (tournament staples / shocklands). */
+    public static final String ENEMY_BANNED = "world/enemy_banned.json";
+    /** Ascendant AC1 account-wide achievements definitions. */
+    public static final String ACHIEVEMENTS = "world/achievements.json";
     public static final String QUESTS = "world/quests.json";
     public static final String SKIN = "skin/ui_skin.json";
     public static final String ITEMS_EQUIP = "skin/equip.png";

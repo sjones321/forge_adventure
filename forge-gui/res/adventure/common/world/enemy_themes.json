@@ -22,7 +22,7 @@
       "tags": ["Kraken", "Leviathan", "Octopus", "Serpent", "Sea Monster"],
       "colors": ["blue"],
       "creatureTypes": ["Kraken", "Leviathan", "Octopus", "Serpent"],
-      "preferredCommanders": ["Arixmethes, Slumbering Isle", "Wrexial, the Risen Deep", "Runo Stromkirk"],
+      "preferredCommanders": ["Tromokratis", "Kenessos, Priest of Thassa", "Arixmethes, Slumbering Isle"],
       "keyCards": ["Spawning Kraken", "Crush of Tentacles", "Whelming Wave"],
       "mechanics": ["kraken", "leviathan"],
       "standardRecipe": {
@@ -73,7 +73,7 @@
       "tags": ["Zombie"],
       "colors": ["black"],
       "creatureTypes": ["Zombie"],
-      "preferredCommanders": ["Wilhelt, the Rotcleaver", "The Scarab God", "Gisa and Geralf"],
+      "preferredCommanders": ["Ghoulcaller Gisa", "Wilhelt, the Rotcleaver", "Gisa and Geralf"],
       "keyCards": ["Lord of the Undead", "Death Baron", "Undead Warchief"],
       "mechanics": ["zombie", "graveyard"],
       "standardRecipe": {
@@ -141,7 +141,7 @@
       "tags": ["Vampire"],
       "colors": ["black"],
       "creatureTypes": ["Vampire"],
-      "preferredCommanders": ["Edgar Markov", "Olivia, Mobilized for War", "Drana, Liberator of Malakir"],
+      "preferredCommanders": ["Drana, Liberator of Malakir", "Olivia, Mobilized for War", "Edgar Markov"],
       "keyCards": ["Captivating Vampire", "Bloodline Keeper", "Vampire Nocturnus"],
       "mechanics": ["vampire", "lifelink"],
       "standardRecipe": {
@@ -175,7 +175,7 @@
       "tags": ["Dragon"],
       "colors": ["red"],
       "creatureTypes": ["Dragon"],
-      "preferredCommanders": ["The Ur-Dragon", "Atarka, World Render", "Lathliss, Dragon Queen"],
+      "preferredCommanders": ["Lathliss, Dragon Queen", "Atarka, World Render", "The Ur-Dragon"],
       "keyCards": ["Dragon Tempest", "Terror of the Peaks", "Dragonlord's Servant"],
       "mechanics": ["flying", "dragon"],
       "standardRecipe": {
@@ -192,7 +192,7 @@
       "tags": ["Dragon"],
       "colors": ["red", "green"],
       "creatureTypes": ["Dragon"],
-      "preferredCommanders": ["Miirym, Sentinel Wyrm", "Tiamat", "Rith, Liberated Primeval"],
+      "preferredCommanders": ["Atarka, World Render", "Miirym, Sentinel Wyrm", "Rith, Liberated Primeval"],
       "keyCards": ["Dragonstorm", "Sarkhan's Triumph", "Utopia Sprawl"],
       "mechanics": ["dragon", "mana"],
       "standardRecipe": {
@@ -226,7 +226,7 @@
       "tags": ["Soldier", "Knight"],
       "colors": ["white", "black"],
       "creatureTypes": ["Knight"],
-      "preferredCommanders": ["Syr Gwyn, Hero of Ashvale", "Knights of Dol Amroth", "Adeline, Resplendent Cathar"],
+      "preferredCommanders": ["Aryel, Knight of Windgrace", "Adeline, Resplendent Cathar", "Syr Gwyn, Hero of Ashvale"],
       "keyCards": ["History of Benalia", "Knight Exemplar", "Valiant Knight"],
       "mechanics": ["knight", "first strike"],
       "standardRecipe": {
@@ -243,7 +243,7 @@
       "tags": ["Spirit"],
       "colors": ["white"],
       "creatureTypes": ["Spirit"],
-      "preferredCommanders": ["Millicent, Restless Revenant", "Katilda, Dawnhart Prime", "Kykar, Wind's Fury"],
+      "preferredCommanders": ["Oyobi, Who Split the Heavens", "Millicent, Restless Revenant", "Kykar, Wind's Fury"],
       "keyCards": ["Drogskol Captain", "Supreme Phantom", "Selfless Spirit"],
       "mechanics": ["spirit", "flying"],
       "standardRecipe": {
@@ -260,7 +260,7 @@
       "tags": ["Spirit"],
       "colors": ["white", "blue"],
       "creatureTypes": ["Spirit"],
-      "preferredCommanders": ["Kykar, Wind's Fury", "Ranar the Ever-Watchful", "Hinata, Dawn-Crowned"],
+      "preferredCommanders": ["Ranar the Ever-Watchful", "Hinata, Dawn-Crowned", "Kykar, Wind's Fury"],
       "keyCards": ["Spell Queller", "Mausoleum Wanderer", "Rattlechains"],
       "mechanics": ["spirit", "flash", "flying"],
       "standardRecipe": {

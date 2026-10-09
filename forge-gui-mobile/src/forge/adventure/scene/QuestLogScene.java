@@ -37,8 +37,11 @@ public class QuestLogScene extends UIScene {
         ui.onButtonPress("return", QuestLogScene.this::back);
         ui.onButtonPress("status", QuestLogScene.this::status);
         ui.onButtonPress("skills", () -> Forge.switchScene(SkillsScene.instance(lastGameScene), true));
+        ui.onButtonPress("achievements", () -> Forge.switchScene(AchievementsScene.instance(lastGameScene), true));
         if (!forge.adventure.util.Config.ascendant() && ui.findActor("skills") != null)
             ui.findActor("skills").setVisible(false); // skills are a Shandalar Ascendant feature
+        if (ui.findActor("achievements") != null)
+            ui.findActor("achievements").setVisible(forge.adventure.util.Config.ascendant());
         backToListButton.addListener(new ClickListener() {
             public void clicked(InputEvent event, float x, float y) {
                 buildList();

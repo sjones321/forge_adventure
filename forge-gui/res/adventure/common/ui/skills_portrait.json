@@ -31,16 +31,16 @@
       "type": "TextButton",
       "name": "return",
       "text": "tr(lblBack)",
-      "width": 62,
+      "width": 50,
       "height": 30,
-      "x": 202,
+      "x": 216,
       "y": 440
     },
     {
       "type": "TextButton",
       "name": "status",
       "text": "Status",
-      "width": 62,
+      "width": 50,
       "height": 30,
       "x": 4,
       "y": 440
@@ -49,18 +49,27 @@
       "type": "TextButton",
       "name": "quests",
       "text": "Quests",
-      "width": 62,
+      "width": 50,
       "height": 30,
-      "x": 70,
+      "x": 56,
       "y": 440
     },
     {
       "type": "TextButton",
       "name": "unlocks",
       "text": "Unlocks",
-      "width": 62,
+      "width": 50,
       "height": 30,
-      "x": 136,
+      "x": 108,
+      "y": 440
+    },
+    {
+      "type": "TextButton",
+      "name": "achievements",
+      "text": "Awards",
+      "width": 50,
+      "height": 30,
+      "x": 160,
       "y": 440
     }
   ]

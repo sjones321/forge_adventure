@@ -140,6 +140,21 @@ public final class CoopSession {
         return INSTANCE;
     }
 
+    /**
+     * AC1: bump the account-wide {@code coopSessions} counter when a READY
+     * co-op session finishes (disconnect). Matches “Together” / finished-session
+     * wording. Local only — never sent on the wire.
+     */
+    static void noteCoopSessionFinished() {
+        try {
+            if (!forge.adventure.util.Config.ascendant()) {
+                return;
+            }
+            forge.adventure.player.AchievementService.get().incrementCounter("coopSessions", 1);
+        } catch (final Exception ignored) {
+        }
+    }
+
     public CoopSessionRole getRole() {
         return role;
     }
@@ -546,6 +561,9 @@ public final class CoopSession {
     private void disconnectInternal(final String reason, final boolean returnToMenu) {
         final CoopSessionRole previousRole = role;
         final State previousState = state;
+        if (previousState == State.READY) {
+            noteCoopSessionFinished();
+        }
 
         if (previousRole == CoopSessionRole.GUEST && partnerLoaded && returnToMenu) {
             try {
