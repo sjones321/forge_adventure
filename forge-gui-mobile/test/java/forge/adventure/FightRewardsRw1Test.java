@@ -84,11 +84,13 @@ public class FightRewardsRw1Test {
         Config.instance();
         Config.installConfigDataForTest(ascendantConfig);
         Assert.assertTrue(Config.ascendant());
+        RewardData.invalidateCardPool();
 
         // Home-plane newest set: rotation ending in ZEN.
         AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
         player.getStandardWindow().init(List.of("M11", "M12", "ZEN"));
         Assert.assertEquals(player.getStandardWindow().newestSet(), "ZEN");
+        player.setLegacyRunFormat(GymUtil.FORMAT_STANDARD);
     }
 
     @AfterMethod(alwaysRun = true)
@@ -135,6 +137,7 @@ public class FightRewardsRw1Test {
         // Spec: merfolk_tribal on a ZEN plane → exactly one merfolk core card plus ZEN cards.
         assumeCardDb();
         FightRewards.setCurrentSetCodeForTest("ZEN");
+        RewardData.invalidateCardPool();
 
         EnemyData enemy = merfolkEnemy();
         Assert.assertEquals(enemy.themeId, "merfolk_tribal");

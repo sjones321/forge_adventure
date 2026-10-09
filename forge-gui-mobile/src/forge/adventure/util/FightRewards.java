@@ -287,14 +287,14 @@ public final class FightRewards {
             }
         }
         if (fromDeck > 0 && deckList != null && !deckList.isEmpty()) {
+            // Never reintroduce theme-core names here — the signature must stay unique.
             List<PaperCard> deckPool = excludeNames(deckList, coreExclude);
-            if (deckPool.isEmpty()) {
-                deckPool = deckList;
-            }
-            List<PaperCard> deckPicks = CardUtil.generateCards(deckPool, rdata, fromDeck, rng);
-            for (PaperCard pc : deckPicks) {
-                if (pc != null) {
-                    out.add(new Reward(pc));
+            if (!deckPool.isEmpty()) {
+                List<PaperCard> deckPicks = CardUtil.generateCards(deckPool, rdata, fromDeck, rng);
+                for (PaperCard pc : deckPicks) {
+                    if (pc != null) {
+                        out.add(new Reward(pc));
+                    }
                 }
             }
         }
@@ -350,7 +350,8 @@ public final class FightRewards {
             return out;
         }
         List<PaperCard> setPool = formatAwareSetPool(setCode, coreExclude);
-        if (setPool.isEmpty() || !SetPlaneRules.setPoolIsUsable(setPool, setCode)) {
+        // Thin sets still grant what they can; appendCardRewards tops up from the deck.
+        if (setPool.isEmpty()) {
             return out;
         }
         // Pool is already set-scoped; leave editions null so CardPredicate does not
@@ -378,7 +379,12 @@ public final class FightRewards {
 
     /**
      * Format-aware, adventure-filtered printings of {@code setCode} (no basics).
-     * Uses {@link RewardData#getAllCards()} so Pauper planes only see commons, etc.
+     * <p>
+     * Applies the same Package K gates as {@link RewardData#getAllCards()}
+     * (Pauper commons, Standard window names, Commander/Historic breadth) plus
+     * {@link RewardData#adventureRewardFilter} to each <em>set printing</em>.
+     * We cannot filter {@code getAllCards()} by edition alone — that pool is
+     * unique-by-name preferred printings, so almost no ZEN rows would survive.
      */
     public static List<PaperCard> formatAwareSetPool(String setCode, Set<String> coreExclude) {
         List<PaperCard> out = new ArrayList<>();
@@ -386,9 +392,36 @@ public final class FightRewards {
             return out;
         }
         try {
-            // getAllCards already applies adventureRewardFilter + Package K format
-            // (Pauper commons, Commander breadth, Standard window).
-            for (PaperCard pc : RewardData.getAllCards()) {
+            if (FModel.getMagicDb() == null || FModel.getMagicDb().getCommonCards() == null
+                    || FModel.getMagicDb().getEditions() == null) {
+                return out;
+            }
+            forge.card.CardEdition edition = FModel.getMagicDb().getEditions().get(setCode);
+            if (edition == null) {
+                return out;
+            }
+            java.util.function.Predicate<PaperCard> filter = RewardData.adventureRewardFilter();
+            boolean pauper = forge.adventure.world.PlaneFormat.favorsPauperPool();
+            boolean standardWindow = forge.adventure.world.PlaneFormat.favorsStandardWindowPool();
+            StandardWindow window = null;
+            if (standardWindow) {
+                try {
+                    AdventurePlayer player = AdventurePlayer.current();
+                    window = player != null ? player.getStandardWindow() : null;
+                } catch (Throwable ignored) {
+                    window = null;
+                }
+            }
+            // Set planes stock from the full set (see RewardData.generate); home-plane
+            // Standard still gates names through the rotation window.
+            String activePlaneSet = SetPlaneRules.activeSetCode();
+            boolean onThisSetPlane = activePlaneSet != null && !activePlaneSet.isEmpty()
+                    && activePlaneSet.equalsIgnoreCase(setCode);
+            final boolean gateWindow = standardWindow && !onThisSetPlane
+                    && window != null && window.isActive();
+            final StandardWindow windowGate = window;
+            // getAllCards(edition) resolves each set row (works with lazy card scripts).
+            for (PaperCard pc : FModel.getMagicDb().getCommonCards().getAllCards(edition)) {
                 if (pc == null || !setCode.equalsIgnoreCase(pc.getEdition())) {
                     continue;
                 }
@@ -396,11 +429,17 @@ public final class FightRewards {
                     continue;
                 }
                 // Pauper planes: only Common printings of this set (no set rares/mythics).
-                if (forge.adventure.world.PlaneFormat.favorsPauperPool()
-                        && pc.getRarity() != forge.card.CardRarity.Common) {
+                if (pauper && pc.getRarity() != forge.card.CardRarity.Common) {
+                    continue;
+                }
+                // Standard home-plane: same name gate as RewardData.getAllCards / window.allows.
+                if (gateWindow && !windowGate.isStandardLegal(pc.getName())) {
                     continue;
                 }
                 if (coreExclude != null && coreExclude.contains(pc.getName())) {
+                    continue;
+                }
+                if (filter != null && !filter.test(pc)) {
                     continue;
                 }
                 out.add(pc);
