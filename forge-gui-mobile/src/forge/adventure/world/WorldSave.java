@@ -15,6 +15,7 @@ import forge.adventure.scene.MapViewScene;
 import forge.adventure.scene.SaveLoadScene;
 import forge.adventure.stage.PointOfInterestMapSprite;
 import forge.adventure.stage.WorldStage;
+import forge.adventure.fortress.FortressService;
 import forge.adventure.util.*;
 import forge.card.CardEdition;
 import forge.card.ColorSet;
@@ -164,6 +165,13 @@ public class WorldSave {
                             currentSave.player.getWorldPosY());
                 }
 
+                // FT1: per-plane fortress on the live plane (missing → no fortress).
+                if (Config.ascendant() && mainData.containsKey("fortress")) {
+                    FortressService.get().loadCurrent(mainData.readSubData("fortress"));
+                } else {
+                    FortressService.get().clear();
+                }
+
                 currentSave.onLoadList.emit();
 
             }
@@ -212,6 +220,7 @@ public class WorldSave {
         Forge.getLocalizer().loadAdventureBundle(Config.instance().getPlanePath(Config.instance().getSettingData().plane) + "languages/");
         currentSave.world.generateNew(seed);
         currentSave.pointOfInterestChanges.clear();
+        FortressService.get().clear();
         boolean chaos = mode == AdventureModes.Chaos;
         boolean custom = mode == AdventureModes.Custom;
 
@@ -352,10 +361,14 @@ public class WorldSave {
                 SaveFileData worldStage = WorldStage.getInstance().save();
                 SaveFileData poiChanges = currentSave.pointOfInterestChanges.save();
                 SaveFileData multi = Config.ascendant() ? currentSave.multiverse.saveRegistry() : null;
+                SaveFileData fortress = Config.ascendant() ? FortressService.get().saveCurrent() : null;
 
                 String message = getExceptionMessage(player, world, worldStage, poiChanges);
                 if (multi != null) {
                     message = message + getExceptionMessage(multi);
+                }
+                if (fortress != null) {
+                    message = message + getExceptionMessage(fortress);
                 }
                 if (!message.isEmpty()) {
                     oos.close();
@@ -373,6 +386,9 @@ public class WorldSave {
                 if (multi != null) {
                     mainData.store("multiverse", multi);
                     mainData.store("currentPlaneId", currentSave.multiverse.getCurrentPlaneId());
+                }
+                if (fortress != null) {
+                    mainData.store("fortress", fortress);
                 }
 
                 if (mainData.readString("IOException") != null) {
@@ -498,6 +514,7 @@ public class WorldSave {
                 player.getWorldPosX(),
                 player.getWorldPosY());
         world.setWorldConfigPath(Paths.WORLD);
+        FortressService.get().clear();
     }
 
     /**
@@ -686,7 +703,8 @@ public class WorldSave {
                 world.save(),
                 WorldStage.getInstance().save(),
                 pointOfInterestChanges.save(),
-                multiverse.getCurrentMeta());
+                multiverse.getCurrentMeta(),
+                FortressService.get().saveCurrent());
 
         final float fromPosX = player.getWorldPosX();
         final float fromPosY = player.getWorldPosY();
@@ -704,6 +722,9 @@ public class WorldSave {
             } else {
                 WorldStage.getInstance().load(emptyWorldStageData());
             }
+            // FT1: restore per-plane fortress (missing → clear).
+            FortressService.get().replaceCurrent(
+                    FortressService.fromSave(PlaneBlob.fortress(targetBlob)));
             multiverse.selectCurrentPlane(planeId);
             float px = targetMeta != null ? targetMeta.getPlayerPosX() : player.getWorldPosX();
             float py = targetMeta != null ? targetMeta.getPlayerPosY() : player.getWorldPosY();
@@ -739,6 +760,8 @@ public class WorldSave {
                 if (rollbackStage != null) {
                     WorldStage.getInstance().load(rollbackStage);
                 }
+                FortressService.get().replaceCurrent(
+                        FortressService.fromSave(PlaneBlob.fortress(currentBlob)));
                 // Back on the source plane (this also drops its now-stale stashed blob).
                 try {
                     multiverse.selectCurrentPlane(fromId);

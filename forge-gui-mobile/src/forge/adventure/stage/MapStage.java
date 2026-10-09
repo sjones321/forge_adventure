@@ -71,6 +71,13 @@ public class MapStage extends GameStage {
     private EffectData effect;             //"Dungeon Effect": Character Effect applied to all adversaries within the map.
     private boolean preventEscape = false; //Prevents player from escaping the dungeon by any means that aren't an exit.
 
+    // FT1 fortress build mode (grid cursor + footprint preview).
+    private boolean fortressBuildMode = false;
+    private com.badlogic.gdx.math.Rectangle fortressBuildableBounds; // world pixels
+    private float fortressTileW = 16f;
+    private float fortressTileH = 16f;
+    private com.badlogic.gdx.graphics.glutils.ShapeRenderer fortressShapeRenderer;
+
     public InputEvent eventTouchDown, eventTouchUp;
     private boolean respawnEnemies;
     private boolean canFailDungeon = false;
@@ -114,6 +121,47 @@ public class MapStage extends GameStage {
         //update camera after all layers got drawn
         if (!getRoot().isVisible()) return;
         getRoot().draw(batch, 1);
+        if (fortressBuildMode)
+            drawFortressBuildPreview(batch);
+    }
+
+    public void setFortressBuildMode(boolean on) {
+        fortressBuildMode = on && Config.ascendant();
+        if (!fortressBuildMode)
+            forge.adventure.fortress.FortressService.get().closeBuildMode();
+        else if (!forge.adventure.fortress.FortressService.get().getBuildMode().isActive())
+            forge.adventure.fortress.FortressService.get().openBuildMode();
+    }
+
+    public boolean isFortressBuildMode() {
+        return fortressBuildMode;
+    }
+
+    private void drawFortressBuildPreview(Batch batch) {
+        forge.adventure.fortress.FortressBuildMode mode =
+                forge.adventure.fortress.FortressService.get().getBuildMode();
+        if (!mode.isActive())
+            return;
+        forge.adventure.data.FortressStructureData def = mode.selectedStructure();
+        if (def == null)
+            return;
+        batch.end();
+        if (fortressShapeRenderer == null)
+            fortressShapeRenderer = new com.badlogic.gdx.graphics.glutils.ShapeRenderer();
+        fortressShapeRenderer.setProjectionMatrix(getCamera().combined);
+        boolean ok = mode.previewValid();
+        com.badlogic.gdx.graphics.Color c = ok
+                ? new com.badlogic.gdx.graphics.Color(0.2f, 0.85f, 0.25f, 0.45f)
+                : new com.badlogic.gdx.graphics.Color(0.9f, 0.2f, 0.2f, 0.45f);
+        fortressShapeRenderer.begin(com.badlogic.gdx.graphics.glutils.ShapeRenderer.ShapeType.Filled);
+        fortressShapeRenderer.setColor(c);
+        int w = def.rotatedW(mode.getRotationDeg());
+        int h = def.rotatedH(mode.getRotationDeg());
+        float px = mode.getCursorX() * fortressTileW;
+        float py = mode.getCursorY() * fortressTileH;
+        fortressShapeRenderer.rect(px, py, w * fortressTileW, h * fortressTileH);
+        fortressShapeRenderer.end();
+        batch.begin();
     }
 
     public MapLayer getSpriteLayer() {
@@ -242,6 +290,10 @@ public class MapStage extends GameStage {
         float height = Float.parseFloat(map.getProperties().get("height").toString());
         float tileHeight = Float.parseFloat(map.getProperties().get("tileheight").toString());
         float tileWidth = Float.parseFloat(map.getProperties().get("tilewidth").toString());
+        fortressTileW = tileWidth;
+        fortressTileH = tileHeight;
+        fortressBuildableBounds = null;
+        fortressBuildMode = false;
         setBounds(width * tileWidth, height * tileHeight);
         //collision = new Array[(int) width][(int) height];
 
@@ -285,6 +337,7 @@ public class MapStage extends GameStage {
             }
         }
         spawn(spawnTargetId);
+        applyFortressPlacedStructures();
 
         if (effect != null && enemies.size() > 0) {
             effectDialog(effect);
@@ -697,6 +750,31 @@ public class MapStage extends GameStage {
                         break;
                     case "exit":
                         addMapActor(obj, new OnCollide(() -> MapStage.this.exitDungeon(false, false)));
+                        break;
+                    case "buildable":
+                        // FT1: marks the fortress buildable zone (object-layer rectangle).
+                        if (Config.ascendant()) {
+                            float bx = Float.parseFloat(prop.get("x").toString());
+                            float by = Float.parseFloat(prop.get("y").toString());
+                            float bw = Float.parseFloat(prop.get("width").toString());
+                            float bh = Float.parseFloat(prop.get("height").toString());
+                            fortressBuildableBounds = new Rectangle(bx, by, bw, bh);
+                            forge.adventure.fortress.FortressInstance fi =
+                                    forge.adventure.fortress.FortressService.get().getCurrent();
+                            if (fi != null) {
+                                int ox = (int) (bx / fortressTileW);
+                                int oy = (int) (by / fortressTileH);
+                                int gw = Math.max(1, (int) (bw / fortressTileW));
+                                int gh = Math.max(1, (int) (bh / fortressTileH));
+                                fi.setBuildableZone(ox, oy, gw, gh);
+                            }
+                        }
+                        break;
+                    case "fortress_build":
+                        // FT1: interactable pad that opens grid build mode.
+                        if (Config.ascendant()) {
+                            addMapActor(obj, new OnCollide(this::openFortressBuildDialog));
+                        }
                         break;
                     case "dialog":
                         if (obj instanceof TiledMapTileMapObject) {
@@ -1408,8 +1486,163 @@ public class MapStage extends GameStage {
         return isInMap;
     }
 
+    /** FT1: spawn saved structures into the fortress instance map. */
+    private void applyFortressPlacedStructures() {
+        if (!Config.ascendant())
+            return;
+        forge.adventure.scene.TileMapScene scene = forge.adventure.scene.TileMapScene.instance();
+        if (scene == null || scene.rootPoint == null || scene.rootPoint.getData() == null)
+            return;
+        if (!"fortress".equalsIgnoreCase(scene.rootPoint.getData().type))
+            return;
+        forge.adventure.fortress.FortressInstance fi =
+                forge.adventure.fortress.FortressService.get().getCurrent();
+        if (fi == null)
+            return;
+        for (forge.adventure.fortress.PlacedStructure p : fi.getStructures()) {
+            forge.adventure.data.FortressStructureData def =
+                    forge.adventure.data.FortressStructureListData.get(p.structureId);
+            if (def == null)
+                continue;
+            float px = p.gridX * fortressTileW;
+            float py = p.gridY * fortressTileH;
+            int w = def.rotatedW(p.rotationDeg);
+            int h = def.rotatedH(p.rotationDeg);
+            if (def.isStation()) {
+                final String station = def.stationKey();
+                MapActor stationActor;
+                if ("spellsmith".equals(station)) {
+                    stationActor = new OnCollide(() -> Forge.switchScene(SpellSmithScene.instance()));
+                } else {
+                    stationActor = new OnCollide(() ->
+                            Forge.switchScene(RecipeScene.instance().open(station)));
+                }
+                stationActor.setPosition(px, py);
+                stationActor.setWidth(w * fortressTileW);
+                stationActor.setHeight(h * fortressTileH);
+                addMapActor(stationActor);
+            } else {
+                // Placeholder footprint: solid collision block (existing sprites when art lands).
+                collisionRect.add(new Rectangle(px, py, w * fortressTileW, h * fortressTileH));
+                try {
+                    TextureSprite sprite = new TextureSprite(Config.instance().getAtlasSprite(
+                            "maps/tileset/buildings.atlas",
+                            def.sprite != null && !def.sprite.isEmpty() ? def.sprite : "Block"));
+                    sprite.setX(px);
+                    sprite.setY(py);
+                    sprite.setWidth(w * fortressTileW);
+                    sprite.setHeight(h * fortressTileH);
+                    addMapActor(sprite);
+                } catch (Exception e) {
+                    // Missing placeholder art — collision still applies.
+                }
+            }
+        }
+        // Re-bind INV1 overflow hook now that storage structures may exist.
+        forge.adventure.fortress.FortressService.get().replaceCurrent(fi);
+    }
+
+    private void openFortressBuildDialog() {
+        if (!Config.ascendant())
+            return;
+        dialog.getContentTable().clear();
+        dialog.getButtonTable().clear();
+        dialog.clearListeners();
+        TypingLabel L = Controls.newTypingLabel(
+                "Fortress build mode\nArrows/WASD/D-pad move · R/Y rotate\n"
+                        + "Enter/A place · Del/X demolish · [/]/L1/R1 cycle · Esc/B exit");
+        L.setWrap(true);
+        L.skipToTheEnd();
+        dialog.getContentTable().add(L).width(280f);
+        dialog.getButtonTable().add(Controls.newTextButton("Build", () -> {
+            hideDialog();
+            String msg = forge.adventure.fortress.FortressService.get().openBuildMode();
+            fortressBuildMode = forge.adventure.fortress.FortressService.get().getBuildMode().isActive();
+            GameHUD.getInstance().addNotification(msg);
+        })).width(100f);
+        dialog.getButtonTable().add(Controls.newTextButton("Leave", this::hideDialog)).width(100f);
+        dialog.setKeepWithinStage(true);
+        setDialogStage(GameHUD.getInstance());
+        showDialog();
+    }
+
+    @Override
+    public boolean keyDown(int keycode) {
+        if (fortressBuildMode) {
+            forge.adventure.fortress.FortressBuildMode mode =
+                    forge.adventure.fortress.FortressService.get().getBuildMode();
+            String action = mode.handleKey(keycode);
+            if (action != null) {
+                switch (action) {
+                    case "exit":
+                        setFortressBuildMode(false);
+                        GameHUD.getInstance().addNotification("Left build mode.");
+                        break;
+                    case "place":
+                        GameHUD.getInstance().addNotification(
+                                forge.adventure.fortress.FortressService.get().tryPlaceAtCursor());
+                        // Refresh map actors after place.
+                        if (tiledMap != null) {
+                            // Structures redraw on next enter; for live preview, apply just-placed footprint.
+                            applyLastPlacedFootprint();
+                        }
+                        break;
+                    case "demolish":
+                        GameHUD.getInstance().addNotification(
+                                forge.adventure.fortress.FortressService.get().tryDemolishAtCursor());
+                        break;
+                    default:
+                        break;
+                }
+                return true;
+            }
+        }
+        return super.keyDown(keycode);
+    }
+
+    private void applyLastPlacedFootprint() {
+        forge.adventure.fortress.FortressInstance fi =
+                forge.adventure.fortress.FortressService.get().getCurrent();
+        if (fi == null || fi.getStructures().isEmpty())
+            return;
+        forge.adventure.fortress.PlacedStructure p =
+                fi.getStructures().get(fi.getStructures().size() - 1);
+        forge.adventure.data.FortressStructureData def =
+                forge.adventure.data.FortressStructureListData.get(p.structureId);
+        if (def == null)
+            return;
+        float px = p.gridX * fortressTileW;
+        float py = p.gridY * fortressTileH;
+        int w = def.rotatedW(p.rotationDeg);
+        int h = def.rotatedH(p.rotationDeg);
+        if (def.blocksMovement)
+            collisionRect.add(new Rectangle(px, py, w * fortressTileW, h * fortressTileH));
+    }
+
+    @Override
+    public boolean touchDown(int screenX, int screenY, int pointer, int button) {
+        if (fortressBuildMode) {
+            com.badlogic.gdx.math.Vector3 tmp = new com.badlogic.gdx.math.Vector3(screenX, screenY, 0);
+            getCamera().unproject(tmp);
+            int gx = (int) (tmp.x / fortressTileW);
+            int gy = (int) (tmp.y / fortressTileH);
+            forge.adventure.fortress.FortressBuildMode mode =
+                    forge.adventure.fortress.FortressService.get().getBuildMode();
+            boolean sameCell = mode.getCursorX() == gx && mode.getCursorY() == gy;
+            mode.handlePointerGrid(gx, gy);
+            if (sameCell && button == 0) {
+                GameHUD.getInstance().addNotification(
+                        forge.adventure.fortress.FortressService.get().tryPlaceAtCursor());
+                applyLastPlacedFootprint();
+            }
+            return true;
+        }
+        return super.touchDown(screenX, screenY, pointer, button);
+    }
+
     public void onBeginLeavingDungeon() {
         isPlayerLeavingDungeon = true;
+        fortressBuildMode = false;
     }
 
     @Override

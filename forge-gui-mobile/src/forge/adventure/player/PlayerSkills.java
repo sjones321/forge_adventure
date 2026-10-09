@@ -59,7 +59,9 @@ public class PlayerSkills {
         SMITHING("Smithing"),
         WOODWORKING("Woodworking"),
         ALCHEMY("Alchemy"),
-        JEWELCRAFTING("Jewelcrafting");
+        JEWELCRAFTING("Jewelcrafting"),
+        // Package FT1 fortresses.
+        CONSTRUCTION("Construction");
 
         public final String displayName;
 

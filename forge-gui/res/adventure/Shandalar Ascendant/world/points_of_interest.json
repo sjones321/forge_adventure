@@ -4216,5 +4216,19 @@
 			"BiomeBlack",
 			"Sidequest"
 		]
+	},
+	{
+		"name": "Fortress",
+		"displayName": "Fortress",
+		"type": "fortress",
+		"count": 0,
+		"spriteAtlas": "../common/maps/tileset/buildings.atlas",
+		"sprite": "BarbarianCamp",
+		"map": "../common/maps/map/fortress/fortress_camp.tmx",
+		"radiusFactor": 0.0,
+		"questTags": [
+			"Fortress",
+			"Home"
+		]
 	}
 ]

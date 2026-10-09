@@ -292,6 +292,7 @@ public class MultiverseStateTest {
         Assert.assertTrue(blob.containsKey("worldStage"));
         Assert.assertTrue(blob.containsKey("pointOfInterestChanges"));
         Assert.assertTrue(blob.containsKey("meta"));
+        Assert.assertFalse(blob.containsKey("fortress"), "old / empty planes omit fortress");
         Assert.assertFalse(blob.containsKey("player"));
         Assert.assertFalse(blob.containsKey("materials"));
         Assert.assertFalse(blob.containsKey("cards"));

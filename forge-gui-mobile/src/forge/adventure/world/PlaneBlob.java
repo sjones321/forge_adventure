@@ -12,6 +12,16 @@ public final class PlaneBlob {
 
     public static SaveFileData pack(SaveFileData world, SaveFileData worldStage,
                                     SaveFileData pointOfInterestChanges, PlaneMeta meta) {
+        return pack(world, worldStage, pointOfInterestChanges, meta, null);
+    }
+
+    /**
+     * Pack a plane blob. {@code fortress} is optional FT1 per-plane state; omit or null
+     * for planes / old saves with no fortress.
+     */
+    public static SaveFileData pack(SaveFileData world, SaveFileData worldStage,
+                                    SaveFileData pointOfInterestChanges, PlaneMeta meta,
+                                    SaveFileData fortress) {
         SaveFileData data = new SaveFileData();
         if (meta != null) {
             data.store("meta", meta.save());
@@ -24,6 +34,9 @@ public final class PlaneBlob {
         }
         if (pointOfInterestChanges != null) {
             data.store("pointOfInterestChanges", pointOfInterestChanges);
+        }
+        if (fortress != null) {
+            data.store("fortress", fortress);
         }
         return data;
     }
@@ -51,5 +64,10 @@ public final class PlaneBlob {
 
     public static SaveFileData poiChanges(SaveFileData blob) {
         return blob == null ? null : blob.readSubData("pointOfInterestChanges");
+    }
+
+    /** FT1 per-plane fortress payload; null when absent (old saves / no claim). */
+    public static SaveFileData fortress(SaveFileData blob) {
+        return blob == null ? null : blob.readSubData("fortress");
     }
 }
