@@ -1004,29 +1004,37 @@ public final class EnemyThemeDecks {
     /**
      * Validates a fixed deck against Forge format legality. Returns null if OK,
      * otherwise a problem description.
+     * <p>
+     * Commander: exactly 100 cards total (main + commander section), Forge
+     * {@link DeckFormat#Commander} conformance (legal commander, singleton except
+     * basics, color identity), plus explicit total-size / singleton / identity checks.
+     * Historic / Pauper: Forge {@link GameFormat} filters from {@link FModel#getFormats()}.
      */
     public static String legalityProblem(Deck deck, String format) {
         if (deck == null)
             return "deck is null";
         String fmt = normalizeFormat(format);
         try {
-            if (FORMAT_COMMANDER.equals(fmt)) {
-                String problem = DeckFormat.Commander.getDeckConformanceProblem(deck);
-                if (problem != null)
-                    return problem;
-                if (deck.getMain().countAll() != 99 && deck.getMain().countAll() != 100) {
-                    // Forge counts main without commander as 99; accept either layout.
-                    int total = deck.getMain().countAll() + deck.getCommanders().size();
-                    if (total != 100)
-                        return "Commander deck should total 100 cards (main+commander), has " + total;
-                }
-                return null;
-            }
+            if (FORMAT_COMMANDER.equals(fmt))
+                return commanderLegalityProblem(deck);
+
             GameFormat gf = forgeFormatFor(fmt);
-            if (gf != null && !gf.isDeckLegal(deck)) {
+            if (gf == null)
+                return "Forge " + fmt + " format is unavailable";
+            if (!gf.isDeckLegal(deck))
                 return "illegal in Forge " + fmt;
+            // Per-card Forge filter (StaticData formats) — no commons-only shortcut.
+            for (var e : deck.getAllCardsInASinglePool()) {
+                PaperCard pc = e.getKey();
+                if (pc == null)
+                    continue;
+                if (pc.getRules().getType().isBasicLand())
+                    continue;
+                if (gf.getFilterRules() != null && !gf.getFilterRules().test(pc))
+                    return pc.getName() + " is not " + fmt + "-legal (Forge format)";
+                if (!cardLegalInFixedFormat(pc, fmt, gf))
+                    return pc.getName() + " is not " + fmt + "-legal";
             }
-            // Also enforce constructed size and 4-of for our adventure lists.
             int size = deck.getMain().countAll();
             if (size < 60)
                 return "main deck has " + size + " cards (need 60+)";
@@ -1039,12 +1047,66 @@ public final class EnemyThemeDecks {
                 counts.put(pc.getName(), n);
                 if (n > 4)
                     return pc.getName() + " appears " + n + " times";
-                if (!cardLegalInFixedFormat(pc, fmt, gf))
-                    return pc.getName() + " is not " + fmt + "-legal";
             }
             return null;
         } catch (Exception e) {
             return "legality check failed: " + e.getMessage();
         }
+    }
+
+    /**
+     * Commander legality: Forge {@link DeckFormat#Commander} / {@link forge.game.GameType#Commander}
+     * deck format, exact 100-card total, singleton (basics exempt), legal commander, color identity.
+     */
+    public static String commanderLegalityProblem(Deck deck) {
+        if (deck == null)
+            return "deck is null";
+        // Forge's own Commander deck format (same as GameType.Commander.getDeckFormat()).
+        DeckFormat commanderFormat = forge.game.GameType.Commander.getDeckFormat();
+        if (commanderFormat == null)
+            commanderFormat = DeckFormat.Commander;
+
+        String forgeProblem = commanderFormat.getDeckConformanceProblem(deck);
+        if (forgeProblem != null)
+            return forgeProblem;
+
+        List<PaperCard> commanders = deck.getCommanders();
+        if (commanders == null || commanders.isEmpty())
+            return "missing commander";
+        if (commanders.size() > 2)
+            return "too many commanders";
+        for (PaperCard cmd : commanders) {
+            if (cmd == null || !commanderFormat.isLegalCommander(cmd.getRules()))
+                return (cmd != null ? cmd.getName() : "?") + " is not a legal commander";
+        }
+
+        int main = deck.getMain().countAll();
+        int cmdCount = commanders.size();
+        int total = main + cmdCount;
+        // Exact 100 total; reject 101+ and underfills. Main is normally 99 with 1 commander.
+        if (total != 100)
+            return "Commander deck must total exactly 100 cards (main+commander), has " + total
+                    + " (main=" + main + ", commanders=" + cmdCount + ")";
+
+        // Explicit singleton (basics / any-number exempt) across main + sideboard + commander.
+        Map<String, Integer> counts = new HashMap<>();
+        for (var e : deck.getAllCardsInASinglePool(true, false)) {
+            PaperCard pc = e.getKey();
+            if (pc == null)
+                continue;
+            if (pc.getRules().getType().isBasicLand() || canHaveAnyNumber(pc))
+                continue;
+            int n = counts.getOrDefault(pc.getName(), 0) + e.getValue();
+            counts.put(pc.getName(), n);
+            if (n > 1)
+                return pc.getName() + " appears " + n + " times (Commander is singleton)";
+        }
+
+        // Explicit color identity (Forge also checks this; keep a clear message).
+        String identityProblem = commanderFormat.getCommanderConformanceProblem(deck);
+        if (identityProblem != null)
+            return identityProblem;
+
+        return null;
     }
 }

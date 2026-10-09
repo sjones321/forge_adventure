@@ -4,7 +4,6 @@ import forge.adventure.data.EnemyThemeData;
 import forge.adventure.data.EnemyThemeRecipeData;
 import forge.adventure.util.EnemyThemeDecks;
 import forge.deck.Deck;
-import forge.deck.DeckFormat;
 import forge.deck.io.DeckSerializer;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.model.FModel;
@@ -111,17 +110,6 @@ public class EnemyThemeDeckGeneratorTest {
     }
 
     private static String legality(Deck deck, String format) {
-        if ("Commander".equals(format)) {
-            String p = DeckFormat.Commander.getDeckConformanceProblem(deck);
-            if (p != null)
-                return p;
-            if (deck.getCommanders().isEmpty())
-                return "no commander";
-            int total = deck.getMain().countAll() + deck.getCommanders().size();
-            if (total != 100 && deck.getMain().countAll() != 99 && deck.getMain().countAll() != 100)
-                return "size main=" + deck.getMain().countAll() + " cmd=" + deck.getCommanders().size();
-            return null;
-        }
         return EnemyThemeDecks.legalityProblem(deck, format);
     }
 

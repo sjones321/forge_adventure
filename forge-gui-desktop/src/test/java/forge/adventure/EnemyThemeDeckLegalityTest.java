@@ -148,30 +148,160 @@ public class EnemyThemeDeckLegalityTest {
         return false;
     }
 
-    private static String checkLegal(Deck deck, String format) {
-        if ("Commander".equals(format)) {
-            String problem = DeckFormat.Commander.getDeckConformanceProblem(deck);
-            if (problem != null)
-                return problem;
-            int main = deck.getMain().countAll();
-            int commanders = deck.getCommanders().size();
-            int total = main + commanders;
-            // Accept main=99 + 1 commander, or main=100 with commander also listed.
-            if (commanders < 1)
-                return "missing commander";
-            if (total != 100 && main != 100 && main != 99)
-                return "expected ~100 cards, main=" + main + " commanders=" + commanders;
-            return null;
+    @Test
+    public void legalityRejectsBrokenCommanderAndPauperDecks() {
+        Deck legalCommander = loadFirstDeck("Commander");
+        Assert.assertNotNull(legalCommander, "need a committed Commander theme deck");
+        Assert.assertNull(EnemyThemeDecks.legalityProblem(legalCommander, "Commander"),
+                "baseline commander deck must be legal");
+
+        // 101-card commander deck (99 main + 1 commander + 1 extra land).
+        Deck tooBig = copyDeck(legalCommander);
+        PaperCard island = FModel.getMagicDb().getCommonCards().getCard("Island");
+        Assert.assertNotNull(island);
+        tooBig.getMain().add(island);
+        Assert.assertEquals(tooBig.getMain().countAll() + tooBig.getCommanders().size(), 101);
+        Assert.assertNotNull(EnemyThemeDecks.legalityProblem(tooBig, "Commander"),
+                "101-card commander deck must fail");
+
+        // Off-identity: force a mono-color identity break when possible.
+        Deck offId = copyDeck(legalCommander);
+        List<PaperCard> cmds = offId.getCommanders();
+        Assert.assertFalse(cmds.isEmpty());
+        PaperCard commander = cmds.get(0);
+        byte ci = commander.getRules().getColorIdentity().getColor();
+        PaperCard offColor = pickOffIdentityCard(ci);
+        Assert.assertNotNull(offColor, "could not find an off-identity card for " + commander.getName());
+        // Replace one main non-basic with the off-identity card to keep size.
+        PaperCard removed = null;
+        for (PaperCard pc : offId.getMain().toFlatList()) {
+            if (!pc.getRules().getType().isBasicLand()) {
+                removed = pc;
+                break;
+            }
         }
-        GameFormat gf = "Pauper".equals(format)
-                ? FModel.getFormats().getPauper()
-                : FModel.getFormats().getHistoric();
-        Assert.assertNotNull(gf, format + " format missing from FModel");
-        if (!gf.isDeckLegal(deck))
-            return "Forge " + format + " rejected deck";
-        if (deck.getMain().countAll() < 60)
-            return "main has " + deck.getMain().countAll() + " cards";
+        Assert.assertNotNull(removed);
+        offId.getMain().remove(removed);
+        offId.getMain().add(offColor);
+        Assert.assertNotNull(EnemyThemeDecks.legalityProblem(offId, "Commander"),
+                "off-identity card must fail: " + offColor.getName());
+
+        // Duplicate non-basic (Commander is singleton).
+        Deck dupe = copyDeck(legalCommander);
+        PaperCard nonBasic = null;
+        for (PaperCard pc : dupe.getMain().toFlatList()) {
+            if (!pc.getRules().getType().isBasicLand()
+                    && !DeckFormat.canHaveAnyNumberOf(pc)) {
+                nonBasic = pc;
+                break;
+            }
+        }
+        Assert.assertNotNull(nonBasic);
+        // Keep total at 100: remove a basic, add a second copy of the non-basic.
+        PaperCard basic = null;
+        for (PaperCard pc : dupe.getMain().toFlatList()) {
+            if (pc.getRules().getType().isBasicLand()) {
+                basic = pc;
+                break;
+            }
+        }
+        Assert.assertNotNull(basic);
+        dupe.getMain().remove(basic);
+        dupe.getMain().add(nonBasic);
+        Assert.assertNotNull(EnemyThemeDecks.legalityProblem(dupe, "Commander"),
+                "duplicate non-basic must fail: " + nonBasic.getName());
+
+        // Uncommon in Pauper — Forge Pauper format rejects it.
+        Deck pauper = loadFirstDeck("Pauper");
+        Assert.assertNotNull(pauper, "need a committed Pauper theme deck");
+        Assert.assertNull(EnemyThemeDecks.legalityProblem(pauper, "Pauper"));
+        PaperCard uncommon = pickUncommon();
+        Assert.assertNotNull(uncommon);
+        PaperCard drop = null;
+        for (PaperCard pc : pauper.getMain().toFlatList()) {
+            if (!pc.getRules().getType().isBasicLand()) {
+                drop = pc;
+                break;
+            }
+        }
+        Assert.assertNotNull(drop);
+        pauper.getMain().remove(drop);
+        pauper.getMain().add(uncommon);
+        Assert.assertNotNull(EnemyThemeDecks.legalityProblem(pauper, "Pauper"),
+                "uncommon in Pauper must fail: " + uncommon.getName());
+    }
+
+    private static String checkLegal(Deck deck, String format) {
         return EnemyThemeDecks.legalityProblem(deck, format);
+    }
+
+    private Deck loadFirstDeck(String format) {
+        for (EnemyThemeData theme : themes) {
+            List<Path> decks = listFixedDecks(theme.id, format);
+            if (decks.isEmpty())
+                continue;
+            Deck d = DeckSerializer.fromFile(decks.get(0).toFile());
+            if (d == null)
+                continue;
+            d.getMain();
+            if (d.has(DeckSection.Commander))
+                d.get(DeckSection.Commander);
+            return d;
+        }
+        return null;
+    }
+
+    private static Deck copyDeck(Deck src) {
+        Deck d = new Deck(src.getName());
+        d.getMain().addAll(src.getMain());
+        if (src.has(DeckSection.Commander))
+            d.getOrCreate(DeckSection.Commander).addAll(src.get(DeckSection.Commander));
+        if (src.has(DeckSection.Sideboard))
+            d.getOrCreate(DeckSection.Sideboard).addAll(src.get(DeckSection.Sideboard));
+        return d;
+    }
+
+    private static PaperCard pickOffIdentityCard(byte commanderCI) {
+        // Prefer a basic land outside the commander's colors.
+        String[] basics = {"Plains", "Island", "Swamp", "Mountain", "Forest"};
+        byte[] colors = {
+                forge.card.MagicColor.WHITE, forge.card.MagicColor.BLUE, forge.card.MagicColor.BLACK,
+                forge.card.MagicColor.RED, forge.card.MagicColor.GREEN
+        };
+        for (int i = 0; i < basics.length; i++) {
+            if ((commanderCI & colors[i]) == 0) {
+                PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(basics[i]);
+                if (pc != null)
+                    return pc;
+            }
+        }
+        // Fallback: any non-basic whose identity is not within commander CI.
+        for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (pc.getRules().getType().isBasicLand())
+                continue;
+            if (!pc.getRules().getColorIdentity().hasNoColorsExcept(commanderCI)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                return pc;
+        }
+        return null;
+    }
+
+    private static PaperCard pickUncommon() {
+        GameFormat pauper = FModel.getFormats().getPauper();
+        for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (pc.getRarity() != forge.card.CardRarity.Uncommon)
+                continue;
+            if (pc.getRules().getType().isBasicLand())
+                continue;
+            // Prefer a card Forge Pauper rejects.
+            if (pauper != null && pauper.getFilterRules() != null && !pauper.getFilterRules().test(pc))
+                return pc;
+        }
+        return FModel.getMagicDb().getCommonCards().getCard("Lightning Strike");
     }
 
     private static List<Path> listFixedDecks(String themeId, String format) {
