@@ -7,7 +7,9 @@ import forge.ImageKeys;
 import forge.StaticData;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.RewardData;
+import forge.adventure.player.AccountStore;
 import forge.adventure.player.AchievementSetTracker;
+import forge.adventure.util.Config;
 import forge.gui.GuiBase;
 import forge.gui.interfaces.IGuiBase;
 import forge.item.PaperCard;
@@ -17,6 +19,7 @@ import forge.sound.IAudioClip;
 import forge.sound.IAudioMusic;
 import forge.util.FSerializableFunction;
 import forge.util.ImageFetcher;
+import forge.util.IterableUtil;
 import forge.util.Lang;
 import forge.util.Localizer;
 import forge.gamemodes.match.HostedMatch;
@@ -66,6 +69,7 @@ public class AchievementsAc1RealDbTest {
             realUserDir = AdventureTestUserDir.defaultRealUserDir();
             realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
             tempUserDir = AchievementsAc1Test.ensureIsolatedUserDir();
+            AccountStore.setAdventureRootOverrideForTest(tempUserDir.toFile());
 
             Path forgeGuiDir = resolveForgeGuiDir();
             Assert.assertTrue(Files.isDirectory(forgeGuiDir.resolve("res/editions")),
@@ -116,16 +120,13 @@ public class AchievementsAc1RealDbTest {
             Assert.assertNotNull(ascendantConfig);
             Assert.assertNotNull(ascendantConfig.restrictedCards);
             Assert.assertTrue(ascendantConfig.restrictedCards.length > 0);
+            Assert.assertTrue(ascendantConfig.ascendantRules);
 
+            // Production filter path (not a test-written predicate).
+            List<Predicate<PaperCard>> filters = RewardData.baseAdventureRewardFilters(ascendantConfig);
+            Assert.assertFalse(filters.isEmpty(), "production Ascendant filters must be non-empty");
             Set<String> restricted = new HashSet<>(List.of(ascendantConfig.restrictedCards));
-            // Real-DB assertion focuses on restrictedCards + unsupported (no-script), the
-            // reachability pieces Steve called out for set completion. Full shop pool filters
-            // (obtainability / ante / commander) need a live AdventurePlayer + prefs.
-            Predicate<PaperCard> filter = pc -> pc != null
-                    && pc.getName() != null
-                    && !restricted.contains(pc.getName())
-                    && pc.getRules() != null
-                    && !pc.getRules().isUnsupported();
+            Predicate<PaperCard> filter = IterableUtil.and(filters);
             RewardData.installRewardFilterForTest(filter, restricted);
         } catch (Throwable t) {
             initError = t.getClass().getSimpleName() + ": " + t.getMessage();
@@ -134,10 +135,19 @@ public class AchievementsAc1RealDbTest {
     }
 
     @AfterClass(alwaysRun = true)
-    public void assertRealUserDirUntouched() throws Exception {
-        if (realUserDirSnapshot != null) {
-            AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
-                    "AchievementsAc1RealDbTest");
+    public void resetPinnedStateAndAssertRealUserDirUntouched() throws Exception {
+        try {
+            RewardData.invalidateRewardFilterCache();
+            AchievementSetTracker.setMagicDbForTest(null);
+            pinStaticData(null);
+            GuiBase.setInterface(null);
+            AccountStore.resetAdventureRootOverrideForTest();
+            Config.resetInstanceForTest();
+        } finally {
+            if (realUserDirSnapshot != null) {
+                AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
+                        "AchievementsAc1RealDbTest");
+            }
         }
     }
 
@@ -170,18 +180,18 @@ public class AchievementsAc1RealDbTest {
         Set<String> leaFiltered = tracker.filteredNames("LEA");
         Set<String> restricted = new HashSet<>(List.of(ascendantConfig.restrictedCards));
 
-        // ZEN has no Ascendant-restricted names; every main-list card that the shared
-        // reward filter accepts must appear (and none of the restricted list applies).
+        // ZEN has no Ascendant-restricted names; every main-list card that production
+        // baseAdventureRewardFilters(ascendantConfig) accepts must appear.
         Assert.assertTrue(java.util.Collections.disjoint(zenRaw, restricted),
                 "ZEN should not list Ascendant restrictedCards");
         Set<String> zenMissing = new HashSet<>(zenRaw);
         zenMissing.removeAll(zenFiltered);
         Assert.assertTrue(zenMissing.isEmpty(),
-                "ZEN should keep every main-list card under Ascendant reward filters; missing="
+                "ZEN should keep every main-list card under production Ascendant filters; missing="
                         + zenMissing.stream().limit(20).toList()
                         + " (raw=" + zenRaw.size() + " filtered=" + zenFiltered.size() + ")");
 
-        // LEA: power nine restricted names must be excluded by the same filter.
+        // LEA: power nine restricted names must be excluded by the same production filter.
         Assert.assertFalse(leaFiltered.contains("Black Lotus"));
         for (String mox : new String[] {
                 "Mox Pearl", "Mox Sapphire", "Mox Jet", "Mox Ruby", "Mox Emerald"

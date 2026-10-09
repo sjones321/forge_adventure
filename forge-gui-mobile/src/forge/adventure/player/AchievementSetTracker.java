@@ -32,9 +32,12 @@ public final class AchievementSetTracker {
     /** Same floor as MV2 {@code SetPlaneRules.MIN_SET_POOL_SIZE}. */
     public static final int MIN_SET_PLANE_CARDS = 12;
 
+    /** Guards {@link #setNamesCache} / {@link #reachableCache} publish + read. */
+    private final Object cacheLock = new Object();
     private final Map<String, Set<String>> setNamesCache = new HashMap<>();
     private final Map<String, Integer> nameCounts = new HashMap<>();
-    private List<String> reachableCache;
+    /** Immutable snapshot; swapped under {@link #cacheLock}. */
+    private volatile List<String> reachableCache;
     private boolean nameCountsReady;
     /** When true, {@link #setReachableForTest} survives {@link #invalidateReachable()}. */
     private boolean reachablePinnedForTest;
@@ -49,19 +52,23 @@ public final class AchievementSetTracker {
     }
 
     public void clearCaches() {
-        setNamesCache.clear();
+        synchronized (cacheLock) {
+            setNamesCache.clear();
+            reachableCache = null;
+            reachablePinnedForTest = false;
+        }
         nameCounts.clear();
         nameCountsReady = false;
-        reachableCache = null;
-        reachablePinnedForTest = false;
     }
 
     /** Invalidate reachable-set list and per-set name caches (player / filter change). */
     public void invalidateReachable() {
-        if (!reachablePinnedForTest) {
-            reachableCache = null;
+        synchronized (cacheLock) {
+            if (!reachablePinnedForTest) {
+                reachableCache = null;
+            }
+            setNamesCache.clear();
         }
-        setNamesCache.clear();
     }
 
     public boolean isNameCountsReady() {
@@ -76,21 +83,21 @@ public final class AchievementSetTracker {
         if (setCode == null || setCode.isEmpty()) {
             return Collections.emptySet();
         }
-        Set<String> cached = setNamesCache.get(setCode);
-        if (cached != null) {
-            return cached;
+        synchronized (cacheLock) {
+            Set<String> cached = setNamesCache.get(setCode);
+            if (cached != null) {
+                return cached;
+            }
         }
         LinkedHashSet<String> names = new LinkedHashSet<>();
         try {
             StaticData db = magicDb();
             if (db == null) {
-                setNamesCache.put(setCode, Collections.unmodifiableSet(names));
-                return setNamesCache.get(setCode);
+                return publishFilteredNames(setCode, names);
             }
             CardEdition ed = db.getEditions().get(setCode);
             if (ed == null || ed.getCards() == null) {
-                setNamesCache.put(setCode, Collections.unmodifiableSet(names));
-                return setNamesCache.get(setCode);
+                return publishFilteredNames(setCode, names);
             }
             for (CardEdition.EditionEntry e : ed.getCards()) {
                 if (e == null || e.name() == null || e.name().isEmpty()) {
@@ -106,9 +113,19 @@ public final class AchievementSetTracker {
         } catch (Throwable ignored) {
             // Card DB / Config unavailable in some headless tests.
         }
+        return publishFilteredNames(setCode, names);
+    }
+
+    private Set<String> publishFilteredNames(String setCode, Set<String> names) {
         Set<String> frozen = Collections.unmodifiableSet(names);
-        setNamesCache.put(setCode, frozen);
-        return frozen;
+        synchronized (cacheLock) {
+            Set<String> raced = setNamesCache.get(setCode);
+            if (raced != null) {
+                return raced;
+            }
+            setNamesCache.put(setCode, frozen);
+            return frozen;
+        }
     }
 
     /**
@@ -158,8 +175,9 @@ public final class AchievementSetTracker {
      * boosters with at least {@link #MIN_SET_PLANE_CARDS} reward-reachable main cards.
      */
     public List<String> reachableBellwardenSetCodes() {
-        if (reachableCache != null) {
-            return reachableCache;
+        List<String> cached = reachableCache;
+        if (cached != null) {
+            return cached;
         }
         List<String> out = new ArrayList<>();
         try {
@@ -173,11 +191,17 @@ public final class AchievementSetTracker {
             }
         } catch (Throwable ignored) {
         }
-        reachableCache = Collections.unmodifiableList(out);
-        return reachableCache;
+        List<String> frozen = Collections.unmodifiableList(out);
+        synchronized (cacheLock) {
+            if (reachableCache != null) {
+                return reachableCache;
+            }
+            reachableCache = frozen;
+            return reachableCache;
+        }
     }
 
-    /** Warm the reachable-set cache (safe to call off the GL thread). */
+    /** Warm the reachable-set cache once (call under AchievementService lock at load). */
     public void precomputeReachable() {
         reachableBellwardenSetCodes();
     }
@@ -345,13 +369,18 @@ public final class AchievementSetTracker {
         if (names != null) {
             set.addAll(names);
         }
-        setNamesCache.put(setCode, Collections.unmodifiableSet(set));
-        reachableCache = null;
+        synchronized (cacheLock) {
+            setNamesCache.put(setCode, Collections.unmodifiableSet(set));
+            reachableCache = null;
+        }
     }
 
     public void setReachableForTest(List<String> codes) {
-        reachableCache = codes == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(codes));
-        reachablePinnedForTest = true;
+        synchronized (cacheLock) {
+            reachableCache = codes == null ? Collections.emptyList()
+                    : Collections.unmodifiableList(new ArrayList<>(codes));
+            reachablePinnedForTest = true;
+        }
     }
 
     public void setNameCountForTest(String name, int count) {

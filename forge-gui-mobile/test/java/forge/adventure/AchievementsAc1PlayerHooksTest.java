@@ -9,6 +9,7 @@ import forge.adventure.data.AchievementListData;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.DifficultyData;
 import forge.adventure.data.RewardData;
+import forge.adventure.player.AccountStore;
 import forge.adventure.player.AchievementService;
 import forge.adventure.player.AchievementSetTracker;
 import forge.adventure.player.AdventurePlayer;
@@ -57,8 +58,10 @@ import java.util.function.Consumer;
 
 /**
  * AC1 production-path hooks: {@link AdventurePlayer#create} rebuilds nameCounts
- * (save A → save B), and sell / salvage / auto-salvage / {@link AdventurePlayer#removeLostCardFromPools}
- * un-own the last copy via {@code afterCardsRemoved}. Does not use
+ * (save A → save B), and sell / salvage / auto-salvage / ante-loss
+ * ({@link AdventurePlayer#removeLostCardFromPools}) un-own the last copy via
+ * {@code afterCardsRemoved}. Deck edits that only move cards between deck slots
+ * correctly do not un-own cards. Does not use
  * {@link AchievementSetTracker#setNameCountForTest} or call
  * {@link AchievementService#onPlayerCollectionReady} / {@code applyRemoveNames} directly.
  *
@@ -93,6 +96,7 @@ public class AchievementsAc1PlayerHooksTest {
             realUserDir = AdventureTestUserDir.defaultRealUserDir();
             realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
             tempUserDir = AchievementsAc1Test.ensureIsolatedUserDir();
+            AccountStore.setAdventureRootOverrideForTest(tempUserDir.toFile());
 
             Path forgeGuiDir = resolveForgeGuiDir();
             // GuiBase before ForgeConstants clinit (ASSETS_DIR).
@@ -150,10 +154,18 @@ public class AchievementsAc1PlayerHooksTest {
     }
 
     @AfterClass(alwaysRun = true)
-    public void assertRealUserDirUntouched() throws Exception {
-        if (realUserDirSnapshot != null) {
-            AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
-                    "AchievementsAc1PlayerHooksTest");
+    public void restoreOverridesAndAssertRealUserDirUntouched() throws Exception {
+        try {
+            AccountStore.resetAdventureRootOverrideForTest();
+            Config.resetInstanceForTest();
+            AchievementService.resetInstance();
+            AchievementSetTracker.setMagicDbForTest(null);
+            RewardData.invalidateRewardFilterCache();
+        } finally {
+            if (realUserDirSnapshot != null) {
+                AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
+                        "AchievementsAc1PlayerHooksTest");
+            }
         }
     }
 
@@ -172,6 +184,7 @@ public class AchievementsAc1PlayerHooksTest {
             AchievementListData.clear();
             AchievementListData.loadFromJsonText(DEFS);
             tempDir = Files.createTempDirectory("ac1-player-hooks");
+            AccountStore.setAdventureRootOverrideForTest(tempDir.toFile());
             Path achievementsFile = tempDir.resolve("account").resolve("achievements.json");
             Files.createDirectories(achievementsFile.getParent());
             svc = AchievementService.forTest(achievementsFile.toFile());
@@ -191,6 +204,8 @@ public class AchievementsAc1PlayerHooksTest {
             AchievementService.resetInstance();
             AchievementListData.clear();
             RewardData.invalidateRewardFilterCache();
+            AccountStore.setAdventureRootOverrideForTest(
+                    tempUserDir != null ? tempUserDir.toFile() : null);
             if (tempDir != null && Files.isDirectory(tempDir)) {
                 try (var walk = Files.walk(tempDir)) {
                     walk.sorted((a, b) -> b.compareTo(a)).forEach(p -> {
@@ -239,10 +254,15 @@ public class AchievementsAc1PlayerHooksTest {
                 { "sell" },
                 { "salvage" },
                 { "autoSalvage" },
-                { "deckRemoval" },
+                { "anteLoss" },
         };
     }
 
+    /**
+     * Last-copy removal un-owns via production paths. {@code anteLoss} covers
+     * {@link AdventurePlayer#removeLostCardFromPools} (ante stake lost). Deck edits
+     * that only add/remove from a deck slot correctly do <em>not</em> un-own cards.
+     */
     @Test(dataProvider = "lastCopyRemovalPaths")
     public void lastCopyRemovalUnOwnsCard(String path) {
         AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
@@ -275,10 +295,11 @@ public class AchievementsAc1PlayerHooksTest {
                 // addCard → maybeAutoSalvage → salvageCard → afterCardsRemoved
                 player.addCard(shock, 1);
             }
-            case "deckRemoval" -> {
+            case "anteLoss" -> {
                 player.addCard(shock, 1);
                 Assert.assertEquals(tracker.ownedCount("Shock"), 1);
-                // Production deck-change path that drops a card from the collection pool.
+                // Ante loss removes a copy from the collection pool. Deck edits alone
+                // (moving cards between slots without ante) correctly do not un-own.
                 player.removeLostCardFromPools(shock);
             }
             default -> Assert.fail("unknown path: " + path);

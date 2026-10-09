@@ -345,8 +345,9 @@ public class PlayerStatisticScene extends UIScene {
             awards.setBounds(273, 190, 34, 30);
             awards.setText("Awd");
         } else {
-            // Portrait: above toggleAward / nav row — not between skills (112) and return (190).
-            awards.setBounds(5, 408, 55, 28);
+            // Portrait: inside the stats strip (y=4..102), below the avatar — not over
+            // scrollWindow (y=106..433) or the enemies table (y=110..428).
+            awards.setBounds(8, 74, 70, 26);
             awards.setText("Awards");
         }
         ui.addActor(awards);

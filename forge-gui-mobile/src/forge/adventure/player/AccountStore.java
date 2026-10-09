@@ -24,12 +24,41 @@ public final class AccountStore {
     /** Reserved for package M. */
     public static final String PRESTIGE_FILE = "prestige.json";
 
+    /**
+     * Test-only override for the adventure root (parent of {@code account/}).
+     * When set, {@link #accountDir()} / migrate never touch the real
+     * {@link ForgeConstants#USER_ADVENTURE_DIR}. Null uses production path.
+     */
+    private static volatile File adventureRootOverride;
+
     private AccountStore() {
     }
 
-    /** {@code USER_ADVENTURE_DIR/account/}. */
+    /**
+     * Redirect account files to {@code root} (tests). Pass {@code null} to clear
+     * — prefer {@link #resetAdventureRootOverrideForTest()}.
+     */
+    public static void setAdventureRootOverrideForTest(File root) {
+        adventureRootOverride = root;
+    }
+
+    /** Clear the test override (pair with {@link #setAdventureRootOverrideForTest}). */
+    public static void resetAdventureRootOverrideForTest() {
+        adventureRootOverride = null;
+    }
+
+    /** Adventure root used for account paths (override or {@link ForgeConstants#USER_ADVENTURE_DIR}). */
+    static File adventureRoot() {
+        File override = adventureRootOverride;
+        if (override != null) {
+            return override;
+        }
+        return new File(ForgeConstants.USER_ADVENTURE_DIR);
+    }
+
+    /** {@code USER_ADVENTURE_DIR/account/} (or the test override root). */
     public static File accountDir() {
-        File dir = new File(ForgeConstants.USER_ADVENTURE_DIR + "account");
+        File dir = new File(adventureRoot(), "account");
         //noinspection ResultOfMethodCallIgnored
         dir.mkdirs();
         return dir;
@@ -37,7 +66,7 @@ public final class AccountStore {
 
     public static File achievementsFile() {
         File dest = new File(accountDir(), ACHIEVEMENTS_FILE);
-        migrateLegacyAchievementsIfNeeded(dest, new File(ForgeConstants.USER_ADVENTURE_DIR));
+        migrateLegacyAchievementsIfNeeded(dest, adventureRoot());
         return dest;
     }
 
@@ -50,7 +79,7 @@ public final class AccountStore {
      * the new path is missing. Prefer the current plane's file, then Ascendant.
      */
     static void migrateLegacyAchievementsIfNeeded(File dest) {
-        migrateLegacyAchievementsIfNeeded(dest, new File(ForgeConstants.USER_ADVENTURE_DIR));
+        migrateLegacyAchievementsIfNeeded(dest, adventureRoot());
     }
 
     /**
@@ -82,7 +111,7 @@ public final class AccountStore {
 
     /** Visible for tests. */
     static File findLegacyAchievementsFile() {
-        return findLegacyAchievementsFile(new File(ForgeConstants.USER_ADVENTURE_DIR));
+        return findLegacyAchievementsFile(adventureRoot());
     }
 
     static File findLegacyAchievementsFile(File adventureRoot) {
@@ -124,7 +153,7 @@ public final class AccountStore {
     }
 
     static File legacyFileForPlane(String plane) {
-        return legacyFileForPlane(new File(ForgeConstants.USER_ADVENTURE_DIR), plane);
+        return legacyFileForPlane(adventureRoot(), plane);
     }
 
     static File legacyFileForPlane(File adventureRoot, String plane) {

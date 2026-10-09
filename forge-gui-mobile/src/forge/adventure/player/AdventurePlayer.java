@@ -527,6 +527,13 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             }
         }
         RewardData.invalidateCardPool();
+        // RemNonCommanderDecks filter depends on commander-deck state — drop AC1 caches.
+        if (Config.ascendant()) {
+            try {
+                AchievementService.get().onCommanderDeckChanged();
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /** Copies of a card that are free to vault: owned, not vaulted, not auto-selling, not used in decks. */

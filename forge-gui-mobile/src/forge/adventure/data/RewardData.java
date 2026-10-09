@@ -125,10 +125,10 @@ public class RewardData implements Serializable {
     }
 
     /**
-     * Base Ascendant reward filters (restricted cards, obtainability / editions,
-     * no-script / unsupported, alchemy, ante, custom adventure art). Does
-     * <em>not</em> apply the rotating Standard window — use for set-completion
-     * reachability (AC1) and the shared card pool.
+     * Base adventure reward filters (restricted cards, obtainability / editions,
+     * alchemy, ante, custom adventure art). Ascendant also excludes no-script /
+     * unsupported cards. Does <em>not</em> apply the rotating Standard window —
+     * use for set-completion reachability (AC1) and the shared card pool.
      */
     public static List<Predicate<PaperCard>> baseAdventureRewardFilters() {
         try {
@@ -184,12 +184,15 @@ public class RewardData implements Serializable {
         filters.add(pc -> pc != null && pc.getRules() != null
                 && !(pc.getRules().isCustom() && pc.getImageKey(false).startsWith(ImageKeys.ADVENTURECARD_PREFIX)));
 
-        // Ascendant restrictedCards + cards with no script (unsupported).
+        // Restricted card names (power nine etc.) from plane config.
         Set<String> restrictedCards = configData.restrictedCards == null
                 ? Collections.emptySet()
                 : Collections.unmodifiableSet(new HashSet<>(Arrays.asList(configData.restrictedCards)));
         filters.add(pc -> pc != null && pc.getName() != null && !restrictedCards.contains(pc.getName()));
-        filters.add(pc -> pc != null && pc.getRules() != null && !pc.getRules().isUnsupported());
+        // No-script / unsupported: Ascendant-only so stock Shandalar shop / loot pools stay unchanged.
+        if (configData.ascendantRules) {
+            filters.add(pc -> pc != null && pc.getRules() != null && !pc.getRules().isUnsupported());
+        }
 
         return filters;
     }

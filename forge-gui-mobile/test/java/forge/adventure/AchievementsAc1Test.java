@@ -3,6 +3,8 @@ package forge.adventure;
 import forge.adventure.data.AchievementData;
 import forge.adventure.data.AchievementListData;
 import forge.adventure.data.AchievementRewardData;
+import forge.adventure.data.ConfigData;
+import forge.adventure.data.RewardData;
 import forge.adventure.player.AccountStore;
 import forge.adventure.player.AchievementProgress;
 import forge.adventure.player.AchievementRewards;
@@ -11,10 +13,12 @@ import forge.adventure.player.AchievementSetTracker;
 import forge.adventure.player.HallOfFame;
 import forge.adventure.player.PendingCardStyleGrant;
 import forge.adventure.util.AtomicJsonFiles;
+import forge.adventure.util.Config;
 import forge.adventure.util.Paths;
-import forge.localinstance.properties.ForgeConstants;
+import forge.item.PaperCard;
 import forge.localinstance.properties.ForgeProfileProperties;
 import forge.gui.GuiBase;
+import forge.util.IterableUtil;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -33,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Predicate;
 
 /**
  * Headless AC1 coverage: reachability filters, incremental re-check, account-wide
@@ -83,6 +88,8 @@ public class AchievementsAc1Test {
         realUserDir = AdventureTestUserDir.defaultRealUserDir();
         realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
         tempUserDir = ensureIsolatedUserDir();
+        // Belt-and-suspenders: AccountStore never mkdirs/migrates under the real adventure dir.
+        AccountStore.setAdventureRootOverrideForTest(tempUserDir.toFile());
 
         final String assets = Files.exists(Path.of("./forge-gui"))
                 ? "./forge-gui/"
@@ -95,8 +102,15 @@ public class AchievementsAc1Test {
     }
 
     @AfterClass(alwaysRun = true)
-    public void assertRealUserDirUntouched() throws Exception {
-        AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot, "AchievementsAc1Test");
+    public void restoreOverridesAndAssertRealUserDirUntouched() throws Exception {
+        try {
+            AccountStore.resetAdventureRootOverrideForTest();
+            Config.resetInstanceForTest();
+            AchievementService.resetInstance();
+            HallOfFame.resetInstance();
+        } finally {
+            AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot, "AchievementsAc1Test");
+        }
     }
 
     /** Surefire sets {@code forge.test.userDir}; IDE runs fall back to a fresh temp. */
@@ -170,6 +184,8 @@ public class AchievementsAc1Test {
             HallOfFame.resetInstance();
             AchievementListData.clear();
             tempDir = Files.createTempDirectory("ac1-achievements");
+            // Any AchievementService.get() / HallOfFame.get() must land under this temp root.
+            AccountStore.setAdventureRootOverrideForTest(tempDir.toFile());
             achievementsFile = tempDir.resolve("account").resolve("achievements.json");
             Files.createDirectories(achievementsFile.getParent());
             AchievementListData.loadFromJsonText(DEFS);
@@ -194,6 +210,8 @@ public class AchievementsAc1Test {
             AchievementService.resetInstance();
             HallOfFame.resetInstance();
             AchievementListData.clear();
+            AccountStore.setAdventureRootOverrideForTest(
+                    tempUserDir != null ? tempUserDir.toFile() : null);
             if (tempDir != null && Files.isDirectory(tempDir)) {
                 try (var walk = Files.walk(tempDir)) {
                     walk.sorted((a, b) -> b.compareTo(a)).forEach(p -> {
@@ -388,12 +406,14 @@ public class AchievementsAc1Test {
         Assert.assertTrue(file.getAbsolutePath().endsWith(
                 "account" + java.io.File.separator + AccountStore.ACHIEVEMENTS_FILE));
 
-        // Production no-arg helpers must land under the isolated adventure dir, not ~/.forge.
+        // Production no-arg helpers must use the per-test AccountStore root override, never ~/.forge.
         java.io.File liveAccount = AccountStore.accountDir();
-        Assert.assertTrue(liveAccount.getAbsolutePath().startsWith(tempUserDir.toAbsolutePath().toString()),
-                "AccountStore.accountDir() must use isolated USER_ADVENTURE_DIR: " + liveAccount);
+        Assert.assertTrue(liveAccount.getAbsolutePath().startsWith(tempDir.toAbsolutePath().toString()),
+                "AccountStore.accountDir() must use per-test override: " + liveAccount);
         Assert.assertEquals(liveAccount.getAbsolutePath(),
-                Path.of(ForgeConstants.USER_ADVENTURE_DIR, "account").toAbsolutePath().toString());
+                tempDir.resolve("account").toAbsolutePath().toString());
+        Assert.assertFalse(liveAccount.getAbsolutePath().startsWith(realUserDir.toAbsolutePath().toString()),
+                "AccountStore must not touch the real user dir");
     }
 
     @Test
@@ -417,6 +437,38 @@ public class AchievementsAc1Test {
         migrated.load();
         Assert.assertTrue(migrated.getProgress().isUnlocked("coop_first_session"));
         Assert.assertEquals(migrated.getProgress().getCounter("coopSessions"), 3);
+    }
+
+    /**
+     * Shared reward filter excludes {@code isUnsupported} only under Ascendant so
+     * stock Shandalar shop / loot pools stay unchanged.
+     */
+    @Test
+    public void unsupportedFilterGatedToAscendantStockUnchanged() {
+        ConfigData stock = new ConfigData();
+        Assert.assertFalse(stock.ascendantRules, "stock ConfigData defaults to non-Ascendant");
+        ConfigData ascendant = new ConfigData();
+        ascendant.ascendantRules = true;
+
+        List<Predicate<PaperCard>> stockFilters = RewardData.baseAdventureRewardFilters(stock);
+        List<Predicate<PaperCard>> ascFilters = RewardData.baseAdventureRewardFilters(ascendant);
+        Assert.assertEquals(ascFilters.size(), stockFilters.size() + 1,
+                "Ascendant must add exactly one isUnsupported gate; stock pools stay unchanged");
+
+        PaperCard unsupported = PaperCard.FAKE_CARD;
+        Assert.assertTrue(unsupported.getRules().isUnsupported());
+
+        Predicate<PaperCard> unsupportedGate = ascFilters.get(ascFilters.size() - 1);
+        Assert.assertFalse(unsupportedGate.test(unsupported),
+                "Ascendant isUnsupported filter must reject unsupported cards");
+
+        // Stock filter list must not include an isUnsupported clause: none of its
+        // predicates may be the Ascendant-only gate (same size already proves this;
+        // also confirm AND(stock)+gate rejects FAKE_CARD while the gate alone does).
+        Predicate<PaperCard> stockAnd = stockFilters.isEmpty()
+                ? pc -> true
+                : IterableUtil.and(stockFilters);
+        Assert.assertFalse(IterableUtil.and(Arrays.asList(stockAnd, unsupportedGate)).test(unsupported));
     }
 
     @Test

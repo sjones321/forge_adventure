@@ -1,6 +1,5 @@
 package forge.adventure.player;
 
-import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.utils.JsonReader;
 import com.badlogic.gdx.utils.JsonValue;
 import forge.adventure.data.AchievementConditionData;
@@ -15,7 +14,6 @@ import forge.card.CardEdition;
 import forge.deck.CardPool;
 import forge.item.PaperCard;
 import forge.model.FModel;
-import forge.gui.FThreads;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -345,35 +343,30 @@ public final class AchievementService {
     /**
      * Call on every player load and new game. Rebuilds {@code nameCounts} from
      * this collection (so save A's cards never count for save B), invalidates
-     * the player-dependent reward filter, warms the reachable-set cache off the
-     * GL thread when possible, and evaluates already-complete sets once.
+     * the player-dependent reward filter, computes the reachable-set cache once
+     * synchronously (no background warm racing {@link #evaluateCollection}),
+     * and evaluates already-complete sets once.
      */
     public synchronized List<String> onPlayerCollectionReady(CardPool collection) {
         ensureLoaded();
         RewardData.invalidateRewardFilterCache();
         setTracker.invalidateReachable();
         setTracker.rebuildNameCounts(collection);
-        precomputeReachableOffGlThread();
+        // One sync scan at load — publishes an immutable reachable list under the
+        // tracker lock before evaluation reads it. Avoids the prior warm-thread +
+        // evaluateCollection double-write into HashMap caches.
+        setTracker.precomputeReachable();
         return evaluateCollection(collection);
     }
 
-    /** Warm reachable Bellwarden sets without hitching the first card add / Awards open. */
-    private void precomputeReachableOffGlThread() {
-        final AchievementSetTracker tracker = setTracker;
-        Runnable warm = () -> {
-            try {
-                tracker.precomputeReachable();
-            } catch (Throwable ignored) {
-            }
-        };
-        try {
-            if (Gdx.app != null) {
-                FThreads.invokeInBackgroundThread(warm);
-                return;
-            }
-        } catch (Throwable ignored) {
-        }
-        warm.run();
+    /**
+     * Commander-deck tag changes alter the RemNonCommanderDecks reward filter;
+     * drop reachable / per-set name caches so the next evaluation rescans.
+     */
+    public synchronized void onCommanderDeckChanged() {
+        ensureLoaded();
+        RewardData.invalidateRewardFilterCache();
+        setTracker.invalidateReachable();
     }
 
     /**
@@ -425,7 +418,8 @@ public final class AchievementService {
 
     /**
      * Full collection rebuild + set evaluation (player load / rare full sync).
-     * Not for every Awards screen open.
+     * Not for every Awards screen open. Uses the reachable cache when already
+     * warmed by {@link #onPlayerCollectionReady}; otherwise scans once here.
      */
     public synchronized List<String> evaluateCollection(CardPool collection) {
         ensureLoaded();
