@@ -982,43 +982,46 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     }
 
     private void applyGuestLocalResult(final CoopDuelResultEvent event) {
-        final AdventurePlayer ap = Current.player();
-        if (ap == null || event == null) {
-            return;
-        }
-        // Never apply host character changes from wire numbers — outcome only.
-        // Resolve the fought enemy by id from the result event (not getCurrentMob()).
-        final boolean teamWon = event.isTeamWon();
-        EnemySprite mob = resolveEnemy(event.getEnemyId());
-        if (mob == null && event.getEnemyId() != 0L) {
-            try {
-                mob = CoopOverworldRuntime.get().getEnemyById(event.getEnemyId());
-            } catch (final Exception ignored) {
-            }
-        }
-        if (mob != null) {
-            WorldStage.getInstance().setCurrentMob(mob);
-            // EN2: use host-authoritative loot rolls from the result event (0 allowed).
-            WorldStage.getInstance().setPendingLootRolls(event.getLootRolls());
-            WorldStage.getInstance().setWinner(teamWon, false);
-        } else {
-            if (teamWon) {
-                ap.win(false);
-            } else {
-                ap.defeated();
-            }
-            try {
-                CoopCharacterStore.savePlayer(ap);
-            } catch (final Exception ignored) {
-            }
-        }
-        disconnectPolicy.endDuel();
-        disconnectGuestClient();
-        activeDuelId = 0L;
-        // Next frame — never apply a deferred plane switch inside the reward/defeat flow.
         try {
-            CoopSession.get().scheduleTryApplyDeferredPlaneSwitch();
-        } catch (final Exception ignored) {
+            final AdventurePlayer ap = Current.player();
+            if (ap == null || event == null) {
+                return;
+            }
+            // Never apply host character changes from wire numbers — outcome only.
+            // Resolve the fought enemy by id from the result event (not getCurrentMob()).
+            final boolean teamWon = event.isTeamWon();
+            EnemySprite mob = resolveEnemy(event.getEnemyId());
+            if (mob == null && event.getEnemyId() != 0L) {
+                try {
+                    mob = CoopOverworldRuntime.get().getEnemyById(event.getEnemyId());
+                } catch (final Exception ignored) {
+                }
+            }
+            if (mob != null) {
+                WorldStage.getInstance().setCurrentMob(mob);
+                // EN2: use host-authoritative loot rolls from the result event (0 allowed).
+                WorldStage.getInstance().setPendingLootRolls(event.getLootRolls());
+                WorldStage.getInstance().setWinner(teamWon, false);
+            } else {
+                if (teamWon) {
+                    ap.win(false);
+                } else {
+                    ap.defeated();
+                }
+                try {
+                    CoopCharacterStore.savePlayer(ap);
+                } catch (final Exception ignored) {
+                }
+            }
+            disconnectPolicy.endDuel();
+            disconnectGuestClient();
+        } finally {
+            activeDuelId = 0L;
+            // Next frame — never apply a deferred plane switch inside the reward/defeat flow.
+            try {
+                CoopSession.get().scheduleTryApplyDeferredPlaneSwitch();
+            } catch (final Exception ignored) {
+            }
         }
     }
 

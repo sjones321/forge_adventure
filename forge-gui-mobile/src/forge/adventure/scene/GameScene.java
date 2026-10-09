@@ -82,10 +82,18 @@ public class GameScene extends HudScene {
             // WorldStage.getInstance().handlePointsOfInterestCollision();
         } finally {
             // Next frame — after enter finishes (never mid-enter body).
-            try {
-                forge.adventure.coop.CoopSession.get().scheduleTryApplyDeferredPlaneSwitch();
-            } catch (final Exception ignored) {
-            }
+            afterEnterScheduleDeferredCoopApply();
+        }
+    }
+
+    /**
+     * Co-op hook from {@link #enter()}{@code finally}. Package-visible so headless
+     * tests can invoke the same path when {@link #instance()} cannot construct a Stage.
+     */
+    static void afterEnterScheduleDeferredCoopApply() {
+        try {
+            forge.adventure.coop.CoopSession.get().scheduleTryApplyDeferredPlaneSwitch();
+        } catch (final Exception ignored) {
         }
     }
 

@@ -416,30 +416,23 @@ public class CoopGateUpdateTest {
         deferSamePlaneResync(session, guestWorld, 15L);
         Assert.assertNotNull(session.testGetDeferredPlaneSwitch());
         session.testSetGuestBusy(false);
-        try {
-            GameScene.instance().enter();
-        } catch (final Throwable ignored) {
-            session.scheduleTryApplyDeferredPlaneSwitch();
-        }
-        if (session.testGetDeferredPlaneSwitch() != null) {
-            session.scheduleTryApplyDeferredPlaneSwitch();
-        }
+        invokeGameSceneEnter();
         Assert.assertNull(session.testGetDeferredPlaneSwitch(),
-                "GameScene.enter schedule must apply deferred");
+                "GameScene.enter finally must apply deferred (no test-side schedule fallback)");
+        Assert.assertNotEquals(session.getState(), CoopSession.State.READY,
+                "GameScene.enter apply must end session on resync hash mismatch");
+        Assert.assertEquals(session.getLastError(), CoopPorts.WORLD_HASH_MISMATCH_MESSAGE);
 
         deferSamePlaneResync(session, guestWorld, 16L);
         Assert.assertNotNull(session.testGetDeferredPlaneSwitch());
         session.testSetGuestBusy(false);
-        try {
-            MapStage.getInstance().exitDungeon(false, false);
-        } catch (final Throwable ignored) {
-            session.scheduleTryApplyDeferredPlaneSwitch();
-        }
-        if (session.testGetDeferredPlaneSwitch() != null) {
-            session.scheduleTryApplyDeferredPlaneSwitch();
-        }
+        CoopDuelRuntime.get().testSetGuestDuelActive(false);
+        invokeExitDungeon();
         Assert.assertNull(session.testGetDeferredPlaneSwitch(),
-                "exitDungeon schedule must apply deferred");
+                "exitDungeon finally must apply deferred (no test-side schedule fallback)");
+        Assert.assertNotEquals(session.getState(), CoopSession.State.READY,
+                "exitDungeon apply must end session on resync hash mismatch");
+        Assert.assertEquals(session.getLastError(), CoopPorts.WORLD_HASH_MISMATCH_MESSAGE);
 
         deferSamePlaneResync(session, guestWorld, 17L);
         Assert.assertNotNull(session.testGetDeferredPlaneSwitch());
@@ -450,15 +443,61 @@ public class CoopGateUpdateTest {
             CoopDuelRuntime.get().testApplyGuestLocalResult(
                     new CoopDuelResultEvent(1L, 0, 0L, "", 0));
         } catch (final Throwable ignored) {
-            session.scheduleTryApplyDeferredPlaneSwitch();
+            // Headless noise only — must not schedule here (duel-end finally must).
         } finally {
             CoopDuelRuntime.get().testSetGuestDuelActive(false);
         }
-        if (session.testGetDeferredPlaneSwitch() != null) {
-            session.scheduleTryApplyDeferredPlaneSwitch();
-        }
         Assert.assertNull(session.testGetDeferredPlaneSwitch(),
                 "guest duel-end schedule must apply deferred");
+        Assert.assertNotEquals(session.getState(), CoopSession.State.READY,
+                "guest duel-end apply must end session on resync hash mismatch");
+        Assert.assertEquals(session.getLastError(), CoopPorts.WORLD_HASH_MISMATCH_MESSAGE);
+    }
+
+    /**
+     * Invoke real call-site methods so their {@code finally} blocks schedule deferred
+     * co-op apply. Headless Surefire cannot construct LibGDX Stages — use an
+     * uninitialized shell so the real method body/{@code finally} still runs.
+     */
+    private static void invokeGameSceneEnter() {
+        invokeWithOptionalShell(GameScene.class, GameScene::instance, GameScene::enter,
+                "GameScene.enter");
+    }
+
+    private static void invokeExitDungeon() {
+        invokeWithOptionalShell(MapStage.class, MapStage::getInstance,
+                m -> m.exitDungeon(false, false), "MapStage.exitDungeon");
+    }
+
+    private static <T> void invokeWithOptionalShell(final Class<T> type,
+                                                    final java.util.function.Supplier<T> liveGet,
+                                                    final java.util.function.Consumer<T> call,
+                                                    final String label) {
+        try {
+            call.accept(liveGet.get());
+            return;
+        } catch (final Throwable ignored) {
+            // Construction or body failed — try a ctor-less shell below.
+        }
+        try {
+            final T shell = allocateWithoutCtor(type);
+            try {
+                call.accept(shell);
+            } catch (final Throwable ignored) {
+                // Body may NPE without Stage/HUD; finally must still schedule.
+            }
+        } catch (final ReflectiveOperationException e) {
+            throw new AssertionError(label + " unreachable in headless", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T allocateWithoutCtor(final Class<T> type) throws ReflectiveOperationException {
+        final Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+        final java.lang.reflect.Field theUnsafe = unsafeClass.getDeclaredField("theUnsafe");
+        theUnsafe.setAccessible(true);
+        final Object unsafe = theUnsafe.get(null);
+        return (T) unsafeClass.getMethod("allocateInstance", Class.class).invoke(unsafe, type);
     }
 
     private static void deferSamePlaneResync(final CoopSession session, final World guestWorld,
@@ -552,6 +591,89 @@ public class CoopGateUpdateTest {
                 "must hold the same outstanding resync id while busy");
         Assert.assertEquals(session.testGetLastExpiredResyncRequestId(), 0L);
     }
+
+    @Test
+    public void resyncTimeoutSkippedWhenDeferredCarriesRequestId() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World guestWorld = baseWorld(40L, 0x40404040);
+        final CoopSession session = CoopSession.get();
+        final List<NetEvent> sent = new ArrayList<>();
+        session.testSetSendHook(sent::add);
+        deferSamePlaneResync(session, guestWorld, 18L);
+        Assert.assertNotNull(session.testGetDeferredPlaneSwitch());
+        Assert.assertEquals(session.testGetDeferredPlaneSwitch().getRequestId(), 18L);
+
+        sent.clear();
+        session.testFireResyncOfferTimeout();
+        Assert.assertNull(findResync(sent),
+                "timeout must not retry when deferred already carries the request id");
+        Assert.assertEquals(session.testGetExpectingResyncRequestId(), 18L);
+        Assert.assertEquals(session.testGetLastExpiredResyncRequestId(), 0L);
+        Assert.assertEquals(session.getState(), CoopSession.State.READY);
+    }
+
+    @Test
+    public void freeStateHostDropResyncRetriesThenEndsSession() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World guestWorld = baseWorld(41L, 0x41414141);
+        final CoopSession session = CoopSession.get();
+        final List<NetEvent> sent = new ArrayList<>();
+        session.testSetSendHook(sent::add);
+        session.testBecomeGuestReady(guestWorld, "home");
+
+        session.testHandleGateUpdate(new CoopGateUpdateEvent(
+                "home", Paths.WORLD, 41L, "", "bad-hash",
+                new CoopPlanarGateEntry[]{new CoopPlanarGateEntry("DMU", 70f, 70f)}));
+        Assert.assertNotNull(findResync(sent));
+
+        for (int i = 0; i < CoopSession.RESYNC_OFFER_MAX_FREE_RETRIES; i++) {
+            sent.clear();
+            session.testSetLastResyncRequestMs(0L);
+            session.testFireResyncOfferTimeout();
+            Assert.assertEquals(session.getState(), CoopSession.State.READY,
+                    "retry " + (i + 1) + " must still be in session");
+            Assert.assertNotNull(findResync(sent), "free timeout must retry (" + (i + 1) + ")");
+        }
+
+        sent.clear();
+        session.testSetLastResyncRequestMs(0L);
+        session.testFireResyncOfferTimeout();
+        Assert.assertNull(findResync(sent), "must not retry after the free-state cap");
+        Assert.assertNotEquals(session.getState(), CoopSession.State.READY);
+        Assert.assertTrue(session.getLastError().contains("Host did not answer resync after "
+                        + CoopSession.RESYNC_OFFER_MAX_FREE_RETRIES + " retries"),
+                "lastError=" + session.getLastError());
+    }
+
+    @Test
+    public void freeCrossPlaneResyncTakesFullPath() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        final World guestWorld = baseWorld(42L, 0x42424242);
+        final CoopSession session = CoopSession.get();
+        session.testBecomeGuestReady(guestWorld, "home");
+        session.testSetExpectingResyncRequestId(19L);
+        // Free guest — must not defer; cross-plane resync takes the full plane-change path.
+        session.testSetGuestBusy(false);
+
+        final CoopPlaneSwitchEvent otherPlane = new CoopPlaneSwitchEvent(
+                "home", "set_dmu", Paths.WORLD, "cfg", 42L, "definitely-not-the-rebuild-hash",
+                1f, 2f, "", new CoopPlanarGateEntry[0], 19L);
+        session.testGuestOnMessage(otherPlane);
+
+        Assert.assertNull(session.testGetDeferredPlaneSwitch(),
+                "free cross-plane resync must not defer");
+        Assert.assertEquals(session.getActiveWorldPlaneId(), "home",
+                "failed cross-plane resync must not mutate guest plane in place");
+        Assert.assertNotEquals(session.getState(), CoopSession.State.READY);
+        Assert.assertEquals(session.getLastError(), CoopPorts.WORLD_HASH_MISMATCH_MESSAGE);
+    }
+
 
     @Test
     public void expiredResyncHashMismatchIsNotSilent() {
@@ -758,6 +880,7 @@ public class CoopGateUpdateTest {
         return grid;
     }
 
+
     private static void fillTerrain(final World world, final int value) {
         if (world == null || world.terrainMap == null) {
             return;
@@ -766,4 +889,6 @@ public class CoopGateUpdateTest {
             Arrays.fill(world.terrainMap[x], value);
         }
     }
+
+
 }

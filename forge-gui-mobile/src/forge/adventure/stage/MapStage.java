@@ -216,6 +216,9 @@ public class MapStage extends GameStage {
     }
 
     private void clearFortressStructureVisuals(boolean removeCollision) {
+        if (fortressStructureActors == null) {
+            return;
+        }
         for (MapActor a : fortressStructureActors) {
             if (a == null)
                 continue;
@@ -1023,34 +1026,41 @@ public class MapStage extends GameStage {
     }
 
     public boolean exitDungeon(boolean defeated, boolean defeatedByBoss) {
-        if (mustClearOnExit) {
-            mustClearOnExit = false;
-
-            this.resetMapRecursive(AdventureQuestController.instance().mostRecentPOI.getData().map, new HashSet<>());
-        }
-
-        AdventureQuestController.instance().updateQuestsLeave();
-        clearIsInMap();
-        AdventureQuestController.instance().showQuestDialogs(this);
-        isLoadingMatch = false;
-        effect = null; //Reset dungeon effects.
-        if (defeated)
-            WorldStage.getInstance().resetPlayerLocation();
-        else if (defeatedByBoss)
-            WorldStage.getInstance().defeatedFromBoss();
-        forge.adventure.coop.CoopOverworldRuntime.get().onExitPoi();
         try {
+            if (mustClearOnExit) {
+                mustClearOnExit = false;
+
+                this.resetMapRecursive(AdventureQuestController.instance().mostRecentPOI.getData().map, new HashSet<>());
+            }
+
+            AdventureQuestController.instance().updateQuestsLeave();
+            clearIsInMap();
+            AdventureQuestController.instance().showQuestDialogs(this);
+            isLoadingMatch = false;
+            effect = null; //Reset dungeon effects.
+            if (defeated)
+                WorldStage.getInstance().resetPlayerLocation();
+            else if (defeatedByBoss)
+                WorldStage.getInstance().defeatedFromBoss();
+            forge.adventure.coop.CoopOverworldRuntime.get().onExitPoi();
             Forge.switchScene(GameScene.instance());
+            isPlayerLeavingDungeon = false;
+            dialogOnlyInput = false;
+            return true;
         } finally {
-            // Next frame after this scene switch — never apply deferred plane mid-exitDungeon.
+            // Exiting the dungeon: ensure not in-map before co-op deferred apply
+            // (body may have thrown before clearIsInMap). Never let cleanup abort the schedule.
+            try {
+                clearIsInMap();
+            } catch (final Throwable ignored) {
+                isInMap = false;
+            }
+            // Always schedule after exitDungeon — never apply deferred plane mid-body.
             try {
                 forge.adventure.coop.CoopSession.get().scheduleTryApplyDeferredPlaneSwitch();
             } catch (final Exception ignored) {
             }
         }
-        isPlayerLeavingDungeon = false;
-        dialogOnlyInput = false;
-        return true;
     }
 
     /**

@@ -58,6 +58,8 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -133,6 +135,12 @@ public final class CoopSession {
         t.setDaemon(true);
         return t;
     });
+    /** Delayed coalesce / resync watches — never block the worker with sleep. */
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        final Thread t = new Thread(r, "coop-session-scheduler");
+        t.setDaemon(true);
+        return t;
+    });
 
     private final Consumer<String> consoleStatusListener = msg -> System.out.println("[co-op] " + msg);
     private volatile boolean consoleListenerAttached;
@@ -146,6 +154,8 @@ public final class CoopSession {
     private static final long RESYNC_MIN_INTERVAL_MS = 5_000L;
     /** Guest: retry resync when the host never answers with a matching requestId. */
     private static final long RESYNC_OFFER_TIMEOUT_MS = 8_000L;
+    /** Guest: max free-state host-drop resync retries before ending the session. */
+    static final int RESYNC_OFFER_MAX_FREE_RETRIES = 5;
     private volatile long lastResyncRequestMs;
     private volatile long lastHostResyncHandledMs;
     /** Guest: one pending resync reason when rate-limited (retried when allowed). */
@@ -156,6 +166,11 @@ public final class CoopSession {
     /** Guest: request id of the outstanding resync (0 = none). */
     private volatile long expectingResyncRequestId;
     private final AtomicLong nextResyncRequestId = new AtomicLong(1L);
+    /**
+     * Guest: consecutive free-state host-drop timeouts in the current resync chain.
+     * Reset on successful apply / session clear; busy holds do not increment.
+     */
+    private volatile int consecutiveFreeResyncTimeouts;
     /**
      * Guest: last resync request id that timed out while free (late offers with this
      * id must still hard-fail on hash mismatch — not silent).
@@ -322,12 +337,14 @@ public final class CoopSession {
         guestPlaneFormat = "";
         sessionWorld = null;
         worldHash = "";
+        lastError = "";
         cachedGates = new CoopPlanarGateEntry[0];
         testSendHook = null;
         lastResyncRequestMs = 0L;
         lastHostResyncHandledMs = 0L;
         pendingResyncReason = null;
         clearExpectingResync();
+        consecutiveFreeResyncTimeouts = 0;
         lastExpiredResyncRequestId = 0L;
         deferredPlaneSwitch = null;
         testForceGuestBusy = false;
@@ -405,6 +422,8 @@ public final class CoopSession {
         sessionWorld = guestSessionWorld;
         guestWorldPlaneId = planeId != null && !planeId.isEmpty() ? planeId : PlaneMeta.HOME_ID;
         worldHash = CoopWorldSync.hashWorld(guestSessionWorld);
+        lastError = "";
+        consecutiveFreeResyncTimeouts = 0;
     }
 
     /** Test hook: capture {@link #send(NetEvent)} payloads. */
@@ -567,14 +586,8 @@ public final class CoopSession {
             pushGateUpdateToGuest();
         };
         if (Gdx.app != null) {
-            worker.execute(() -> {
-                try {
-                    Thread.sleep(GATE_PUSH_COALESCE_MS);
-                } catch (final InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                Gdx.app.postRunnable(run);
-            });
+            scheduler.schedule(() -> Gdx.app.postRunnable(run),
+                    GATE_PUSH_COALESCE_MS, TimeUnit.MILLISECONDS);
         } else if (testHoldCoalescedGatePush) {
             // Headless coalesce test: leave scheduled until testFlushCoalescedGatePush.
         } else {
@@ -1249,15 +1262,10 @@ public final class CoopSession {
             return;
         }
         final long wait = Math.max(1L, RESYNC_MIN_INTERVAL_MS - (System.currentTimeMillis() - lastResyncRequestMs));
-        worker.execute(() -> {
-            try {
-                Thread.sleep(wait);
-            } catch (final InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+        scheduler.schedule(() -> {
             resyncFlushScheduled.set(false);
             flushPendingResync();
-        });
+        }, wait, TimeUnit.MILLISECONDS);
     }
 
     /** Guest: send a queued resync once the rate limit allows. */
@@ -1280,15 +1288,8 @@ public final class CoopSession {
 
     /** Guest: if the host never echoes {@code requestId}, clear and retry. */
     private void scheduleResyncOfferWatch(final long requestId) {
-        worker.execute(() -> {
-            try {
-                Thread.sleep(RESYNC_OFFER_TIMEOUT_MS);
-            } catch (final InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-            onResyncOfferTimeout(requestId);
-        });
+        scheduler.schedule(() -> onResyncOfferTimeout(requestId),
+                RESYNC_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     }
 
     private void onResyncOfferTimeout(final long requestId) {
@@ -1300,6 +1301,11 @@ public final class CoopSession {
             if (!expectingResyncOffer || expectingResyncRequestId != requestId) {
                 return;
             }
+            // Host already answered; apply is waiting until the guest is free.
+            final CoopPlaneSwitchEvent deferred = deferredPlaneSwitch;
+            if (deferred != null && deferred.getRequestId() == requestId) {
+                return;
+            }
             if (guestIsBusyForPlaneSwitch()) {
                 // Hold one outstanding request — do not re-request every timeout while busy.
                 status("Resync #" + requestId + " still pending (guest busy)");
@@ -1308,7 +1314,15 @@ public final class CoopSession {
             }
             lastExpiredResyncRequestId = requestId;
             clearExpectingResync();
-            status("Host did not answer resync #" + requestId + " — retrying");
+            consecutiveFreeResyncTimeouts++;
+            if (consecutiveFreeResyncTimeouts > RESYNC_OFFER_MAX_FREE_RETRIES) {
+                endGuestSessionClean("Host did not answer resync after "
+                        + RESYNC_OFFER_MAX_FREE_RETRIES + " retries");
+                return;
+            }
+            status("Host did not answer resync #" + requestId + " — retrying ("
+                    + consecutiveFreeResyncTimeouts + "/"
+                    + RESYNC_OFFER_MAX_FREE_RETRIES + ")");
             requestWorldResync("resync offer timeout");
         });
     }
@@ -1504,6 +1518,7 @@ public final class CoopSession {
                 }
             }
             clearExpectingResync();
+            consecutiveFreeResyncTimeouts = 0;
             if (expiredResync) {
                 lastExpiredResyncRequestId = 0L;
             }
@@ -1513,6 +1528,11 @@ public final class CoopSession {
                     applyGuestSessionWorldRender(event.getSpawnX(), event.getSpawnY());
                 } catch (final Exception stageEx) {
                     status("Plane applied; stage rebuild partial: " + stageEx.getMessage());
+                }
+                // Re-hash after stage/render apply (deferred cross-plane follow may mutate).
+                try {
+                    worldHash = CoopWorldSync.hashWorld(sessionWorld);
+                } catch (final Exception ignored) {
                 }
                 status("Followed host to plane " + guestWorldPlaneId
                         + (resyncOffer ? " (resync)" : ""));
