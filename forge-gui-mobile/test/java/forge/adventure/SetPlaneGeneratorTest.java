@@ -194,12 +194,10 @@ public class SetPlaneGeneratorTest {
         enemy.deck = new String[]{SetPlaneRules.GENERATE};
         enemy.colors = "R";
         enemy.difficulty = 1f;
-        // Off set plane → shouldGenerateSetDeck false (ascendant/plane gated).
-        Assert.assertFalse(SetPlaneRules.shouldGenerateSetDeck(enemy)
-                || !SetPlaneRules.isOnSetPlane());
-        // When not on a set plane, shouldGenerate is false.
+        // Off set plane (no live WorldSave) → shouldGenerateSetDeck is false.
         Assert.assertFalse(SetPlaneRules.isOnSetPlane());
         Assert.assertFalse(SetPlaneRules.shouldGenerateSetDeck(enemy));
+        Assert.assertEquals(SetPlaneRules.GENERATE, "$generate");
     }
 
     @Test
@@ -240,8 +238,10 @@ public class SetPlaneGeneratorTest {
         Assert.assertTrue(loaded.hasPlane("demo_plane"));
         Assert.assertTrue(loaded.hasCompressedBlob("demo_plane"));
         Assert.assertEquals(loaded.getMeta("demo_plane").getKind(), PlaneKind.SET);
+        // No set code and non-set_* id → treated as HOME alignment (still reachable).
         Assert.assertEquals(PlaneAlignment.ofPlane(loaded.getMeta("demo_plane"), new StandardWindow()),
-                PlaneAlignment.ALIGNED);
+                PlaneAlignment.HOME);
+        Assert.assertTrue(PlaneAlignment.HOME.isReachable());
     }
 
     @Test

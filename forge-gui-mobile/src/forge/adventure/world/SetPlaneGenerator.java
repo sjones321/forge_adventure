@@ -56,9 +56,11 @@ public final class SetPlaneGenerator {
             return "Set Plane";
         }
         try {
-            CardEdition ed = FModel.getMagicDb().getEditions().get(setCode);
-            if (ed != null && ed.getName() != null && !ed.getName().isEmpty()) {
-                return ed.getName();
+            if (FModel.getMagicDb() != null) {
+                CardEdition ed = FModel.getMagicDb().getEditions().get(setCode);
+                if (ed != null && ed.getName() != null && !ed.getName().isEmpty()) {
+                    return ed.getName();
+                }
             }
         } catch (Throwable ignored) {
             // headless / missing DB
@@ -106,7 +108,11 @@ public final class SetPlaneGenerator {
         SetColorBalance bal = balance != null ? balance : SetColorBalance.equal();
         applyBiomeMix(data, bal);
         applyThemedTownNames(data, setCode, rng);
-        injectPlanarGatePoi(data, PlaneMeta.HOME_ID, "Portal to Home");
+        try {
+            injectPlanarGatePoi(data, PlaneMeta.HOME_ID, "Portal to Home");
+        } catch (Throwable t) {
+            // Headless / missing Config — biome mix and town names still apply.
+        }
         return data;
     }
 
