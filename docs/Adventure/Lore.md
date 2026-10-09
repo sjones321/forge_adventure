@@ -80,6 +80,13 @@ the game needs. If the two disagree, the cosmology file wins.
 ### The Supervisor
 
 - Oversees a good handful of Initiates: in practice, all the players and their Watchers.
+- **Backstory:** a **Death Watch Knight on his second term.** Before his first retirement he lost **a whole planet**
+  of people, a world he knew well and had fallen in love with. A Bell can't cover a planet, so he had to choose
+  where too few Bells went. It shook him. He retired for **ten billion years** and never once walked that world's
+  echo in his Hall. **He requested this assignment himself** (a Knight supervising Initiates is overkill, and
+  anyone in the Watch would know something happened). Since coming back, he walks the echo **almost obsessively.**
+  **He doesn't talk about it.** The player's **Watcher (she) knows**, because she poked around places she shouldn't.
+- **The world stays his** until the climax (see "How the story unfolds").
 - **Gruff, because he cares.** He knows getting attached is going to hurt. The people you befriend will live and
   die, and you have a billion years ahead of you. Even towns saved by a Bell will die of time. He has watched a
   lot of Initiates learn that, and he'd rather they learn it from him.
@@ -152,6 +159,18 @@ grieving. Their culture is in your Archive, and some of them are still around to
    where the source is.
 4. **Exposure**: you find the Fallen's operation and make it impossible to keep secret. The Fallen's plans fail;
    the Engine's greater powers move in.
+   - **The Supervisor's stand:** a Death Watch Knight fighting, for once, an enemy he cannot defeat. He sacrifices
+     himself to drive off the Fallen and buy time for reinforcements. He **appears to die**, but Knights are beastly:
+     it only resets his connection to his physical body, and the Fallen forced his rebodying to happen a little far
+     away. **The Initiates believe he's dead.**
+   - Looking for answers, they go to the one place left: **the echo of his lost world** in his Hall, walking it
+     grieving him, in the place he grieved.
+   - **Epilogue:** he rebodies, makes his way back, and finds his Initiates standing in the world he never let
+     anyone see. They brace for fury when they realize it's him. **He isn't mad.** Then embarrassment all round,
+     but the old coot is fine; he's just happy this multiverse survived. Exact words undecided. Idea: a bookend to
+     his first slip (reading out an erased village's name) by saying **his world's name** aloud for the first time
+     in ten billion years, then, gruffly, giving them the tour: *"Well. Don't just stand there. Since you're here,
+     you might as well meet them."*
 5. **After — reincarnation as prestige**: you return to the Between, see the whole ledger, and choose to come back.
    You carry condensed capacity forward, not memories. Townsfolk you bonded with across runs may recognize you
    without knowing why.

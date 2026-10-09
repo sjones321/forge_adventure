@@ -3,6 +3,7 @@ package forge.adventure.world;
 import forge.adventure.data.ConfigData;
 import forge.adventure.util.Config;
 import forge.adventure.util.Paths;
+import forge.gui.GuiBase;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -46,12 +47,18 @@ public final class PlaneConfigPaths {
         LinkedHashSet<String> allowed = new LinkedHashSet<>();
         allowed.add(Paths.WORLD);
         try {
-            ConfigData cfg = Config.instance().getConfigData();
-            if (cfg != null && cfg.setPlaneWorldConfig != null && !cfg.setPlaneWorldConfig.isEmpty()
-                    && isSyntacticallySafe(cfg.setPlaneWorldConfig)) {
-                allowed.add(cfg.setPlaneWorldConfig);
-            } else {
+            // Config.instance() touches ForgeConstants; never do that before GuiBase is
+            // installed or ForgeConstants.<clinit> NPEs and poisons the whole JVM suite.
+            if (GuiBase.getInterface() == null) {
                 allowed.add("world/set_plane_world.json");
+            } else {
+                ConfigData cfg = Config.instance().getConfigData();
+                if (cfg != null && cfg.setPlaneWorldConfig != null && !cfg.setPlaneWorldConfig.isEmpty()
+                        && isSyntacticallySafe(cfg.setPlaneWorldConfig)) {
+                    allowed.add(cfg.setPlaneWorldConfig);
+                } else {
+                    allowed.add("world/set_plane_world.json");
+                }
             }
         } catch (Throwable ignored) {
             // Headless tests / early init — still allow the Ascendant set-plane template.

@@ -333,8 +333,9 @@ public class OreLineMigrationTest {
             Assert.assertTrue(text.contains(region + "\n") || text.contains(region + "\r\n")
                     || text.lines().anyMatch(l -> l.equals(region)), "missing atlas region " + region);
         }
-        Assert.assertTrue(text.contains("xy: 0, 16")); // row 2 iron
-        Assert.assertTrue(text.contains("xy: 48, 16")); // row 2 rune
+        String lf = text.replace("\r\n", "\n");
+        Assert.assertTrue(lf.contains("ore_iron\n  xy: 0, 64")); // ore row below the tall trees
+        Assert.assertTrue(lf.contains("ore_rune\n  xy: 48, 64"));
     }
 
     @Test
@@ -415,9 +416,9 @@ public class OreLineMigrationTest {
 
     @Test
     public void tallTreeAtlasAndBottomTileCollision() throws Exception {
-        Path atlas = resolveRes("forge-gui/res/adventure/common/maps/tileset/resource_nodes_tall.atlas");
+        Path atlas = resolveRes("forge-gui/res/adventure/common/maps/tileset/resource_nodes.atlas");
         String text = Files.readString(atlas, StandardCharsets.UTF_8);
-        Assert.assertTrue(text.startsWith("resource_nodes_tall.png"));
+        Assert.assertTrue(text.startsWith("resource_nodes.png"));
         for (String region : new String[]{"tree_oak", "tree_willow", "tree_yew", "tree_ironwood"}) {
             Assert.assertTrue(text.lines().anyMatch(l -> l.equals(region)), "missing tall region " + region);
         }
@@ -427,7 +428,7 @@ public class OreLineMigrationTest {
 
         String materials = Files.readString(
                 resolveRes("forge-gui/res/adventure/common/world/materials.json"), StandardCharsets.UTF_8);
-        Assert.assertTrue(materials.contains("\"nodeAtlas\": \"maps/tileset/resource_nodes_tall.atlas\""));
+        Assert.assertTrue(materials.contains("\"nodeAtlas\": \"maps/tileset/resource_nodes.atlas\""));
         Assert.assertTrue(materials.contains("\"nodeRegion\": \"tree_oak\""));
         Assert.assertTrue(materials.contains("\"nodeRegion\": \"tree_ironwood\""));
     }

@@ -42,6 +42,9 @@ public class SkillsScene extends UIScene {
         ui.onButtonPress("status", () -> Forge.switchScene(PlayerStatisticScene.instance(lastGameScene), true));
         ui.onButtonPress("quests", () -> Forge.switchScene(QuestLogScene.instance(lastGameScene), true));
         ui.onButtonPress("unlocks", () -> Forge.switchScene(UnlocksScene.instance(lastGameScene), true));
+        ui.onButtonPress("achievements", () -> Forge.switchScene(AchievementsScene.instance(lastGameScene), true));
+        if (ui.findActor("achievements") != null)
+            ui.findActor("achievements").setVisible(Config.ascendant());
 
         scrollContainer = new Table(Controls.getSkin());
         ScrollPane scroller = new ScrollPane(scrollContainer);

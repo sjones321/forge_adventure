@@ -1,0 +1,10 @@
+{
+  "logs": {
+    "forest":   ["tree_green_pine", "tree_dark_pine"],
+    "plains":   ["tree_light_round", "tree_snow_pine"],
+    "island":   ["tree_dark_pine", "tree_light_round"],
+    "swamp":    ["tree_grey_round", "tree_grey_pine"],
+    "mountain": ["tree_orange_round", "tree_red_round"],
+    "wastes":   ["tree_grey_pine", "tree_grey_round"]
+  }
+}
