@@ -102,6 +102,8 @@
   "maxPlanesPerSave": 16,
   "planarPortalAutoCreate": true,
   "llmOpponentDefaultTimeoutSeconds": 30,
+  "achievementToastEnabled": true,
+  "achievementToastMaxPerPass": 5,
   "fortressBannerMinDistanceTiles": 8,
   "fortressMaxPerPlane": 1,
   "fortressDemolishRefundPercent": 50,

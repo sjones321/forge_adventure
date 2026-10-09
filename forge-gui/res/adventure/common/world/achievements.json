@@ -1,0 +1,83 @@
+[
+  {
+    "id": "set_collector",
+    "name": "Set Collector",
+    "description": "Own every distinct card in a set's main card list.",
+    "category": "collection",
+    "condition": { "type": "setComplete" },
+    "hidden": false,
+    "reward": { "type": "trophy", "id": "set_complete" }
+  },
+  {
+    "id": "bellwarden_completionist",
+    "name": "Bellwarden Completionist",
+    "description": "Own every card in every Bellwarden set.",
+    "category": "collection",
+    "condition": { "type": "allSetsComplete" },
+    "hidden": false,
+    "reward": { "type": "title", "id": "Bellwarden Completionist" }
+  },
+  {
+    "id": "first_duel_win",
+    "name": "First Blood",
+    "description": "Win your first duel.",
+    "category": "collection",
+    "condition": { "type": "duelWins", "count": 1 },
+    "hidden": false,
+    "reward": { "type": "trophy", "id": "first_win" }
+  },
+  {
+    "id": "duel_wins_100",
+    "name": "Centurion",
+    "description": "Win 100 duels.",
+    "category": "collection",
+    "condition": { "type": "duelWins", "count": 100 },
+    "hidden": false,
+    "reward": { "type": "title", "id": "Centurion" }
+  },
+  {
+    "id": "gym_badges_all",
+    "name": "Badge Bearer",
+    "description": "Earn all eight gym badges.",
+    "category": "gyms",
+    "condition": { "type": "badgeCount", "count": 8 },
+    "hidden": false,
+    "reward": { "type": "title", "id": "Badge Bearer" }
+  },
+  {
+    "id": "league_champion",
+    "name": "League Champion",
+    "description": "Clear the League.",
+    "category": "gyms",
+    "condition": { "type": "leagueChampion" },
+    "hidden": false,
+    "reward": { "type": "trophy", "id": "league_champion" }
+  },
+  {
+    "id": "skill_dueling_99",
+    "name": "Duelist Supreme",
+    "description": "Reach Dueling level 99.",
+    "category": "skills",
+    "condition": { "type": "skillLevel", "skill": "DUELING", "level": 99 },
+    "hidden": false,
+    "reward": { "type": "title", "id": "Duelist Supreme" }
+  },
+  {
+    "id": "skill_spellsmithing_99",
+    "name": "Master Spellsmith",
+    "description": "Reach Spellsmithing level 99.",
+    "category": "skills",
+    "condition": { "type": "skillLevel", "skill": "SPELLSMITHING", "level": 99 },
+    "hidden": true,
+    "reward": { "type": "title", "id": "Master Spellsmith" }
+  },
+  {
+    "id": "coop_first_session",
+    "name": "Together",
+    "description": "Finish a co-op session with a partner.",
+    "category": "coop",
+    "condition": { "type": "counter", "key": "coopSessions", "count": 1 },
+    "hidden": false,
+    "reward": { "type": "trophy", "id": "coop_together" }
+  }
+]

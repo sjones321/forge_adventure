@@ -23,6 +23,12 @@ Controls:
   - Button Y - Decrease Difficulty in NewGame Plus/Zoom or Text Mode in Deck Editor
   - Left/Right Shoulder Button - Scroll Up or Scroll Down on some UIScenes
 
+- Achievements (Ascendant Status → Awards)
+  - DPAD Up/Down - Move between Back / Status / Skills / Quests and scroll the list
+  - Button A - Activate the focused button
+  - Button B - Back to Status
+  - Left/Right Shoulder - Scroll the achievement list (same as other UIScenes)
+
 
 - RewardScene
   - DPAD Left/Right - Selector

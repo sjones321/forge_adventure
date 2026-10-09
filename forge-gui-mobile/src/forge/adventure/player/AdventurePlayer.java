@@ -308,6 +308,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         standardWindow.checkMastery(cards);
         if (!before.equals(standardWindow.getSets()))
             RewardData.invalidateCardPool();
+        // AC1: account-wide set completion (outside the save; Ascendant only).
+        if (Config.ascendant()) {
+            try {
+                AchievementService.get().evaluateCollection(cards);
+            } catch (Throwable ignored) {
+                // Achievements must never break collection rewards.
+            }
+        }
     }
 
     public final ItemPool<PaperCard> newCards = new ItemPool<>(PaperCard.class);
@@ -2323,7 +2331,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             return false;
         if (GymListData.getByBadge(badgeId) == null)
             return false;
-        return badges.add(badgeId);
+        boolean added = badges.add(badgeId);
+        if (added) {
+            try {
+                AchievementService.get().evaluatePlayer(this);
+            } catch (Throwable ignored) {
+            }
+        }
+        return added;
     }
 
     public boolean isLeagueCleared() {
@@ -2331,7 +2346,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     public void setLeagueCleared(boolean cleared) {
+        boolean newly = cleared && !leagueCleared;
         leagueCleared = cleared;
+        if (newly && Config.ascendant()) {
+            try {
+                AchievementService.get().evaluatePlayer(this);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /**

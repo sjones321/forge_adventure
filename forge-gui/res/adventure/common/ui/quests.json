@@ -64,6 +64,15 @@
       "height": 30,
       "x": 420,
       "y": 144
+    },
+    {
+      "type": "TextButton",
+      "name": "achievements",
+      "text": "Awards",
+      "width": 60,
+      "height": 30,
+      "x": 420,
+      "y": 104
     }
   ]
 }

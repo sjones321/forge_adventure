@@ -371,6 +371,16 @@ public class ConfigData {
      * {@code llm_opponent.properties}. The settings screen and properties file are authoritative.
      */
     public int llmOpponentDefaultTimeoutSeconds = 30;
+    // ---- Ascendant achievements (Package AC1): account-wide, outside the save. ----
+
+    /** When true, show a HUD toast when an achievement unlocks. */
+    public boolean achievementToastEnabled = true;
+    /**
+     * Max achievement toasts emitted in one evaluation pass (set-completion spam guard).
+     * Extra unlocks still persist; only the toast is deferred.
+     */
+    public int achievementToastMaxPerPass = 5;
+
     // ---- Ascendant fortresses (Package FT1): claim site + instance build mode. ----
 
     /**

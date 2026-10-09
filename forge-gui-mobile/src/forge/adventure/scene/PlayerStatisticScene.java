@@ -71,8 +71,11 @@ public class PlayerStatisticScene extends UIScene {
         ui.onButtonPress("return", PlayerStatisticScene.this::back);
         ui.onButtonPress("quests", PlayerStatisticScene.this::quests);
         ui.onButtonPress("skills", () -> Forge.switchScene(SkillsScene.instance(lastGameScene), true));
+        ui.onButtonPress("achievements", () -> Forge.switchScene(AchievementsScene.instance(lastGameScene), true));
         if (!Config.ascendant() && ui.findActor("skills") != null)
             ui.findActor("skills").setVisible(false); // skills are a Shandalar Ascendant feature
+        if (ui.findActor("achievements") != null)
+            ui.findActor("achievements").setVisible(Config.ascendant());
         avatar = ui.findActor("avatar");
         avatarBorder = ui.findActor("avatarBorder");
         playerName = ui.findActor("playerName");
