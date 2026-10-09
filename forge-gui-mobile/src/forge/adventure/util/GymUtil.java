@@ -192,7 +192,7 @@ public final class GymUtil {
      * Mono → that color name; Guild → seeded two-color pair; Rainbow → 3–5 colors;
      * Colorless → empty (handled separately); WUBRG codes map to names.
      */
-    static String[] resolveTemplateColors(String colors, long seed) {
+    public static String[] resolveTemplateColors(String colors, long seed) {
         if (colors == null || colors.isEmpty() || isColorlessTheme(colors))
             return new String[0];
         if ("Guild".equalsIgnoreCase(colors)) {

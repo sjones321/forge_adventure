@@ -223,6 +223,10 @@ public final class ForgeConstants {
     public static final String IMG_NYX_C              = "IMG_NYX_C.png";
 
     // data tree roots
+    // When forge.test.userDir is set before this class loads (surefire /
+    // AdventureTestBootstrapListener), ForgeProfileProperties.load()
+    // redirects USER_DIR so USER_ADVENTURE_DIR / settings / saves / characters
+    // land under test-user-home. See ForgeProfileProperties.TEST_USER_DIR_PROPERTY.
     public static final String USER_DIR;
     public static final String CACHE_DIR;
     public static final String CACHE_CARD_PICS_DIR;

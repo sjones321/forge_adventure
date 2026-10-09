@@ -233,8 +233,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     private void clearDecks() {
         decks.clear();
+        // getMessageorUseDefault: WorldSave can clinit in headless tests before
+        // Localizer bundles are loaded; never NPE the singleton constructor.
+        final String emptyName = Forge.getLocalizer()
+                .getMessageorUseDefault("lblEmptyDeck", "Empty Deck");
         for (int i = 0; i < MIN_DECK_COUNT; i++)
-            decks.add(new Deck(Forge.getLocalizer().getMessage("lblEmptyDeck")));
+            decks.add(new Deck(emptyName));
         deck = decks.get(0);
         selectedDeckIndex = 0;
     }
@@ -526,8 +530,16 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 }
             }
         }
+        afterCommanderDeckStateMayHaveChanged();
+    }
+
+    /**
+     * RemNonCommanderDecks reward filter and AC1 reachable caches depend on whether
+     * any deck carries {@link #COMMANDER_DECK_TAG}. Call after tag-bearing deck
+     * edits (set / clear / delete / copy).
+     */
+    private void afterCommanderDeckStateMayHaveChanged() {
         RewardData.invalidateCardPool();
-        // RemNonCommanderDecks filter depends on commander-deck state — drop AC1 caches.
         if (Config.ascendant()) {
             try {
                 AchievementService.get().onCommanderDeckChanged();
@@ -4213,6 +4225,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         deck = decks.set(selectedDeckIndex, new Deck(Forge.getLocalizer().getMessage("lblEmptyDeck")));
         ensureDeckLoadoutsSize();
         deckLoadouts.set(selectedDeckIndex, null);
+        afterCommanderDeckStateMayHaveChanged();
     }
 
     /**
@@ -4225,6 +4238,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         if (oldIndex < deckLoadouts.size()) {
             deckLoadouts.remove(oldIndex);
         }
+        afterCommanderDeckStateMayHaveChanged();
     }
 
     public void addDeck(){
@@ -4246,6 +4260,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 ensureDeckLoadoutsSize();
                 HashMap<String, Long> sourceLoadout = selectedDeckIndex < deckLoadouts.size() ? deckLoadouts.get(selectedDeckIndex) : null;
                 deckLoadouts.set(i, sourceLoadout != null ? new HashMap<>(sourceLoadout) : null);
+                afterCommanderDeckStateMayHaveChanged();
                 return i;
             }
         }

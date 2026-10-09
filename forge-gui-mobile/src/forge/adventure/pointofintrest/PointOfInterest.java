@@ -21,27 +21,43 @@ public class PointOfInterest implements Serializable, SaveFileContent {
     @Override
     public void load(SaveFileData saveFileData) {
         position.set(saveFileData.readVector2("position"));
-        data=PointOfInterestData.getPointOfInterest(saveFileData.readString("name"));
+        String poiName = saveFileData.readString("name");
+        // MV2: PlanarGate (and other runtime POIs) must resolve after restart.
+        if (poiName != null && "PlanarGate".equals(poiName)) {
+            forge.adventure.world.SetPlaneGenerator.ensurePlanarGateRegistered();
+        }
+        data = PointOfInterestData.getPointOfInterest(poiName);
         rectangle.set(saveFileData.readRectangle("rectangle"));
-        spriteIndex=saveFileData.readInt("spriteIndex");
-        if (saveFileData.containsKey("active")){
+        spriteIndex = saveFileData.readInt("spriteIndex");
+        if (saveFileData.containsKey("active")) {
             active = saveFileData.readBool("active");
+        } else {
+            active = data == null || data.active;
         }
-        else
-        {
-            active = data.active;
-        }
-        if (saveFileData.containsKey("displayName")){
+        if (saveFileData.containsKey("displayName")) {
             displayName = saveFileData.readString("displayName");
+        } else {
+            displayName = data == null ? "" : data.getDisplayName();
         }
-        else
-        {
-            displayName = data==null?"":data.getDisplayName();
+        if (saveFileData.containsKey("targetPlane")) {
+            targetPlane = saveFileData.readString("targetPlane");
+        } else if (data != null && data.targetPlane != null) {
+            targetPlane = data.targetPlane;
+        } else {
+            targetPlane = "";
         }
 
-        oldMapId="";
-        Array<Sprite> textureAtlas = Config.instance().getPOISprites(this.data);
-        sprite = textureAtlas.get(spriteIndex%textureAtlas.size);
+        oldMapId = "";
+        try {
+            if (this.data != null) {
+                Array<Sprite> textureAtlas = Config.instance().getPOISprites(this.data);
+                if (textureAtlas != null && textureAtlas.size > 0) {
+                    sprite = textureAtlas.get(spriteIndex % textureAtlas.size);
+                }
+            }
+        } catch (Throwable t) {
+            // Headless tests / missing atlas — position, name, and targetPlane still load.
+        }
     }
 
     @Override
@@ -53,6 +69,7 @@ public class PointOfInterest implements Serializable, SaveFileContent {
         data.store("spriteIndex",spriteIndex);
         data.store("active",active);
         data.store("displayName",getDisplayName());
+        data.store("targetPlane", getTargetPlane());
         data.storeObject("questFlagsToActivate", questFlagsToActivate);
 
         return data;
@@ -66,22 +83,36 @@ public class PointOfInterest implements Serializable, SaveFileContent {
     String oldMapId="";
     boolean active = true;
     private String displayName;
+    /** MV2: plane id for portals inside this POI (overrides TMX when set). */
+    private String targetPlane = "";
     public ArrayList<DialogData.ActionData.QuestFlag> questFlagsToActivate=new ArrayList<>();
     public PointOfInterest() {
     }
     public PointOfInterest(PointOfInterestData d, Vector2 pos, Random rand) {
-        Array<Sprite> textureAtlas = Config.instance().getPOISprites(d);
-        if (textureAtlas.isEmpty()) {
-            System.out.print("sprite " + d.sprite + " not found");
-        }
-        spriteIndex = rand.nextInt(Integer.SIZE - 1) % textureAtlas.size;
-        sprite = textureAtlas.get(spriteIndex);
         data = d;
-        active = d.active;
+        active = d == null || d.active;
+        targetPlane = d != null && d.targetPlane != null ? d.targetPlane : "";
         position.set(pos);
-        questFlagsToActivate.addAll(Arrays.asList(data.questFlagsToActivate));
-
-        rectangle.set(position.x, position.y, sprite.getWidth(), sprite.getHeight());
+        if (data != null && data.questFlagsToActivate != null) {
+            questFlagsToActivate.addAll(Arrays.asList(data.questFlagsToActivate));
+        }
+        float rw = 16f;
+        float rh = 16f;
+        try {
+            Array<Sprite> textureAtlas = Config.instance().getPOISprites(d);
+            if (textureAtlas != null && textureAtlas.size > 0) {
+                spriteIndex = rand.nextInt(Integer.SIZE - 1) % textureAtlas.size;
+                sprite = textureAtlas.get(spriteIndex);
+                rw = sprite.getWidth();
+                rh = sprite.getHeight();
+            } else if (d != null) {
+                System.out.print("sprite " + d.sprite + " not found");
+            }
+        } catch (Throwable t) {
+            // Headless / missing atlas — geometry still valid for placement and save.
+            spriteIndex = 0;
+        }
+        rectangle.set(position.x, position.y, rw, rh);
     }
     public PointOfInterest(PointOfInterestData d, PointOfInterest parent) {
         spriteIndex = parent.spriteIndex;
@@ -151,5 +182,19 @@ public class PointOfInterest implements Serializable, SaveFileContent {
 
     public boolean hasDisplayName(){
         return displayName!= null && !displayName.isEmpty();
+    }
+
+    public String getTargetPlane() {
+        if (targetPlane != null && !targetPlane.isEmpty()) {
+            return targetPlane;
+        }
+        if (data != null && data.targetPlane != null) {
+            return data.targetPlane;
+        }
+        return "";
+    }
+
+    public void setTargetPlane(String planeId) {
+        targetPlane = planeId != null ? planeId : "";
     }
 }

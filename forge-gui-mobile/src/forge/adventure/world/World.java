@@ -56,6 +56,8 @@ public class World implements Disposable, SaveFileContent {
     private String worldConfigPath = Paths.WORLD;
     /** Test/observe: whether the last {@link #generateNew} cleared the live WorldStage. */
     private boolean clearedLiveStageOnLastGenerate;
+    /** MV2: optional in-memory world.json override applied once by {@link #loadWorldData()}. */
+    private WorldData pendingWorldDataOverride;
 
     public Random getRandom() {
         return random;
@@ -114,13 +116,27 @@ public class World implements Disposable, SaveFileContent {
         return false;
     }
 
+    /**
+     * MV2: use a pre-customised {@link WorldData} on the next generate/load instead of
+     * reading world.json. Cleared after {@link #loadWorldData()} consumes it.
+     */
+    public void overrideWorldData(WorldData worldData) {
+        pendingWorldDataOverride = worldData;
+        worldDataLoaded = false;
+    }
+
     public void loadWorldData() {
         if (worldDataLoaded)
             return;
 
-        FileHandle handle = Config.instance().getFile(getWorldConfigPath());
-        String rawJson = handle.readString();
-        this.data = (new Json()).fromJson(WorldData.class, rawJson);
+        if (pendingWorldDataOverride != null) {
+            this.data = pendingWorldDataOverride;
+            pendingWorldDataOverride = null;
+        } else {
+            FileHandle handle = Config.instance().getFile(getWorldConfigPath());
+            String rawJson = handle.readString();
+            this.data = (new Json()).fromJson(WorldData.class, rawJson);
+        }
         disposeBiomeTexturesAsync();
         biomeTexture = new BiomeTexture[data.GetBiomes().size() + 1];
 
@@ -132,6 +148,26 @@ public class World implements Disposable, SaveFileContent {
         }
         biomeTexture[biomeIndex] = new BiomeTexture(data.roadTileset, data.tileSize);
         worldDataLoaded = true;
+    }
+
+    /**
+     * MV2: add a POI after generation (planar gates on home / set planes).
+     * Canonical owner of this helper — keep stable across parallel packages
+     * (FT1 drops any duplicate).
+     */
+    public void addPointOfInterest(PointOfInterest poi) {
+        if (poi == null || mapPoiIds == null) {
+            return;
+        }
+        mapPoiIds.add(poi);
+    }
+
+    /** MV2: clear collision/terrain around a world-pixel position (planar gates). */
+    public void clearTerrainAroundWorld(float worldX, float worldY, int size) {
+        if (data == null || data.tileSize <= 0) {
+            return;
+        }
+        clearTerrain((int) (worldX / data.tileSize), (int) (worldY / data.tileSize), size);
     }
 
     @Override
@@ -575,6 +611,10 @@ public class World implements Disposable, SaveFileContent {
                 }
             }
 
+            // MV2 / small set planes: cap full-map restarts so generation cannot loop forever.
+            final int maxRestarts = data.maxPoiPlacementRestarts > 0
+                    ? data.maxPoiPlacementRestarts : Integer.MAX_VALUE;
+            int restartCount = 0;
             boolean running = true;
             here:
             while (running) {
@@ -642,8 +682,16 @@ public class World implements Disposable, SaveFileContent {
                                                     + "...Skipping instance.\n");
                                             break;
                                         }
+                                        // MV2: when restart budget is exhausted, skip this instance
+                                        // instead of looping forever on a tiny set plane.
+                                        if (restartCount >= maxRestarts) {
+                                            System.err.print("Can not place POI " + poi.name
+                                                    + "...Skipping after " + restartCount + " restarts.\n");
+                                            break;
+                                        }
                                         System.err.print("Can not place POI " + poi.name + "...Rerunning..\n");
                                         running = true;
+                                        restartCount++;
                                         towns.clear();
                                         notTowns.clear();
                                         otherPoints.clear();
@@ -1103,8 +1151,72 @@ public class World implements Disposable, SaveFileContent {
         return mapPoiIds.findPointsOfInterest(name);
     }
 
-    public List<PointOfInterest> getAllPointOfInterest(){
+    public List<PointOfInterest> getAllPointOfInterest() {
+        if (mapPoiIds == null) {
+            return java.util.Collections.emptyList();
+        }
         return mapPoiIds.getAllPointOfInterest();
+    }
+
+    /**
+     * MV2 / tests: install an empty POI map and world grid so gate placement helpers
+     * can run without a full generate. No-op when {@code worldData} is null.
+     */
+    public void installTestWorldGrid(WorldData worldData) {
+        installTestWorldGrid(worldData, 0L);
+    }
+
+    /** Same as {@link #installTestWorldGrid(WorldData)} with an explicit world seed. */
+    public void installTestWorldGrid(WorldData worldData, long worldSeed) {
+        if (worldData == null) {
+            return;
+        }
+        this.data = worldData;
+        this.width = worldData.width;
+        this.height = worldData.height;
+        this.seed = worldSeed;
+        this.terrainMap = new int[Math.max(1, width)][Math.max(1, height)];
+        int chunk = Math.max(1, worldData.tileSize > 0 ? 16 : 16);
+        int chunksX = Math.max(1, width / chunk);
+        int chunksY = Math.max(1, height / chunk);
+        this.mapPoiIds = new PointOfInterestMap(chunk, worldData.tileSize > 0 ? worldData.tileSize : 16,
+                chunksX, chunksY);
+        this.worldDataLoaded = true;
+    }
+
+    /**
+     * Tests: pack seed / maps / POIs (the co-op hash inputs + gates) without pixmaps
+     * or Config. Pair with {@link #restoreHashableStateFromSave}.
+     */
+    public SaveFileData saveHashableStateForTest() {
+        SaveFileData out = new SaveFileData();
+        out.storeObject("biomeMap", biomeMap);
+        out.storeObject("terrainMap", terrainMap);
+        out.store("width", width);
+        out.store("height", height);
+        out.store("seed", seed);
+        if (mapPoiIds != null) {
+            out.store("mapPoiIds", mapPoiIds.save());
+        }
+        return out;
+    }
+
+    /**
+     * Tests: restore seed / maps / POIs from {@link #saveHashableStateForTest()} without
+     * reloading world.json. Caller must {@link #installTestWorldGrid} first.
+     */
+    public void restoreHashableStateFromSave(SaveFileData saveFileData) {
+        if (saveFileData == null) {
+            return;
+        }
+        biomeMap = (long[][]) saveFileData.readObject("biomeMap");
+        terrainMap = (int[][]) saveFileData.readObject("terrainMap");
+        width = saveFileData.readInt("width");
+        height = saveFileData.readInt("height");
+        seed = saveFileData.readLong("seed");
+        if (mapPoiIds != null && saveFileData.containsKey("mapPoiIds")) {
+            mapPoiIds.load(saveFileData.readSubData("mapPoiIds"));
+        }
     }
 
     public int getChunkSize() {

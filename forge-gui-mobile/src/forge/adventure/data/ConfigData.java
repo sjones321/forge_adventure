@@ -351,7 +351,7 @@ public class ConfigData {
     public String homePlaneId = "home";
     /**
      * Relative world.json used when generating a new set plane (MV1 template;
-     * MV2 will specialise per set). Smaller than the home plane.
+     * MV2 specialises per set). Smaller than the home plane.
      */
     public String setPlaneWorldConfig = "world/set_plane_world.json";
     /** Soft cap on planes stored in one save (home + set planes). */
@@ -361,6 +361,30 @@ public class ConfigData {
      * may create a missing set plane on first use.
      */
     public boolean planarPortalAutoCreate = true;
+
+// ---- Ascendant multiverse (Package MV2): plane-per-set generator + alignment. ----
+
+    /** Minimum set-plane map width/height in tiles (inclusive). */
+    public int setPlaneMinTiles = 300;
+    /** Maximum set-plane map width/height in tiles (inclusive). */
+    public int setPlaneMaxTiles = 400;
+    /** Gold cost for a portal to a Standard-window (aligned) set plane. */
+    public int alignedPortalGoldCost = 0;
+    /**
+     * Gold cost for a portal to a rotated-out (drifted) set plane.
+     * Tunable; higher than aligned so Historic planes stay reachable but costly.
+     */
+    public int rotatedOutPortalGoldCost = 500;
+    /**
+     * When true, mastering / unlocking a set also ensures its plane exists and
+     * places a Planar Gate on the home plane.
+     */
+    public boolean masteryUnlocksSetPlane = true;
+    /**
+     * Max full POI-placement restarts when generating a set plane. After this,
+     * unplaceable instances are skipped so generation always finishes.
+     */
+    public int setPlaneMaxPlacementRestarts = 8;
 
     // ---- Ascendant achievements (Package AC1): account-wide, outside the save. ----
 
@@ -395,5 +419,21 @@ public class ConfigData {
      * (so stations stay solid but remain openable from adjacent tiles).
      */
     public float fortressStationInteractPadTiles = 0.5f;
+
+    // ---- Ascendant EN1: enemy decks by format and theme ----
+
+    /**
+     * When true (Ascendant default), ordinary overworld enemies pick a theme at spawn
+     * and play format-appropriate theme decks (fixed Historic/Pauper/Commander lists,
+     * Bellwarden Standard recipes filled from the current window).
+     */
+    public boolean en1EnemyThemeDecks = true;
+    /** Target size for EN1 Bellwarden Standard recipe decks. */
+    public int en1StandardDeckSize = 60;
+    /**
+     * When true, log EN1 format/theme fallbacks (missing .dck → nearest available).
+     * Defaults on so missing data is visible during content work.
+     */
+    public boolean en1LogFallbacks = true;
 
 }

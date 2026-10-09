@@ -12,11 +12,17 @@ import forge.adventure.player.AchievementService;
 import forge.adventure.player.AchievementSetTracker;
 import forge.adventure.player.HallOfFame;
 import forge.adventure.player.PendingCardStyleGrant;
+import forge.adventure.data.UIData;
+import forge.adventure.scene.PlayerStatisticScene;
 import forge.adventure.util.AtomicJsonFiles;
 import forge.adventure.util.Config;
 import forge.adventure.util.Paths;
 import forge.item.PaperCard;
 import forge.localinstance.properties.ForgeConstants;
+import com.badlogic.gdx.files.FileHandle;
+import com.badlogic.gdx.utils.Json;
+import com.badlogic.gdx.utils.ObjectMap;
+import com.badlogic.gdx.utils.OrderedMap;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -421,6 +427,121 @@ public class AchievementsAc1Test {
                         "Back / nav row should keep stock y=224: " + p);
             }
         }
+    }
+
+    /**
+     * Awards {@code setBounds} uses y-up stage coords (JSON is yDown). Load both
+     * statistic layouts and assert the Awards stage rect does not overlap any
+     * other visible named actor (background {@code lastScreen} excluded).
+     */
+    @Test
+    public void awardsButtonStageBoundsClearInBothLayouts() throws Exception {
+        Path landscape = resolveUi("statistic.json");
+        Path portrait = resolveUi("statistic_portrait.json");
+        assertAwardsClearOfLayout(landscape, true);
+        assertAwardsClearOfLayout(portrait, false);
+    }
+
+    private static Path resolveUi(String fileName) throws Exception {
+        for (String rel : new String[] {
+                "forge-gui/res/adventure/common/ui/" + fileName,
+                "../forge-gui/res/adventure/common/ui/" + fileName
+        }) {
+            Path p = Path.of(rel);
+            if (Files.isRegularFile(p)) {
+                return p;
+            }
+        }
+        throw new IllegalStateException("UI layout not found: " + fileName);
+    }
+
+    private static void assertAwardsClearOfLayout(Path layoutFile, boolean landscape) {
+        UIData data = new Json().fromJson(UIData.class, new FileHandle(layoutFile.toFile()));
+        Assert.assertTrue(data.yDown, layoutFile + " must be yDown like production statistic UI");
+        float layoutH = data.height;
+        float layoutW = data.width;
+
+        // Stage-space rects for every named element (same conversion as UIActor).
+        List<float[]> others = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+        for (OrderedMap<String, String> el : data.elements) {
+            if (el == null) {
+                continue;
+            }
+            String name = null;
+            Float x = null;
+            Float y = null;
+            Float w = null;
+            Float h = null;
+            // Values are numeric at runtime (UIActor casts to Float) despite the String generic.
+            for (ObjectMap.Entry property : new OrderedMap.OrderedMapEntries<>(el)) {
+                String key = property.key == null ? null : property.key.toString();
+                Object val = property.value;
+                if ("name".equals(key)) {
+                    name = val == null ? null : val.toString();
+                } else if ("x".equals(key)) {
+                    x = parseFloat(val);
+                } else if ("y".equals(key)) {
+                    y = parseFloat(val);
+                } else if ("width".equals(key)) {
+                    w = parseFloat(val);
+                } else if ("height".equals(key)) {
+                    h = parseFloat(val);
+                }
+            }
+            if (name == null || name.isEmpty() || "lastScreen".equals(name)) {
+                continue;
+            }
+            if (x == null || y == null || w == null || h == null || w <= 0 || h <= 0) {
+                continue;
+            }
+            float stageY = layoutH - y - h;
+            float stageH = h;
+            // Portrait Awards trims scrollWindow / enemies from the bottom.
+            if (!landscape && ("scrollWindow".equals(name) || "enemies".equals(name))) {
+                float band = PlayerStatisticScene.PORTRAIT_AWARDS_BAND;
+                stageY += band;
+                stageH -= band;
+            }
+            if (stageH <= 0) {
+                continue;
+            }
+            others.add(new float[] { x, stageY, w, stageH });
+            names.add(name);
+        }
+
+        float[] awards = PlayerStatisticScene.awardsStageBounds(landscape, layoutH);
+        Assert.assertTrue(awards[0] >= 0 && awards[1] >= 0
+                        && awards[0] + awards[2] <= layoutW + 0.01f
+                        && awards[1] + awards[3] <= layoutH + 0.01f,
+                "Awards must sit inside the " + (landscape ? "landscape" : "portrait")
+                        + " layout: " + Arrays.toString(awards));
+
+        for (int i = 0; i < others.size(); i++) {
+            float[] o = others.get(i);
+            Assert.assertFalse(rectsOverlap(awards, o),
+                    "Awards " + Arrays.toString(awards) + " overlaps " + names.get(i)
+                            + " " + Arrays.toString(o) + " in " + layoutFile.getFileName());
+        }
+    }
+
+    private static Float parseFloat(Object v) {
+        if (v == null) {
+            return null;
+        }
+        if (v instanceof Number) {
+            return ((Number) v).floatValue();
+        }
+        try {
+            return Float.parseFloat(v.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static boolean rectsOverlap(float[] a, float[] b) {
+        return a[0] < b[0] + b[2] && a[0] + a[2] > b[0]
+                && a[1] < b[1] + b[3] && a[1] + a[3] > b[1];
     }
 
     @Test

@@ -369,7 +369,11 @@ public final class StandardWindow {
     private Set<String> cachedNames;
     private String cachedKey;
 
-    private Set<String> legalNames() {
+    /**
+     * Card names printed in a set currently in the window (CORE expanded).
+     * Cached per window key; used by EN1 Standard recipe pool building.
+     */
+    public Set<String> legalNames() {
         String key = String.join(",", sets);
         if (cachedNames == null || !key.equals(cachedKey)) {
             Set<String> names = new HashSet<>();
@@ -506,6 +510,20 @@ public final class StandardWindow {
         if (rotated != null)
             msg += "\n" + setName(rotated) + " rotated out of Standard.";
         notifyPlayer(msg);
+        // MV2: mastering unlocks the next set's plane (Mastery Surge already granted in checkMastery).
+        try {
+            if (forge.adventure.util.Config.ascendant()) {
+                forge.adventure.data.ConfigData cfg = forge.adventure.util.Config.instance().getConfigData();
+                if (cfg == null || cfg.masteryUnlocksSetPlane) {
+                    forge.adventure.world.WorldSave save = forge.adventure.world.WorldSave.getCurrentSave();
+                    if (save != null) {
+                        forge.adventure.world.PlanarPortalPlacer.onSetUnlocked(save, code);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // Plane generation / portal placement must not break the unlock flow.
+        }
         return rotated;
     }
 

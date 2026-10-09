@@ -45,6 +45,7 @@ public class AchievementsAc1RealDbTest {
     private static Path realUserDir;
     private static java.util.Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
     private static StaticData magicDb;
+    private static StaticData previousStaticData;
     private static ConfigData ascendantConfig;
     private static String initError;
 
@@ -79,6 +80,7 @@ public class AchievementsAc1RealDbTest {
             String customEditions = forgeGuiDir.resolve("custom").toAbsolutePath().normalize()
                     + File.separator + "editions" + File.separator;
 
+            previousStaticData = readStaticDataInstance();
             final CardStorageReader reader = new CardStorageReader(cards, null, false);
             CardStorageReader customReader = null;
             try {
@@ -117,10 +119,10 @@ public class AchievementsAc1RealDbTest {
     @AfterClass(alwaysRun = true)
     public void resetPinnedStateAndAssertRealUserDirUntouched() throws Exception {
         try {
-            // Reset AC1 pins; leave suite GuiBase to AdventureTestBootstrapListener.
+            // Reset AC1 pins; restore prior StaticData; leave suite GuiBase to bootstrap.
             RewardData.invalidateRewardFilterCache();
             AchievementSetTracker.setMagicDbForTest(null);
-            pinStaticData(null);
+            pinStaticData(previousStaticData);
             AccountStore.resetAdventureRootOverrideForTest();
             Config.resetInstanceForTest();
         } finally {
@@ -192,6 +194,16 @@ public class AchievementsAc1RealDbTest {
             instance.set(null, data);
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private static StaticData readStaticDataInstance() {
+        try {
+            Field instance = StaticData.class.getDeclaredField("lastInstance");
+            instance.setAccessible(true);
+            return (StaticData) instance.get(null);
+        } catch (ReflectiveOperationException e) {
+            return null;
         }
     }
 

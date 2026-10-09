@@ -140,6 +140,7 @@ public class AchievementsAc1PlayerHooksTest {
             Config.resetInstanceForTest();
             AchievementService.resetInstance();
             AchievementSetTracker.setMagicDbForTest(null);
+            // Unpin any reward-filter pin left by this class (or a shared suite race).
             RewardData.invalidateRewardFilterCache();
         } finally {
             if (realUserDirSnapshot != null) {
@@ -289,6 +290,53 @@ public class AchievementsAc1PlayerHooksTest {
         Assert.assertFalse(tracker.getNameCounts().containsKey("Shock"),
                 path + " must remove the name from nameCounts");
         Assert.assertEquals(player.getCards().count(shock), 0);
+    }
+
+    @DataProvider(name = "commanderDeckEditPaths")
+    public Object[][] commanderDeckEditPaths() {
+        return new Object[][] {
+                { "clearDeck" },
+                { "deleteDeck" },
+                { "copyDeck" },
+        };
+    }
+
+    /**
+     * clearDeck / deleteDeck / copyDeck must drop AC1 set-name caches the same way
+     * {@link AdventurePlayer#setDeckCommander} does (RemNonCommanderDecks filter).
+     */
+    @Test(dataProvider = "commanderDeckEditPaths")
+    public void commanderDeckEditsInvalidateAchievementCaches(String path) {
+        AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
+        PaperCard plains = card("Plains");
+        player.create("CmdEdit", deckWith(plains, 1), true, 0, 0, false, false,
+                easyDiff(), AdventureModes.Constructed);
+
+        AchievementSetTracker tracker = svc.getSetTracker();
+        // Seed a fake filtered-name entry that invalidateReachable must drop.
+        tracker.putFilteredNamesForTest("AC1CMD", Collections.singleton("OnlyInTest"));
+        Assert.assertTrue(tracker.filteredNames("AC1CMD").contains("OnlyInTest"));
+
+        player.getSelectedDeck().getTags().add(AdventurePlayer.COMMANDER_DECK_TAG);
+        Assert.assertTrue(player.hasCommanderDeck());
+
+        switch (path) {
+            case "clearDeck" -> player.clearDeck();
+            case "deleteDeck" -> {
+                player.addDeck();
+                player.setSelectedDeckSlot(1);
+                player.getSelectedDeck().getTags().add(AdventurePlayer.COMMANDER_DECK_TAG);
+                player.deleteDeck();
+            }
+            case "copyDeck" -> {
+                int copied = player.copyDeck();
+                Assert.assertTrue(copied >= 0, "copyDeck needs a free slot");
+            }
+            default -> Assert.fail("unknown path: " + path);
+        }
+
+        Assert.assertFalse(tracker.filteredNames("AC1CMD").contains("OnlyInTest"),
+                path + " must call onCommanderDeckChanged and clear setNamesCache");
     }
 
     private static PaperCard card(String name) {

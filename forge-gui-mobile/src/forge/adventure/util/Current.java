@@ -47,6 +47,11 @@ public class Current {
         }
     }
 
+    /** MV2: set code for the current set plane, or empty on home / non-Ascendant. */
+    public static String planeSetCode() {
+        return forge.adventure.world.SetPlaneRules.activeSetCode();
+    }
+
     static Deck deck;
     public static Deck latestDeck() {
         return deck;

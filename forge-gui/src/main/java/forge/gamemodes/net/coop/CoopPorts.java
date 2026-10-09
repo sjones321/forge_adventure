@@ -15,8 +15,11 @@ public final class CoopPorts {
      * Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change.
      * CO2 (merged #18) is protocol 5; CO3 is 6.
      */
-    /** Bumped for MV1 {@code CoopPlaneSwitchEvent} (host plane follow). */
-    public static final int PROTOCOL_VERSION = 7;
+    /**
+     * Bumped for MV1 {@code CoopPlaneSwitchEvent} (host plane follow) = 7.
+     * MV2 = 8: live world hash + host gate list + {@code mv2SetCode} on offer/switch.
+     */
+    public static final int PROTOCOL_VERSION = 8;
 
     /** Length of the short session code shown by the host. */
     public static final int SESSION_CODE_LENGTH = 8;

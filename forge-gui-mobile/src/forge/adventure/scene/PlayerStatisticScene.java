@@ -1,6 +1,7 @@
 package forge.adventure.scene;
 
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.ui.Image;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
@@ -326,9 +327,9 @@ public class PlayerStatisticScene extends UIScene {
     }
 
     /**
-     * Ascendant-only Awards entry. Stock {@code statistic.json} is unchanged;
-     * the button sits left of the Forge awards toggle so Back stays at its
-     * stock position (no overlap with {@code blessingInfo}).
+     * Ascendant-only Awards entry. Stock {@code statistic.json} is unchanged.
+     * JSON layout y is top-down ({@code yDown}); {@link Actor#setBounds} is y-up,
+     * so positions use {@code layoutH - jsonY - h}.
      */
     private void addAscendantAwardsButton() {
         if (ui.findActor("achievements") != null) {
@@ -340,18 +341,70 @@ public class PlayerStatisticScene extends UIScene {
         TextraButton awards = Controls.newTextButton("Awards",
                 () -> Forge.switchScene(AchievementsScene.instance(lastGameScene), true));
         awards.setName("achievements");
-        if (Forge.isLandscapeMode()) {
-            // Right of scrollWindow (ends x=271), left of blessingInfo (x=308), above nav (y=224).
-            awards.setBounds(273, 190, 34, 30);
-            awards.setText("Awd");
-        } else {
-            // Portrait: inside the stats strip (y=4..102), below the avatar — not over
-            // scrollWindow (y=106..433) or the enemies table (y=110..428).
-            awards.setBounds(8, 74, 70, 26);
-            awards.setText("Awards");
+        boolean landscape = Forge.isLandscapeMode();
+        if (!landscape) {
+            // Stock portrait leaves only ~7px between scrollWindow and the nav row —
+            // trim the list so Awards fits in a clear band above Back/Quests/Skills.
+            reservePortraitAwardsBand(ui);
         }
+        float[] b = awardsStageBounds(landscape, ui.getHeight());
+        awards.setBounds(b[0], b[1], b[2], b[3]);
+        awards.setText(landscape ? "Awd" : "Awards");
         ui.addActor(awards);
         addToSelectable(awards);
+    }
+
+    /**
+     * Shrink portrait {@code scrollWindow} / {@code enemies} from the bottom to
+     * open a band above the nav row for the Awards button.
+     */
+    static void reservePortraitAwardsBand(forge.adventure.util.UIActor ui) {
+        final float band = PORTRAIT_AWARDS_BAND;
+        Window window = ui.findActor("scrollWindow");
+        Table enemies = ui.findActor("enemies");
+        if (window != null && window.getHeight() > band + 40f) {
+            window.setHeight(window.getHeight() - band);
+            window.setY(window.getY() + band);
+        }
+        if (enemies != null && enemies.getHeight() > band + 40f) {
+            enemies.setHeight(enemies.getHeight() - band);
+            enemies.setY(enemies.getY() + band);
+        }
+    }
+
+    /** Portrait band height reserved above the nav row (stage / JSON units). */
+    static final float PORTRAIT_AWARDS_BAND = 30f;
+
+    /**
+     * Stage-space (y-up) Awards bounds for the statistic layouts.
+     * JSON top-down coordinates are converted with {@code layoutH - y - h}.
+     *
+     * <ul>
+     *   <li>Landscape: strip right of scrollWindow (x≤271), left of stats (x≥300),
+     *       above the nav row (json y=224) — json (272, 188, 26, 28).</li>
+     *   <li>Portrait: band above nav after {@link #reservePortraitAwardsBand} —
+     *       json (8, 408, 70, 28).</li>
+     * </ul>
+     *
+     * @return {@code {x, y, w, h}} in stage coordinates
+     */
+    static float[] awardsStageBounds(boolean landscape, float layoutH) {
+        final float jx;
+        final float jy;
+        final float jw;
+        final float jh;
+        if (landscape) {
+            jx = 272f;
+            jy = 188f;
+            jw = 26f;
+            jh = 28f;
+        } else {
+            jx = 8f;
+            jy = 408f;
+            jw = 70f;
+            jh = 28f;
+        }
+        return new float[] { jx, layoutH - jy - jh, jw, jh };
     }
 
     @Override
