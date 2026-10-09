@@ -1,12 +1,14 @@
 package forge.gamemodes.net.coop;
 
 /**
- * Atomic inventory mutation helpers for TR1. Every take/grant return value is
- * checked; any failure restores the pre-apply snapshot so items and cards roll
- * back along with gold and materials.
- *
- * <p>Two-phase commit (guest first, host after ack) lives in
- * {@link CoopTradeState}; this class only mutates bags.
+ * Forward-only inventory mutations for TR1 escrow trading.
+ * <ul>
+ *   <li>{@link #escrow} — remove only this side's offered goods.</li>
+ *   <li>{@link #deliver} — grant the peer's offer (never reversed).</li>
+ *   <li>{@link #refundEscrow} — return this side's own escrow when reconcile
+ *       shows the peer never escrowed.</li>
+ * </ul>
+ * Received goods are never taken back.
  */
 public final class CoopTradeApply {
 
@@ -32,76 +34,18 @@ public final class CoopTradeApply {
     }
 
     /**
-     * {@code a} gives {@code aOffer} to {@code b}; {@code b} gives {@code bOffer} to {@code a}.
-     * Either both bags change or neither does.
+     * Remove {@code ownOffer} from {@code bag}. On failure restores {@code snap}
+     * when provided. Does not grant anything.
      */
-    public static Result applyAtomic(final CoopTradeBag a, final CoopTradeOffer aOffer,
-                                     final CoopTradeBag b, final CoopTradeOffer bOffer) {
-        if (a == null || b == null) {
-            return Result.fail("null bag");
-        }
-        final CoopTradeOffer left = aOffer != null ? aOffer : CoopTradeOffer.empty();
-        final CoopTradeOffer right = bOffer != null ? bOffer : CoopTradeOffer.empty();
-
-        final CoopTradeValidator.Result va = CoopTradeValidator.validate(left, a);
-        if (!va.ok()) {
-            return Result.fail("a:" + va.reason + ":" + va.detail);
-        }
-        final CoopTradeValidator.Result vb = CoopTradeValidator.validate(right, b);
-        if (!vb.ok()) {
-            return Result.fail("b:" + vb.reason + ":" + vb.detail);
-        }
-
-        final CoopTradeBag.Snapshot snapA = a.snapshot();
-        final CoopTradeBag.Snapshot snapB = b.snapshot();
-        try {
-            if (!removeOffer(a, left)) {
-                a.restore(snapA);
-                b.restore(snapB);
-                return Result.fail("remove a");
-            }
-            if (!removeOffer(b, right)) {
-                a.restore(snapA);
-                b.restore(snapB);
-                return Result.fail("remove b");
-            }
-            if (!grantOffer(b, left)) {
-                a.restore(snapA);
-                b.restore(snapB);
-                return Result.fail("grant b");
-            }
-            if (!grantOffer(a, right)) {
-                a.restore(snapA);
-                b.restore(snapB);
-                return Result.fail("grant a");
-            }
-            return Result.ok();
-        } catch (final RuntimeException ex) {
-            a.restore(snapA);
-            b.restore(snapB);
-            return Result.fail("exception:" + ex.getMessage());
-        }
-    }
-
-    /**
-     * Apply one side's give/receive against a single bag (guest or host local apply).
-     * On mid-apply failure the optional {@code snap} restores the bag; post-ack
-     * rollback uses {@link #reverseLocal} (line-only) instead of a full snapshot.
-     */
-    public static Result applyLocal(final CoopTradeBag bag, final CoopTradeOffer give,
-                                    final CoopTradeOffer receive, final CoopTradeBag.Snapshot snap) {
+    public static Result escrow(final CoopTradeBag bag, final CoopTradeOffer ownOffer,
+                                final CoopTradeBag.Snapshot snap) {
         if (bag == null) {
             return Result.fail("null bag");
         }
-        final CoopTradeOffer out = give != null ? give : CoopTradeOffer.empty();
-        final CoopTradeOffer in = receive != null ? receive : CoopTradeOffer.empty();
+        final CoopTradeOffer out = ownOffer != null ? ownOffer : CoopTradeOffer.empty();
         final CoopTradeValidator.Result check = CoopTradeValidator.validate(out, bag);
         if (!check.ok()) {
             return Result.fail(check.reason + ":" + check.detail);
-        }
-        final CoopTradeValidator.Result recvGold = CoopTradeValidator.validateReceiverGold(in, bag);
-        if (!recvGold.ok()) {
-            return Result.fail(recvGold.reason + ":" + recvGold.detail);
         }
         try {
             if (!removeOffer(bag, out)) {
@@ -110,12 +54,47 @@ public final class CoopTradeApply {
                 }
                 return Result.fail("remove");
             }
+            return Result.ok();
+        } catch (final RuntimeException ex) {
+            if (snap != null) {
+                bag.restore(snap);
+            }
+            return Result.fail("exception:" + ex.getMessage());
+        }
+    }
+
+    /**
+     * Idempotent escrow keyed by trade id. If the log already shows ESCROWED
+     * (or later, non-refunded), returns ok without mutating.
+     */
+    public static Result escrowIdempotent(final long tradeId, final CoopTradeLog log,
+                                          final CoopTradeBag bag, final CoopTradeOffer ownOffer,
+                                          final CoopTradeBag.Snapshot snap) {
+        if (log != null && log.hasEscrowed(tradeId)) {
+            return Result.ok();
+        }
+        return escrow(bag, ownOffer, snap);
+    }
+
+    /**
+     * Grant {@code peerOffer} into {@code bag}. Receiver-side gold overflow is
+     * refused; items/materials may route to Overflow. Never reverses a prior
+     * deliver — callers must check the log first.
+     */
+    public static Result deliver(final CoopTradeBag bag, final CoopTradeOffer peerOffer,
+                                 final CoopTradeBag.Snapshot snap) {
+        if (bag == null) {
+            return Result.fail("null bag");
+        }
+        final CoopTradeOffer in = peerOffer != null ? peerOffer : CoopTradeOffer.empty();
+        final CoopTradeValidator.Result recvGold = CoopTradeValidator.validateReceiverGold(in, bag);
+        if (!recvGold.ok()) {
+            return Result.fail(recvGold.reason + ":" + recvGold.detail);
+        }
+        try {
             if (!grantOffer(bag, in)) {
                 if (snap != null) {
                     bag.restore(snap);
-                } else {
-                    // Best-effort undo of the remove when no snap.
-                    grantOffer(bag, out);
                 }
                 return Result.fail("grant");
             }
@@ -129,38 +108,29 @@ public final class CoopTradeApply {
     }
 
     /**
-     * Idempotent local apply keyed by trade id. If {@code log} already records a
-     * local apply for {@code role}, returns ok without mutating the bag.
+     * Idempotent deliver. If the log already shows DELIVERED, returns ok.
      */
-    public static Result applyLocalIdempotent(final long tradeId, final CoopTradeRole role,
-                                              final CoopTradeLog log, final CoopTradeBag bag,
-                                              final CoopTradeOffer give, final CoopTradeOffer receive,
-                                              final CoopTradeBag.Snapshot snap) {
-        if (log != null && log.hasLocalApply(tradeId, role)) {
+    public static Result deliverIdempotent(final long tradeId, final CoopTradeLog log,
+                                           final CoopTradeBag bag, final CoopTradeOffer peerOffer,
+                                           final CoopTradeBag.Snapshot snap) {
+        if (log != null && log.hasDelivered(tradeId)) {
             return Result.ok();
         }
-        return applyLocal(bag, give, receive, snap);
+        return deliver(bag, peerOffer, snap);
     }
 
     /**
-     * Line-only undo of {@link #applyLocal}: take back what was received and
-     * return what was given. Unrelated bag changes since the apply survive.
+     * Refund this side's own escrowed goods back into the bag. Only used when
+     * reconcile shows the peer never escrowed. Does not touch received goods.
      */
-    public static Result reverseLocal(final CoopTradeBag bag, final CoopTradeOffer give,
-                                      final CoopTradeOffer receive) {
+    public static Result refundEscrow(final CoopTradeBag bag, final CoopTradeOffer ownOffer) {
         if (bag == null) {
             return Result.fail("null bag");
         }
-        final CoopTradeOffer out = give != null ? give : CoopTradeOffer.empty();
-        final CoopTradeOffer in = receive != null ? receive : CoopTradeOffer.empty();
+        final CoopTradeOffer out = ownOffer != null ? ownOffer : CoopTradeOffer.empty();
         try {
-            if (!removeOffer(bag, in)) {
-                return Result.fail("reverse remove received");
-            }
             if (!grantOffer(bag, out)) {
-                // Re-grant what we just took so we don't strand the bag.
-                grantOffer(bag, in);
-                return Result.fail("reverse grant given");
+                return Result.fail("refund grant");
             }
             return Result.ok();
         } catch (final RuntimeException ex) {

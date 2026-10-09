@@ -12,13 +12,15 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 
 /**
  * Guest (and host) character files — the player's {@link AdventurePlayer} kept
- * separately from the host's world save. CO1: guest brings their character and
- * saves it locally when the session ends.
+ * separately from the host's world save. Saves use a temp file plus atomic move
+ * so the bag and TR1 trade log commit together or not at all.
  */
 public final class CoopCharacterStore {
     private CoopCharacterStore() {
@@ -42,15 +44,29 @@ public final class CoopCharacterStore {
             return;
         }
         final File file = characterFile(player.getName());
+        final File parent = file.getParentFile();
+        if (parent != null) {
+            //noinspection ResultOfMethodCallIgnored
+            parent.mkdirs();
+        }
         final SaveFileData data = player.save();
-        try (FileOutputStream fos = new FileOutputStream(file);
+        final File tmp = new File(file.getPath() + ".tmp");
+        try (FileOutputStream fos = new FileOutputStream(tmp);
              DeflaterOutputStream def = new DeflaterOutputStream(fos);
              ObjectOutputStream oos = new ObjectOutputStream(def)) {
             oos.writeObject(data);
+            oos.flush();
+        }
+        try {
+            Files.move(tmp.toPath(), file.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (final java.nio.file.AtomicMoveNotSupportedException ex) {
+            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
-    public static boolean loadPlayer(final AdventurePlayer target, final String characterName) throws IOException, ClassNotFoundException {
+    public static boolean loadPlayer(final AdventurePlayer target, final String characterName)
+            throws IOException, ClassNotFoundException {
         final File file = characterFile(characterName);
         if (!file.exists()) {
             return false;

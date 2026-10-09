@@ -19,10 +19,8 @@ public final class CoopTradeWireLimits {
     public static final int DEFAULT_MAX_PER_WINDOW = 8;
     public static final long DEFAULT_WINDOW_MS = 1000L;
     /**
-     * Guest-side timeout after applying Execute while waiting for the host
-     * complete {@code CoopTradeAckEvent}. On expiry the guest rolls back so a
-     * lost ack never leaves a one-sided swap. Tunable via ConfigData
-     * {@code coopTradeAckTimeoutSeconds}.
+     * Legacy ConfigData key {@code coopTradeAckTimeoutSeconds} retained for
+     * save compatibility; escrow reconcile no longer uses a guest ack timeout.
      */
     public static final int DEFAULT_ACK_TIMEOUT_SECONDS = 15;
 

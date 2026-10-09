@@ -23,13 +23,14 @@ import forge.gamemodes.net.event.coop.CoopPartyInviteEvent;
 import forge.gamemodes.net.event.coop.CoopPartyResponseEvent;
 import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
-import forge.gamemodes.net.event.coop.CoopTradeAckEvent;
 import forge.gamemodes.net.event.coop.CoopTradeCancelEvent;
 import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
-import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
+import forge.gamemodes.net.event.coop.CoopTradeDeliveredEvent;
+import forge.gamemodes.net.event.coop.CoopTradeEscrowedEvent;
 import forge.gamemodes.net.event.coop.CoopTradeInviteEvent;
 import forge.gamemodes.net.event.coop.CoopTradeOfferEvent;
 import forge.gamemodes.net.event.coop.CoopTradeReconcileEvent;
+import forge.gamemodes.net.event.coop.CoopTradeRequestEvent;
 import forge.gamemodes.net.event.coop.CoopTradeResponseEvent;
 
 /**
@@ -99,6 +100,9 @@ public final class CoopHooks {
 
         // ---- TR1 player trading ----
 
+        default void onTradeRequest(CoopTradeRequestEvent event) {
+        }
+
         default void onTradeInvite(CoopTradeInviteEvent event) {
         }
 
@@ -114,10 +118,10 @@ public final class CoopHooks {
         default void onTradeCancel(CoopTradeCancelEvent event) {
         }
 
-        default void onTradeExecute(CoopTradeExecuteEvent event) {
+        default void onTradeEscrowed(CoopTradeEscrowedEvent event) {
         }
 
-        default void onTradeAck(CoopTradeAckEvent event) {
+        default void onTradeDelivered(CoopTradeDeliveredEvent event) {
         }
 
         default void onTradeReconcile(CoopTradeReconcileEvent event) {

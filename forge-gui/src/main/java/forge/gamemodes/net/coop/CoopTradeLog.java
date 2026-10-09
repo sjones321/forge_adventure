@@ -1,39 +1,24 @@
 package forge.gamemodes.net.coop;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 
 /**
- * Persisted TR1 trade log keyed by trade id. Powers idempotent apply, reconnect
- * reconcile, and forward replay. Phases advance toward {@link Phase#COMPLETED}
- * or {@link Phase#ABORTED}. Full offers are stored so a mid-commit trade can be
- * replayed forward.
- *
- * <p>File format (UTF-8, no BOM):
- * <pre>
- * #slot=&lt;slotKey&gt;
- * tradeId|PHASE|updatedMs|hostOfferEnc|guestOfferEnc
- * </pre>
- * Loading a log whose {@code #slot=} does not match the bound slot key refuses
- * the file (empty log) so one character cannot replay another's commits.
+ * In-character TR1 trade log keyed by trade id. Forward-only escrow phases:
+ * {@link Phase#ESCROWED} → {@link Phase#DELIVERED} (or {@link Phase#REFUNDED}
+ * when reconcile shows the peer never escrowed). Persisted inside the character
+ * save blob — never a sidecar file.
  */
 public final class CoopTradeLog {
 
     public enum Phase {
         NONE,
-        EXECUTED,
-        GUEST_APPLIED,
-        HOST_COMMITTED,
-        COMPLETED,
-        ABORTED
+        ESCROWED,
+        DELIVERED,
+        REFUNDED,
+        COMPLETED
     }
 
     public static final class Entry {
@@ -57,27 +42,33 @@ public final class CoopTradeLog {
         }
 
         public boolean isAtLeast(final Phase other) {
-            if (phase == Phase.ABORTED) {
-                return other == Phase.ABORTED || other == Phase.NONE;
+            if (phase == Phase.REFUNDED) {
+                return other == Phase.REFUNDED || other == Phase.NONE;
             }
-            if (other == Phase.ABORTED) {
-                return phase == Phase.ABORTED;
+            if (other == Phase.REFUNDED) {
+                return phase == Phase.REFUNDED;
             }
-            return commitRank(phase) >= commitRank(other);
+            return rank(phase) >= rank(other);
         }
     }
 
     public enum ReconcileAction {
         NONE,
-        RESEND_GUEST_ACK,
-        RESEND_HOST_COMPLETE,
-        ROLLBACK_GUEST,
-        COMPLETE_GUEST,
-        APPLY_HOST,
-        ABORT
+        /** Peer escrowed (or delivered) — grant peer offer if we escrowed. */
+        DELIVER,
+        /** Peer never escrowed — refund our own escrow only. */
+        REFUND,
+        /** Peer needs our escrowed(id) again. */
+        RESEND_ESCROWED,
+        /** Peer needs our delivered(id) again. */
+        RESEND_DELIVERED,
+        /** Mark local trade complete. */
+        COMPLETE,
+        /** Hostile / unknown id / unreached step — ignore. */
+        IGNORE_HOSTILE
     }
 
-    /** Notified after a phase advance is flushed (for character save). */
+    /** Notified after a phase advance (triggers atomic character save). */
     public interface Listener {
         void onPhaseRecorded(Entry entry);
     }
@@ -86,41 +77,20 @@ public final class CoopTradeLog {
 
     private final Object lock = new Object();
     private final LinkedHashMap<Long, Entry> entries = new LinkedHashMap<>();
-    private Path persistPath;
-    private String slotKey = "";
     private Listener listener;
 
     public CoopTradeLog() {
     }
 
-    public void setPersistPath(final Path path) {
-        synchronized (lock) {
-            persistPath = path;
-        }
-    }
-
-    public Path getPersistPath() {
-        synchronized (lock) {
-            return persistPath;
-        }
-    }
-
-    /** Bind this log to a save/character slot. Load refuses a mismatched file. */
-    public void bindSlot(final String key) {
-        synchronized (lock) {
-            slotKey = sanitizeSlot(key);
-        }
-    }
-
-    public String getSlotKey() {
-        synchronized (lock) {
-            return slotKey;
-        }
-    }
-
     public void setListener(final Listener listener) {
         synchronized (lock) {
             this.listener = listener;
+        }
+    }
+
+    public boolean contains(final long tradeId) {
+        synchronized (lock) {
+            return tradeId != 0L && entries.containsKey(tradeId);
         }
     }
 
@@ -137,20 +107,13 @@ public final class CoopTradeLog {
         }
     }
 
-    public boolean hasLocalApply(final long tradeId, final CoopTradeRole role) {
-        synchronized (lock) {
-            final Entry e = entries.get(tradeId);
-            if (e == null || e.phase == Phase.ABORTED) {
-                return false;
-            }
-            if (e.phase == Phase.COMPLETED) {
-                return true;
-            }
-            if (role == CoopTradeRole.GUEST) {
-                return commitRank(e.phase) >= commitRank(Phase.GUEST_APPLIED);
-            }
-            return commitRank(e.phase) >= commitRank(Phase.HOST_COMMITTED);
-        }
+    public boolean hasEscrowed(final long tradeId) {
+        return isAtLeast(tradeId, Phase.ESCROWED)
+                && !isAtLeast(tradeId, Phase.REFUNDED);
+    }
+
+    public boolean hasDelivered(final long tradeId) {
+        return isAtLeast(tradeId, Phase.DELIVERED);
     }
 
     public boolean record(final long tradeId, final Phase phase, final long nowMs) {
@@ -159,7 +122,7 @@ public final class CoopTradeLog {
 
     /**
      * Record phase; when offers are null, retain any previously stored offers
-     * for this trade id (so later phases keep replay data).
+     * for this trade id.
      */
     public boolean record(final long tradeId, final Phase phase, final long nowMs,
                           final CoopTradeOffer hostOffer, final CoopTradeOffer guestOffer) {
@@ -170,16 +133,19 @@ public final class CoopTradeLog {
         synchronized (lock) {
             final Entry cur = entries.get(tradeId);
             if (cur != null) {
-                if (cur.phase == Phase.COMPLETED || cur.phase == Phase.ABORTED) {
+                if (cur.phase == Phase.COMPLETED || cur.phase == Phase.REFUNDED) {
                     return false;
                 }
-                if (phase == Phase.ABORTED) {
-                    if (commitRank(cur.phase) >= commitRank(Phase.HOST_COMMITTED)) {
+                if (phase == Phase.REFUNDED) {
+                    // Refund only from ESCROWED (never after DELIVERED).
+                    if (cur.phase != Phase.ESCROWED) {
                         return false;
                     }
-                } else if (commitRank(phase) <= commitRank(cur.phase)) {
+                } else if (rank(phase) <= rank(cur.phase)) {
                     return false;
                 }
+            } else if (phase == Phase.REFUNDED) {
+                return false;
             }
             final CoopTradeOffer h = hostOffer != null ? hostOffer
                     : (cur != null ? cur.hostOffer : CoopTradeOffer.empty());
@@ -188,7 +154,6 @@ public final class CoopTradeLog {
             recorded = new Entry(tradeId, phase, nowMs, h, g);
             entries.put(tradeId, recorded);
             trimUnlocked();
-            flushUnlocked();
         }
         final Listener l = listener;
         if (l != null) {
@@ -204,7 +169,7 @@ public final class CoopTradeLog {
         synchronized (lock) {
             final List<Entry> out = new ArrayList<>();
             for (final Entry e : entries.values()) {
-                if (e.phase != Phase.COMPLETED && e.phase != Phase.ABORTED && e.phase != Phase.NONE) {
+                if (e.phase == Phase.ESCROWED) {
                     out.add(e);
                 }
             }
@@ -221,97 +186,105 @@ public final class CoopTradeLog {
     public void clear() {
         synchronized (lock) {
             entries.clear();
-            flushUnlocked();
         }
     }
 
-    public void load() {
+    /** Replace all entries (used when loading from character save). */
+    public void replaceAll(final List<Entry> loaded) {
         synchronized (lock) {
             entries.clear();
-            if (persistPath == null || !Files.isRegularFile(persistPath)) {
-                return;
-            }
-            try (BufferedReader reader = Files.newBufferedReader(persistPath, StandardCharsets.UTF_8)) {
-                String line = reader.readLine();
-                if (line == null) {
-                    return;
-                }
-                String fileSlot = "";
-                if (line.startsWith("#slot=")) {
-                    fileSlot = sanitizeSlot(line.substring(6));
-                    if (!slotKey.isEmpty() && !slotKey.equals(fileSlot)) {
-                        // Wrong character / save slot — refuse replay.
-                        entries.clear();
-                        return;
-                    }
-                    line = reader.readLine();
-                } else if (!slotKey.isEmpty()) {
-                    // Legacy file without slot header while we have a binding — refuse.
-                    entries.clear();
-                    return;
-                }
-                while (line != null) {
-                    final Entry e = parseLine(line);
-                    if (e != null) {
+            if (loaded != null) {
+                for (final Entry e : loaded) {
+                    if (e != null && e.tradeId != 0L && e.phase != Phase.NONE) {
                         entries.put(e.tradeId, e);
                     }
-                    line = reader.readLine();
                 }
-                trimUnlocked();
-            } catch (final IOException ignored) {
-                entries.clear();
+            }
+            trimUnlocked();
+        }
+    }
+
+    /**
+     * Encode the full log as a single string for {@code AdventurePlayer} save.
+     * Format: {@code tradeId|PHASE|ms|hostEnc|guestEnc} lines joined by {@code \n}.
+     */
+    public String encode() {
+        synchronized (lock) {
+            final StringBuilder sb = new StringBuilder();
+            for (final Entry e : entries.values()) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(e.tradeId).append('|').append(e.phase.name()).append('|')
+                        .append(e.updatedMs).append('|')
+                        .append(encodeOffer(e.hostOffer)).append('|')
+                        .append(encodeOffer(e.guestOffer));
+            }
+            return sb.toString();
+        }
+    }
+
+    /** Load from a character-save blob previously produced by {@link #encode()}. */
+    public void decode(final String blob) {
+        final List<Entry> loaded = new ArrayList<>();
+        if (blob != null && !blob.isEmpty()) {
+            for (final String line : blob.split("\n", -1)) {
+                final Entry e = parseLine(line);
+                if (e != null) {
+                    loaded.add(e);
+                }
             }
         }
+        replaceAll(loaded);
     }
 
     public static ReconcileAction reconcile(final Entry local, final Entry peer) {
         final Phase lp = local != null ? local.phase : Phase.NONE;
         final Phase pp = peer != null ? peer.phase : Phase.NONE;
-        if (lp == Phase.COMPLETED || pp == Phase.COMPLETED) {
-            if (lp == Phase.GUEST_APPLIED || lp == Phase.EXECUTED || lp == Phase.NONE) {
-                return ReconcileAction.COMPLETE_GUEST;
+
+        // Hostile: peer claims DELIVERED/COMPLETED without us ever escrowing,
+        // or for a trade we refunded — ignore (do not grant).
+        if ((pp == Phase.DELIVERED || pp == Phase.COMPLETED)
+                && (lp == Phase.NONE || lp == Phase.REFUNDED)) {
+            return ReconcileAction.IGNORE_HOSTILE;
+        }
+        if (pp == Phase.ESCROWED && lp == Phase.NONE) {
+            // Peer escrowed but we have no record — we never confirmed/escrowed.
+            return ReconcileAction.IGNORE_HOSTILE;
+        }
+
+        if (lp == Phase.COMPLETED || lp == Phase.DELIVERED) {
+            if (pp == Phase.ESCROWED || pp == Phase.NONE) {
+                return ReconcileAction.RESEND_DELIVERED;
             }
-            if (lp == Phase.HOST_COMMITTED) {
-                return ReconcileAction.RESEND_HOST_COMPLETE;
-            }
+            return ReconcileAction.COMPLETE;
+        }
+
+        if (lp == Phase.REFUNDED) {
             return ReconcileAction.NONE;
         }
-        if (pp == Phase.HOST_COMMITTED || pp == Phase.COMPLETED) {
-            if (lp == Phase.GUEST_APPLIED || lp == Phase.EXECUTED) {
-                return ReconcileAction.COMPLETE_GUEST;
+
+        if (lp == Phase.ESCROWED) {
+            if (pp == Phase.ESCROWED || pp == Phase.DELIVERED || pp == Phase.COMPLETED) {
+                return ReconcileAction.DELIVER;
             }
-            if (lp == Phase.NONE || lp == Phase.ABORTED) {
-                return ReconcileAction.APPLY_HOST;
-            }
-            if (lp == Phase.HOST_COMMITTED) {
-                return ReconcileAction.RESEND_HOST_COMPLETE;
+            if (pp == Phase.NONE || pp == Phase.REFUNDED) {
+                // Peer never escrowed (or already refunded) — refund our escrow.
+                return ReconcileAction.REFUND;
             }
         }
-        if (lp == Phase.HOST_COMMITTED) {
-            return ReconcileAction.RESEND_HOST_COMPLETE;
-        }
-        if (lp == Phase.GUEST_APPLIED && (pp == Phase.NONE || pp == Phase.EXECUTED || pp == Phase.ABORTED)) {
-            if (pp == Phase.ABORTED) {
-                return ReconcileAction.ROLLBACK_GUEST;
+
+        if (lp == Phase.NONE) {
+            if (pp == Phase.NONE || pp == Phase.REFUNDED) {
+                return ReconcileAction.NONE;
             }
-            return ReconcileAction.RESEND_GUEST_ACK;
+            return ReconcileAction.IGNORE_HOSTILE;
         }
-        if (lp == Phase.GUEST_APPLIED && pp == Phase.GUEST_APPLIED) {
-            return ReconcileAction.RESEND_GUEST_ACK;
-        }
-        if ((lp == Phase.EXECUTED || lp == Phase.NONE) && pp == Phase.GUEST_APPLIED) {
-            return ReconcileAction.APPLY_HOST;
-        }
-        if (lp == Phase.ABORTED || pp == Phase.ABORTED) {
-            if (lp == Phase.GUEST_APPLIED) {
-                return ReconcileAction.ROLLBACK_GUEST;
-            }
-            return ReconcileAction.ABORT;
-        }
+
         return ReconcileAction.NONE;
     }
 
-    /** Compact offer encoding for the tradelog (no new deps). */
+    /** Compact offer encoding for the trade log (no new deps). */
     public static String encodeOffer(final CoopTradeOffer offer) {
         final CoopTradeOffer o = offer != null ? offer : CoopTradeOffer.empty();
         final StringBuilder sb = new StringBuilder();
@@ -444,33 +417,12 @@ public final class CoopTradeLog {
         while (entries.size() > MAX_ENTRIES) {
             final Long oldest = entries.keySet().iterator().next();
             final Entry e = entries.get(oldest);
-            if (e != null && (e.phase == Phase.COMPLETED || e.phase == Phase.ABORTED)) {
+            if (e != null && (e.phase == Phase.COMPLETED || e.phase == Phase.REFUNDED
+                    || e.phase == Phase.DELIVERED)) {
                 entries.remove(oldest);
             } else {
                 break;
             }
-        }
-    }
-
-    private void flushUnlocked() {
-        if (persistPath == null) {
-            return;
-        }
-        try {
-            final Path parent = persistPath.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            try (BufferedWriter writer = Files.newBufferedWriter(persistPath, StandardCharsets.UTF_8)) {
-                writer.write("#slot=" + slotKey);
-                writer.newLine();
-                for (final Entry e : entries.values()) {
-                    writer.write(e.tradeId + "|" + e.phase.name() + "|" + e.updatedMs
-                            + "|" + encodeOffer(e.hostOffer) + "|" + encodeOffer(e.guestOffer));
-                    writer.newLine();
-                }
-            }
-        } catch (final IOException ignored) {
         }
     }
 
@@ -497,24 +449,16 @@ public final class CoopTradeLog {
         }
     }
 
-    private static String sanitizeSlot(final String key) {
-        if (key == null || key.isEmpty()) {
-            return "";
-        }
-        return key.replaceAll("[^a-zA-Z0-9._@-]", "_");
-    }
-
-    private static int commitRank(final Phase phase) {
+    private static int rank(final Phase phase) {
         if (phase == null) {
             return 0;
         }
         switch (phase) {
             case NONE: return 0;
-            case EXECUTED: return 1;
-            case GUEST_APPLIED: return 2;
-            case HOST_COMMITTED: return 3;
-            case COMPLETED: return 4;
-            case ABORTED: return -1;
+            case ESCROWED: return 1;
+            case DELIVERED: return 2;
+            case COMPLETED: return 3;
+            case REFUNDED: return -1;
             default: return 0;
         }
     }

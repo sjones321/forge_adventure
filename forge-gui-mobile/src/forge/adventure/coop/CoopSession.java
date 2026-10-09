@@ -46,13 +46,14 @@ import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
 import forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent;
 import forge.gamemodes.net.event.coop.CoopSessionReadyEvent;
-import forge.gamemodes.net.event.coop.CoopTradeAckEvent;
 import forge.gamemodes.net.event.coop.CoopTradeCancelEvent;
 import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
-import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
+import forge.gamemodes.net.event.coop.CoopTradeDeliveredEvent;
+import forge.gamemodes.net.event.coop.CoopTradeEscrowedEvent;
 import forge.gamemodes.net.event.coop.CoopTradeInviteEvent;
 import forge.gamemodes.net.event.coop.CoopTradeOfferEvent;
 import forge.gamemodes.net.event.coop.CoopTradeReconcileEvent;
+import forge.gamemodes.net.event.coop.CoopTradeRequestEvent;
 import forge.gamemodes.net.event.coop.CoopTradeResponseEvent;
 import forge.gamemodes.net.event.coop.CoopWorldOfferEvent;
 import forge.screens.TransitionScreen;
@@ -770,6 +771,11 @@ public final class CoopSession {
                 l.onDuelResult((CoopDuelResultEvent) event);
                 l.onDuelMessage(event);
             }
+        } else if (event instanceof CoopTradeRequestEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onTradeRequest((CoopTradeRequestEvent) event);
+                l.onOverworldMessage(event);
+            }
         } else if (event instanceof CoopTradeInviteEvent) {
             for (final CoopHooks.OverworldListener l : overworldListeners) {
                 l.onTradeInvite((CoopTradeInviteEvent) event);
@@ -795,14 +801,14 @@ public final class CoopSession {
                 l.onTradeCancel((CoopTradeCancelEvent) event);
                 l.onOverworldMessage(event);
             }
-        } else if (event instanceof CoopTradeExecuteEvent) {
+        } else if (event instanceof CoopTradeEscrowedEvent) {
             for (final CoopHooks.OverworldListener l : overworldListeners) {
-                l.onTradeExecute((CoopTradeExecuteEvent) event);
+                l.onTradeEscrowed((CoopTradeEscrowedEvent) event);
                 l.onOverworldMessage(event);
             }
-        } else if (event instanceof CoopTradeAckEvent) {
+        } else if (event instanceof CoopTradeDeliveredEvent) {
             for (final CoopHooks.OverworldListener l : overworldListeners) {
-                l.onTradeAck((CoopTradeAckEvent) event);
+                l.onTradeDelivered((CoopTradeDeliveredEvent) event);
                 l.onOverworldMessage(event);
             }
         } else if (event instanceof CoopTradeReconcileEvent) {

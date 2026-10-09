@@ -5,8 +5,8 @@ import forge.gamemodes.net.coop.CoopTradeRole;
 import forge.gamemodes.net.event.NetEvent;
 
 /**
- * TR1 reconnect reconcile: advertise this side's log phase for a trade id so a
- * mid-commit trade ends consistent on both sides. Plain-data only.
+ * TR1 reconnect reconcile: advertise this side's log phase for a matching trade
+ * id so an in-flight escrow ends consistently. Plain-data only.
  */
 public class CoopTradeReconcileEvent implements NetEvent {
     private static final long serialVersionUID = 1L;

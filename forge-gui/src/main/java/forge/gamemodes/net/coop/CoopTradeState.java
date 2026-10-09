@@ -1,12 +1,11 @@
 package forge.gamemodes.net.coop;
 
-import forge.gamemodes.net.event.coop.CoopTradeAckEvent;
 import forge.gamemodes.net.event.coop.CoopTradeCancelEvent;
 import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
-import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
 import forge.gamemodes.net.event.coop.CoopTradeInviteEvent;
 import forge.gamemodes.net.event.coop.CoopTradeOfferEvent;
 import forge.gamemodes.net.event.coop.CoopTradeReconcileEvent;
+import forge.gamemodes.net.event.coop.CoopTradeRequestEvent;
 import forge.gamemodes.net.event.coop.CoopTradeResponseEvent;
 
 import java.util.ArrayList;
@@ -14,45 +13,45 @@ import java.util.List;
 import java.util.function.Function;
 
 /**
- * Headless TR1 trade state machine (locked for Netty + GL thread safety).
+ * Headless TR1 trade state machine — forward-only escrow.
  *
- * <h2>Two-phase commit (review r4)</h2>
+ * <p>All mutations are intended to run on the GL thread. Netty handlers only
+ * {@code postRunnable}; there is no Netty-vs-GL shared mutable apply path.
+ *
  * <ol>
- *   <li>Host assigns a globally unique {@link CoopTradeIds} trade id at invite.</li>
- *   <li>Offer versions come from the <b>wire</b>, not local counters.</li>
- *   <li>Both sides confirm matching mine+theirs versions → host emits Execute
- *       and enters {@link Status#WAITING_GUEST_ACK} without mutating its bag.</li>
- *   <li>Guest <b>claims</b> under the lock ({@link Status#GUEST_APPLYING}) before
- *       queuing the GL apply. Cancel is refused after Execute.</li>
- *   <li>Guest applies (idempotent), acks, enters {@link Status#GUEST_APPLIED}.
- *       After ack the guest must <b>never</b> roll back on disconnect/cancel/
- *       teardown — only an explicit host abort or reconcile {@code ABORTED}.</li>
- *   <li>Host {@link #beginHostApply(long)} claims {@link Status#HOST_APPLYING};
- *       {@link #abortHostApply} releases that claim. Commit → COMPLETED.</li>
+ *   <li>Guest requests; host mints a {@link CoopTradeIds} id (reject if known).</li>
+ *   <li>Both confirm matching wire offer versions → each side escrows <b>only
+ *       its own</b> offer, writes {@code ESCROWED}, saves, sends escrowed(id).</li>
+ *   <li>On peer escrowed(id): grant peer offer, write {@code DELIVERED}, save,
+ *       send delivered(id). Never reverse received goods.</li>
+ *   <li>Reconcile on reconnect for the matching id only. Refund own escrow
+ *       solely when the peer never escrowed. No abandon after escrow.</li>
  * </ol>
- *
- * <p>Rollback reverses only the trade's own lines ({@link CoopTradeApply#reverseLocal}).
  */
 public final class CoopTradeState {
     public enum Status {
         IDLE,
+        REQUEST_SENT,
         INVITE_SENT,
         INVITE_RECEIVED,
         OPEN,
-        WAITING_GUEST_ACK,
-        /** Guest claimed under lock; GL apply not finished. */
-        GUEST_APPLYING,
-        GUEST_APPLIED,
-        HOST_APPLYING,
+        /** Local goods removed; waiting for peer escrowed (or deliver ready). */
+        ESCROWED,
+        /** Local has granted peer offer. */
+        DELIVERED,
+        /** Disconnected mid-flight; pending reconcile — no abandon. */
         NEEDS_RECONCILE,
         COMPLETED,
+        REFUNDED,
         CANCELLED
     }
 
-    public enum TimeoutOutcome {
-        NONE,
-        RECONCILE,
-        ALREADY_COMPLETE
+    /** Result of {@link #acceptConfirm}: relay confirm, begin escrow, or cancel. */
+    public enum ConfirmResult {
+        IGNORED,
+        RELAY,
+        BEGIN_ESCROW,
+        CANCELLED
     }
 
     private final Object lock = new Object();
@@ -69,15 +68,11 @@ public final class CoopTradeState {
     private int guestOfferVersion;
     private boolean hostConfirmed;
     private boolean guestConfirmed;
+    private boolean peerEscrowed;
+    private boolean peerDelivered;
     private String cancelReason = "";
-    private CoopTradeExecuteEvent pendingExecute;
     private long inviteSinceMs;
-    private long guestAppliedSinceMs;
-    /** Give/receive for line-only rollback after guest apply. */
-    private CoopTradeOffer guestGive;
-    private CoopTradeOffer guestReceive;
-    /** Set only by host abort or reconcile ABORTED. */
-    private boolean guestRollbackPermitted;
+    private CoopTradeCancelEvent lastCancel;
 
     private Function<CoopTradeRole, CoopTradeBag> bagLookup = role -> null;
 
@@ -138,26 +133,49 @@ public final class CoopTradeState {
         }
     }
 
-    /** True while cancel is allowed (before Execute). */
+    /**
+     * Cancel / abandon is allowed only before both sides confirm (pre-escrow).
+     * After escrow there is no abandon button — reconnect reconcile only.
+     */
     public boolean isCancelAllowed() {
         synchronized (lock) {
             return status == Status.OPEN || status == Status.INVITE_SENT
-                    || status == Status.INVITE_RECEIVED;
+                    || status == Status.INVITE_RECEIVED || status == Status.REQUEST_SENT;
         }
     }
 
     public boolean isIdle() {
         synchronized (lock) {
-            return status == Status.IDLE || status == Status.COMPLETED || status == Status.CANCELLED;
+            return status == Status.IDLE || status == Status.COMPLETED
+                    || status == Status.CANCELLED || status == Status.REFUNDED;
         }
     }
 
     public boolean isInFlight() {
         synchronized (lock) {
-            return status == Status.WAITING_GUEST_ACK || status == Status.GUEST_APPLYING
-                    || status == Status.GUEST_APPLIED || status == Status.HOST_APPLYING
-                    || status == Status.NEEDS_RECONCILE || status == Status.OPEN
-                    || status == Status.INVITE_SENT || status == Status.INVITE_RECEIVED;
+            return status == Status.OPEN || status == Status.ESCROWED
+                    || status == Status.DELIVERED || status == Status.NEEDS_RECONCILE
+                    || status == Status.INVITE_SENT || status == Status.INVITE_RECEIVED
+                    || status == Status.REQUEST_SENT;
+        }
+    }
+
+    public boolean isPendingReconcile() {
+        synchronized (lock) {
+            return status == Status.NEEDS_RECONCILE
+                    || (status == Status.ESCROWED && !peerDelivered);
+        }
+    }
+
+    public boolean isPeerEscrowed() {
+        synchronized (lock) {
+            return peerEscrowed;
+        }
+    }
+
+    public boolean isPeerDelivered() {
+        synchronized (lock) {
+            return peerDelivered;
         }
     }
 
@@ -227,38 +245,19 @@ public final class CoopTradeState {
         }
     }
 
-    public CoopTradeExecuteEvent getPendingExecute() {
+    public CoopTradeCancelEvent getLastCancel() {
         synchronized (lock) {
-            return pendingExecute;
+            return lastCancel;
         }
     }
 
-    public boolean isGuestRollbackPermitted() {
+    /** Guest requests a trade; host will mint the id. */
+    public CoopTradeRequestEvent beginRequest(final String fromPlayer, final long nowMs) {
         synchronized (lock) {
-            return guestRollbackPermitted;
-        }
-    }
-
-    public boolean hasGuestRollbackLines() {
-        synchronized (lock) {
-            return guestGive != null && guestReceive != null;
-        }
-    }
-
-    public CoopTradeInviteEvent beginInvite(final String fromPlayer, final int timeoutSeconds,
-                                            final boolean weAreHost, final long nowMs) {
-        synchronized (lock) {
-            if (status == Status.OPEN || status == Status.INVITE_SENT
-                    || status == Status.WAITING_GUEST_ACK || status == Status.GUEST_APPLYING
-                    || status == Status.GUEST_APPLIED || status == Status.HOST_APPLYING
-                    || status == Status.NEEDS_RECONCILE) {
+            if (!isIdleUnlocked()) {
                 return null;
             }
             if (!rateLimiter.tryAcquire(nowMs)) {
-                return null;
-            }
-            if (fromPlayer == null || fromPlayer.isEmpty()
-                    || fromPlayer.length() > CoopTradeWireLimits.MAX_NAME_LEN) {
                 return null;
             }
             final String from = CoopTradeWireLimits.clampName(fromPlayer);
@@ -266,41 +265,142 @@ public final class CoopTradeState {
                 return null;
             }
             resetOffersUnlocked();
+            status = Status.REQUEST_SENT;
+            localRole = CoopTradeRole.GUEST;
+            tradeId = 0L;
+            inviteId = 0L;
+            cancelReason = "";
+            peerEscrowed = false;
+            peerDelivered = false;
+            lastCancel = null;
+            inviteSinceMs = nowMs;
+            return new CoopTradeRequestEvent(from);
+        }
+    }
+
+    public CoopTradeRequestEvent beginRequest(final String fromPlayer) {
+        return beginRequest(fromPlayer, System.currentTimeMillis());
+    }
+
+    /**
+     * Host mints a unique SecureRandom trade id and sends an invite.
+     * Rejects ids already present in the local log.
+     */
+    public CoopTradeInviteEvent beginInvite(final String fromPlayer, final int timeoutSeconds,
+                                            final long nowMs) {
+        synchronized (lock) {
+            if (status == Status.OPEN || status == Status.INVITE_SENT
+                    || status == Status.ESCROWED || status == Status.DELIVERED
+                    || status == Status.NEEDS_RECONCILE) {
+                return null;
+            }
+            if (!rateLimiter.tryAcquire(nowMs)) {
+                return null;
+            }
+            final String from = CoopTradeWireLimits.clampName(fromPlayer);
+            if (from.isEmpty()) {
+                return null;
+            }
+            long id = 0L;
+            for (int i = 0; i < 8; i++) {
+                id = CoopTradeIds.next();
+                if (!tradeLog.contains(id)) {
+                    break;
+                }
+                id = 0L;
+            }
+            if (id == 0L) {
+                return null;
+            }
+            resetOffersUnlocked();
             status = Status.INVITE_SENT;
-            // Host-assigned globally unique id (SecureRandom) — never a per-process counter.
-            inviteId = CoopTradeIds.next();
-            tradeId = inviteId;
-            localRole = weAreHost ? CoopTradeRole.HOST : CoopTradeRole.GUEST;
+            inviteId = id;
+            tradeId = id;
+            localRole = CoopTradeRole.HOST;
             inviteSinceMs = nowMs;
             cancelReason = "";
-            pendingExecute = null;
-            clearGuestRollbackUnlocked();
+            peerEscrowed = false;
+            peerDelivered = false;
+            lastCancel = null;
             final int timeout = Math.max(1, Math.min(timeoutSeconds, 120));
             return new CoopTradeInviteEvent(inviteId, from, timeout);
         }
     }
 
-    public CoopTradeInviteEvent beginInvite(final String fromPlayer, final int timeoutSeconds,
-                                            final boolean weAreHost) {
-        return beginInvite(fromPlayer, timeoutSeconds, weAreHost, System.currentTimeMillis());
+    public CoopTradeInviteEvent beginInvite(final String fromPlayer, final int timeoutSeconds) {
+        return beginInvite(fromPlayer, timeoutSeconds, System.currentTimeMillis());
     }
 
-    public CoopTradeInviteEvent beginInvite(final String fromPlayer, final int timeoutSeconds) {
-        return beginInvite(fromPlayer, timeoutSeconds, true);
+    /** Host answers a guest request by minting an invite. */
+    public CoopTradeInviteEvent acceptRequest(final CoopTradeRequestEvent request,
+                                              final String hostName, final int timeoutSeconds,
+                                              final long nowMs) {
+        synchronized (lock) {
+            if (request == null) {
+                return null;
+            }
+            if (status == Status.OPEN || status == Status.INVITE_SENT
+                    || status == Status.ESCROWED || status == Status.DELIVERED
+                    || status == Status.NEEDS_RECONCILE) {
+                return null;
+            }
+            if (!rateLimiter.tryAcquire(nowMs)) {
+                return null;
+            }
+            final String from = request.getFromPlayer();
+            if (from == null || from.isEmpty() || from.length() > CoopTradeWireLimits.MAX_NAME_LEN) {
+                return null;
+            }
+            return beginInviteUnlocked(hostName, timeoutSeconds, nowMs);
+        }
+    }
+
+    private CoopTradeInviteEvent beginInviteUnlocked(final String fromPlayer,
+                                                     final int timeoutSeconds, final long nowMs) {
+        final String from = CoopTradeWireLimits.clampName(fromPlayer);
+        if (from.isEmpty()) {
+            return null;
+        }
+        long id = 0L;
+        for (int i = 0; i < 8; i++) {
+            id = CoopTradeIds.next();
+            if (!tradeLog.contains(id)) {
+                break;
+            }
+            id = 0L;
+        }
+        if (id == 0L) {
+            return null;
+        }
+        resetOffersUnlocked();
+        status = Status.INVITE_SENT;
+        inviteId = id;
+        tradeId = id;
+        localRole = CoopTradeRole.HOST;
+        inviteSinceMs = nowMs;
+        cancelReason = "";
+        peerEscrowed = false;
+        peerDelivered = false;
+        lastCancel = null;
+        final int timeout = Math.max(1, Math.min(timeoutSeconds, 120));
+        return new CoopTradeInviteEvent(inviteId, from, timeout);
     }
 
     public boolean receiveInvite(final CoopTradeInviteEvent invite, final boolean weAreHost,
                                  final long nowMs) {
         synchronized (lock) {
-            if (invite == null || status == Status.OPEN || status == Status.WAITING_GUEST_ACK
-                    || status == Status.GUEST_APPLYING || status == Status.GUEST_APPLIED
-                    || status == Status.HOST_APPLYING || status == Status.NEEDS_RECONCILE) {
+            if (invite == null || invite.getInviteId() == 0L) {
+                return false;
+            }
+            // Reject any id already present in the local log.
+            if (tradeLog.contains(invite.getInviteId())) {
+                return false;
+            }
+            if (status == Status.OPEN || status == Status.ESCROWED
+                    || status == Status.DELIVERED || status == Status.NEEDS_RECONCILE) {
                 return false;
             }
             if (!rateLimiter.tryAcquire(nowMs)) {
-                return false;
-            }
-            if (invite.getInviteId() == 0L) {
                 return false;
             }
             final String from = invite.getFromPlayer();
@@ -314,18 +414,15 @@ public final class CoopTradeState {
             localRole = weAreHost ? CoopTradeRole.HOST : CoopTradeRole.GUEST;
             inviteSinceMs = nowMs;
             cancelReason = "";
-            pendingExecute = null;
-            clearGuestRollbackUnlocked();
+            peerEscrowed = false;
+            peerDelivered = false;
+            lastCancel = null;
             return true;
         }
     }
 
     public boolean receiveInvite(final CoopTradeInviteEvent invite, final boolean weAreHost) {
         return receiveInvite(invite, weAreHost, System.currentTimeMillis());
-    }
-
-    public boolean receiveInvite(final CoopTradeInviteEvent invite) {
-        return receiveInvite(invite, false);
     }
 
     public CoopTradeResponseEvent respondInvite(final boolean accepted) {
@@ -351,16 +448,21 @@ public final class CoopTradeState {
             if (response == null) {
                 return false;
             }
-            if (status != Status.INVITE_SENT && status != Status.INVITE_RECEIVED) {
+            if (status != Status.INVITE_SENT && status != Status.INVITE_RECEIVED
+                    && status != Status.REQUEST_SENT) {
                 return false;
             }
-            if (response.getInviteId() != inviteId) {
+            if (response.getInviteId() != inviteId && inviteId != 0L) {
                 return false;
             }
             if (!response.isAccepted()) {
                 status = Status.CANCELLED;
                 cancelReason = "declined";
                 return true;
+            }
+            if (inviteId == 0L) {
+                inviteId = response.getInviteId();
+                tradeId = inviteId;
             }
             localRole = weAreHost ? CoopTradeRole.HOST : CoopTradeRole.GUEST;
             status = Status.OPEN;
@@ -371,9 +473,8 @@ public final class CoopTradeState {
     }
 
     /**
-     * Accept an offer. Version is taken from the <b>wire</b>
-     * ({@link CoopTradeOfferEvent#getOfferVersion()}); it must be strictly greater
-     * than the current version for that role.
+     * Accept an offer. Version is taken from the <b>wire</b>; it must be
+     * strictly greater than the current version for that role.
      */
     public CoopTradeOfferEvent acceptOffer(final CoopTradeOfferEvent event, final long nowMs) {
         synchronized (lock) {
@@ -414,24 +515,24 @@ public final class CoopTradeState {
         return acceptOffer(event, System.currentTimeMillis());
     }
 
-    public Object acceptConfirm(final CoopTradeConfirmEvent event, final boolean weAreHost,
-                                final long nowMs) {
+    public ConfirmResult acceptConfirm(final CoopTradeConfirmEvent event, final long nowMs) {
         synchronized (lock) {
+            lastCancel = null;
             if (event == null || status != Status.OPEN || event.getTradeId() != tradeId) {
-                return null;
+                return ConfirmResult.IGNORED;
             }
             if (!rateLimiter.tryAcquire(nowMs)) {
-                return null;
+                return ConfirmResult.IGNORED;
             }
             final CoopTradeRole role = event.getFromRole();
             if (role == null) {
-                return null;
+                return ConfirmResult.IGNORED;
             }
             final int myCurrent = role == CoopTradeRole.HOST ? hostOfferVersion : guestOfferVersion;
             final int theirCurrent = role == CoopTradeRole.HOST ? guestOfferVersion : hostOfferVersion;
             if (event.getMyOfferVersion() != myCurrent
                     || event.getTheirOfferVersion() != theirCurrent) {
-                return null;
+                return ConfirmResult.IGNORED;
             }
             if (role == CoopTradeRole.HOST) {
                 hostConfirmed = event.isConfirmed();
@@ -439,289 +540,148 @@ public final class CoopTradeState {
                 guestConfirmed = event.isConfirmed();
             }
             if (!hostConfirmed || !guestConfirmed) {
-                return event;
+                return ConfirmResult.RELAY;
             }
             final CoopTradeBag hostBag = bagLookup.apply(CoopTradeRole.HOST);
             final CoopTradeBag guestBag = bagLookup.apply(CoopTradeRole.GUEST);
             if (!CoopTradeValidator.validate(hostOffer, hostBag).ok()
                     || !CoopTradeValidator.validate(guestOffer, guestBag).ok()) {
-                return cancelUnlocked("invalid offer at confirm");
+                lastCancel = cancelUnlocked("invalid offer at confirm");
+                return ConfirmResult.CANCELLED;
             }
             if (guestBag != null
                     && !CoopTradeValidator.validateReceiverGold(hostOffer, guestBag).ok()) {
-                return cancelUnlocked("receiver gold overflow");
+                lastCancel = cancelUnlocked("receiver gold overflow");
+                return ConfirmResult.CANCELLED;
             }
             if (hostBag != null
                     && !CoopTradeValidator.validateReceiverGold(guestOffer, hostBag).ok()) {
-                return cancelUnlocked("receiver gold overflow");
+                lastCancel = cancelUnlocked("receiver gold overflow");
+                return ConfirmResult.CANCELLED;
             }
-            if (!weAreHost) {
-                return event;
-            }
-            final CoopTradeExecuteEvent exec = new CoopTradeExecuteEvent(
-                    tradeId, hostOffer, guestOffer, hostOfferVersion, guestOfferVersion);
-            pendingExecute = exec;
-            status = Status.WAITING_GUEST_ACK;
-            tradeLog.record(tradeId, CoopTradeLog.Phase.EXECUTED, nowMs, hostOffer, guestOffer);
-            return exec;
+            return ConfirmResult.BEGIN_ESCROW;
         }
     }
 
-    public Object acceptConfirm(final CoopTradeConfirmEvent event, final boolean weAreHost) {
-        return acceptConfirm(event, weAreHost, System.currentTimeMillis());
-    }
-
-    public boolean receiveExecute(final CoopTradeExecuteEvent event, final boolean weAreHost,
-                                  final long nowMs) {
-        synchronized (lock) {
-            if (event == null || event.getTradeId() == 0L) {
-                return false;
-            }
-            if (tradeLog.isAtLeast(event.getTradeId(), CoopTradeLog.Phase.COMPLETED)
-                    || (weAreHost && tradeLog.hasLocalApply(event.getTradeId(), CoopTradeRole.HOST))
-                    || (!weAreHost && tradeLog.hasLocalApply(event.getTradeId(), CoopTradeRole.GUEST))) {
-                tradeId = event.getTradeId();
-                pendingExecute = event;
-                status = Status.COMPLETED;
-                return true;
-            }
-            if (status != Status.OPEN && status != Status.WAITING_GUEST_ACK) {
-                return false;
-            }
-            tradeId = event.getTradeId();
-            hostOffer = event.getHostOffer();
-            guestOffer = event.getGuestOffer();
-            hostOfferVersion = event.getHostOfferVersion();
-            guestOfferVersion = event.getGuestOfferVersion();
-            pendingExecute = event;
-            status = Status.WAITING_GUEST_ACK;
-            tradeLog.record(tradeId, CoopTradeLog.Phase.EXECUTED, nowMs, hostOffer, guestOffer);
-            return true;
-        }
-    }
-
-    public boolean receiveExecute(final CoopTradeExecuteEvent event, final boolean weAreHost) {
-        return receiveExecute(event, weAreHost, System.currentTimeMillis());
-    }
-
-    public boolean receiveExecute(final CoopTradeExecuteEvent event) {
-        return receiveExecute(event, localRole == CoopTradeRole.HOST);
+    public ConfirmResult acceptConfirm(final CoopTradeConfirmEvent event) {
+        return acceptConfirm(event, System.currentTimeMillis());
     }
 
     /**
-     * Claim guest apply under the lock <b>before</b> queuing the GL runnable.
-     * Mismatched trade id → null. Cancel/disconnect that lands before this claim
-     * cannot see a later bag mutation from a stale queued apply.
+     * After bag remove succeeds: write ESCROWED with both offers. Returns the
+     * wire event to send, or null if already escrowed / wrong state.
      */
-    public CoopTradeExecuteEvent claimGuestApply(final long claimTradeId) {
+    public forge.gamemodes.net.event.coop.CoopTradeEscrowedEvent markEscrowed(final long nowMs) {
         synchronized (lock) {
-            if (claimTradeId == 0L || claimTradeId != tradeId) {
+            if (tradeId == 0L) {
                 return null;
             }
-            if (pendingExecute == null || pendingExecute.getTradeId() != claimTradeId) {
+            if (tradeLog.hasEscrowed(tradeId) || tradeLog.hasDelivered(tradeId)) {
+                status = tradeLog.hasDelivered(tradeId) ? Status.DELIVERED : Status.ESCROWED;
+                return new forge.gamemodes.net.event.coop.CoopTradeEscrowedEvent(tradeId, localRole);
+            }
+            if (status != Status.OPEN && status != Status.NEEDS_RECONCILE) {
                 return null;
             }
-            if (tradeLog.hasLocalApply(claimTradeId, CoopTradeRole.GUEST)) {
-                status = Status.GUEST_APPLIED;
-                return null;
-            }
-            if (status != Status.WAITING_GUEST_ACK) {
-                return null;
-            }
-            status = Status.GUEST_APPLYING;
-            return pendingExecute;
+            tradeLog.record(tradeId, CoopTradeLog.Phase.ESCROWED, nowMs, hostOffer, guestOffer);
+            status = Status.ESCROWED;
+            return new forge.gamemodes.net.event.coop.CoopTradeEscrowedEvent(tradeId, localRole);
         }
     }
 
-    /** True while the GL guest apply claim is still held. */
-    public boolean isGuestApplyClaimed(final long claimTradeId) {
+    /**
+     * Peer announced escrowed(id). Reject unknown ids and ids we never opened.
+     * @return true when local should now deliver (we escrowed and peer escrowed)
+     */
+    public boolean receivePeerEscrowed(final long peerTradeId, final CoopTradeRole fromRole) {
         synchronized (lock) {
-            return status == Status.GUEST_APPLYING && tradeId == claimTradeId
-                    && pendingExecute != null && pendingExecute.getTradeId() == claimTradeId;
+            if (peerTradeId == 0L || peerTradeId != tradeId) {
+                // Unknown / mismatched id — hostile or stale.
+                return false;
+            }
+            if (fromRole == localRole) {
+                return false;
+            }
+            if (status == Status.COMPLETED || status == Status.REFUNDED || status == Status.CANCELLED) {
+                return false;
+            }
+            // Peer claiming escrowed for a trade we never reached escrow on, and
+            // we have no OPEN/ESCROWED state — ignore hostile.
+            if (status != Status.OPEN && status != Status.ESCROWED
+                    && status != Status.DELIVERED && status != Status.NEEDS_RECONCILE) {
+                return false;
+            }
+            peerEscrowed = true;
+            return tradeLog.hasEscrowed(tradeId) && !tradeLog.hasDelivered(tradeId);
         }
     }
 
-    public CoopTradeAckEvent markGuestApplied(final boolean success, final String detail,
-                                              final long nowMs) {
+    /**
+     * After bag grant succeeds: write DELIVERED. Returns wire event.
+     */
+    public forge.gamemodes.net.event.coop.CoopTradeDeliveredEvent markDelivered(final long nowMs) {
         synchronized (lock) {
-            if (pendingExecute == null) {
+            if (tradeId == 0L) {
                 return null;
             }
-            final long id = pendingExecute.getTradeId();
-            if (success && tradeLog.hasLocalApply(id, CoopTradeRole.GUEST)) {
-                status = Status.GUEST_APPLIED;
-                guestAppliedSinceMs = nowMs;
-                guestGive = pendingExecute.getGuestOffer();
-                guestReceive = pendingExecute.getHostOffer();
-                guestRollbackPermitted = false;
-                return new CoopTradeAckEvent(id, CoopTradeRole.GUEST, true, "idempotent");
-            }
-            if (status != Status.GUEST_APPLYING && status != Status.WAITING_GUEST_ACK
-                    && status != Status.NEEDS_RECONCILE) {
-                return null;
-            }
-            if (success) {
-                guestGive = pendingExecute.getGuestOffer();
-                guestReceive = pendingExecute.getHostOffer();
-                guestRollbackPermitted = false;
-                guestAppliedSinceMs = nowMs;
-                status = Status.GUEST_APPLIED;
-                tradeLog.record(id, CoopTradeLog.Phase.GUEST_APPLIED, nowMs,
-                        pendingExecute.getHostOffer(), pendingExecute.getGuestOffer());
-            } else {
-                clearGuestRollbackUnlocked();
-                status = Status.CANCELLED;
-                cancelReason = detail == null ? "guest apply failed" : detail;
-                pendingExecute = null;
-                tradeLog.record(id, CoopTradeLog.Phase.ABORTED, nowMs);
-            }
-            return new CoopTradeAckEvent(id, CoopTradeRole.GUEST, success,
-                    detail == null ? "" : detail);
-        }
-    }
-
-    public Object receiveGuestAck(final CoopTradeAckEvent ack) {
-        synchronized (lock) {
-            if (ack == null || ack.getFromRole() != CoopTradeRole.GUEST) {
-                return null;
-            }
-            if (ack.getTradeId() != tradeId) {
-                return null;
-            }
-            if (status != Status.WAITING_GUEST_ACK) {
-                if (tradeLog.isAtLeast(tradeId, CoopTradeLog.Phase.HOST_COMMITTED) && ack.isSuccess()) {
-                    return new CoopTradeAckEvent(tradeId, CoopTradeRole.HOST, true, "complete");
+            if (tradeLog.hasDelivered(tradeId)) {
+                status = Status.DELIVERED;
+                if (peerDelivered) {
+                    tradeLog.record(tradeId, CoopTradeLog.Phase.COMPLETED, nowMs);
+                    status = Status.COMPLETED;
                 }
+                return new forge.gamemodes.net.event.coop.CoopTradeDeliveredEvent(tradeId, localRole);
+            }
+            if (!tradeLog.hasEscrowed(tradeId)) {
                 return null;
             }
-            if (!ack.isSuccess()) {
-                // Guest failed before apply — abort is allowed (no guest bag change).
-                return abortAfterExecuteUnlocked("guest apply failed: " + ack.getDetail());
-            }
-            return ack;
-        }
-    }
-
-    /**
-     * Claim host apply for {@code claimTradeId}. Mismatch → null.
-     */
-    public CoopTradeExecuteEvent beginHostApply(final long claimTradeId) {
-        synchronized (lock) {
-            if (claimTradeId == 0L || claimTradeId != tradeId) {
-                return null;
-            }
-            if (pendingExecute == null || pendingExecute.getTradeId() != claimTradeId) {
-                return null;
-            }
-            if (tradeLog.hasLocalApply(claimTradeId, CoopTradeRole.HOST)) {
+            tradeLog.record(tradeId, CoopTradeLog.Phase.DELIVERED, nowMs, hostOffer, guestOffer);
+            status = Status.DELIVERED;
+            if (peerDelivered) {
+                tradeLog.record(tradeId, CoopTradeLog.Phase.COMPLETED, nowMs);
                 status = Status.COMPLETED;
-                return null;
             }
-            if (status != Status.WAITING_GUEST_ACK) {
-                return null;
-            }
-            status = Status.HOST_APPLYING;
-            return pendingExecute;
-        }
-    }
-
-    /** @deprecated use {@link #beginHostApply(long)} */
-    public CoopTradeExecuteEvent beginHostApply() {
-        synchronized (lock) {
-            return beginHostApply(tradeId);
-        }
-    }
-
-    public CoopTradeAckEvent markHostCompleted() {
-        synchronized (lock) {
-            if (status != Status.HOST_APPLYING) {
-                return null;
-            }
-            if (pendingExecute == null) {
-                return null;
-            }
-            final long id = pendingExecute.getTradeId();
-            final long now = System.currentTimeMillis();
-            tradeLog.record(id, CoopTradeLog.Phase.HOST_COMMITTED, now,
-                    pendingExecute.getHostOffer(), pendingExecute.getGuestOffer());
-            tradeLog.record(id, CoopTradeLog.Phase.COMPLETED, now);
-            status = Status.COMPLETED;
-            hostConfirmed = false;
-            guestConfirmed = false;
-            clearGuestRollbackUnlocked();
-            return new CoopTradeAckEvent(id, CoopTradeRole.HOST, true, "complete");
+            return new forge.gamemodes.net.event.coop.CoopTradeDeliveredEvent(tradeId, localRole);
         }
     }
 
     /**
-     * Host apply failed — <b>releases</b> {@link Status#HOST_APPLYING} and
-     * emits an abort so the guest may roll back (explicit host abort).
+     * Peer announced delivered(id). Hostile COMPLETED-style claims for unknown
+     * ids are rejected.
      */
-    public CoopTradeCancelEvent abortHostApply(final String reason) {
+    public boolean receivePeerDelivered(final long peerTradeId, final CoopTradeRole fromRole) {
         synchronized (lock) {
-            if (status != Status.HOST_APPLYING) {
-                return null;
-            }
-            return abortAfterExecuteUnlocked(reason != null ? reason : "host apply failed");
-        }
-    }
-
-    public boolean receiveHostComplete(final CoopTradeAckEvent ack) {
-        synchronized (lock) {
-            if (ack == null || ack.getFromRole() != CoopTradeRole.HOST || !ack.isSuccess()) {
+            if (peerTradeId == 0L || peerTradeId != tradeId) {
                 return false;
             }
-            // Strict trade-id match — mismatches ignored.
-            if (ack.getTradeId() != tradeId) {
+            if (fromRole == localRole) {
                 return false;
             }
-            if (status != Status.GUEST_APPLIED && status != Status.WAITING_GUEST_ACK
-                    && status != Status.GUEST_APPLYING && status != Status.NEEDS_RECONCILE
-                    && status != Status.COMPLETED) {
+            // Must have at least escrowed ourselves — never accept deliver for
+            // a step we didn't reach.
+            if (!tradeLog.hasEscrowed(tradeId) && status != Status.ESCROWED
+                    && status != Status.DELIVERED && status != Status.COMPLETED) {
                 return false;
             }
-            clearGuestRollbackUnlocked();
-            status = Status.COMPLETED;
-            hostConfirmed = false;
-            guestConfirmed = false;
-            final long now = System.currentTimeMillis();
-            final CoopTradeOffer h = pendingExecute != null ? pendingExecute.getHostOffer() : hostOffer;
-            final CoopTradeOffer g = pendingExecute != null ? pendingExecute.getGuestOffer() : guestOffer;
-            tradeLog.record(tradeId, CoopTradeLog.Phase.HOST_COMMITTED, now, h, g);
-            tradeLog.record(tradeId, CoopTradeLog.Phase.COMPLETED, now);
+            peerDelivered = true;
+            if (tradeLog.hasDelivered(tradeId)) {
+                tradeLog.record(tradeId, CoopTradeLog.Phase.COMPLETED, System.currentTimeMillis());
+                status = Status.COMPLETED;
+            }
             return true;
         }
     }
 
-    /**
-     * Line-only guest rollback. Allowed only when {@link #guestRollbackPermitted}
-     * (host abort / reconcile ABORTED) and never after host commit.
-     */
-    public boolean rollbackGuestApply(final CoopTradeBag bag) {
+    /** Ready to deliver: local escrowed and peer escrowed, not yet delivered. */
+    public boolean shouldDeliver() {
         synchronized (lock) {
-            if (!guestRollbackPermitted) {
-                return false;
-            }
-            if (tradeId != 0L && tradeLog.isAtLeast(tradeId, CoopTradeLog.Phase.HOST_COMMITTED)) {
-                clearGuestRollbackUnlocked();
-                return false;
-            }
-            if (bag == null || guestGive == null || guestReceive == null) {
-                clearGuestRollbackUnlocked();
-                return false;
-            }
-            final CoopTradeApply.Result r = CoopTradeApply.reverseLocal(bag, guestGive, guestReceive);
-            clearGuestRollbackUnlocked();
-            if (tradeId != 0L) {
-                tradeLog.record(tradeId, CoopTradeLog.Phase.ABORTED, System.currentTimeMillis());
-            }
-            return r.applied;
+            return peerEscrowed && tradeLog.hasEscrowed(tradeId) && !tradeLog.hasDelivered(tradeId)
+                    && (status == Status.ESCROWED || status == Status.NEEDS_RECONCILE);
         }
     }
 
     /**
-     * Cancel is refused after Execute (WAITING_GUEST_ACK and beyond), except via
-     * {@link #abortHostApply}.
+     * Cancel refused after both confirm / escrow. Pre-escrow cancel only.
      */
     public CoopTradeCancelEvent cancel(final String reason) {
         synchronized (lock) {
@@ -729,11 +689,35 @@ public final class CoopTradeState {
         }
     }
 
+    /**
+     * Escrow remove failed before {@code ESCROWED} was written — goods unchanged.
+     * Allowed even though both confirmed, because nothing left the bag.
+     */
+    public CoopTradeCancelEvent abortPreEscrow(final String reason) {
+        synchronized (lock) {
+            if (status != Status.OPEN || tradeLog.hasEscrowed(tradeId)) {
+                return null;
+            }
+            final long id = tradeId != 0L ? tradeId : inviteId;
+            cancelReason = CoopTradeWireLimits.clampText(reason);
+            status = Status.CANCELLED;
+            hostConfirmed = false;
+            guestConfirmed = false;
+            peerEscrowed = false;
+            peerDelivered = false;
+            lastCancel = new CoopTradeCancelEvent(id, cancelReason);
+            return lastCancel;
+        }
+    }
+
     private CoopTradeCancelEvent cancelUnlocked(final String reason) {
-        if (status == Status.WAITING_GUEST_ACK || status == Status.GUEST_APPLYING
-                || status == Status.GUEST_APPLIED || status == Status.HOST_APPLYING
-                || status == Status.NEEDS_RECONCILE) {
-            // Cancel disabled after Execute.
+        if (status == Status.ESCROWED || status == Status.DELIVERED
+                || status == Status.NEEDS_RECONCILE || status == Status.COMPLETED
+                || status == Status.REFUNDED) {
+            return null;
+        }
+        // Also refuse once both have confirmed (BEGIN_ESCROW imminent).
+        if (status == Status.OPEN && hostConfirmed && guestConfirmed) {
             return null;
         }
         final long id = tradeId != 0L ? tradeId : inviteId;
@@ -741,33 +725,10 @@ public final class CoopTradeState {
         status = Status.CANCELLED;
         hostConfirmed = false;
         guestConfirmed = false;
-        pendingExecute = null;
-        clearGuestRollbackUnlocked();
-        if (id != 0L) {
-            tradeLog.record(id, CoopTradeLog.Phase.ABORTED, System.currentTimeMillis());
-        }
-        return new CoopTradeCancelEvent(id, cancelReason);
-    }
-
-    /** Explicit abort after Execute (host apply failure / guest apply failure). */
-    private CoopTradeCancelEvent abortAfterExecuteUnlocked(final String reason) {
-        final long id = tradeId != 0L ? tradeId : inviteId;
-        cancelReason = CoopTradeWireLimits.clampText(reason);
-        // Permit guest line-rollback only if guest had applied.
-        if (status == Status.GUEST_APPLIED || status == Status.NEEDS_RECONCILE
-                || tradeLog.hasLocalApply(id, CoopTradeRole.GUEST)) {
-            guestRollbackPermitted = true;
-        } else {
-            clearGuestRollbackUnlocked();
-        }
-        status = Status.CANCELLED;
-        hostConfirmed = false;
-        guestConfirmed = false;
-        pendingExecute = null;
-        if (id != 0L && !tradeLog.isAtLeast(id, CoopTradeLog.Phase.HOST_COMMITTED)) {
-            tradeLog.record(id, CoopTradeLog.Phase.ABORTED, System.currentTimeMillis());
-        }
-        return new CoopTradeCancelEvent(id, cancelReason);
+        peerEscrowed = false;
+        peerDelivered = false;
+        lastCancel = new CoopTradeCancelEvent(id, cancelReason);
+        return lastCancel;
     }
 
     public boolean receiveCancel(final CoopTradeCancelEvent event) {
@@ -778,74 +739,39 @@ public final class CoopTradeState {
             if (event.getTradeId() != tradeId && event.getTradeId() != inviteId) {
                 return false;
             }
-            if (tradeId != 0L && tradeLog.isAtLeast(tradeId, CoopTradeLog.Phase.HOST_COMMITTED)) {
+            // After escrow: ignore cancel (no abandon / no reverse).
+            if (status == Status.ESCROWED || status == Status.DELIVERED
+                    || status == Status.NEEDS_RECONCILE || status == Status.COMPLETED
+                    || tradeLog.hasEscrowed(tradeId)) {
                 return false;
-            }
-            // After Execute: only honor as an explicit host abort (permits rollback).
-            if (status == Status.WAITING_GUEST_ACK || status == Status.GUEST_APPLYING
-                    || status == Status.GUEST_APPLIED || status == Status.HOST_APPLYING
-                    || status == Status.NEEDS_RECONCILE) {
-                abortAfterExecuteUnlocked(event.getReason());
-                return true;
             }
             cancelReason = CoopTradeWireLimits.clampText(event.getReason());
             status = Status.CANCELLED;
             hostConfirmed = false;
             guestConfirmed = false;
-            pendingExecute = null;
-            clearGuestRollbackUnlocked();
-            if (tradeId != 0L) {
-                tradeLog.record(tradeId, CoopTradeLog.Phase.ABORTED, System.currentTimeMillis());
-            }
+            peerEscrowed = false;
+            peerDelivered = false;
             return true;
         }
     }
 
     /**
-     * Disconnect. After guest ack: never roll back — enter NEEDS_RECONCILE.
-     * Before claim: abandon without bag mutation. During GUEST_APPLYING before
-     * log apply: release claim without mutation.
+     * Disconnect: if escrowed, enter NEEDS_RECONCILE (pending, no abandon).
+     * Pre-escrow: cancel cleanly.
      */
     public CoopTradeCancelEvent onDisconnect() {
         synchronized (lock) {
-            if (status == Status.IDLE || status == Status.COMPLETED || status == Status.CANCELLED) {
+            if (status == Status.IDLE || status == Status.COMPLETED
+                    || status == Status.CANCELLED || status == Status.REFUNDED) {
                 return null;
             }
-            if (status == Status.HOST_APPLYING) {
-                return null;
-            }
-            if (tradeId != 0L && tradeLog.isAtLeast(tradeId, CoopTradeLog.Phase.HOST_COMMITTED)) {
-                status = Status.COMPLETED;
-                clearGuestRollbackUnlocked();
-                return null;
-            }
-            if (status == Status.GUEST_APPLIED || status == Status.NEEDS_RECONCILE) {
-                // After ack: never roll back on disconnect.
-                guestRollbackPermitted = false;
+            if (status == Status.DELIVERED) {
+                // Waiting for peer delivered — reconcile, never abandon.
                 status = Status.NEEDS_RECONCILE;
                 return null;
             }
-            if (status == Status.GUEST_APPLYING) {
-                // Claim held but not yet applied to log — release without mutation.
-                if (!tradeLog.hasLocalApply(tradeId, CoopTradeRole.GUEST)) {
-                    status = Status.CANCELLED;
-                    cancelReason = "disconnect";
-                    pendingExecute = null;
-                    clearGuestRollbackUnlocked();
-                    tradeLog.record(tradeId, CoopTradeLog.Phase.ABORTED, System.currentTimeMillis());
-                } else {
-                    guestRollbackPermitted = false;
-                    status = Status.NEEDS_RECONCILE;
-                }
-                return null;
-            }
-            if (status == Status.WAITING_GUEST_ACK) {
-                // Neither side applied — abort cleanly; no cancel event for rollback.
-                status = Status.CANCELLED;
-                cancelReason = "disconnect";
-                pendingExecute = null;
-                clearGuestRollbackUnlocked();
-                tradeLog.record(tradeId, CoopTradeLog.Phase.ABORTED, System.currentTimeMillis());
+            if (status == Status.ESCROWED || tradeLog.hasEscrowed(tradeId)) {
+                status = Status.NEEDS_RECONCILE;
                 return null;
             }
             return cancelUnlocked("disconnect");
@@ -854,7 +780,8 @@ public final class CoopTradeState {
 
     public boolean expireInviteIfNeeded(final long nowMs, final long timeoutMs) {
         synchronized (lock) {
-            if (status != Status.INVITE_SENT && status != Status.INVITE_RECEIVED) {
+            if (status != Status.INVITE_SENT && status != Status.INVITE_RECEIVED
+                    && status != Status.REQUEST_SENT) {
                 return false;
             }
             if (timeoutMs <= 0L || nowMs - inviteSinceMs < timeoutMs) {
@@ -865,78 +792,75 @@ public final class CoopTradeState {
         }
     }
 
-    public TimeoutOutcome expireGuestAckIfNeeded(final long nowMs, final long timeoutMs) {
-        synchronized (lock) {
-            if (status != Status.GUEST_APPLIED && status != Status.NEEDS_RECONCILE) {
-                return TimeoutOutcome.NONE;
-            }
-            if (status == Status.GUEST_APPLIED
-                    && (timeoutMs <= 0L || nowMs - guestAppliedSinceMs < timeoutMs)) {
-                return TimeoutOutcome.NONE;
-            }
-            if (tradeId != 0L && tradeLog.isAtLeast(tradeId, CoopTradeLog.Phase.HOST_COMMITTED)) {
-                clearGuestRollbackUnlocked();
-                status = Status.COMPLETED;
-                tradeLog.record(tradeId, CoopTradeLog.Phase.COMPLETED, nowMs);
-                return TimeoutOutcome.ALREADY_COMPLETE;
-            }
-            guestRollbackPermitted = false;
-            status = Status.NEEDS_RECONCILE;
-            return TimeoutOutcome.RECONCILE;
-        }
-    }
-
     public CoopTradeLog.ReconcileAction applyReconcile(final CoopTradeReconcileEvent event,
                                                        final long nowMs) {
         synchronized (lock) {
             if (event == null || event.getTradeId() == 0L) {
                 return CoopTradeLog.ReconcileAction.NONE;
             }
-            // Ignore mismatches against the active in-flight trade id.
+            // Only for the matching in-flight id.
             if (tradeId != 0L && event.getTradeId() != tradeId
-                    && (status == Status.WAITING_GUEST_ACK || status == Status.GUEST_APPLYING
-                    || status == Status.GUEST_APPLIED || status == Status.HOST_APPLYING
+                    && (status == Status.ESCROWED || status == Status.DELIVERED
                     || status == Status.NEEDS_RECONCILE)) {
                 return CoopTradeLog.ReconcileAction.NONE;
             }
             final long id = event.getTradeId();
+            // Hostile: unknown id not in our log and not our active trade.
+            if (!tradeLog.contains(id) && id != tradeId) {
+                return CoopTradeLog.ReconcileAction.IGNORE_HOSTILE;
+            }
             final CoopTradeLog.Entry local = tradeLog.get(id);
             final CoopTradeLog.Entry peer = new CoopTradeLog.Entry(id, event.getPhaseEnum(), nowMs);
             final CoopTradeLog.ReconcileAction action = CoopTradeLog.reconcile(local, peer);
-            if (action == CoopTradeLog.ReconcileAction.COMPLETE_GUEST) {
+            if (action == CoopTradeLog.ReconcileAction.DELIVER) {
                 tradeId = id;
-                clearGuestRollbackUnlocked();
-                status = Status.COMPLETED;
-                tradeLog.record(id, CoopTradeLog.Phase.HOST_COMMITTED, nowMs);
-                tradeLog.record(id, CoopTradeLog.Phase.COMPLETED, nowMs);
-            } else if (action == CoopTradeLog.ReconcileAction.ROLLBACK_GUEST) {
-                tradeId = id;
-                status = Status.CANCELLED;
-                cancelReason = "reconcile abort";
-                guestRollbackPermitted = true;
+                peerEscrowed = true;
                 if (local != null) {
-                    guestGive = local.guestOffer;
-                    guestReceive = local.hostOffer;
-                }
-                tradeLog.record(id, CoopTradeLog.Phase.ABORTED, nowMs);
-            } else if (action == CoopTradeLog.ReconcileAction.APPLY_HOST) {
-                tradeId = id;
-                if (local != null && pendingExecute == null) {
-                    pendingExecute = new CoopTradeExecuteEvent(id, local.hostOffer, local.guestOffer, 0, 0);
                     hostOffer = local.hostOffer;
                     guestOffer = local.guestOffer;
                 }
-                status = Status.WAITING_GUEST_ACK;
-            } else if (action == CoopTradeLog.ReconcileAction.RESEND_HOST_COMPLETE) {
+                if (status != Status.DELIVERED && status != Status.COMPLETED) {
+                    status = Status.ESCROWED;
+                }
+            } else if (action == CoopTradeLog.ReconcileAction.REFUND) {
+                tradeId = id;
+                if (local != null) {
+                    hostOffer = local.hostOffer;
+                    guestOffer = local.guestOffer;
+                }
+                status = Status.NEEDS_RECONCILE;
+            } else if (action == CoopTradeLog.ReconcileAction.COMPLETE) {
                 tradeId = id;
                 status = Status.COMPLETED;
-            } else if (action == CoopTradeLog.ReconcileAction.RESEND_GUEST_ACK) {
+                tradeLog.record(id, CoopTradeLog.Phase.COMPLETED, nowMs);
+            } else if (action == CoopTradeLog.ReconcileAction.RESEND_ESCROWED) {
                 tradeId = id;
-                if (status != Status.GUEST_APPLIED && status != Status.NEEDS_RECONCILE) {
-                    status = Status.GUEST_APPLIED;
+                if (status != Status.ESCROWED && status != Status.DELIVERED) {
+                    status = Status.ESCROWED;
                 }
+            } else if (action == CoopTradeLog.ReconcileAction.RESEND_DELIVERED) {
+                tradeId = id;
+                status = Status.DELIVERED;
+            } else if (action == CoopTradeLog.ReconcileAction.IGNORE_HOSTILE) {
+                // leave state alone
             }
             return action;
+        }
+    }
+
+    /** After successful bag refund: write REFUNDED. */
+    public boolean markRefunded(final long nowMs) {
+        synchronized (lock) {
+            if (tradeId == 0L || !tradeLog.hasEscrowed(tradeId) || tradeLog.hasDelivered(tradeId)) {
+                return false;
+            }
+            final boolean ok = tradeLog.record(tradeId, CoopTradeLog.Phase.REFUNDED, nowMs);
+            if (ok) {
+                status = Status.REFUNDED;
+                peerEscrowed = false;
+                peerDelivered = false;
+            }
+            return ok;
         }
     }
 
@@ -946,14 +870,15 @@ public final class CoopTradeState {
             for (final CoopTradeLog.Entry e : tradeLog.snapshotInFlight()) {
                 out.add(new CoopTradeReconcileEvent(e.tradeId, localRole, e.phase, asRequests));
             }
-            if ((status == Status.NEEDS_RECONCILE || status == Status.GUEST_APPLIED
-                    || status == Status.WAITING_GUEST_ACK || status == Status.HOST_APPLYING
-                    || status == Status.GUEST_APPLYING) && tradeId != 0L) {
+            if ((status == Status.NEEDS_RECONCILE || status == Status.ESCROWED
+                    || status == Status.DELIVERED) && tradeId != 0L) {
                 final CoopTradeLog.Phase phase;
-                if (status == Status.GUEST_APPLIED || status == Status.NEEDS_RECONCILE) {
-                    phase = CoopTradeLog.Phase.GUEST_APPLIED;
+                if (tradeLog.hasDelivered(tradeId)) {
+                    phase = CoopTradeLog.Phase.DELIVERED;
+                } else if (tradeLog.hasEscrowed(tradeId)) {
+                    phase = CoopTradeLog.Phase.ESCROWED;
                 } else {
-                    phase = CoopTradeLog.Phase.EXECUTED;
+                    phase = CoopTradeLog.Phase.NONE;
                 }
                 boolean dup = false;
                 for (final CoopTradeReconcileEvent ev : out) {
@@ -970,31 +895,43 @@ public final class CoopTradeState {
         }
     }
 
-    /**
-     * Teardown: never roll back after guest ack. Clears rollback permission.
-     * @return true if a pre-ack claim was released without mutation
-     */
-    public boolean onTeardown() {
+    public void onTeardown() {
         synchronized (lock) {
-            if (status == Status.GUEST_APPLIED || status == Status.NEEDS_RECONCILE
-                    || (status == Status.GUEST_APPLYING
-                    && tradeLog.hasLocalApply(tradeId, CoopTradeRole.GUEST))) {
-                guestRollbackPermitted = false;
+            if (status == Status.ESCROWED || status == Status.DELIVERED
+                    || (tradeId != 0L && tradeLog.hasEscrowed(tradeId)
+                    && !tradeLog.hasDelivered(tradeId))) {
                 status = Status.NEEDS_RECONCILE;
-                return false;
+                return;
             }
-            if (status == Status.GUEST_APPLYING) {
+            if (status == Status.OPEN || status == Status.INVITE_SENT
+                    || status == Status.INVITE_RECEIVED || status == Status.REQUEST_SENT) {
                 status = Status.CANCELLED;
                 cancelReason = "teardown";
-                pendingExecute = null;
-                clearGuestRollbackUnlocked();
-                if (tradeId != 0L) {
-                    tradeLog.record(tradeId, CoopTradeLog.Phase.ABORTED, System.currentTimeMillis());
-                }
-                return true;
             }
-            guestRollbackPermitted = false;
-            return false;
+        }
+    }
+
+    /**
+     * Restore in-flight ESCROWED status from the log after a crash reload.
+     */
+    public void restoreFromLog(final long id, final CoopTradeRole role) {
+        synchronized (lock) {
+            final CoopTradeLog.Entry e = tradeLog.get(id);
+            if (e == null) {
+                return;
+            }
+            tradeId = id;
+            inviteId = id;
+            localRole = role != null ? role : localRole;
+            hostOffer = e.hostOffer;
+            guestOffer = e.guestOffer;
+            if (e.phase == CoopTradeLog.Phase.DELIVERED || e.phase == CoopTradeLog.Phase.COMPLETED) {
+                status = e.phase == CoopTradeLog.Phase.COMPLETED ? Status.COMPLETED : Status.DELIVERED;
+            } else if (e.phase == CoopTradeLog.Phase.ESCROWED) {
+                status = Status.NEEDS_RECONCILE;
+            } else if (e.phase == CoopTradeLog.Phase.REFUNDED) {
+                status = Status.REFUNDED;
+            }
         }
     }
 
@@ -1006,18 +943,17 @@ public final class CoopTradeState {
             localRole = CoopTradeRole.GUEST;
             resetOffersUnlocked();
             cancelReason = "";
-            pendingExecute = null;
             inviteSinceMs = 0L;
-            guestAppliedSinceMs = 0L;
-            clearGuestRollbackUnlocked();
+            peerEscrowed = false;
+            peerDelivered = false;
+            lastCancel = null;
             rateLimiter.reset();
         }
     }
 
-    private void clearGuestRollbackUnlocked() {
-        guestGive = null;
-        guestReceive = null;
-        guestRollbackPermitted = false;
+    private boolean isIdleUnlocked() {
+        return status == Status.IDLE || status == Status.COMPLETED
+                || status == Status.CANCELLED || status == Status.REFUNDED;
     }
 
     private void resetOffersUnlocked() {

@@ -89,8 +89,13 @@ public class TradeScene extends UIScene {
             String conf = (st.isLocalConfirmed() ? "You ✓" : "You …")
                     + "  |  "
                     + (st.isPeerConfirmed() ? "Partner ✓" : "Partner …");
-            if (!st.isCancelAllowed()) {
-                conf += "  |  Commit…";
+            if (st.getStatus() == CoopTradeState.Status.ESCROWED
+                    || st.getStatus() == CoopTradeState.Status.NEEDS_RECONCILE) {
+                conf += "  |  Pending…";
+            } else if (st.getStatus() == CoopTradeState.Status.DELIVERED) {
+                conf += "  |  Delivered…";
+            } else if (!st.isCancelAllowed()) {
+                conf += "  |  Locking…";
             }
             status.setText(CoopTradeWireLimits.clampText(conf));
             status.skipToTheEnd();
@@ -146,7 +151,7 @@ public class TradeScene extends UIScene {
 
     private void cancel() {
         if (!CoopTradeRuntime.get().getState().isCancelAllowed()) {
-            // Cancel disabled after Execute (protocol + UI).
+            // No abandon after both confirm / escrow — pending until reconcile.
             return;
         }
         CoopTradeRuntime.get().cancelTrade("cancelled");

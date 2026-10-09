@@ -18,29 +18,27 @@ import forge.gamemodes.net.coop.CoopTradeOffer;
 import forge.gamemodes.net.coop.CoopTradeRole;
 import forge.gamemodes.net.coop.CoopTradeState;
 import forge.gamemodes.net.coop.CoopTradeWireLimits;
-import forge.gamemodes.net.event.coop.CoopTradeAckEvent;
 import forge.gamemodes.net.event.coop.CoopTradeCancelEvent;
 import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
-import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
+import forge.gamemodes.net.event.coop.CoopTradeDeliveredEvent;
+import forge.gamemodes.net.event.coop.CoopTradeEscrowedEvent;
 import forge.gamemodes.net.event.coop.CoopTradeInviteEvent;
 import forge.gamemodes.net.event.coop.CoopTradeOfferEvent;
 import forge.gamemodes.net.event.coop.CoopTradeReconcileEvent;
+import forge.gamemodes.net.event.coop.CoopTradeRequestEvent;
 import forge.gamemodes.net.event.coop.CoopTradeResponseEvent;
-import forge.localinstance.properties.ForgeConstants;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 
 /**
- * Ascendant TR1 player trading (review r4): host-assigned SecureRandom trade
- * ids, claim-before-GL apply, cancel disabled after Execute, no guest rollback
- * after ack except host abort / reconcile ABORTED, line-only rollback, slot-tied
- * trade log saved with every phase change.
+ * Ascendant TR1 player trading — forward-only escrow.
+ *
+ * <p>Netty handlers only {@link #postGl postRunnable} onto the GL thread. All
+ * state transitions, bag mutations and character saves run there, so there are
+ * no Netty-vs-GL races. Host mints SecureRandom trade ids; guest requests.
+ * Escrow removes only own goods; deliver grants peer goods only after peer
+ * escrowed. Never reverse received goods. Refund own escrow only when reconcile
+ * shows the peer never escrowed. Trade log lives inside the character save.
  */
 public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
     private static final CoopTradeRuntime INSTANCE = new CoopTradeRuntime();
@@ -50,11 +48,9 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             new CoopRateLimiter(CoopTradeWireLimits.DEFAULT_MAX_PER_WINDOW,
                     CoopTradeWireLimits.DEFAULT_WINDOW_MS), tradeLog);
     private volatile boolean attached;
-    private volatile ScheduledExecutorService timers;
-    private volatile ScheduledFuture<?> ackTimeoutFuture;
 
     private CoopTradeRuntime() {
-        tradeLog.setListener(entry -> saveCharacterQuietly());
+        tradeLog.setListener(entry -> syncLogToPlayerAndSave());
     }
 
     public static CoopTradeRuntime get() {
@@ -73,17 +69,9 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         if (attached || !Config.ascendant()) {
             return;
         }
-        bindTradeLogSlot();
-        tradeLog.load();
+        loadTradeLogFromPlayer();
         CoopSession.get().addOverworldListener(this);
         state.setBagLookup(this::bagForRole);
-        if (timers == null || timers.isShutdown()) {
-            timers = Executors.newSingleThreadScheduledExecutor(r -> {
-                final Thread t = new Thread(r, "CoopTrade-AckTimeout");
-                t.setDaemon(true);
-                return t;
-            });
-        }
         attached = true;
     }
 
@@ -91,31 +79,24 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         if (!attached) {
             return;
         }
-        cancelAckTimeout();
         try {
             CoopSession.get().removeOverworldListener(this);
         } catch (final Exception ignored) {
         }
         postGl(() -> {
             state.onTeardown();
-            if (state.isGuestRollbackPermitted()) {
-                rollbackGuestIfNeeded();
-            }
             state.reset();
         });
         attached = false;
     }
 
     public void onSessionPeerDisconnected() {
-        state.onDisconnect();
-        cancelAckTimeout();
         postGl(() -> {
-            // After guest ack: never roll back on disconnect.
-            if (state.isGuestRollbackPermitted()) {
-                rollbackGuestIfNeeded();
-            }
-            if (state.getStatus() == CoopTradeState.Status.NEEDS_RECONCILE) {
-                notifyHud("Trade pending reconcile…");
+            state.onDisconnect();
+            if (state.getStatus() == CoopTradeState.Status.NEEDS_RECONCILE
+                    || state.getStatus() == CoopTradeState.Status.ESCROWED
+                    || state.getStatus() == CoopTradeState.Status.DELIVERED) {
+                notifyHud("Trade pending… reconnect to finish");
                 closeTradeUi(null);
             } else {
                 closeTradeUi("Partner disconnected — trade cancelled");
@@ -124,18 +105,15 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         });
     }
 
-    /**
-     * Session ended. Reset runs after any permitted GL rollback; after guest
-     * ack, teardown does not roll back.
-     */
     public void onSessionEnded() {
-        cancelAckTimeout();
         postGl(() -> {
             state.onTeardown();
-            if (state.isGuestRollbackPermitted()) {
-                rollbackGuestIfNeeded();
+            // Keep NEEDS_RECONCILE / in-flight log; do not abandon.
+            if (state.getStatus() != CoopTradeState.Status.NEEDS_RECONCILE
+                    && state.getStatus() != CoopTradeState.Status.ESCROWED
+                    && state.getStatus() != CoopTradeState.Status.DELIVERED) {
+                state.reset();
             }
-            state.reset();
             closeTradeUi(null);
         });
     }
@@ -144,14 +122,20 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         if (!Config.ascendant() || !attached) {
             return;
         }
-        bindTradeLogSlot();
-        final List<CoopTradeReconcileEvent> events = state.buildReconcileRequests(true);
-        for (final CoopTradeReconcileEvent ev : events) {
-            CoopSession.get().send(ev);
-        }
+        postGl(() -> {
+            loadTradeLogFromPlayer();
+            final List<CoopTradeReconcileEvent> events = state.buildReconcileRequests(true);
+            for (final CoopTradeReconcileEvent ev : events) {
+                CoopSession.get().send(ev);
+            }
+        });
     }
 
     public void inviteTrade() {
+        postGl(this::inviteTradeGl);
+    }
+
+    private void inviteTradeGl() {
         if (!Config.ascendant() || !CoopHooks.isOverworldReady()) {
             return;
         }
@@ -168,479 +152,453 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             return;
         }
         final AdventurePlayer ap = Current.player();
+        final String name = ap != null ? ap.getName() : "Player";
         final int timeout = Math.max(5, Config.instance().getConfigData().coopTradeInviteTimeoutSeconds);
-        final boolean host = CoopHooks.isWorldAuthority();
-        final CoopTradeInviteEvent invite = state.beginInvite(
-                ap != null ? ap.getName() : "Player", timeout, host);
-        if (invite == null) {
-            notifyHud("Cannot trade right now");
-            return;
+        if (CoopHooks.isWorldAuthority()) {
+            final CoopTradeInviteEvent invite = state.beginInvite(name, timeout);
+            if (invite == null) {
+                notifyHud("Cannot trade right now");
+                return;
+            }
+            CoopSession.get().send(invite);
+            notifyHud("Trade invite sent");
+        } else {
+            final CoopTradeRequestEvent req = state.beginRequest(name);
+            if (req == null) {
+                notifyHud("Cannot trade right now");
+                return;
+            }
+            CoopSession.get().send(req);
+            notifyHud("Trade request sent");
         }
-        CoopSession.get().send(invite);
-        notifyHud("Trade invite sent");
     }
 
     public void acceptTradeInvite() {
-        final CoopTradeResponseEvent resp = state.respondInvite(true);
-        if (resp != null) {
-            CoopSession.get().send(resp);
-            openTradeUi();
-        }
+        postGl(() -> {
+            final CoopTradeResponseEvent resp = state.respondInvite(true);
+            if (resp != null) {
+                CoopSession.get().send(resp);
+                openTradeUi();
+            }
+        });
     }
 
     public void declineTradeInvite() {
-        final CoopTradeResponseEvent resp = state.respondInvite(false);
-        if (resp != null) {
-            CoopSession.get().send(resp);
-            notifyHud("Declined trade");
-        }
+        postGl(() -> {
+            final CoopTradeResponseEvent resp = state.respondInvite(false);
+            if (resp != null) {
+                CoopSession.get().send(resp);
+                notifyHud("Declined trade");
+            }
+        });
     }
 
     public void updateLocalOffer(final CoopTradeOffer offer) {
-        if (!state.isOpen()) {
-            return;
-        }
-        final CoopTradeRole role = localRole();
-        // Wire version: strictly greater than current local counter.
-        final int nextVer = state.getLocalOfferVersion() + 1;
-        final CoopTradeOfferEvent event = new CoopTradeOfferEvent(
-                state.getTradeId(), role, offer, nextVer);
-        state.setBagLookup(this::bagForRole);
-        final CoopTradeOfferEvent accepted = state.acceptOffer(event);
-        if (accepted == null) {
-            notifyHud("Offer rejected");
-            return;
-        }
-        CoopSession.get().send(accepted);
-        refreshUi();
+        postGl(() -> {
+            if (!state.isOpen()) {
+                return;
+            }
+            final CoopTradeRole role = localRole();
+            final int nextVer = state.getLocalOfferVersion() + 1;
+            final CoopTradeOfferEvent event = new CoopTradeOfferEvent(
+                    state.getTradeId(), role, offer, nextVer);
+            state.setBagLookup(this::bagForRole);
+            final CoopTradeOfferEvent accepted = state.acceptOffer(event);
+            if (accepted == null) {
+                notifyHud("Offer rejected");
+                return;
+            }
+            CoopSession.get().send(accepted);
+            refreshUi();
+        });
     }
 
     public void setLocalConfirmed(final boolean confirmed) {
-        if (!state.isOpen()) {
-            return;
-        }
-        final CoopTradeRole role = localRole();
-        final CoopTradeConfirmEvent event = new CoopTradeConfirmEvent(
-                state.getTradeId(), role, confirmed,
-                state.getLocalOfferVersion(), state.getPeerOfferVersion());
-        final boolean host = CoopHooks.isWorldAuthority();
-        final Object result = state.acceptConfirm(event, host);
-        if (result == null) {
-            notifyHud("Confirm rejected (stale offer?)");
-            return;
-        }
-        if (result instanceof CoopTradeExecuteEvent) {
-            CoopSession.get().send((CoopTradeExecuteEvent) result);
-            refreshUi();
-            return;
-        }
-        if (result instanceof CoopTradeCancelEvent) {
-            CoopSession.get().send((CoopTradeCancelEvent) result);
-            postGl(() -> closeTradeUi("Trade cancelled"));
-            return;
-        }
-        CoopSession.get().send(event);
-        refreshUi();
+        postGl(() -> {
+            if (!state.isOpen()) {
+                return;
+            }
+            final CoopTradeRole role = localRole();
+            final CoopTradeConfirmEvent event = new CoopTradeConfirmEvent(
+                    state.getTradeId(), role, confirmed,
+                    state.getLocalOfferVersion(), state.getPeerOfferVersion());
+            final CoopTradeState.ConfirmResult result = state.acceptConfirm(event);
+            if (result == CoopTradeState.ConfirmResult.IGNORED) {
+                notifyHud("Confirm rejected (stale offer?)");
+                return;
+            }
+            if (result == CoopTradeState.ConfirmResult.CANCELLED) {
+                final CoopTradeCancelEvent cancel = state.getLastCancel();
+                if (cancel != null) {
+                    CoopSession.get().send(cancel);
+                }
+                closeTradeUi("Trade cancelled");
+                return;
+            }
+            CoopSession.get().send(event);
+            if (result == CoopTradeState.ConfirmResult.BEGIN_ESCROW) {
+                performEscrow();
+            } else {
+                refreshUi();
+            }
+        });
     }
 
     public void cancelTrade(final String reason) {
-        if (!state.isCancelAllowed()) {
-            notifyHud("Cannot cancel after Execute");
-            return;
-        }
-        cancelAckTimeout();
-        final CoopTradeCancelEvent cancel = state.cancel(reason != null ? reason : "cancelled");
-        if (cancel == null) {
-            notifyHud("Cannot cancel right now");
-            return;
-        }
-        CoopSession.get().send(cancel);
         postGl(() -> {
-            if (state.isGuestRollbackPermitted()) {
-                rollbackGuestIfNeeded();
+            if (!state.isCancelAllowed()) {
+                notifyHud("Cannot cancel after confirm");
+                return;
             }
+            final CoopTradeCancelEvent cancel = state.cancel(reason != null ? reason : "cancelled");
+            if (cancel == null) {
+                notifyHud("Cannot cancel right now");
+                return;
+            }
+            CoopSession.get().send(cancel);
             closeTradeUi("Trade cancelled");
         });
     }
 
     @Override
+    public void onTradeRequest(final CoopTradeRequestEvent event) {
+        postGl(() -> {
+            if (event == null || !Config.ascendant() || !CoopHooks.isWorldAuthority()) {
+                return;
+            }
+            final AdventurePlayer ap = Current.player();
+            final String hostName = ap != null ? ap.getName() : "Host";
+            final int timeout = Math.max(5,
+                    Config.instance().getConfigData().coopTradeInviteTimeoutSeconds);
+            final CoopTradeInviteEvent invite = state.acceptRequest(
+                    event, hostName, timeout, System.currentTimeMillis());
+            if (invite == null) {
+                return;
+            }
+            CoopSession.get().send(invite);
+            notifyHud(cap(event.getFromPlayer()) + " requested a trade");
+        });
+    }
+
+    @Override
     public void onTradeInvite(final CoopTradeInviteEvent event) {
-        if (event == null || !Config.ascendant()) {
-            return;
-        }
-        final boolean host = CoopHooks.isWorldAuthority();
-        if (!state.receiveInvite(event, host)) {
-            return;
-        }
-        final boolean forceQueue = isHudBusy();
-        final CoopInviteUiState.Prompt shown = CoopOverworldRuntime.get().getInviteUi()
-                .enqueue(CoopInviteUiState.PromptKind.TRADE, event.getInviteId(),
-                        event.getFromPlayer(), "", forceQueue);
-        notifyHud(cap(event.getFromPlayer()) + " wants to trade");
-        if (shown != null) {
-            postGl(() -> GameHUD.getInstance().showCoopTradeInviteDialog(event.getFromPlayer()));
-        }
+        postGl(() -> {
+            if (event == null || !Config.ascendant()) {
+                return;
+            }
+            final boolean host = CoopHooks.isWorldAuthority();
+            if (!state.receiveInvite(event, host)) {
+                return;
+            }
+            final boolean forceQueue = isHudBusy();
+            final CoopInviteUiState.Prompt shown = CoopOverworldRuntime.get().getInviteUi()
+                    .enqueue(CoopInviteUiState.PromptKind.TRADE, event.getInviteId(),
+                            event.getFromPlayer(), "", forceQueue);
+            notifyHud(cap(event.getFromPlayer()) + " wants to trade");
+            if (shown != null) {
+                try {
+                    GameHUD.getInstance().showCoopTradeInviteDialog(event.getFromPlayer());
+                } catch (final Exception ignored) {
+                }
+            }
+        });
     }
 
     @Override
     public void onTradeResponse(final CoopTradeResponseEvent event) {
-        if (event == null) {
-            return;
-        }
-        final boolean host = CoopHooks.isWorldAuthority();
-        if (!state.applyPeerResponse(event, host)) {
-            return;
-        }
-        if (!event.isAccepted()) {
-            notifyHud("Partner declined the trade");
-            return;
-        }
-        openTradeUi();
+        postGl(() -> {
+            if (event == null) {
+                return;
+            }
+            final boolean host = CoopHooks.isWorldAuthority();
+            if (!state.applyPeerResponse(event, host)) {
+                return;
+            }
+            if (!event.isAccepted()) {
+                notifyHud("Partner declined the trade");
+                return;
+            }
+            openTradeUi();
+        });
     }
 
     @Override
     public void onTradeOffer(final CoopTradeOfferEvent event) {
-        if (event == null || !state.isOpen()) {
-            return;
-        }
-        if (event.getFromRole() == localRole()) {
-            return;
-        }
-        final CoopTradeOfferEvent accepted = state.acceptOffer(event);
-        if (accepted == null) {
-            if (CoopHooks.isWorldAuthority()) {
-                final CoopTradeCancelEvent cancel = state.cancel("invalid offer");
-                if (cancel != null) {
-                    CoopSession.get().send(cancel);
-                    postGl(() -> closeTradeUi("Invalid offer — trade cancelled"));
-                }
+        postGl(() -> {
+            if (event == null || !state.isOpen()) {
+                return;
             }
-            return;
-        }
-        if (CoopHooks.isWorldAuthority()) {
-            CoopSession.get().send(accepted);
-        }
-        refreshUi();
+            if (event.getFromRole() == localRole()) {
+                return;
+            }
+            final CoopTradeOfferEvent accepted = state.acceptOffer(event);
+            if (accepted == null) {
+                if (CoopHooks.isWorldAuthority()) {
+                    final CoopTradeCancelEvent cancel = state.cancel("invalid offer");
+                    if (cancel != null) {
+                        CoopSession.get().send(cancel);
+                        closeTradeUi("Invalid offer — trade cancelled");
+                    }
+                }
+                return;
+            }
+            if (CoopHooks.isWorldAuthority()) {
+                CoopSession.get().send(accepted);
+            }
+            refreshUi();
+        });
     }
 
     @Override
     public void onTradeConfirm(final CoopTradeConfirmEvent event) {
-        if (event == null || !state.isOpen()) {
-            return;
-        }
-        if (event.getFromRole() == localRole()) {
-            return;
-        }
-        final boolean host = CoopHooks.isWorldAuthority();
-        final Object result = state.acceptConfirm(event, host);
-        if (result == null) {
-            return;
-        }
-        if (result instanceof CoopTradeExecuteEvent) {
-            CoopSession.get().send((CoopTradeExecuteEvent) result);
-            refreshUi();
-            return;
-        }
-        if (result instanceof CoopTradeCancelEvent) {
-            CoopSession.get().send((CoopTradeCancelEvent) result);
-            postGl(() -> closeTradeUi("Trade cancelled"));
-            return;
-        }
-        if (host) {
-            CoopSession.get().send(event);
-        }
-        refreshUi();
+        postGl(() -> {
+            if (event == null || !state.isOpen()) {
+                return;
+            }
+            if (event.getFromRole() == localRole()) {
+                return;
+            }
+            final CoopTradeState.ConfirmResult result = state.acceptConfirm(event);
+            if (result == CoopTradeState.ConfirmResult.IGNORED) {
+                return;
+            }
+            if (result == CoopTradeState.ConfirmResult.CANCELLED) {
+                final CoopTradeCancelEvent cancel = state.getLastCancel();
+                if (cancel != null) {
+                    CoopSession.get().send(cancel);
+                }
+                closeTradeUi("Trade cancelled");
+                return;
+            }
+            if (CoopHooks.isWorldAuthority()) {
+                CoopSession.get().send(event);
+            }
+            if (result == CoopTradeState.ConfirmResult.BEGIN_ESCROW) {
+                performEscrow();
+            } else {
+                refreshUi();
+            }
+        });
     }
 
     @Override
     public void onTradeCancel(final CoopTradeCancelEvent event) {
-        if (event == null) {
-            return;
-        }
-        cancelAckTimeout();
-        if (!state.receiveCancel(event)) {
-            return;
-        }
         postGl(() -> {
-            if (state.isGuestRollbackPermitted()) {
-                rollbackGuestIfNeeded();
+            if (event == null) {
+                return;
+            }
+            if (!state.receiveCancel(event)) {
+                return;
             }
             closeTradeUi("Trade cancelled: " + event.getReason());
         });
     }
 
     @Override
-    public void onTradeExecute(final CoopTradeExecuteEvent event) {
-        if (event == null) {
-            return;
-        }
-        final boolean host = CoopHooks.isWorldAuthority();
-        if (!state.receiveExecute(event, host)) {
-            return;
-        }
-        if (host) {
-            refreshUi();
-            return;
-        }
-        // Claim under the lock BEFORE queuing GL work.
-        final CoopTradeExecuteEvent claimed = state.claimGuestApply(event.getTradeId());
-        if (claimed == null) {
-            return;
-        }
-        postGl(() -> guestApplyAndAck(claimed));
+    public void onTradeEscrowed(final CoopTradeEscrowedEvent event) {
+        postGl(() -> {
+            if (event == null) {
+                return;
+            }
+            if (!state.receivePeerEscrowed(event.getTradeId(), event.getFromRole())) {
+                // Still may need to deliver if shouldDeliver flips.
+            }
+            if (state.shouldDeliver()) {
+                performDeliver();
+            } else {
+                refreshUi();
+            }
+        });
     }
 
     @Override
-    public void onTradeAck(final CoopTradeAckEvent event) {
-        if (event == null) {
-            return;
-        }
-        if (event.getFromRole() == CoopTradeRole.GUEST && CoopHooks.isWorldAuthority()) {
-            final Object result = state.receiveGuestAck(event);
-            if (result instanceof CoopTradeCancelEvent) {
-                CoopSession.get().send((CoopTradeCancelEvent) result);
-                postGl(() -> closeTradeUi("Guest apply failed — nothing changed"));
+    public void onTradeDelivered(final CoopTradeDeliveredEvent event) {
+        postGl(() -> {
+            if (event == null) {
                 return;
             }
-            if (result instanceof CoopTradeAckEvent
-                    && ((CoopTradeAckEvent) result).getFromRole() == CoopTradeRole.HOST) {
-                CoopSession.get().send((CoopTradeAckEvent) result);
+            if (!state.receivePeerDelivered(event.getTradeId(), event.getFromRole())) {
                 return;
             }
-            if (!(result instanceof CoopTradeAckEvent)) {
-                return;
+            if (state.getStatus() == CoopTradeState.Status.COMPLETED
+                    || (state.getStatus() == CoopTradeState.Status.DELIVERED
+                    && state.isPeerDelivered())) {
+                closeTradeUi("Trade complete");
+                notifyHud("Trade complete");
+            } else {
+                refreshUi();
             }
-            postGl(() -> hostApplyAfterGuestAck(event));
-            return;
-        }
-        if (event.getFromRole() == CoopTradeRole.HOST && event.isSuccess()) {
-            cancelAckTimeout();
-            if (state.receiveHostComplete(event)) {
-                postGl(() -> {
-                    saveCharacterQuietly();
-                    closeTradeUi("Trade complete");
-                    notifyHud("Trade complete");
-                });
-            }
-        }
+        });
     }
 
     @Override
     public void onTradeReconcile(final CoopTradeReconcileEvent event) {
-        if (event == null || !Config.ascendant()) {
-            return;
-        }
-        final long now = System.currentTimeMillis();
-        if (event.isRequest()) {
-            final CoopTradeLog.Entry local = tradeLog.get(event.getTradeId());
-            final CoopTradeLog.Phase phase = local != null ? local.phase : CoopTradeLog.Phase.NONE;
-            CoopSession.get().send(new CoopTradeReconcileEvent(
-                    event.getTradeId(), localRole(), phase, false));
-        }
-        final CoopTradeLog.ReconcileAction action = state.applyReconcile(event, now);
-        handleReconcileAction(action, event.getTradeId());
+        postGl(() -> {
+            if (event == null || !Config.ascendant()) {
+                return;
+            }
+            final long now = System.currentTimeMillis();
+            if (event.isRequest()) {
+                final CoopTradeLog.Entry local = tradeLog.get(event.getTradeId());
+                final CoopTradeLog.Phase phase = local != null ? local.phase : CoopTradeLog.Phase.NONE;
+                CoopSession.get().send(new CoopTradeReconcileEvent(
+                        event.getTradeId(), localRole(), phase, false));
+            }
+            final CoopTradeLog.ReconcileAction action = state.applyReconcile(event, now);
+            handleReconcileAction(action, event.getTradeId());
+        });
     }
 
-    private void guestApplyAndAck(final CoopTradeExecuteEvent exec) {
-        if (!state.isGuestApplyClaimed(exec.getTradeId())) {
-            // Claim released (disconnect/teardown) before this GL runnable — do nothing.
-            return;
-        }
+    private void performEscrow() {
         final AdventurePlayer ap = Current.player();
         if (ap == null) {
-            final CoopTradeAckEvent fail = state.markGuestApplied(false, "no player",
-                    System.currentTimeMillis());
-            if (fail != null) {
-                CoopSession.get().send(fail);
-            }
             closeTradeUi("Trade failed");
             return;
         }
+        final long id = state.getTradeId();
+        if (tradeLog.hasEscrowed(id)) {
+            final CoopTradeEscrowedEvent again = state.markEscrowed(System.currentTimeMillis());
+            if (again != null) {
+                CoopSession.get().send(again);
+            }
+            if (state.shouldDeliver()) {
+                performDeliver();
+            }
+            return;
+        }
         final CoopTradeBag bag = new AdventurePlayerTradeBag(ap);
         final CoopTradeBag.Snapshot snap = bag.snapshot();
-        final CoopTradeOffer give = exec.getGuestOffer();
-        final CoopTradeOffer recv = exec.getHostOffer();
-        final long now = System.currentTimeMillis();
-        if (!state.isGuestApplyClaimed(exec.getTradeId())) {
-            return;
-        }
-        final CoopTradeApply.Result result = CoopTradeApply.applyLocalIdempotent(
-                exec.getTradeId(), CoopTradeRole.GUEST, tradeLog, bag, give, recv, snap);
+        final CoopTradeOffer own = state.getLocalOffer();
+        final CoopTradeApply.Result result = CoopTradeApply.escrowIdempotent(
+                id, tradeLog, bag, own, snap);
         if (!result.applied) {
-            final CoopTradeAckEvent fail = state.markGuestApplied(false, result.detail, now);
-            if (fail != null) {
-                CoopSession.get().send(fail);
+            // Goods unchanged (snap restore). abortPreEscrow is allowed before ESCROWED.
+            final CoopTradeCancelEvent cancel = state.abortPreEscrow(
+                    "escrow failed: " + result.detail);
+            notifyHud("Escrow failed — nothing moved");
+            if (cancel != null) {
+                CoopSession.get().send(cancel);
             }
-            closeTradeUi("Trade failed — nothing changed");
+            closeTradeUi("Trade cancelled");
             return;
         }
-        final CoopTradeAckEvent ack = state.markGuestApplied(true, "", now);
-        if (ack != null) {
-            CoopSession.get().send(ack);
+        final CoopTradeEscrowedEvent escrowed = state.markEscrowed(System.currentTimeMillis());
+        if (escrowed != null) {
+            CoopSession.get().send(escrowed);
         }
-        scheduleAckTimeout();
-        refreshUi();
+        // syncLogToPlayerAndSave via listener
+        if (state.shouldDeliver()) {
+            performDeliver();
+        } else {
+            refreshUi();
+            notifyHud("Offer locked in escrow…");
+        }
     }
 
-    private void hostApplyAfterGuestAck(final CoopTradeAckEvent guestAck) {
+    private void performDeliver() {
         final AdventurePlayer ap = Current.player();
-        final long claimId = guestAck != null ? guestAck.getTradeId() : state.getTradeId();
-        final CoopTradeExecuteEvent exec = state.beginHostApply(claimId);
-        if (ap == null || exec == null) {
-            if (tradeLog.hasLocalApply(claimId, CoopTradeRole.HOST)) {
-                CoopSession.get().send(new CoopTradeAckEvent(claimId, CoopTradeRole.HOST, true, "complete"));
-                closeTradeUi("Trade complete");
-                return;
+        if (ap == null) {
+            return;
+        }
+        final long id = state.getTradeId();
+        if (tradeLog.hasDelivered(id)) {
+            final CoopTradeDeliveredEvent again = state.markDelivered(System.currentTimeMillis());
+            if (again != null) {
+                CoopSession.get().send(again);
             }
-            final CoopTradeCancelEvent cancel = state.abortHostApply("host apply missing state");
-            if (cancel != null) {
-                CoopSession.get().send(cancel);
-            }
-            closeTradeUi("Trade failed — nothing changed");
             return;
         }
         final CoopTradeBag bag = new AdventurePlayerTradeBag(ap);
         final CoopTradeBag.Snapshot snap = bag.snapshot();
-        final CoopTradeApply.Result result = CoopTradeApply.applyLocalIdempotent(
-                exec.getTradeId(), CoopTradeRole.HOST, tradeLog, bag,
-                exec.getHostOffer(), exec.getGuestOffer(), snap);
+        final CoopTradeOffer peer = state.getPeerOffer();
+        final CoopTradeApply.Result result = CoopTradeApply.deliverIdempotent(
+                id, tradeLog, bag, peer, snap);
         if (!result.applied) {
-            final CoopTradeCancelEvent cancel = state.abortHostApply(
-                    "host apply failed: " + result.detail);
-            if (cancel != null) {
-                CoopSession.get().send(cancel);
-            }
-            closeTradeUi("Trade failed — guest will roll back");
+            notifyHud("Deliver failed — will retry on reconnect");
             return;
         }
-        final CoopTradeAckEvent complete = state.markHostCompleted();
-        if (complete != null) {
-            CoopSession.get().send(complete);
+        final CoopTradeDeliveredEvent delivered = state.markDelivered(System.currentTimeMillis());
+        if (delivered != null) {
+            CoopSession.get().send(delivered);
         }
-        saveCharacterQuietly();
-        closeTradeUi("Trade complete");
-        notifyHud("Trade complete");
+        if (state.getStatus() == CoopTradeState.Status.COMPLETED || state.isPeerDelivered()) {
+            closeTradeUi("Trade complete");
+            notifyHud("Trade complete");
+        } else {
+            refreshUi();
+            notifyHud("Goods received — waiting for partner");
+        }
     }
 
     private void handleReconcileAction(final CoopTradeLog.ReconcileAction action, final long tradeId) {
-        if (action == null || action == CoopTradeLog.ReconcileAction.NONE) {
+        if (action == null || action == CoopTradeLog.ReconcileAction.NONE
+                || action == CoopTradeLog.ReconcileAction.IGNORE_HOSTILE) {
             return;
         }
         switch (action) {
-            case RESEND_GUEST_ACK:
-                CoopSession.get().send(new CoopTradeAckEvent(tradeId, CoopTradeRole.GUEST, true, "reconcile"));
+            case RESEND_ESCROWED:
+                CoopSession.get().send(new CoopTradeEscrowedEvent(tradeId, localRole()));
                 break;
-            case RESEND_HOST_COMPLETE:
-                CoopSession.get().send(new CoopTradeAckEvent(tradeId, CoopTradeRole.HOST, true, "complete"));
+            case RESEND_DELIVERED:
+                CoopSession.get().send(new CoopTradeDeliveredEvent(tradeId, localRole()));
                 break;
-            case COMPLETE_GUEST:
-                cancelAckTimeout();
-                postGl(() -> {
-                    saveCharacterQuietly();
-                    closeTradeUi("Trade complete (reconciled)");
-                    notifyHud("Trade complete");
-                });
+            case DELIVER:
+                performDeliver();
                 break;
-            case ROLLBACK_GUEST:
-                cancelAckTimeout();
-                postGl(() -> {
-                    rollbackGuestIfNeeded();
-                    closeTradeUi("Trade cancelled (reconciled)");
-                    notifyHud("Trade rolled back");
-                });
+            case REFUND:
+                performRefund();
                 break;
-            case APPLY_HOST:
-                if (CoopHooks.isWorldAuthority()) {
-                    postGl(() -> hostApplyAfterGuestAck(
-                            new CoopTradeAckEvent(tradeId, CoopTradeRole.GUEST, true, "reconcile")));
-                }
-                break;
-            case ABORT:
-                postGl(() -> closeTradeUi("Trade aborted"));
+            case COMPLETE:
+                closeTradeUi("Trade complete (reconciled)");
+                notifyHud("Trade complete");
                 break;
             default:
                 break;
         }
     }
 
-    private void scheduleAckTimeout() {
-        cancelAckTimeout();
-        final int sec = Math.max(1, Config.instance().getConfigData().coopTradeAckTimeoutSeconds);
-        final ScheduledExecutorService exec = timers;
-        if (exec == null || exec.isShutdown()) {
-            return;
-        }
-        ackTimeoutFuture = exec.schedule(() -> {
-            final CoopTradeState.TimeoutOutcome outcome =
-                    state.expireGuestAckIfNeeded(System.currentTimeMillis(), sec * 1000L);
-            if (outcome == CoopTradeState.TimeoutOutcome.ALREADY_COMPLETE) {
-                postGl(() -> {
-                    closeTradeUi("Trade complete");
-                    notifyHud("Trade complete");
-                });
-            } else if (outcome == CoopTradeState.TimeoutOutcome.RECONCILE) {
-                postGl(() -> {
-                    notifyHud("Trade pending reconcile…");
-                    for (final CoopTradeReconcileEvent ev : state.buildReconcileRequests(true)) {
-                        CoopSession.get().send(ev);
-                    }
-                });
-            }
-        }, sec, TimeUnit.SECONDS);
-    }
-
-    private void cancelAckTimeout() {
-        final ScheduledFuture<?> f = ackTimeoutFuture;
-        ackTimeoutFuture = null;
-        if (f != null) {
-            f.cancel(false);
-        }
-    }
-
-    private void rollbackGuestIfNeeded() {
-        if (!state.isGuestRollbackPermitted() || !state.hasGuestRollbackLines()) {
-            return;
-        }
-        if (tradeLog.isAtLeast(state.getTradeId(), CoopTradeLog.Phase.HOST_COMMITTED)) {
-            return;
-        }
+    private void performRefund() {
         final AdventurePlayer ap = Current.player();
         if (ap == null) {
             return;
         }
-        state.rollbackGuestApply(new AdventurePlayerTradeBag(ap));
-        saveCharacterQuietly();
-    }
-
-    private void bindTradeLogSlot() {
-        try {
-            final AdventurePlayer ap = Current.player();
-            final String name = ap != null ? ap.getName() : "player";
-            final String slot = sanitize(name);
-            tradeLog.bindSlot(slot);
-            final Path dir = Paths.get(ForgeConstants.USER_ADVENTURE_DIR,
-                    Config.instance().getPlane(), "characters");
-            tradeLog.setPersistPath(dir.resolve(slot + ".tradelog"));
-        } catch (final Exception ignored) {
-            tradeLog.setPersistPath(null);
+        final long id = state.getTradeId();
+        final CoopTradeLog.Entry entry = tradeLog.get(id);
+        if (entry == null || tradeLog.hasDelivered(id)) {
+            return;
         }
+        final CoopTradeOffer own = localRole() == CoopTradeRole.HOST
+                ? entry.hostOffer : entry.guestOffer;
+        final CoopTradeApply.Result result = CoopTradeApply.refundEscrow(
+                new AdventurePlayerTradeBag(ap), own);
+        if (!result.applied) {
+            notifyHud("Refund failed");
+            return;
+        }
+        state.markRefunded(System.currentTimeMillis());
+        closeTradeUi("Trade refunded — partner never escrowed");
+        notifyHud("Your escrow was refunded");
     }
 
-    private static void saveCharacterQuietly() {
+    private void loadTradeLogFromPlayer() {
         try {
             final AdventurePlayer ap = Current.player();
             if (ap != null) {
-                CoopCharacterStore.savePlayer(ap);
+                tradeLog.decode(ap.getTradeLogBlob());
             }
         } catch (final Exception ignored) {
         }
     }
 
-    private static String sanitize(final String name) {
-        if (name == null || name.isEmpty()) {
-            return "player";
+    private void syncLogToPlayerAndSave() {
+        try {
+            final AdventurePlayer ap = Current.player();
+            if (ap != null) {
+                ap.setTradeLogBlob(tradeLog.encode());
+                CoopCharacterStore.savePlayer(ap);
+            }
+        } catch (final Exception ignored) {
         }
-        return name.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
     private CoopTradeRole localRole() {
@@ -655,17 +613,16 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             final AdventurePlayer ap = Current.player();
             return ap != null ? new AdventurePlayerTradeBag(ap) : null;
         }
+        // Peer bag unknown locally — confirm-time gold checks use null-safe validator.
         return null;
     }
 
     private void openTradeUi() {
-        postGl(() -> {
-            try {
-                Forge.switchScene(TradeScene.instance());
-            } catch (final Exception e) {
-                notifyHud("Could not open trade window");
-            }
-        });
+        try {
+            Forge.switchScene(TradeScene.instance());
+        } catch (final Exception e) {
+            notifyHud("Could not open trade window");
+        }
     }
 
     private void closeTradeUi(final String message) {
@@ -681,11 +638,9 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
     }
 
     private void refreshUi() {
-        postGl(() -> {
-            if (TradeScene.isOpen()) {
-                TradeScene.instance().refreshFromState();
-            }
-        });
+        if (TradeScene.isOpen()) {
+            TradeScene.instance().refreshFromState();
+        }
     }
 
     private static boolean isHudBusy() {
@@ -704,15 +659,16 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
     }
 
     private static void notifyHud(final String msg) {
-        postGl(() -> {
-            try {
-                GameHUD.getInstance().addNotification(CoopTradeWireLimits.clampText(msg));
-            } catch (final Exception ignored) {
-            }
-        });
+        try {
+            GameHUD.getInstance().addNotification(CoopTradeWireLimits.clampText(msg));
+        } catch (final Exception ignored) {
+        }
     }
 
-    private static void postGl(final Runnable r) {
+    /**
+     * Netty → GL only. When Gdx is absent (headless tests), run inline.
+     */
+    static void postGl(final Runnable r) {
         if (r == null) {
             return;
         }

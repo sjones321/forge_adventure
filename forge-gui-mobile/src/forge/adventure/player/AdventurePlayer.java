@@ -49,6 +49,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     private int maxDeckCount = 20;
     // Player profile data.
     private String name;
+    /** TR1 forward-only escrow trade log (encoded); empty on old saves. */
+    private String tradeLogBlob = "";
     private int heroRace;
     private int avatarIndex;
     private boolean isFemale;
@@ -281,6 +283,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         autoSellCards.clear();
         favoriteCards.clear();
         vaultCards.clear();
+        tradeLogBlob = "";
         AdventureEventController.clear();
         AdventureQuestController.clear();
         unsupportedCards.clear();
@@ -1756,6 +1759,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         announceFantasy = data.containsKey("announceFantasy") && data.readBool("announceFantasy");
         usingCustomDeck = data.containsKey("usingCustomDeck") && data.readBool("usingCustomDeck");
         announceCustom = data.containsKey("announceCustom") && data.readBool("announceCustom");
+        // TR1 trade log (absent on old saves → empty).
+        tradeLogBlob = data.containsKey("tradeLog") ? data.readString("tradeLog") : "";
+        if (tradeLogBlob == null) {
+            tradeLogBlob = "";
+        }
         if (migration) {
             getCurrentGameStage().setExtraAnnouncement(Forge.getLocalizer().getMessage("lblDataMigrationMsg"));
         }
@@ -2086,7 +2094,19 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         data.storeObject("vaultCards", vaultCards.toFlatList().toArray(new PaperCard[0]));
         data.storeObject("favoriteCards", favoriteCards.toArray(new PaperCard[0]));
 
+        // TR1: trade log lives in the same atomic character save as the bag.
+        data.store("tradeLog", tradeLogBlob != null ? tradeLogBlob : "");
+
         return data;
+    }
+
+    /** Encoded TR1 trade log (ESCROWED/DELIVERED/REFUNDED). Old saves → empty. */
+    public String getTradeLogBlob() {
+        return tradeLogBlob != null ? tradeLogBlob : "";
+    }
+
+    public void setTradeLogBlob(final String blob) {
+        tradeLogBlob = blob != null ? blob : "";
     }
 
     public String spriteName() {
