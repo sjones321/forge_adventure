@@ -124,6 +124,8 @@
   "coopDuelPartnerLifeFactor": 1.0,
   "coopDuelPartnerExtraCards": 0,
   "coopDuelPartnerLootRollsPerPlayer": 1,
+  "kDefaultPlaneFormat": "Standard",
+  "kStrictOverworldLegalDecks": false,
   "rw1FightRewards": true,
   "rw1SignatureCardCount": 1,
   "rw1CurrentSetCardShare": 1.0,

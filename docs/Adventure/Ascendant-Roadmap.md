@@ -66,6 +66,12 @@ Enemy drops add alternates by color: **feathers** (white), **hide** (green/white
 
 Gems (Mining, any tier, rare roll): Garnet, Sapphire, Emerald, Ruby, Onyx. Boss materials: one unique per boss.
 
+## Standing rule: every package says what it means in co-op (decided 2026-10-09)
+Co-op with a friend is part of the definitive game, not an add-on. Every package spec must include a **Co-op** bullet:
+what both players see and do, who is authoritative (the host), what is shared and what is per player, and how it is
+tested with two players. "Not applicable" is allowed only with a reason. Reviews reject packages that ship solo-only by
+accident.
+
 ## Work packages
 
 Dependencies are listed; packages without a dependency between them can run in parallel.
@@ -401,7 +407,12 @@ These packages turn the single big map into a home plane plus an endless chain o
 ### MV4. Delves (depends on MV1, B; absorbs N)
 - Temporary **pocket-plane portals** spawn at random in set planes. A delve is a chain of small instanced floors.
   Deeper floors: harder enemies, tier 4 nodes, gems, relics, guardians.
-- Delve types: **resource delve** (nodes and guardians) and **rift** (the roguelite run from N).
+- Delve types: **resource delve** (nodes and guardians), **rift** (the roguelite run from N) and **Horde** (below).
+- **Horde delve (co-op first):** an arena floor where the players face a pair of enemies at once; whenever one dies a
+  fresh one takes its place, until the players tap out (concede) or lose. Waves get harder and enemies come from the
+  plane's themes (EN1/EN2). Rewards scale with enemies beaten and the wave reached; banking rewards between waves is
+  allowed so tapping out is a choice. Solo is allowed (one enemy at a time). Best runs go on a co-op leaderboard in the
+  Hall of Fame (L).
 - Track deepest floor per account for the Hall of Fame and prestige XP.
 
 ### M update. Prestige XP
@@ -458,6 +469,11 @@ remote human can be added through `guiMap`. Nothing in Adventure knows about a s
 - Watch out for blocking `sendAndWait` prompts freezing the host while the guest decides; keep timeouts generous.
 
 ### CO5. World-bound partner characters (the Stardew "farmhand" model; decided 2026-10-09)
+**Amendment (2026-10-09, Steve): co-op worlds are their own saves.** Hosting only happens from a **co-op world**: a save
+created as co-op (New Game option) or converted once from a fresh world. Both players' characters for that world live
+in its save on the host's PC, including the **host's own co-op character**, which is separate from the host's solo
+characters. Progress is made together in that world. Solo saves of both players never enter co-op and never receive
+co-op progress. The partner rules below apply to the guest's character in that world.
 Replaces the CO1 guest save model (guest `.chr` files, stashing and restoring the guest's solo save, character-id
 migration). **Why:** a guest who brings their solo character carries their own rotation and set progress into a world
 whose rules belong to the host, so gyms and formats keep clashing, and every guest save path is a distributed-save
@@ -490,10 +506,28 @@ problem. A co-op character that lives in the host's world removes both.
   after a session; legacy `.chr` import; two different guests get two partners; a host with two worlds keeps separate
   partners.
 
-### CO4. Co-op systems (depends on CO2, MV3)
+### CO4. Co-op systems (depends on CO2, CO5, MV3)
 - Shared home base on the host's home plane: both can use stations, storage and outposts.
-- Trading cards, materials and items between players.
+- Trading cards, materials and items between players (TR1).
 - Co-op gyms and League (both must win), co-op delves, shared quest progress.
+
+### CO6. Co-op mechanics outside fights (depends on CO5; each item can be its own PR)
+Things that make playing together better than playing side by side.
+- **Assisted gathering:** two players channelling the same node gather faster and get a bonus roll. **Great nodes**
+  (an ancient ironwood, an ore motherlode, a leviathan carcass) spawn rarely, have lots of hits, and are really meant
+  for two (solo works but is slow).
+- **Combined crafting:** top-tier recipes with two steps at different stations done by different players (one forges
+  the base, the other enchants or inscribes it), so specializing pays off. Recipes say which skills each step needs.
+- **Shared quest log:** party quests give both players credit; some town and friendship events need both present.
+  Townsfolk remember the pair.
+- **Rescue run:** when one player loses a fight, the other can go fight that enemy to recover the lost gold or items
+  (a timed marker on the map).
+- **Tag-team gyms and League:** badge fights as a pair (both must win, or a 2HG match once K supports it).
+- **Map co-op:** shared pings ("come here"), shared bookmarks and waypoints, partner shown on the minimap.
+- **Fortress together:** both build, store and defend (FT3 raids side by side); a partner cabin or quarters in the
+  host's fortress (see the fortress design).
+- **Shared Archive progress:** both players' friendships feed the same world's Archive and Bell case.
+- Tests per mechanic with two players over loopback.
 
 ## Fortresses (see `Game-Vision.md`)
 

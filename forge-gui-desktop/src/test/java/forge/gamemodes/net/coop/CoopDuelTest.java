@@ -24,10 +24,10 @@ import java.util.function.Predicate;
 public class CoopDuelTest {
 
     @Test
-    public void protocolVersionIsExactlyNineForEn2LootRolls() {
-        // EN2 adds lootRolls on CoopDuelResultEvent. Value is feature/set-start + 1
-        // at review merge (base 8 → 9). Exact equality only — never >=.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
+    public void protocolVersionIsExactlyTenForPackageK() {
+        // CO2=5; CO3=6; MV1=7; MV2=8; EN2 lootRolls=9; Package K planeFormat=10.
+        // Exact equality only. Set to (feature/set-start) + 1 at review.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
     }
 
     @Test
