@@ -940,6 +940,9 @@ public abstract class AbstractGuiGame implements IGuiGame, IMayViewCards {
             awaitNextInputTimer = null;
         }
         daytime = null;
+        // DS1: combat-declare flags must not leak past match end.
+        combatDeclareAttackersInput = false;
+        combatDeclareBlockersInput = false;
     }
 
 }

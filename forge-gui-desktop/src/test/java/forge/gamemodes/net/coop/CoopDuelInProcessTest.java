@@ -627,8 +627,9 @@ public class CoopDuelInProcessTest {
         final RecordingRemote guestRemote = new RecordingRemote();
         final ProtocolGuiGame guestGui = new ProtocolGuiGame(guestRemote);
 
-        final RegisteredPlayer host = human("Host", landDeck("H", "Drifting Meadow"), 0);
-        final RegisteredPlayer guest = human("Guest", landDeck("G", "Drifting Meadow"), 0);
+        // Plains avoids cycling prompts that stall MAIN1 advancement in headless runs.
+        final RegisteredPlayer host = human("Host", landDeck("H", "Plains"), 0);
+        final RegisteredPlayer guest = human("Guest", landDeck("G", "Plains"), 0);
         final RegisteredPlayer enemy = ai("Enemy", landDeck("E", "Plains"), 1);
 
         final Map<RegisteredPlayer, forge.gui.interfaces.IGuiGame> guis = new HashMap<>();
@@ -641,13 +642,13 @@ public class CoopDuelInProcessTest {
         match.startMatch(rules, EnumSet.of(GameType.Constructed),
                 List.of(host, guest, enemy), guis, null);
 
-        // Warm until both seats are live and the guest has a hand card.
+        // Warm with OK-only (no tryPlayLand) — land selects stall MAIN1 in headless runs.
         final long warm = System.currentTimeMillis() + 60_000;
         while (System.currentTimeMillis() < warm
                 && (hostRemote.myPlayers == null || guestRemote.myPlayers == null
                 || guestGui.getGameView() == null)) {
-            answerOne(hostRemote, hostGui, true, false);
-            answerOne(guestRemote, guestGui, true, false);
+            answerOne(hostRemote, hostGui, false, false);
+            answerOne(guestRemote, guestGui, false, false);
         }
         assertNotNull(guestRemote.myPlayers, "guest openView");
 
@@ -671,8 +672,8 @@ public class CoopDuelInProcessTest {
         // If hand not yet synced, keep driving briefly.
         final long handWait = System.currentTimeMillis() + 30_000;
         while (handCard == null && System.currentTimeMillis() < handWait) {
-            answerOne(hostRemote, hostGui, true, false);
-            answerOne(guestRemote, guestGui, true, false);
+            answerOne(hostRemote, hostGui, false, false);
+            answerOne(guestRemote, guestGui, false, false);
             for (final PlayerView p : guestRemote.myPlayers) {
                 if (p == null || p.getHand() == null) {
                     continue;
@@ -722,48 +723,17 @@ public class CoopDuelInProcessTest {
 
         final NetGameController netGuest = new NetGameController(bridge);
         final CardView castCard = handCard;
-        final int handBefore = guestView.getHand().size();
-        // Same call modern drag-to-cast uses after ModernDuelActions.Kind.CAST.
+        // Same call modern one-press / drag-to-cast uses after ModernDuelActions.Kind.CAST.
         forge.gui.GuiBase.getInterface().invokeInEdtNow(
                 () -> netGuest.selectCard(castCard, null, null));
         flushEdt();
 
+        // Meaningful wire asserts (replaces the prior always-true composite check).
         assertEquals(selectCardSends.get(), 1,
                 "NetGameController guest sent selectCard once");
-        assertNotNull(sentCard.get());
+        assertNotNull(sentCard.get(), "selectCard payload present");
         assertEquals(sentCard.get().getId(), castCard.getId(),
                 "selectCard carried the hand card id");
-
-        // Allow the game thread to apply the play when legal (guest MAIN1).
-        final long settle = System.currentTimeMillis() + 20_000;
-        boolean applied = false;
-        while (System.currentTimeMillis() < settle) {
-            answerOne(hostRemote, hostGui, true, false);
-            answerOne(guestRemote, guestGui, false, false);
-            flushEdt();
-            final boolean stillInHand = guestView.getHand() != null
-                    && java.util.stream.StreamSupport.stream(guestView.getHand().spliterator(), false)
-                    .anyMatch(c -> c != null && c.getId() == castCard.getId());
-            if (!stillInHand || guestView.getHand().size() < handBefore) {
-                applied = true;
-                break;
-            }
-            if (guestView.getBattlefield() != null) {
-                for (final CardView c : guestView.getBattlefield()) {
-                    if (c != null && c.getId() == castCard.getId()) {
-                        applied = true;
-                        break;
-                    }
-                }
-            }
-            if (applied) {
-                break;
-            }
-            Thread.sleep(100);
-        }
-        // Wire delivery is required; battlefield apply depends on timing/phase — accept either.
-        assertTrue(selectCardSends.get() >= 1 && (applied || sentCard.get() != null),
-                "guest modern cast path delivered via NetGameController");
 
         forceConcedeHumans(match, false, null);
         waitGameOver(match, 20_000);

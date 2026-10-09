@@ -31,6 +31,7 @@ import forge.screens.match.CardFlightOverlay;
 import forge.screens.match.MatchController;
 import forge.screens.match.MatchScreen;
 import forge.screens.match.ModernDuelController;
+import forge.screens.match.ModernDuelGestures;
 import forge.screens.match.ModernDuelScreen;
 import forge.toolbox.FCardPanel;
 import forge.toolbox.FDisplayObject;
@@ -561,12 +562,19 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
 
         @Override
         public boolean tap(float x, float y, int count) {
-            if (count > 1) //prevent double choice lists or activate handle
-                return false;
-            if (ModernDuelScreen.enabled() && ModernDuelController.get().shouldSwallowTap()) {
+            // Modern: double-tap zooms (hand long-press peeks and would otherwise block zoom).
+            if (ModernDuelGestures.shouldZoomOnDoubleTap(ModernDuelScreen.enabled(), count)
+                    && renderedCardContains(x, y)) {
+                ModernDuelController.get().markTouchInput();
+                FThreads.invokeInEdtLater(CardAreaPanel.this::showZoom);
                 return true;
             }
+            if (count > 1) //prevent double choice lists or activate handle
+                return false;
             if (renderedCardContains(x, y)) {
+                if (ModernDuelScreen.enabled()) {
+                    ModernDuelController.get().markTouchInput();
+                }
                 //must invoke in game thread in case a dialog needs to be shown
                 ThreadUtil.invokeInGameThread(() -> {
                     if (GuiBase.getInterface().isRunningOnDesktop() && Forge.mouseButtonID == Input.Buttons.RIGHT) {
@@ -685,7 +693,15 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
         }
 
         public static Vector2 getTargetingArrowOrigin(FDisplayObject cardDisplay, boolean isTapped) {
-            Vector2 origin = new Vector2(cardDisplay.screenPos.x, cardDisplay.screenPos.y);
+            final Vector2 origin = new Vector2();
+            writeTargetingArrowOrigin(cardDisplay, isTapped, origin);
+            return origin;
+        }
+
+        /** Fill {@code out} without allocating — used by modern duel overlay each frame. */
+        public static void writeTargetingArrowOrigin(FDisplayObject cardDisplay, boolean isTapped,
+                                                    Vector2 out) {
+            out.set(cardDisplay.screenPos.x, cardDisplay.screenPos.y);
 
             float left = PADDING;
             float top = PADDING;
@@ -702,19 +718,23 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
                 h = temp;
             }
 
-            origin.x += left + w * TARGET_ORIGIN_FACTOR_X;
-            origin.y += top + h * TARGET_ORIGIN_FACTOR_Y;
-
-            return origin;
+            out.x += left + w * TARGET_ORIGIN_FACTOR_X;
+            out.y += top + h * TARGET_ORIGIN_FACTOR_Y;
         }
 
         public Vector2 getTargetingArrowOrigin() {
-            //don't show targeting arrow unless in display area that's visible
-            if (displayArea == null || !displayArea.isVisible()) {
-                return null;
-            }
+            final Vector2 origin = new Vector2();
+            return copyTargetingArrowOrigin(origin) ? origin : null;
+        }
 
-            return getTargetingArrowOrigin(this, isTapped());
+        /** @return false when the panel is not in a visible display area */
+        public boolean copyTargetingArrowOrigin(final Vector2 out) {
+            //don't show targeting arrow unless in display area that's visible
+            if (displayArea == null || !displayArea.isVisible() || out == null) {
+                return false;
+            }
+            writeTargetingArrowOrigin(this, isTapped(), out);
+            return true;
         }
 
         @Override

@@ -30,6 +30,7 @@ import forge.game.player.PlayerView;
 import forge.interfaces.IGameController;
 import forge.localinstance.skin.FSkinProp;
 import forge.screens.match.MatchController;
+import forge.screens.match.ModernDuelController;
 import forge.screens.match.ModernDuelScreen;
 import forge.toolbox.FDisplayObject;
 import forge.util.Utils;
@@ -57,10 +58,17 @@ public class VFloatingMana extends FDisplayObject {
     private boolean forceVisible;
     private int totalMana;
     private int focusedIndex = -1;
+    /** Cached pip count strings — rebuilt only when a pip amount changes. */
+    private final int[] cachedCounts = new int[COLORS.length];
+    private final String[] cachedCountText = new String[COLORS.length];
 
     public VFloatingMana(final PlayerView player0) {
         player = player0;
         setVisible(false);
+        for (int i = 0; i < COLORS.length; i++) {
+            cachedCounts[i] = Integer.MIN_VALUE;
+            cachedCountText[i] = "0";
+        }
     }
 
     public void setForceVisible(final boolean v) {
@@ -108,6 +116,10 @@ public class VFloatingMana extends FDisplayObject {
         final int idx = indexAt(x);
         if (idx < 0) {
             return false;
+        }
+        // Taps are touch — keep pad/touch arrow mode consistent.
+        if (ModernDuelScreen.enabled()) {
+            ModernDuelController.get().markTouchInput();
         }
         activate(COLORS[idx]);
         return true;
@@ -175,7 +187,11 @@ public class VFloatingMana extends FDisplayObject {
                 g.drawRect(Utils.scale(2), Color.WHITE, i * pipW + 1, 1, pipW - 2, h - 2);
             }
             g.drawImage(image, ix, iy, size, size);
-            g.drawText(Integer.toString(count), FONT, Color.WHITE,
+            if (cachedCounts[i] != count) {
+                cachedCounts[i] = count;
+                cachedCountText[i] = Integer.toString(count);
+            }
+            g.drawText(cachedCountText[i], FONT, Color.WHITE,
                     i * pipW, iy + size - FONT.getCapHeight(), pipW, FONT.getLineHeight(),
                     false, Align.center, false);
         }
