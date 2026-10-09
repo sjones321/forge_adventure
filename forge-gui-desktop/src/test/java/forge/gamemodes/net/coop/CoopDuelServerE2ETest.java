@@ -353,6 +353,10 @@ public class CoopDuelServerE2ETest {
         }
         assertNotNull(hostRemote.myPlayers, "host openView over ProtocolGuiGame");
 
+        // DS1: while the loopback match is live, prove the guest modern-cast path —
+        // NetGameController.selectCard over the real FGameClient wire.
+        assertGuestModernCastOverLoopback(guestName, hostRemote, hostGui);
+
         final long deadline = System.currentTimeMillis() + 45_000;
         int answered = 0;
         while (System.currentTimeMillis() < deadline) {
@@ -439,80 +443,16 @@ public class CoopDuelServerE2ETest {
     }
 
     /**
-     * DS1: guest modern cast over the real Netty path — {@link FServerManager} +
-     * {@link FGameClient} loopback, action via the guest's {@link NetGameController}.
+     * DS1: on a live FServerManager + FGameClient match, send a modern-cast
+     * {@code selectCard} through {@link NetGameController} and assert it hits the wire.
      */
-    @Test(timeOut = 180_000)
-    public void guestNetGameControllerModernCastOverLoopback() throws Exception {
-        TestUtils.ensureFModelInitialized();
-        FModel.getPreferences().setPref(FPref.UI_SHOW_ACTIONABLE_HIGHLIGHTS, false);
-        MyRandom.setRandom(new Random(31));
-
-        port = PortAllocator.allocatePort();
-        final String guestName = CoopDuelIdentity.normalizeUsername("Guest");
-        final String sessionCode = CoopDuelIdentity.normalizeSessionCode("CAST99ZZ");
-
-        server = FServerManager.getInstance();
-        final ServerGameLobby lobby = new ServerGameLobby();
-        server.setLobby(lobby);
-        server.setCoopSessionGate(guestName, sessionCode);
-        server.startServer(port, "127.0.0.1", Boolean.FALSE);
-        assertTrue(HostingServer.isHosting(), "co-op duel game server hosting");
-
-        // Keep guest auto-OK on through setup; pause only for the MAIN1 cast window.
-        guestLocalGui = new AutoRespondGuestGui(guestName);
-        guestClient = new FGameClient(guestName, guestLocalGui, "127.0.0.1", port, sessionCode);
-        guestClient.connect();
-
-        IGuiGame remoteGui = null;
-        final long connectDeadline = System.currentTimeMillis() + 20_000;
-        while (System.currentTimeMillis() < connectDeadline) {
-            remoteGui = server.getGui(1);
-            if (remoteGui != null) {
-                break;
-            }
-            Thread.sleep(50);
-        }
-        assertNotNull(remoteGui, "FServerManager.getGui(1) after FGameClient connect");
-
-        // Plains avoids cycling prompts that stall MAIN1 in headless loopback runs.
-        final RegisteredPlayer hostRp = new RegisteredPlayer(landDeck("Host", "Plains"))
-                .setPlayer(new LobbyPlayerHuman("Host"));
-        hostRp.setTeamNumber(0);
-        hostRp.setStartingLife(20);
-        final RegisteredPlayer guestRp = new RegisteredPlayer(landDeck("Guest", "Plains"))
-                .setPlayer(new LobbyPlayerHuman(guestName));
-        guestRp.setTeamNumber(0);
-        guestRp.setStartingLife(20);
-        final RegisteredPlayer enemyRp = new RegisteredPlayer(landDeck("Enemy", "Plains"))
-                .setPlayer(GamePlayerUtil.createAiPlayer("Enemy"));
-        enemyRp.setTeamNumber(1);
-        enemyRp.setStartingLife(20);
-
-        final CoopDuelInProcessTest.RecordingRemote hostRemote = new CoopDuelInProcessTest.RecordingRemote();
-        final ProtocolGuiGame hostGui = new ProtocolGuiGame(hostRemote);
-        final Map<RegisteredPlayer, IGuiGame> guis = new HashMap<>();
-        guis.put(hostRp, hostGui);
-        guis.put(guestRp, remoteGui);
-
-        final HostedMatch match = new HostedMatch();
-        final GameRules rules = new GameRules(GameType.Constructed);
-        rules.setGamesPerMatch(1);
-        rules.setManaBurn(false);
-        rules.setWarnAboutAICards(false);
-        match.startMatch(rules, EnumSet.of(GameType.Constructed),
-                List.of(hostRp, guestRp, enemyRp), guis, null);
-
-        final long warmDeadline = System.currentTimeMillis() + 45_000;
-        while (System.currentTimeMillis() < warmDeadline && hostRemote.myPlayers == null) {
-            answerHost(hostRemote, hostGui, false);
-        }
-        assertNotNull(hostRemote.myPlayers, "host openView");
-
-        // Wait until FGameClient has installed NetGameController for the guest seat.
+    private void assertGuestModernCastOverLoopback(
+            final String guestName,
+            final CoopDuelInProcessTest.RecordingRemote hostRemote,
+            final ProtocolGuiGame hostGui) throws Exception {
         PlayerView guestView = null;
         IGameController netCtrl = null;
-        final long ctrlDeadline = System.currentTimeMillis() + 60_000;
+        final long ctrlDeadline = System.currentTimeMillis() + 30_000;
         while (System.currentTimeMillis() < ctrlDeadline && netCtrl == null) {
             answerHost(hostRemote, hostGui, false);
             for (final PlayerView p : guestLocalGui.getLocalPlayers()) {
@@ -533,9 +473,8 @@ public class CoopDuelServerE2ETest {
         assertTrue(netCtrl instanceof NetGameController,
                 "guest seat must be NetGameController, was " + netCtrl.getClass().getName());
 
-        // Wait for opening hand sync on the client GameView (local PlayerView can lag).
         CardView castCard = null;
-        final long handDeadline = System.currentTimeMillis() + 60_000;
+        final long handDeadline = System.currentTimeMillis() + 30_000;
         while (System.currentTimeMillis() < handDeadline && castCard == null) {
             answerHost(hostRemote, hostGui, false);
             final GameView ggv = guestLocalGui.getGameView();
@@ -562,7 +501,6 @@ public class CoopDuelServerE2ETest {
         }
         assertNotNull(castCard, "guest hand card synced over loopback");
 
-        // Count selectCard on the real FGameClient wire (modern cast uses this path).
         final AtomicInteger selectCardSends = new AtomicInteger();
         final AtomicReference<CardView> sentCard = new AtomicReference<>();
         final FGameClient clientWire = guestClient;
@@ -592,7 +530,6 @@ public class CoopDuelServerE2ETest {
             forge.gui.GuiBase.getInterface().invokeInEdtAndWait(() -> { });
         } catch (final Exception ignored) {
         }
-        // Give the Netty write a moment.
         Thread.sleep(200);
         answerHost(hostRemote, hostGui, false);
 
@@ -601,23 +538,6 @@ public class CoopDuelServerE2ETest {
         assertNotNull(sentCard.get());
         assertEquals(sentCard.get().getId(), toCast.getId(),
                 "loopback selectCard carried the hand card id");
-
-        // Clean shutdown.
-        for (final forge.player.PlayerControllerHuman hc : match.getHumanControllers()) {
-            if (hc != null && hc.getPlayer() != null
-                    && !hc.getPlayer().hasLost() && !hc.getPlayer().conceded()) {
-                forge.gui.GuiBase.getInterface().invokeInEdtNow(hc::concede);
-            }
-        }
-        final long endWait = System.currentTimeMillis() + 20_000;
-        while (System.currentTimeMillis() < endWait) {
-            final GameView gv = match.getGameView();
-            if (gv != null && gv.isGameOver()) {
-                break;
-            }
-            answerHost(hostRemote, hostGui, true);
-            Thread.sleep(100);
-        }
     }
 
     /** Answer one host updateButtons prompt (incl. multiplayer start-player pick). */
