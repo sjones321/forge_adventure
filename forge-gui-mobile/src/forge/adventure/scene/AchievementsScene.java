@@ -15,7 +15,6 @@ import forge.adventure.data.AchievementListData;
 import forge.adventure.player.AchievementService;
 import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
-import forge.adventure.util.Current;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
