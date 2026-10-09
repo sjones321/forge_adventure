@@ -323,12 +323,20 @@ public class CoopDuelServerE2ETest {
         }
         assertNotNull(hostRemote.myPlayers, "host openView over ProtocolGuiGame");
 
+        // Warm a few host prompts so opening hands / NetGameController install can land.
+        final long castWarm = System.currentTimeMillis() + 15_000;
+        int warmed = 0;
+        while (System.currentTimeMillis() < castWarm && warmed < 6) {
+            if (answerHost(hostRemote, hostGui, false)) {
+                warmed++;
+            }
+        }
         // DS1: while the loopback match is live, prove the guest modern-cast path —
         // NetGameController.selectCard over the real FGameClient wire.
         assertGuestModernCastOverLoopback(guestName, hostRemote, hostGui);
 
         final long deadline = System.currentTimeMillis() + 45_000;
-        int answered = 0;
+        int answered = warmed;
         while (System.currentTimeMillis() < deadline) {
             final GameView gv = match.getGameView();
             if (gv != null && gv.isGameOver()) {
@@ -441,24 +449,32 @@ public class CoopDuelServerE2ETest {
                 }
             }
             if (castCard == null) {
+                // Prefer GameView players; also accept local seat hand.
+                final java.util.List<PlayerView> candidates = new java.util.ArrayList<>();
                 final GameView ggv = guestLocalGui.getGameView();
                 if (ggv != null && ggv.getPlayers() != null) {
                     for (final PlayerView p : ggv.getPlayers()) {
-                        if (p == null || p.getName() == null
-                                || !p.getName().equalsIgnoreCase(guestName)
-                                || p.getHand() == null) {
-                            continue;
-                        }
-                        for (final CardView c : p.getHand()) {
-                            if (c != null) {
-                                castCard = c;
-                                guestView = p;
-                                break;
-                            }
-                        }
-                        if (castCard != null) {
+                        candidates.add(p);
+                    }
+                }
+                candidates.addAll(guestLocalGui.getLocalPlayers());
+                for (final PlayerView p : candidates) {
+                    if (p == null || p.getHand() == null) {
+                        continue;
+                    }
+                    if (p.getName() != null && !p.getName().equalsIgnoreCase(guestName)
+                            && !guestLocalGui.isLocalPlayer(p)) {
+                        continue;
+                    }
+                    for (final CardView c : p.getHand()) {
+                        if (c != null) {
+                            castCard = c;
+                            guestView = p;
                             break;
                         }
+                    }
+                    if (castCard != null) {
+                        break;
                     }
                 }
             }
