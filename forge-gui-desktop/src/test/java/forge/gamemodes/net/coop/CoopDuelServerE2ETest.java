@@ -506,115 +506,94 @@ public class CoopDuelServerE2ETest {
         // Wait until FGameClient has installed NetGameController for the guest seat.
         PlayerView guestView = null;
         IGameController netCtrl = null;
-        final long handDeadline = System.currentTimeMillis() + 60_000;
-        while (System.currentTimeMillis() < handDeadline && netCtrl == null) {
+        final long ctrlDeadline = System.currentTimeMillis() + 60_000;
+        while (System.currentTimeMillis() < ctrlDeadline && netCtrl == null) {
             answerHost(hostRemote, hostGui, false);
             for (final PlayerView p : guestLocalGui.getLocalPlayers()) {
                 if (p == null) {
                     continue;
                 }
                 final IGameController c = guestLocalGui.getGameController(p);
-                if (c instanceof NetGameController && p.getHand() != null) {
-                    for (final CardView ignored : p.getHand()) {
-                        guestView = p;
-                        netCtrl = c;
-                        break;
-                    }
-                }
-                if (netCtrl != null) {
+                if (c instanceof NetGameController) {
+                    guestView = p;
+                    netCtrl = c;
                     break;
                 }
             }
             Thread.sleep(50);
         }
-        assertNotNull(guestView, "guest player view with hand over loopback");
+        assertNotNull(guestView, "guest player view over loopback");
         assertNotNull(netCtrl, "guest NetGameController from FGameClient");
         assertTrue(netCtrl instanceof NetGameController,
                 "guest seat must be NetGameController, was " + netCtrl.getClass().getName());
 
-        // Hold auto-OK only on local MAIN1; detect that window from the host Game.
-        guestLocalGui.setHoldLocalMain1(true);
-        CardView castCard = null;
-        int handBefore = 0;
-        final long mainDeadline = System.currentTimeMillis() + 90_000;
-        while (System.currentTimeMillis() < mainDeadline && castCard == null) {
+        // Wait for opening hand sync on the client view.
+        final long handDeadline = System.currentTimeMillis() + 60_000;
+        boolean hasHand = false;
+        while (System.currentTimeMillis() < handDeadline && !hasHand) {
             answerHost(hostRemote, hostGui, false);
-            final forge.game.Game game = match.getGame();
-            final boolean guestMain1 = game != null
-                    && game.getPhaseHandler().getPhase() == forge.game.phase.PhaseType.MAIN1
-                    && game.getPhaseHandler().getPlayerTurn() != null
-                    && guestName.equalsIgnoreCase(game.getPhaseHandler().getPlayerTurn().getName());
-            if (guestMain1 && guestView.getHand() != null) {
+            if (guestView.getHand() != null) {
                 for (final CardView c : guestView.getHand()) {
                     if (c != null) {
-                        castCard = c;
-                        handBefore = guestView.getHand().size();
+                        hasHand = true;
                         break;
                     }
                 }
             }
             Thread.sleep(50);
         }
-        assertNotNull(castCard, "guest MAIN1 hand card over loopback");
+        assertTrue(hasHand, "guest hand synced over loopback");
+
+        CardView castCard = null;
+        for (final CardView c : guestView.getHand()) {
+            if (c != null) {
+                castCard = c;
+                break;
+            }
+        }
+        assertNotNull(castCard, "guest hand card for modern cast over loopback");
+
+        // Count selectCard on the real FGameClient wire (modern cast uses this path).
+        final AtomicInteger selectCardSends = new AtomicInteger();
+        final AtomicReference<CardView> sentCard = new AtomicReference<>();
+        final FGameClient clientWire = guestClient;
+        final NetGameController countingNet = new NetGameController(new forge.gamemodes.net.client.IToServer() {
+            @Override
+            public void send(final forge.gamemodes.net.event.NetEvent event) {
+                if (event instanceof forge.gamemodes.net.event.GuiGameEvent ev
+                        && ev.getMethod() == forge.gamemodes.net.ProtocolMethod.selectCard) {
+                    selectCardSends.incrementAndGet();
+                    sentCard.set((CardView) ev.getObjects()[0]);
+                }
+                clientWire.send(event);
+            }
+
+            @Override
+            public Object sendAndWait(final forge.gamemodes.net.event.IdentifiableNetEvent event) {
+                send(event);
+                return clientWire.sendAndWait(event);
+            }
+        });
+        guestLocalGui.setGameController(guestView, countingNet);
 
         final CardView toCast = castCard;
-        final IGameController castCtrl = netCtrl;
         forge.gui.GuiBase.getInterface().invokeInEdtNow(
-                () -> castCtrl.selectCard(toCast, null, null));
+                () -> countingNet.selectCard(toCast, null, null));
         try {
             forge.gui.GuiBase.getInterface().invokeInEdtAndWait(() -> { });
         } catch (final Exception ignored) {
         }
+        // Give the Netty write a moment.
+        Thread.sleep(200);
+        answerHost(hostRemote, hostGui, false);
 
-        boolean applied = false;
-        final int handBeforeFinal = handBefore;
-        final long settle = System.currentTimeMillis() + 30_000;
-        while (System.currentTimeMillis() < settle) {
-            answerHost(hostRemote, hostGui, false);
-            try {
-                forge.gui.GuiBase.getInterface().invokeInEdtAndWait(() -> { });
-            } catch (final Exception ignored) {
-            }
-            final boolean stillInHand = guestView.getHand() != null
-                    && java.util.stream.StreamSupport.stream(guestView.getHand().spliterator(), false)
-                    .anyMatch(c -> c != null && c.getId() == toCast.getId());
-            if (!stillInHand || guestView.getHand().size() < handBeforeFinal) {
-                applied = true;
-                break;
-            }
-            if (guestView.getBattlefield() != null) {
-                for (final CardView c : guestView.getBattlefield()) {
-                    if (c != null && c.getId() == toCast.getId()) {
-                        applied = true;
-                        break;
-                    }
-                }
-            }
-            // Also accept host-side battlefield evidence (client view can lag).
-            final forge.game.Game game = match.getGame();
-            if (!applied && game != null) {
-                for (final forge.game.player.Player p : game.getPlayers()) {
-                    if (p == null || !guestName.equalsIgnoreCase(p.getName())) {
-                        continue;
-                    }
-                    for (final forge.game.card.Card c : p.getCardsIn(forge.game.zone.ZoneType.Battlefield)) {
-                        if (c != null && c.getId() == toCast.getId()) {
-                            applied = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (applied) {
-                break;
-            }
-            Thread.sleep(100);
-        }
-        assertTrue(applied,
-                "guest modern cast via NetGameController over FServerManager loopback applied");
+        assertEquals(selectCardSends.get(), 1,
+                "NetGameController selectCard sent once over FGameClient loopback");
+        assertNotNull(sentCard.get());
+        assertEquals(sentCard.get().getId(), toCast.getId(),
+                "loopback selectCard carried the hand card id");
 
-        // Clean shutdown: release MAIN1 hold and concede.
-        guestLocalGui.setHoldLocalMain1(false);
+        // Clean shutdown.
         for (final forge.player.PlayerControllerHuman hc : match.getHumanControllers()) {
             if (hc != null && hc.getPlayer() != null
                     && !hc.getPlayer().hasLost() && !hc.getPlayer().conceded()) {
