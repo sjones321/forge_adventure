@@ -4,6 +4,8 @@ import forge.adventure.data.FortressStructureData;
 import forge.adventure.data.FortressStructureListData;
 import forge.adventure.util.KeyBinding;
 
+import java.util.Set;
+
 /**
  * Grid-cursor build mode state (FT1). Keyboard, mouse and controller all drive the same
  * cursor / rotate / place / demolish actions.
@@ -100,14 +102,20 @@ public final class FortressBuildMode {
     }
 
     public boolean previewValid() {
-        return previewValid(Integer.MIN_VALUE, Integer.MIN_VALUE, -1, -1, 0, 0);
+        return previewValid(Integer.MIN_VALUE, Integer.MIN_VALUE, -1, -1, 0, 0, null);
     }
 
     public boolean previewValid(int playerGridX, int playerGridY,
                                 int entryGridX, int entryGridY, int mapW, int mapH) {
+        return previewValid(playerGridX, playerGridY, entryGridX, entryGridY, mapW, mapH, null);
+    }
+
+    public boolean previewValid(int playerGridX, int playerGridY,
+                                int entryGridX, int entryGridY, int mapW, int mapH,
+                                Set<Long> mapCollision) {
         return FortressBuildGrid.isValidPreview(instance, selectedStructure(),
                 cursorX, cursorY, rotationDeg, constructionLevel,
-                playerGridX, playerGridY, entryGridX, entryGridY, mapW, mapH);
+                playerGridX, playerGridY, entryGridX, entryGridY, mapW, mapH, mapCollision);
     }
 
     /**

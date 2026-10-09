@@ -108,6 +108,7 @@
   "fortressBuildableOriginY": 4,
   "fortressBuildableWidth": 16,
   "fortressBuildableHeight": 12,
+  "fortressStationInteractPadTiles": 0.5,
   "screenWidth": 480,
   "screenHeight": 270,
   "skin": "skin/ui_skin.json",
