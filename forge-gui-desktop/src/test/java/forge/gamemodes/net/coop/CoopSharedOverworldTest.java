@@ -112,9 +112,10 @@ public class CoopSharedOverworldTest {
             @Override public void onError(final String message, final Throwable cause) { }
         });
         client.connect();
-        Assert.assertTrue(guestReady.await(10, TimeUnit.SECONDS));
-        Assert.assertTrue(ready.await(10, TimeUnit.SECONDS));
-        Assert.assertTrue(gotMove.await(10, TimeUnit.SECONDS));
+        Assert.assertTrue(client.awaitConnected(5000), "client connect");
+        Assert.assertTrue(guestReady.await(10, TimeUnit.SECONDS), "guest did not get world offer");
+        Assert.assertTrue(ready.await(10, TimeUnit.SECONDS), "host did not get session ready");
+        Assert.assertTrue(gotMove.await(10, TimeUnit.SECONDS), "host did not get player move");
         Assert.assertEquals(received.get().getAvatarId(), "sprites/heroes/Human_m.atlas");
     }
 
@@ -505,8 +506,9 @@ public class CoopSharedOverworldTest {
     @Test
     public void unauthenticatedCoopMessagesAreIgnored() throws Exception {
         final AtomicInteger movesBeforeAuth = new AtomicInteger();
-        final AtomicBoolean sawMoveAfterAuth = new AtomicBoolean(false);
         final CountDownLatch connected = new CountDownLatch(1);
+        final CountDownLatch gotHello = new CountDownLatch(1);
+        final CountDownLatch gotMoveAfterAuth = new CountDownLatch(1);
 
         server = new CoopOverworldServer(port, new CoopMessageListener() {
             @Override public void onConnected() { connected.countDown(); }
@@ -515,10 +517,11 @@ public class CoopSharedOverworldTest {
                     if (!server.isGuestAuthenticated()) {
                         movesBeforeAuth.incrementAndGet();
                     } else {
-                        sawMoveAfterAuth.set(true);
+                        gotMoveAfterAuth.countDown();
                     }
                 } else if (event instanceof CoopHelloEvent) {
                     server.markGuestAuthenticated();
+                    gotHello.countDown();
                 }
             }
             @Override public void onDisconnected(final String reason) { }
@@ -529,9 +532,9 @@ public class CoopSharedOverworldTest {
 
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override public void onConnected() {
+                // Pre-auth move must be dropped by the server (never reaches onMessage).
                 client.send(new CoopPlayerMoveEvent(1f, 1f, 1f, 1L, "X", "sprites/heroes/Human_m.atlas"));
                 client.send(hello(sessionCode));
-                client.send(new CoopPlayerMoveEvent(3f, 3f, 1f, 3L, "X", "sprites/heroes/Human_m.atlas"));
             }
             @Override public void onMessage(final NetEvent event) { }
             @Override public void onDisconnected(final String reason) { }
@@ -539,9 +542,11 @@ public class CoopSharedOverworldTest {
         });
         client.connect();
         Assert.assertTrue(connected.await(5, TimeUnit.SECONDS));
-        Thread.sleep(500);
-        Assert.assertEquals(movesBeforeAuth.get(), 0);
-        Assert.assertTrue(sawMoveAfterAuth.get());
+        Assert.assertTrue(gotHello.await(10, TimeUnit.SECONDS), "hello not received");
+        Assert.assertEquals(movesBeforeAuth.get(), 0, "pre-auth move must not reach listener");
+        // Send the post-auth move only after hello has been processed.
+        client.send(new CoopPlayerMoveEvent(3f, 3f, 1f, 3L, "X", "sprites/heroes/Human_m.atlas"));
+        Assert.assertTrue(gotMoveAfterAuth.await(10, TimeUnit.SECONDS), "post-auth move not received");
     }
 
     @Test

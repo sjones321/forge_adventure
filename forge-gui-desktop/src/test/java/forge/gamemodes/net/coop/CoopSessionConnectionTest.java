@@ -342,9 +342,15 @@ public class CoopSessionConnectionTest {
             });
             holder.set(c);
             c.connect();
+            Assert.assertTrue(c.awaitConnected(5000), "attempt " + i + " connect");
             Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "attempt " + i + " not rejected");
             c.disconnect();
-            Thread.sleep(100);
+            // Wait until the guest slot is free before the next attempt (no fixed sleep).
+            final long slotDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (server.hasGuest() && System.nanoTime() < slotDeadline) {
+                Thread.yield();
+            }
+            Assert.assertFalse(server.hasGuest(), "guest slot still held after attempt " + i);
             Assert.assertEquals(hostState.get(), "HOSTING");
         }
         Assert.assertEquals(failures.get(), CoopPorts.SESSION_CODE_MAX_FAILURES);
