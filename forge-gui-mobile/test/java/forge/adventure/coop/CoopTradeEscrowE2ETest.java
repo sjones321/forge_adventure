@@ -720,9 +720,22 @@ public class CoopTradeEscrowE2ETest {
         void reconcileBoth() throws InterruptedException {
             hostLinked = true;
             guestLinked = true;
+            final long hostId = hostRt.getState().getTradeId();
+            final long guestId = guestRt.getState().getTradeId();
             hostRt.onSessionReadyReconcile();
             guestRt.onSessionReadyReconcile();
-            drainAll();
+            // Wait for Netty reconcile to settle; state tradeId may clear on COMPLETE.
+            if (hostId != 0L || guestId != 0L) {
+                drainUntil(() ->
+                        (hostId == 0L || hostRt.getTradeLog().hasDelivered(hostId)
+                                || (hostRt.getTradeLog().get(hostId) != null
+                                && hostRt.getTradeLog().get(hostId).phase == CoopTradeLog.Phase.REFUNDED))
+                        && (guestId == 0L || guestRt.getTradeLog().hasDelivered(guestId)
+                                || (guestRt.getTradeLog().get(guestId) != null
+                                && guestRt.getTradeLog().get(guestId).phase == CoopTradeLog.Phase.REFUNDED)));
+            } else {
+                drainAll();
+            }
         }
 
         void close() {
@@ -811,15 +824,15 @@ public class CoopTradeEscrowE2ETest {
         dual.confirm(true);
         dual.confirm(false);
 
-        dual.drainUntil(() -> dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId())
-                ^ dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+        final long id = dual.hostRt.getState().getTradeId();
+        dual.drainUntil(() -> dual.hostRt.getTradeLog().hasDelivered(id)
+                ^ dual.guestRt.getTradeLog().hasDelivered(id));
         dual.freezeAtStep();
-        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId())
-                ^ dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()),
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(id)
+                ^ dual.guestRt.getTradeLog().hasDelivered(id),
                 "must remain exactly-one-delivered after freeze");
 
-        final boolean hostHadDelivered =
-                dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId());
+        final boolean hostHadDelivered = dual.hostRt.getTradeLog().hasDelivered(id);
         if (hostHadDelivered) {
             dual.crashReloadGuest();
         } else {
@@ -828,8 +841,9 @@ public class CoopTradeEscrowE2ETest {
 
         dual.reconcileBoth();
 
-        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
-        Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+        // Assert against durable trade id — state tradeId may clear on COMPLETE.
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(id));
+        Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(id));
         assertBag(dual.hostPlayer.get(), 100, 4, 1, 2, 0);
         assertBag(dual.guestPlayer.get(), 80, 1, 3, 0, 1);
     }
@@ -878,6 +892,7 @@ public class CoopTradeEscrowE2ETest {
             }
             if ("after-escrow".equals(step)) {
                 dual.confirmEscrowBothFreeze();
+                final long id = dual.hostRt.getState().getTradeId();
                 dual.hostRt.onSessionPeerDisconnected();
                 dual.guestRt.onSessionPeerDisconnected();
                 dual.drainAll();
@@ -887,17 +902,18 @@ public class CoopTradeEscrowE2ETest {
                 dual.crashReloadHost();
                 dual.crashReloadGuest();
                 dual.reconcileBoth();
-                Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
-                Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+                Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(id));
+                Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(id));
                 assertBag(dual.hostPlayer.get(), 100, 4, 1, 2, 0);
                 assertBag(dual.guestPlayer.get(), 80, 1, 3, 0, 1);
                 continue;
             }
             // after-one-deliver
+            final long id = dual.hostRt.getState().getTradeId();
             dual.confirm(true);
             dual.confirm(false);
-            dual.drainUntil(() -> dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId())
-                    ^ dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+            dual.drainUntil(() -> dual.hostRt.getTradeLog().hasDelivered(id)
+                    ^ dual.guestRt.getTradeLog().hasDelivered(id));
             dual.freezeAtStep();
             dual.hostRt.onSessionPeerDisconnected();
             dual.guestRt.onSessionPeerDisconnected();
@@ -905,8 +921,8 @@ public class CoopTradeEscrowE2ETest {
             dual.crashReloadHost();
             dual.crashReloadGuest();
             dual.reconcileBoth();
-            Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
-            Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+            Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(id));
+            Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(id));
             assertBag(dual.hostPlayer.get(), 100, 4, 1, 2, 0);
             assertBag(dual.guestPlayer.get(), 80, 1, 3, 0, 1);
         }
@@ -945,11 +961,12 @@ public class CoopTradeEscrowE2ETest {
         dual.setOffer(false, matsOffer("iron", 1, 4, 0));
         dual.drainAll();
         dual.confirmEscrowBothFreeze();
+        final long escrowId = dual.hostRt.getState().getTradeId();
         dual.crashReloadHost();
         dual.crashReloadGuest();
         dual.reconcileBoth();
-        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
-        Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(escrowId));
+        Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(escrowId));
         assertBag(dual.hostPlayer.get(), 100, 4, 1, 2, 0);
         assertBag(dual.guestPlayer.get(), 80, 1, 3, 0, 1);
 
@@ -959,21 +976,21 @@ public class CoopTradeEscrowE2ETest {
         dual.setOffer(true, matsOffer("oak", 1, 5, 0));
         dual.setOffer(false, matsOffer("iron", 1, 4, 0));
         dual.drainAll();
+        final long oneDeliverId = dual.hostRt.getState().getTradeId();
         dual.confirm(true);
         dual.confirm(false);
-        dual.drainUntil(() -> dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId())
-                ^ dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+        dual.drainUntil(() -> dual.hostRt.getTradeLog().hasDelivered(oneDeliverId)
+                ^ dual.guestRt.getTradeLog().hasDelivered(oneDeliverId));
         dual.freezeAtStep();
-        final boolean hostDone =
-                dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId());
+        final boolean hostDone = dual.hostRt.getTradeLog().hasDelivered(oneDeliverId);
         if (hostDone) {
             dual.crashReloadGuest();
         } else {
             dual.crashReloadHost();
         }
         dual.reconcileBoth();
-        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(dual.hostRt.getState().getTradeId()));
-        Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(dual.guestRt.getState().getTradeId()));
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasDelivered(oneDeliverId));
+        Assert.assertTrue(dual.guestRt.getTradeLog().hasDelivered(oneDeliverId));
         assertBag(dual.hostPlayer.get(), 100, 4, 1, 2, 0);
         assertBag(dual.guestPlayer.get(), 80, 1, 3, 0, 1);
     }
