@@ -162,6 +162,14 @@
             <classifier>natives-desktop</classifier>
             <scope>test</scope>
         </dependency>
+        <!-- WorldStage.load → MapStage needs Box2D natives (same as forge-gui-mobile-dev). -->
+        <dependency>
+            <groupId>com.badlogicgames.gdx</groupId>
+            <artifactId>gdx-box2d-platform</artifactId>
+            <version>1.14.2</version>
+            <classifier>natives-desktop</classifier>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
 </project>

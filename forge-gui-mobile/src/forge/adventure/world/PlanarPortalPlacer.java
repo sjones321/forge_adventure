@@ -114,8 +114,12 @@ public final class PlanarPortalPlacer {
         if (template == null) {
             return 0;
         }
-        Set<String> existing = existingPortalTargets(world);
-        if (existing.contains(PlaneMeta.HOME_ID)) {
+        // Biome injection may already have placed a PlanarGate POI while road/sprite
+        // setup failed to clear terrain — always clear at the existing home gate so
+        // the live hash includes the walkable pad guests will replay.
+        if (existingPortalTargets(world).contains(PlaneMeta.HOME_ID)) {
+            clearTerrainForTarget(world, PlaneMeta.HOME_ID);
+            notifyCoopHashRefresh();
             return 0;
         }
         PointOfInterestData gate = copyGate(template, PlaneMeta.HOME_ID, "Portal to Home");
@@ -135,8 +139,8 @@ public final class PlanarPortalPlacer {
 
     /**
      * Place a Planar Gate at an exact world position (co-op guest replay / tests).
-     * {@code setCode} empty → target home. Clears terrain at the spot. Idempotent
-     * per destination target.
+     * {@code setCode} empty → target home. Always clears terrain at the host spot
+     * (even when the destination POI already exists from biome injection).
      *
      * @return true when a new gate was placed
      */
@@ -152,6 +156,9 @@ public final class PlanarPortalPlacer {
         final String planeId = (setCode == null || setCode.isEmpty())
                 ? PlaneMeta.HOME_ID
                 : SetPlaneGenerator.planeIdForSet(setCode);
+        // Host coordinates are authoritative for the walkable pad even if gen already
+        // registered a same-target POI (sprite/road clear may have been skipped).
+        world.clearTerrainAroundWorld(x, y, 3);
         if (existingPortalTargets(world).contains(planeId)) {
             return false;
         }
@@ -169,8 +176,26 @@ public final class PlanarPortalPlacer {
         poi.setDisplayName(display);
         poi.setTargetPlane(planeId);
         world.addPointOfInterest(poi);
-        world.clearTerrainAroundWorld(x, y, 3);
         return true;
+    }
+
+    /** Clear terrain at every planar gate aimed at {@code targetPlaneId}. */
+    private static void clearTerrainForTarget(World world, String targetPlaneId) {
+        if (world == null || targetPlaneId == null) {
+            return;
+        }
+        for (PointOfInterest poi : world.getAllPointOfInterest()) {
+            if (poi == null || poi.getTargetPlane() == null) {
+                continue;
+            }
+            if (!targetPlaneId.equalsIgnoreCase(poi.getTargetPlane())) {
+                continue;
+            }
+            Vector2 pos = poi.getPosition() != null ? poi.getPosition() : poi.getCenter();
+            if (pos != null) {
+                world.clearTerrainAroundWorld(pos.x, pos.y, 3);
+            }
+        }
     }
 
     /** After host gate placement: refresh co-op live-world hash if hosting. */

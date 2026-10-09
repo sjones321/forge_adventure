@@ -666,22 +666,27 @@ public class SetPlaneGeneratorTest {
 
     @Test(timeOut = 300_000)
     public void hostLiveSetPlaneHashMatchesGuestGateReplay() {
-        // Real paths on GL (WorldGenBench stack): materializeSetPlane → character save/load
-        // → live hash; guest = rebuildFromSeed + applyHostGates.
+        // Real paths on GL: home generateNew → materializeSetPlane → switchPlane →
+        // character save/load → live hash; guest = rebuildFromSeed + applyHostGates.
+        // (switchPlane stashes the live world, so home must be a real generated world.)
         AdventureGlTestSupport.runOnGl(() -> {
-            final long seed = 0xC0FFEE42L;
+            final long homeSeed = 0xC0FFEE01L;
             final String setCode = "DMU";
             final String planeId = SetPlaneGenerator.planeIdForSet(setCode);
-            final String path = "world/set_plane_world.json";
             final int slot = 77;
 
             PointOfInterestData.clearRuntimeCacheForTests();
             SetPlaneGenerator.ensurePlanarGateRegistered();
             Assert.assertTrue(SetPlaneRules.isKnownEdition(setCode), "FModel must know DMU");
 
+            forge.adventure.data.DifficultyData diff =
+                    forge.adventure.util.Config.instance().getConfigData().difficulties[0];
+            WorldSave.generateNewWorld("SetHashHost", true, 0, 0,
+                    forge.card.ColorSet.W, diff,
+                    forge.adventure.util.AdventureModes.Chaos, 0, null, homeSeed);
             WorldSave save = WorldSave.getCurrentSave();
-            ensureMinimalPlayerForSave(save);
-            save.getMultiverse().resetForNewGamePlus(1L, 0f, 0f);
+            Assert.assertEquals(save.getCurrentPlaneId(), PlaneMeta.HOME_ID);
+
             PlaneMeta meta = save.registerSetPlanePending(setCode);
             Assert.assertEquals(meta.getSetCode(), setCode);
             save.materializeSetPlane(planeId);
@@ -720,23 +725,44 @@ public class SetPlaneGeneratorTest {
                 forge.Forge.safeDispose(guest);
             }
 
-            // Revert checks (must fail if fix reverted) — unconditional.
-            World noReplay = new World();
+            // Revert / negative checks (unconditional). Set-plane biome injection already
+            // places+clears the return PlanarGate during generateNew, so skip-applyHostGates
+            // matches live by design — Steve's alternative: hash a mistaken regenerate
+            // (wrong seed / no mv2 stamp) or wrong gate coordinates instead of the live world.
+            World wrongSeed = new World();
             try {
-                String skipped = CoopWorldSync.rebuildFromSeed(
-                        noReplay, worldSeed, worldPath, planeId, mv2, null);
-                Assert.assertNotEquals(skipped, hostLiveHash,
-                        "skipping applyHostGates must not match live host");
+                String regenWrongSeed = CoopWorldSync.rebuildFromSeed(
+                        wrongSeed, worldSeed ^ 0x5A5A5A5AL, worldPath, planeId, mv2, gates);
+                Assert.assertNotEquals(regenWrongSeed, hostLiveHash,
+                        "regenerated world with wrong seed must not match live host hash");
             } finally {
-                forge.Forge.safeDispose(noReplay);
+                forge.Forge.safeDispose(wrongSeed);
             }
-            World stagingOnly = new World();
+            World wrongGates = new World();
             try {
-                CoopWorldSync.generateBaseContent(stagingOnly, worldSeed, worldPath, mv2);
-                Assert.assertNotEquals(CoopWorldSync.hashWorld(stagingOnly), hostLiveHash,
-                        "gate-free regenerate (old H1) must not match live host hash");
+                CoopWorldSync.generateBaseContent(wrongGates, worldSeed, worldPath, mv2);
+                forge.gamemodes.net.event.coop.CoopPlanarGateEntry[] shifted =
+                        new forge.gamemodes.net.event.coop.CoopPlanarGateEntry[gates.length];
+                for (int i = 0; i < gates.length; i++) {
+                    shifted[i] = new forge.gamemodes.net.event.coop.CoopPlanarGateEntry(
+                            gates[i].getSetCode(),
+                            gates[i].getX() + 160f,
+                            gates[i].getY() + 160f);
+                }
+                CoopWorldSync.applyHostGates(wrongGates, shifted);
+                Assert.assertNotEquals(CoopWorldSync.hashWorld(wrongGates), hostLiveHash,
+                        "wrong gate coordinates must not match live host hash");
             } finally {
-                forge.Forge.safeDispose(stagingOnly);
+                forge.Forge.safeDispose(wrongGates);
+            }
+            World noMv2 = new World();
+            try {
+                String bare = CoopWorldSync.rebuildFromSeed(
+                        noMv2, worldSeed, worldPath, planeId, "", gates);
+                Assert.assertNotEquals(bare, hostLiveHash,
+                        "guest without host mv2SetCode stamp must not match live host");
+            } finally {
+                forge.Forge.safeDispose(noMv2);
             }
         });
     }

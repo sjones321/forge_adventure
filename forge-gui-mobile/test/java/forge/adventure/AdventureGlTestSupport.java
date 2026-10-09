@@ -8,9 +8,12 @@ import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.utils.Json;
 import com.badlogic.gdx.utils.JsonWriter;
+import forge.Forge;
+import forge.Graphics;
 import forge.GuiMobile;
 import forge.adventure.data.SettingData;
 import forge.adventure.util.Config;
+import forge.adventure.util.Controls;
 import forge.assets.Assets;
 import forge.gui.GuiBase;
 import forge.localinstance.properties.ForgeConstants;
@@ -130,6 +133,8 @@ public final class AdventureGlTestSupport {
                     try {
                         ((GuiMobile) GuiBase.getInterface()).captureGlThread();
                         Texture.setAssetManager(Assets.getInstance().manager());
+                        // WorldStage / GameStage need a SpriteBatch via Forge.getGraphics().
+                        ensureForgeGraphics();
                         if (!Config.ascendant()) {
                             throw new IllegalStateException("Expected Shandalar Ascendant plane, got "
                                     + Config.instance().getPlane());
@@ -140,6 +145,8 @@ public final class AdventureGlTestSupport {
                             preferences.setPref(FPref.ENFORCE_DECK_LEGALITY, false);
                             return null;
                         });
+                        // Warm adventure UI skin so Controls.newDialog (GameStage ctor) works.
+                        Controls.getSkin();
                         READY.countDown();
                     } catch (Throwable t) {
                         startError = t;
@@ -188,6 +195,20 @@ public final class AdventureGlTestSupport {
             f.set(null, null);
         } catch (ReflectiveOperationException ignored) {
             // Config may already be Ascendant
+        }
+    }
+
+    /** Install a minimal {@link Graphics} so WorldStage can construct for save/switchPlane. */
+    private static void ensureForgeGraphics() throws ReflectiveOperationException {
+        if (Forge.getGraphics() != null) {
+            return;
+        }
+        java.lang.reflect.Field gf = Forge.class.getDeclaredField("graphics");
+        gf.setAccessible(true);
+        gf.set(null, new Graphics(Forge.HIGH_SPRITES_CAP));
+        // Touch adventure Paths.SKIN so class init is not the failure mode if skin load fails later.
+        if (forge.adventure.util.Paths.SKIN == null || forge.adventure.util.Paths.SKIN.isEmpty()) {
+            throw new IllegalStateException("Paths.SKIN missing");
         }
     }
 }
