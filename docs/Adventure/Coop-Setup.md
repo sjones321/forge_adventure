@@ -63,6 +63,8 @@ Use your Tailscale IPv4 (`100.x`). Leave empty (`""`) for all interfaces.
 3. On success the guest rebuilds the world from the host's seed into a **separate session world** (your normal save slots are never overwritten) and verifies a hash. If the hash does not match, co-op refuses with *"Builds or world data differ; update both copies"* and disconnects — there is no world-blob fallback.
 4. On disconnect your normal save is restored; your co-op character file under `characters/guest/<characterId>.chr` is updated and kept for the next join (solo saves are never overwritten by co-op). First join seeds that file from your solo player once. The host never writes into that guest namespace.
 
+**Release note (CO1 round 2):** Older builds stored co-op characters as `characters/<displayName>.chr` (and hosts sometimes exported into that same path). On first join after this update, that legacy file is **migrated** to `characters/guest/<characterId>.chr` and treated as your guest co-op character — including an old same-name host export if that is what remained under the display-name path. A stable `characterId` is minted on old solo saves and written back immediately so progress is not orphaned. Corrupt guest `.chr` files are quarantined to `.chr.corrupt` and reseeded from solo.
+
 ## Windows firewall
 
 Run these in an **Administrator** PowerShell on the **host** PC.

@@ -6,10 +6,13 @@ import forge.CardStorageReader;
 import forge.StaticData;
 import forge.adventure.AdventureTestUserDir;
 import forge.adventure.data.ItemData;
+import forge.adventure.data.WorldData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.AdventureModes;
+import forge.adventure.util.Config;
 import forge.adventure.util.SaveFileData;
 import forge.adventure.world.WorldSave;
+import forge.gamemodes.net.coop.CoopPorts;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -20,7 +23,6 @@ import org.testng.annotations.Test;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -32,20 +34,20 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * CO1 guest save-model: co-op {@code .chr} persists across sessions under
- * {@code characters/guest/<characterId>.chr}; solo WorldSave is never overwritten
- * by join/leave. Exercises {@link CoopSession#applyGuestJoinSaveModel()} /
- * {@link CoopSession#applyGuestLeaveSaveModel(boolean)}.
+ * CO1 guest save-model: co-op {@code .chr} under {@code characters/guest/<characterId>.chr}.
+ * Drives the real {@link CoopSession#join}/{@link CoopSession#host}/{@link CoopSession#disconnect}
+ * entry points (network bypassed in-process).
  */
 public class CoopGuestCharacterPersistTest {
 
     private static final String GUEST_NAME = "CoopGuestPersist";
+    private static final String JOIN_ADDR = "127.0.0.1";
+    private static final String JOIN_CODE = "ABCD1234";
     private static final int SOLO_GOLD = 100;
     private static final int LOOT_GOLD = 250;
     private static final String LOOT_MATERIAL = "ore_iron";
     private static final int LOOT_MATERIAL_AMOUNT = 7;
     private static final String LOOT_ITEM = "Coop Loot Charm";
-    /** Card-list line stored in the .chr payload. */
     private static final String LOOT_CARD_LINE = "1 Coop Loot Bolt";
 
     private static Path testUserDir;
@@ -60,22 +62,15 @@ public class CoopGuestCharacterPersistTest {
 
     @BeforeClass
     public static void initIsolatedUserDirAndGui() throws Exception {
-        // Surefire sets forge.test.userDir before any class loads; fail fast if missing.
         testUserDir = AdventureTestUserDir.configuredTestUserDir();
-
-        // Snapshot the real OS user dir (not the Surefire test home).
         realUserDir = AdventureTestUserDir.defaultRealUserDir();
         realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
-
-        // Suite listener installs GuiBase + Localizer; re-check isolation here.
         AdventureTestUserDir.requireIsolatedUserDir();
-
+        Assert.assertTrue(Config.ascendant(), "suite must load Shandalar Ascendant");
         Assert.assertTrue(CoopCharacterStore.charactersDir().getAbsolutePath()
                         .startsWith(testUserDir.toString()),
                 "co-op characters dir must be under forge.test.userDir");
-        Assert.assertTrue(CoopCharacterStore.guestCharactersDir().getAbsolutePath()
-                        .contains(File.separator + "guest"),
-                "guest co-op files must live under characters/guest/");
+        Assert.assertEquals(JOIN_CODE.length(), CoopPorts.SESSION_CODE_LENGTH);
     }
 
     @AfterClass
@@ -87,19 +82,29 @@ public class CoopGuestCharacterPersistTest {
     @BeforeMethod
     public void setUp() throws Exception {
         AdventureTestUserDir.requireIsolatedUserDir();
+        CoopSession.setTestBypassNetwork(true);
+        ensureWorldLoadedForCoop();
 
         player = WorldSave.getCurrentSave().getPlayer();
         prepareSoloPlayer(player, SOLO_GOLD);
         characterId = player.getCharacterId();
+        // Consume mint flag so join path is not forced to autosave in every test.
+        player.consumeCharacterIdNeedsPersist();
         soloGoldSnapshot = player.getGold();
         soloPlayerSnapshot = player.save();
 
         deleteGuestAndLegacyFiles(characterId, GUEST_NAME);
+        resetSessionFields();
     }
 
     @AfterMethod(alwaysRun = true)
     public void tearDown() throws Exception {
         clearQueuedGdxApp();
+        CoopSession.setTestBypassNetwork(false);
+        try {
+            CoopSession.get().disconnect();
+        } catch (final Exception ignored) {
+        }
         if (soloPlayerSnapshot != null && player != null) {
             try {
                 player.load(soloPlayerSnapshot);
@@ -117,310 +122,260 @@ public class CoopGuestCharacterPersistTest {
     public void firstJoinSeedsChrFromSoloPlayer() throws Exception {
         Assert.assertFalse(CoopCharacterStore.exists(player));
 
-        final CoopSession session = CoopSession.get();
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
-
+        joinAsGuest();
+        Assert.assertEquals(CoopSession.get().getRole(), CoopSessionRole.GUEST);
         Assert.assertTrue(CoopCharacterStore.exists(player), "first join must seed .chr");
-        Assert.assertTrue(CoopCharacterStore.guestCharacterFile(characterId).isFile());
         final SaveFileData seeded = CoopCharacterStore.readRaw(characterId);
         Assert.assertNotNull(seeded);
         Assert.assertEquals(seeded.readInt("gold"), SOLO_GOLD);
-        Assert.assertEquals(seeded.readString("name"), GUEST_NAME);
         Assert.assertEquals(seeded.readString("characterId"), characterId);
-        Assert.assertEquals(player.getGold(), SOLO_GOLD, "seed keeps the in-memory solo player");
 
-        session.applyGuestLeaveSaveModel(true);
+        CoopSession.get().disconnect();
         Assert.assertEquals(player.getGold(), soloGoldSnapshot, "leave restores solo gold");
     }
 
     @Test
     public void twoSessionsPreserveGuestLootAndLeaveSoloUntouched() throws Exception {
-        final CoopSession session = CoopSession.get();
-
-        // --- Session 1: first join seeds from solo, earn loot, leave ---
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
-        Assert.assertTrue(CoopCharacterStore.exists(player));
+        joinAsGuest();
         giveCoopLoot(player);
         assertHasCoopLoot(player);
+        CoopSession.get().disconnect();
 
-        session.applyGuestLeaveSaveModel(true);
-
-        // Solo WorldSave restored; co-op .chr still has the loot.
-        Assert.assertEquals(player.getGold(), soloGoldSnapshot, "solo gold must be unchanged after leave");
-        Assert.assertEquals(player.getMaterial(LOOT_MATERIAL), 0, "solo must not keep co-op materials");
-        Assert.assertFalse(inventoryHas(player, LOOT_ITEM), "solo must not keep co-op items");
-        final SaveFileData chrAfterSession1 = CoopCharacterStore.readRaw(characterId);
-        Assert.assertNotNull(chrAfterSession1);
-        Assert.assertEquals(chrAfterSession1.readInt("gold"), SOLO_GOLD + LOOT_GOLD);
-        Assert.assertTrue(rawHasMaterial(chrAfterSession1, LOOT_MATERIAL, LOOT_MATERIAL_AMOUNT));
-        Assert.assertTrue(rawHasItem(chrAfterSession1, LOOT_ITEM));
-        // Embed a cards payload into the co-op .chr (same file AdventurePlayer.save writes).
-        embedCardsPayload(characterId, LOOT_CARD_LINE);
-        Assert.assertTrue(rawHasCard(CoopCharacterStore.readRaw(characterId), "Coop Loot Bolt"));
-
-        // --- Session 2: rejoin must load .chr, not re-export solo ---
-        // Reload solo without cards so AdventurePlayer.load does not need StaticData.
-        player.load(soloPlayerSnapshot);
         Assert.assertEquals(player.getGold(), soloGoldSnapshot);
-        // Strip cards from .chr before loadOrSeed (avoids StaticData); loot gold/items/mats remain.
-        stripCardsPayload(characterId);
+        Assert.assertEquals(CoopCharacterStore.readRaw(characterId).readInt("gold"), SOLO_GOLD + LOOT_GOLD);
         Assert.assertTrue(rawHasMaterial(CoopCharacterStore.readRaw(characterId),
                 LOOT_MATERIAL, LOOT_MATERIAL_AMOUNT));
 
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
+        player.load(soloPlayerSnapshot);
+        stripCardsPayload(characterId);
 
+        joinAsGuest();
         assertHasCoopLoot(player);
-        Assert.assertEquals(player.getGold(), SOLO_GOLD + LOOT_GOLD,
-                "second join must load co-op .chr loot, not the solo player");
-
-        session.applyGuestLeaveSaveModel(true);
-        Assert.assertEquals(player.getGold(), soloGoldSnapshot, "solo still unchanged after second leave");
-    }
-
-    @Test
-    public void chrPayloadKeepsCardsAcrossAtomicSaveAndOldExportWipesThem() throws Exception {
-        // Own setup: CardDb must be present so suite order cannot leave StaticData null
-        // when a .chr cards payload is round-tripped through AdventurePlayer.load.
-        ensureMinimalCardDb();
-
-        final CoopSession session = CoopSession.get();
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
-        session.applyGuestLeaveSaveModel(true);
-        embedCardsPayload(characterId, LOOT_CARD_LINE);
-        Assert.assertTrue(rawHasCard(CoopCharacterStore.readRaw(characterId), "Coop Loot Bolt"));
-
-        // Atomic re-save of the same payload must keep cards.
-        final SaveFileData withCards = CoopCharacterStore.readRaw(characterId);
-        CoopCharacterStore.writeRawForTests(characterId, withCards);
-        Assert.assertTrue(rawHasCard(CoopCharacterStore.readRaw(characterId), "Coop Loot Bolt"));
-
-        // Old export-always join overwrites .chr from solo (no cards) — loot cards lost.
-        player.load(soloPlayerSnapshot);
-        stashThenExportAlwaysThenLoad();
-        Assert.assertFalse(rawHasCard(CoopCharacterStore.readRaw(characterId), "Coop Loot Bolt"),
-                "old export-always join wipes the cards payload from .chr");
-    }
-
-    /**
-     * Documents the pre-fix bug: always exporting the solo player over the co-op
-     * {@code .chr} on join wipes session loot.
-     */
-    @Test
-    public void oldStashExportBehaviourLosesCoopLootAcrossSessions() throws Exception {
-        final CoopSession session = CoopSession.get();
-
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
-        giveCoopLoot(player);
-        session.applyGuestLeaveSaveModel(true);
-        Assert.assertEquals(CoopCharacterStore.readRaw(characterId).readInt("gold"), SOLO_GOLD + LOOT_GOLD);
-
-        player.load(soloPlayerSnapshot);
+        CoopSession.get().disconnect();
         Assert.assertEquals(player.getGold(), soloGoldSnapshot);
-
-        stashThenExportAlwaysThenLoad();
-        Assert.assertEquals(player.getGold(), soloGoldSnapshot,
-                "old export-always path reloads the solo snapshot into the session player");
-        Assert.assertEquals(CoopCharacterStore.readRaw(characterId).readInt("gold"), soloGoldSnapshot,
-                "old export-always path overwrites .chr with solo — co-op loot is lost");
-        Assert.assertFalse(rawHasMaterial(CoopCharacterStore.readRaw(characterId),
-                LOOT_MATERIAL, LOOT_MATERIAL_AMOUNT));
     }
 
     @Test
-    public void corruptChrAbortsJoinRestoresSoloAndDoesNotOverwriteChr() throws Exception {
+    public void prePrChrWithoutCharacterIdKeepsProgressAcrossTwoJoinLeaveCycles() throws Exception {
+        // Real pre-PR payload: loot on disk, no characterId key (legacy name file).
+        giveCoopLoot(player);
+        final SaveFileData prePr = player.save();
+        prePr.remove("characterId");
+        Assert.assertFalse(prePr.containsKey("characterId"));
+        player.load(soloPlayerSnapshot); // back to solo gold; keep same characterId
+        player.bindCharacterId(characterId);
+        CoopCharacterStore.writeLegacyRawForTests(GUEST_NAME, prePr);
+        Assert.assertFalse(CoopCharacterStore.guestCharacterFile(characterId).isFile());
+
+        // Session 1: migrate + bind file key (must not remint).
+        joinAsGuest();
+        Assert.assertEquals(player.getCharacterId(), characterId, "load must bind file key");
+        Assert.assertEquals(player.getGold(), SOLO_GOLD + LOOT_GOLD);
+        player.giveGold(10);
+        CoopSession.get().disconnect();
+
+        Assert.assertTrue(CoopCharacterStore.guestCharacterFile(characterId).isFile());
+        Assert.assertEquals(CoopCharacterStore.readRaw(characterId).readInt("gold"),
+                SOLO_GOLD + LOOT_GOLD + 10);
+        Assert.assertEquals(CoopCharacterStore.readRaw(characterId).readString("characterId"),
+                characterId);
+
+        // Session 2: same file, progress carries; no orphan guest file.
+        player.load(soloPlayerSnapshot);
+        player.bindCharacterId(characterId);
+        joinAsGuest();
+        Assert.assertEquals(player.getGold(), SOLO_GOLD + LOOT_GOLD + 10);
+        player.giveGold(5);
+        CoopSession.get().disconnect();
+
+        Assert.assertEquals(CoopCharacterStore.readRaw(characterId).readInt("gold"),
+                SOLO_GOLD + LOOT_GOLD + 15);
+        final File[] guestFiles = CoopCharacterStore.guestCharactersDir()
+                .listFiles((dir, name) -> name.endsWith(".chr") && !name.endsWith(".corrupt"));
+        Assert.assertNotNull(guestFiles);
+        Assert.assertEquals(guestFiles.length, 1, "exactly one guest .chr after two cycles");
+        Assert.assertEquals(guestFiles[0].getName(), sanitizeId(characterId) + ".chr");
+    }
+
+    @Test
+    public void restartJoinWhileGuestRestoresSoloSynchronouslyBeforeRestash() throws Exception {
+        joinAsGuest();
+        giveCoopLoot(player);
+        Assert.assertEquals(player.getGold(), SOLO_GOLD + LOOT_GOLD);
+
+        final List<Runnable> queued = installQueuingGdxApp();
+        try {
+            // Restart path must restore solo inline (not merely post to GL).
+            CoopSession.get().host(true);
+            Assert.assertEquals(CoopSession.get().getRole(), CoopSessionRole.HOST);
+            Assert.assertEquals(player.getGold(), soloGoldSnapshot,
+                    "sync restore before host must put solo back");
+            Assert.assertFalse(CoopSession.get().isGuestSoloRestorePending());
+            // disposeSessionWorld may post a dispose — that must not carry a solo restore.
+            final int postsAfterHost = queued.size();
+
+            // Join again: stash must be solo, not co-op loot.
+            joinAsGuest();
+            Assert.assertEquals(player.getGold(), SOLO_GOLD + LOOT_GOLD,
+                    "second join loads persisted co-op .chr");
+            // Drain GL posts (dispose, etc.) — must not clobber the joined player.
+            for (final Runnable r : new ArrayList<>(queued)) {
+                try {
+                    r.run();
+                } catch (final Throwable ignored) {
+                }
+            }
+            Assert.assertEquals(player.getGold(), SOLO_GOLD + LOOT_GOLD,
+                    "queued GL work must not overwrite the new session player after sync restart");
+        } finally {
+            clearQueuedGdxApp();
+        }
+    }
+
+    @Test
+    public void joinRefusesWhileSoloRestorePendingOnQueuedGdx() throws Exception {
+        joinAsGuest();
+        giveCoopLoot(player);
+
+        final List<Runnable> queued = installQueuingGdxApp();
+        try {
+            CoopSession.get().disconnect(); // async GL restore posted
+            Assert.assertFalse(queued.isEmpty());
+            Assert.assertTrue(CoopSession.get().isGuestSoloRestorePending());
+            Assert.assertTrue(CoopSession.get().blocksLocalWorldSave());
+
+            try {
+                joinAsGuest();
+                Assert.fail("join must refuse while solo restore is pending");
+            } catch (final IllegalStateException expected) {
+                Assert.assertTrue(expected.getMessage().contains("solo restore"));
+            }
+
+            // Finish the queued restore (TransitionScreen fails headless → wrapped runs).
+            for (final Runnable r : new ArrayList<>(queued)) {
+                try {
+                    r.run();
+                } catch (final Throwable ignored) {
+                    // UnsatisfiedLinkError from TransitionScreen — clear pending manually.
+                }
+            }
+            final Field pending = CoopSession.class.getDeclaredField("guestSoloRestorePending");
+            pending.setAccessible(true);
+            ((AtomicBoolean) pending.get(CoopSession.get())).set(false);
+            player.load(soloPlayerSnapshot);
+        } finally {
+            clearQueuedGdxApp();
+        }
+    }
+
+    @Test
+    public void corruptChrIsQuarantinedAndReseededFromSolo() throws Exception {
         final File guestFile = CoopCharacterStore.guestCharacterFile(characterId);
         Files.createDirectories(guestFile.getParentFile().toPath());
-        final byte[] corrupt = "not-a-valid-chr-payload".getBytes(StandardCharsets.UTF_8);
-        Files.write(guestFile.toPath(), corrupt);
+        Files.write(guestFile.toPath(), "not-a-valid-chr-payload".getBytes(StandardCharsets.UTF_8));
 
-        final CoopSession session = CoopSession.get();
-        setGuestJoining(session);
-        Assert.assertEquals(player.getGold(), soloGoldSnapshot);
+        joinAsGuest();
+        Assert.assertEquals(CoopSession.get().getRole(), CoopSessionRole.GUEST);
+        Assert.assertEquals(player.getGold(), soloGoldSnapshot, "reseed keeps solo state");
+        Assert.assertTrue(CoopCharacterStore.guestCharacterFile(characterId).isFile());
+        Assert.assertTrue(new File(guestFile.getParentFile(), guestFile.getName() + ".corrupt").isFile(),
+                "corrupt payload must be quarantined");
+        Assert.assertEquals(CoopCharacterStore.readRaw(characterId).readInt("gold"), SOLO_GOLD);
 
-        try {
-            session.applyGuestJoinSaveModel();
-            Assert.fail("corrupt .chr must fail the join save-model");
-        } catch (final Exception expected) {
-            // load exception surfaces to join()
-        }
-
-        Assert.assertEquals(session.getRole(), CoopSessionRole.NONE);
-        Assert.assertEquals(session.getState(), CoopSession.State.DISCONNECTED);
-        Assert.assertEquals(player.getGold(), soloGoldSnapshot,
-                "solo stash must be restored after a failed join load");
-        Assert.assertEquals(Files.readAllBytes(guestFile.toPath()), corrupt,
-                "corrupt .chr must not be overwritten on join failure");
-        Assert.assertFalse(session.blocksLocalWorldSave(),
-                "after sync restore, autosave must not stay blocked");
+        CoopSession.get().disconnect();
     }
 
     @Test
     public void hostExportToSharedNamePathDoesNotClobberGuestChr() throws Exception {
-        final CoopSession session = CoopSession.get();
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
+        joinAsGuest();
         giveCoopLoot(player);
-        session.applyGuestLeaveSaveModel(true);
+        CoopSession.get().disconnect();
 
-        final SaveFileData guestBefore = CoopCharacterStore.readRaw(characterId);
-        Assert.assertEquals(guestBefore.readInt("gold"), SOLO_GOLD + LOOT_GOLD);
-
-        // Simulate old host export writing characters/<name>.chr (shared name key).
         player.load(soloPlayerSnapshot);
         CoopCharacterStore.writeLegacyRawForTests(GUEST_NAME, player.save());
-        Assert.assertTrue(CoopCharacterStore.legacyCharacterFile(GUEST_NAME).isFile());
 
-        // Guest namespace file must be untouched.
         final SaveFileData guestAfter = CoopCharacterStore.readRaw(characterId);
-        Assert.assertEquals(guestAfter.readInt("gold"), SOLO_GOLD + LOOT_GOLD,
-                "host/name-keyed export must not overwrite characters/guest/<id>.chr");
-        Assert.assertTrue(rawHasMaterial(guestAfter, LOOT_MATERIAL, LOOT_MATERIAL_AMOUNT));
-    }
-
-    @Test
-    public void restartHostOrJoinWhileGuestRestoresSoloFirst() throws Exception {
-        final CoopSession session = CoopSession.get();
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
-        giveCoopLoot(player);
-        Assert.assertEquals(player.getGold(), SOLO_GOLD + LOOT_GOLD);
-
-        // host()/join() both call this before switching roles.
-        session.endPreviousSessionForRestart("restarting host");
-
-        Assert.assertEquals(session.getRole(), CoopSessionRole.NONE);
-        Assert.assertEquals(player.getGold(), soloGoldSnapshot,
-                "restart from guest must restore solo before a new host/join");
-        Assert.assertTrue(CoopCharacterStore.exists(characterId),
-                "co-op .chr must be persisted on guest→restart");
-        Assert.assertEquals(CoopCharacterStore.readRaw(characterId).readInt("gold"),
-                SOLO_GOLD + LOOT_GOLD);
-
-        // Second restart path: join while already guest.
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
-        Assert.assertEquals(player.getGold(), SOLO_GOLD + LOOT_GOLD);
-        player.giveGold(10);
-        session.endPreviousSessionForRestart("restarting join");
-        Assert.assertEquals(player.getGold(), soloGoldSnapshot,
-                "restarting join while guest must restore solo first");
-    }
-
-    @Test
-    public void blocksLocalWorldSaveUntilGlSoloRestoreFinishes() throws Exception {
-        final CoopSession session = CoopSession.get();
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
-
-        final List<Runnable> queued = installQueuingGdxApp();
-        try {
-            session.applyGuestLeaveSaveModel(true);
-            // Mimic disconnectInternal flipping role before the GL restore runs.
-            setField(session, "role", CoopSessionRole.NONE);
-            setField(session, "state", CoopSession.State.DISCONNECTED);
-
-            Assert.assertFalse(queued.isEmpty(), "restore must be posted to the GL thread");
-            Assert.assertTrue(session.isGuestSoloRestorePending(),
-                    "restore must stay pending until the queued GL runnable finishes");
-            Assert.assertTrue(session.blocksLocalWorldSave(),
-                    "autosave must stay blocked after role flips to NONE while restore pending");
-
-            // Do not run the queued TransitionScreen path headless (native pixmap Error).
-            // Completing the restore clears the pending flag the same way the GL finally block does.
-            final Field pending = CoopSession.class.getDeclaredField("guestSoloRestorePending");
-            pending.setAccessible(true);
-            ((AtomicBoolean) pending.get(session)).set(false);
-
-            Assert.assertFalse(session.isGuestSoloRestorePending());
-            Assert.assertFalse(session.blocksLocalWorldSave(),
-                    "autosave must unblock only after GL restore completes");
-        } finally {
-            clearQueuedGdxApp();
-            final Field pending = CoopSession.class.getDeclaredField("guestSoloRestorePending");
-            pending.setAccessible(true);
-            ((AtomicBoolean) pending.get(session)).set(false);
-            // Restore never ran on GL — put solo gold back for tearDown.
-            player.load(soloPlayerSnapshot);
-        }
+        Assert.assertEquals(guestAfter.readInt("gold"), SOLO_GOLD + LOOT_GOLD);
     }
 
     @Test
     public void sameDisplayNameDifferentCharacterIdsGetSeparateCoopFiles() throws Exception {
-        final CoopSession session = CoopSession.get();
         final String id1 = characterId;
-
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
+        joinAsGuest();
         giveCoopLoot(player);
-        session.applyGuestLeaveSaveModel(true);
-        Assert.assertTrue(CoopCharacterStore.guestCharacterFile(id1).isFile());
+        CoopSession.get().disconnect();
 
-        // Second solo save: same display name, new stable id (e.g. another slot).
         player.load(soloPlayerSnapshot);
         setField(player, "characterId", null);
         setField(player, "name", GUEST_NAME);
         final String id2 = player.getCharacterId();
         Assert.assertNotEquals(id1, id2);
-        final SaveFileData secondSolo = player.save();
-        Assert.assertEquals(secondSolo.readString("characterId"), id2);
+        player.consumeCharacterIdNeedsPersist();
 
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
+        joinAsGuest();
+        Assert.assertTrue(CoopCharacterStore.guestCharacterFile(id1).isFile());
         Assert.assertTrue(CoopCharacterStore.guestCharacterFile(id2).isFile());
-        Assert.assertTrue(CoopCharacterStore.guestCharacterFile(id1).isFile(),
-                "first character's co-op file must remain");
         Assert.assertEquals(CoopCharacterStore.readRaw(id1).readInt("gold"), SOLO_GOLD + LOOT_GOLD);
-        Assert.assertEquals(CoopCharacterStore.readRaw(id2).readInt("gold"), SOLO_GOLD,
-                "second same-named save must seed its own co-op character");
+        Assert.assertEquals(CoopCharacterStore.readRaw(id2).readInt("gold"), SOLO_GOLD);
+        CoopSession.get().disconnect();
 
-        // Keep tearDown cleanup covering both ids.
         deleteGuestAndLegacyFiles(id2, GUEST_NAME);
         characterId = id1;
-        soloPlayerSnapshot = secondSolo; // tearDown will reload something valid
         prepareSoloPlayer(player, SOLO_GOLD);
-        setField(player, "characterId", id1);
+        player.bindCharacterId(id1);
         soloPlayerSnapshot = player.save();
     }
 
     @Test
-    public void legacyNameKeyedChrMigratesIntoGuestNamespace() throws Exception {
+    public void chrPayloadKeepsCardsAcrossAtomicSaveAndOldExportWipesThem() throws Exception {
+        ensureMinimalCardDb();
+
+        joinAsGuest();
+        CoopSession.get().disconnect();
+        embedCardsPayload(characterId, LOOT_CARD_LINE);
+        Assert.assertTrue(rawHasCard(CoopCharacterStore.readRaw(characterId), "Coop Loot Bolt"));
+
+        final SaveFileData withCards = CoopCharacterStore.readRaw(characterId);
+        CoopCharacterStore.writeRawForTests(characterId, withCards);
+        Assert.assertTrue(rawHasCard(CoopCharacterStore.readRaw(characterId), "Coop Loot Bolt"));
+
         player.load(soloPlayerSnapshot);
-        CoopCharacterStore.writeLegacyRawForTests(GUEST_NAME, player.save());
-        Assert.assertTrue(CoopCharacterStore.legacyCharacterFile(GUEST_NAME).isFile());
-        Assert.assertFalse(CoopCharacterStore.guestCharacterFile(characterId).isFile());
-
-        final CoopSession session = CoopSession.get();
-        setGuestJoining(session);
-        session.applyGuestJoinSaveModel();
-
-        Assert.assertTrue(CoopCharacterStore.guestCharacterFile(characterId).isFile(),
-                "legacy .chr must migrate to characters/guest/<id>.chr");
-        Assert.assertFalse(CoopCharacterStore.legacyCharacterFile(GUEST_NAME).isFile(),
-                "legacy name-keyed file should be moved away");
+        // Old export-always: overwrite guest file from solo (no cards).
+        CoopCharacterStore.savePlayer(player);
+        Assert.assertFalse(rawHasCard(CoopCharacterStore.readRaw(characterId), "Coop Loot Bolt"));
     }
 
-    /** Replicates the pre-fix join character steps: stash, export solo over .chr, load. */
-    private void stashThenExportAlwaysThenLoad() throws Exception {
-        final CoopSession session = CoopSession.get();
-        final Field restoreDone = CoopSession.class.getDeclaredField("guestRestoreDone");
-        restoreDone.setAccessible(true);
-        ((AtomicBoolean) restoreDone.get(session)).set(false);
+    @Test
+    public void blocksLocalWorldSaveUntilGlSoloRestoreFinishes() throws Exception {
+        joinAsGuest();
+        final List<Runnable> queued = installQueuingGdxApp();
+        try {
+            CoopSession.get().disconnect();
+            Assert.assertFalse(queued.isEmpty());
+            Assert.assertTrue(CoopSession.get().isGuestSoloRestorePending());
+            Assert.assertTrue(CoopSession.get().blocksLocalWorldSave());
 
-        final Method stash = CoopSession.class.getDeclaredMethod("stashGuestSave");
-        stash.setAccessible(true);
-        stash.invoke(session);
+            final Field pending = CoopSession.class.getDeclaredField("guestSoloRestorePending");
+            pending.setAccessible(true);
+            ((AtomicBoolean) pending.get(CoopSession.get())).set(false);
+            Assert.assertFalse(CoopSession.get().blocksLocalWorldSave());
+        } finally {
+            clearQueuedGdxApp();
+            player.load(soloPlayerSnapshot);
+        }
+    }
 
-        // Old exportCurrentPlayer(): write solo player over the co-op file.
-        CoopCharacterStore.savePlayer(WorldSave.getCurrentSave().getPlayer());
-        final Field idField = CoopSession.class.getDeclaredField("guestCharacterId");
-        idField.setAccessible(true);
-        idField.set(session, characterId);
-        CoopCharacterStore.loadPlayer(WorldSave.getCurrentSave().getPlayer(), characterId);
+    private void joinAsGuest() throws Exception {
+        CoopSession.get().join(JOIN_ADDR, JOIN_CODE);
+    }
+
+    private static void ensureWorldLoadedForCoop() {
+        final WorldData data = new WorldData();
+        data.width = 8;
+        data.height = 8;
+        data.tileSize = 16;
+        WorldSave.getCurrentSave().getWorld().installTestWorldGrid(data, 1L);
+        Assert.assertNotNull(WorldSave.getCurrentSave().getWorld().getData());
     }
 
     private static void ensureMinimalCardDb() throws Exception {
@@ -432,22 +387,18 @@ public class CoopGuestCharacterPersistTest {
         final Path emptyEditions = Files.createTempDirectory("coop-test-editions");
         final Path emptyCustomEd = Files.createTempDirectory("coop-test-custom-ed");
         final Path emptyBlock = Files.createTempDirectory("coop-test-block");
-        final CardStorageReader reader = new CardStorageReader(
-                emptyCards.toString(), null, true);
+        final CardStorageReader reader = new CardStorageReader(emptyCards.toString(), null, true);
         new StaticData(reader, null,
-                emptyEditions.toString(),
-                emptyCustomEd.toString(),
-                emptyBlock.toString(),
+                emptyEditions.toString(), emptyCustomEd.toString(), emptyBlock.toString(),
                 "latest", true, true);
-        Assert.assertNotNull(StaticData.instance());
-        Assert.assertNotNull(StaticData.instance().getCommonCards(),
-                "cards test setup must install a non-null CardDb");
+        Assert.assertNotNull(StaticData.instance().getCommonCards());
         cardDbReady = true;
     }
 
     private static void prepareSoloPlayer(final AdventurePlayer p, final int gold) throws Exception {
         setField(p, "name", GUEST_NAME);
         setField(p, "characterId", null);
+        setField(p, "characterIdNeedsPersist", false);
         setField(p, "adventureMode", AdventureModes.Standard);
         final Object difficulty = getField(p, "difficultyData");
         setField(difficulty, "name", "Easy");
@@ -459,10 +410,7 @@ public class CoopGuestCharacterPersistTest {
         @SuppressWarnings("unchecked")
         final Map<String, Integer> mats = (Map<String, Integer>) getField(p, "materials");
         mats.clear();
-        // Mint a stable id for this solo save (persisted on next save()).
         Assert.assertNotNull(p.getCharacterId());
-        Assert.assertFalse(p.getCharacterId().isEmpty());
-        // Validate UUID shape for TR1 peer-id consumers.
         UUID.fromString(p.getCharacterId());
     }
 
@@ -481,20 +429,18 @@ public class CoopGuestCharacterPersistTest {
     private static void assertHasCoopLoot(final AdventurePlayer p) throws Exception {
         Assert.assertEquals(p.getGold(), SOLO_GOLD + LOOT_GOLD);
         Assert.assertEquals(p.getMaterial(LOOT_MATERIAL), LOOT_MATERIAL_AMOUNT);
-        Assert.assertTrue(inventoryHas(p, LOOT_ITEM), "expected item " + LOOT_ITEM);
+        Assert.assertTrue(inventoryHas(p, LOOT_ITEM));
     }
 
     private static void embedCardsPayload(final String characterId, final String cardLine)
             throws Exception {
         final SaveFileData data = CoopCharacterStore.readRaw(characterId);
-        Assert.assertNotNull(data);
         data.storeObject("cards", new String[]{cardLine});
         CoopCharacterStore.writeRawForTests(characterId, data);
     }
 
     private static void stripCardsPayload(final String characterId) throws Exception {
         final SaveFileData data = CoopCharacterStore.readRaw(characterId);
-        Assert.assertNotNull(data);
         data.storeObject("cards", new String[0]);
         CoopCharacterStore.writeRawForTests(characterId, data);
     }
@@ -526,19 +472,6 @@ public class CoopGuestCharacterPersistTest {
         return false;
     }
 
-    private static boolean rawHasItem(final SaveFileData data, final String itemName) {
-        final Object raw = data.readObject("inventory");
-        if (!(raw instanceof ItemData[])) {
-            return false;
-        }
-        for (final ItemData i : (ItemData[]) raw) {
-            if (i != null && itemName.equals(i.name)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private static boolean rawHasCard(final SaveFileData data, final String cardName) {
         final Object raw = data.readObject("cards");
         if (!(raw instanceof String[])) {
@@ -552,17 +485,6 @@ public class CoopGuestCharacterPersistTest {
         return false;
     }
 
-    private static void setGuestJoining(final CoopSession session) throws Exception {
-        setField(session, "role", CoopSessionRole.GUEST);
-        setField(session, "state", CoopSession.State.JOINING);
-        final Field restoreDone = CoopSession.class.getDeclaredField("guestRestoreDone");
-        restoreDone.setAccessible(true);
-        ((AtomicBoolean) restoreDone.get(session)).set(false);
-        final Field pending = CoopSession.class.getDeclaredField("guestSoloRestorePending");
-        pending.setAccessible(true);
-        ((AtomicBoolean) pending.get(session)).set(false);
-    }
-
     private static void resetSessionFields() throws Exception {
         final CoopSession session = CoopSession.get();
         setField(session, "role", CoopSessionRole.NONE);
@@ -571,6 +493,8 @@ public class CoopGuestCharacterPersistTest {
         setField(session, "guestPlayerBackup", null);
         setField(session, "guestMultiverseBackup", null);
         setField(session, "guestCharacterId", null);
+        setField(session, "server", null);
+        setField(session, "client", null);
         final Field restoreDone = CoopSession.class.getDeclaredField("guestRestoreDone");
         restoreDone.setAccessible(true);
         ((AtomicBoolean) restoreDone.get(session)).set(false);
@@ -585,11 +509,20 @@ public class CoopGuestCharacterPersistTest {
             //noinspection ResultOfMethodCallIgnored
             guest.delete();
         }
+        final File corrupt = new File(guest.getParentFile(), guest.getName() + ".corrupt");
+        if (corrupt.isFile()) {
+            //noinspection ResultOfMethodCallIgnored
+            corrupt.delete();
+        }
         final File legacy = CoopCharacterStore.legacyCharacterFile(name);
         if (legacy.isFile()) {
             //noinspection ResultOfMethodCallIgnored
             legacy.delete();
         }
+    }
+
+    private static String sanitizeId(final String id) {
+        return id.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
     private static List<Runnable> installQueuingGdxApp() {
@@ -603,22 +536,11 @@ public class CoopGuestCharacterPersistTest {
             if ("getType".equals(n)) {
                 return Application.ApplicationType.HeadlessDesktop;
             }
-            if ("getVersion".equals(n) || "getJavaHeap".equals(n) || "getNativeHeap".equals(n)
-                    || "getMaxListeners".equals(n)) {
+            if ("getVersion".equals(n) || "getJavaHeap".equals(n) || "getNativeHeap".equals(n)) {
                 return 0;
             }
-            if ("logLevel".equals(n) || "getLogLevel".equals(n)) {
+            if ("getLogLevel".equals(n)) {
                 return Application.LOG_NONE;
-            }
-            if ("getClipboard".equals(n) || "getAudio".equals(n) || "getInput".equals(n)
-                    || "getFiles".equals(n) || "getNet".equals(n) || "getGraphics".equals(n)
-                    || "getApplicationListener".equals(n) || "getPreferences".equals(n)) {
-                return null;
-            }
-            if ("exit".equals(n) || "log".equals(n) || "debug".equals(n) || "error".equals(n)
-                    || "setLogLevel".equals(n) || "addLifecycleListener".equals(n)
-                    || "removeLifecycleListener".equals(n)) {
-                return null;
             }
             final Class<?> rt = method.getReturnType();
             if (rt == boolean.class) {

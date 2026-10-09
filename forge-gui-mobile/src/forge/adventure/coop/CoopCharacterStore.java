@@ -23,7 +23,8 @@ import java.util.zip.InflaterInputStream;
  *
  * <p>Files live under {@code characters/guest/<characterId>.chr} so a host
  * (or another solo save with the same display name) cannot overwrite them.
- * Legacy {@code characters/<name>.chr} files are migrated on first join.
+ * Legacy {@code characters/<name>.chr} files (including old same-name host
+ * exports) are migrated on first join.
  */
 public final class CoopCharacterStore {
     /** Test-only override for {@link #charactersDir()}; null uses the real path. */
@@ -102,9 +103,18 @@ public final class CoopCharacterStore {
         writeAtomic(file, player.save());
     }
 
+    /**
+     * Load guest {@code .chr} for {@code characterId} into {@code target}.
+     * After load, forces {@code target}'s character id to the file key so a
+     * pre-PR payload without {@code characterId} cannot mint a new id and orphan
+     * this file. When the payload lacked an id, rewrites the file with the bound id.
+     */
     public static boolean loadPlayer(final AdventurePlayer target, final String characterId)
             throws IOException, ClassNotFoundException {
         if (target == null) {
+            return false;
+        }
+        if (characterId == null || characterId.isEmpty()) {
             return false;
         }
         migrateLegacyIfNeeded(target.getName(), characterId);
@@ -112,19 +122,36 @@ public final class CoopCharacterStore {
         if (!file.isFile()) {
             return false;
         }
+        final SaveFileData data;
         try (FileInputStream fis = new FileInputStream(file);
              InflaterInputStream inf = new InflaterInputStream(fis);
              ObjectInputStream ois = new ObjectInputStream(inf)) {
-            final SaveFileData data = (SaveFileData) ois.readObject();
-            target.load(data);
-            return true;
+            data = (SaveFileData) ois.readObject();
         }
+        final boolean lackedId = !data.containsKey("characterId")
+                || data.readString("characterId") == null
+                || data.readString("characterId").isEmpty();
+        target.load(data);
+        // File key wins — never keep a reminted id from an old payload.
+        target.bindCharacterId(characterId);
+        if (lackedId) {
+            try {
+                writeAtomic(file, target.save());
+            } catch (final IOException e) {
+                // Bound in memory; leave will persist. Do not fail the join.
+                System.err.println("Could not rewrite characterId into guest .chr: " + e.getMessage());
+            }
+        }
+        return true;
     }
 
     /**
      * Guest join character model: on the first join (no guest {@code .chr} yet),
      * seed from the current solo player once. On later joins, load the existing
      * co-op {@code .chr} instead of re-exporting the solo player.
+     *
+     * <p>Corrupt files are quarantined to {@code .chr.corrupt} and the join reseeds
+     * from the current (solo) player so the player is not stuck forever.
      *
      * @return {@code true} if this call seeded a new {@code .chr} from solo
      */
@@ -135,17 +162,46 @@ public final class CoopCharacterStore {
         }
         migrateLegacyIfNeeded(target);
         final String id = target.getCharacterId();
-        if (!guestCharacterFile(id).isFile()) {
+        final File file = guestCharacterFile(id);
+        if (!file.isFile()) {
             savePlayer(target);
             return true;
         }
-        loadPlayer(target, id);
-        return false;
+        try {
+            loadPlayer(target, id);
+            return false;
+        } catch (final IOException | ClassNotFoundException | RuntimeException e) {
+            quarantineCorrupt(file);
+            // Reseed from the current player (caller restores solo stash first when
+            // load may have partially mutated the in-memory player).
+            throw new CoopCorruptChrException(file, e);
+        }
+    }
+
+    /**
+     * Move a corrupt guest {@code .chr} aside so join can reseed. Best-effort.
+     */
+    static void quarantineCorrupt(final File file) {
+        if (file == null || !file.isFile()) {
+            return;
+        }
+        final File quarantined = new File(file.getParentFile(), file.getName() + ".corrupt");
+        try {
+            Files.move(file.toPath(), quarantined.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } catch (final IOException e) {
+            try {
+                Files.copy(file.toPath(), quarantined.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+            } catch (final IOException ignored) {
+            }
+        }
     }
 
     /**
      * Move a legacy {@code characters/<name>.chr} into {@code characters/guest/<id>.chr}
      * when the guest file is missing. No-op if already migrated or absent.
+     * Old same-name host exports under the legacy path are treated as the guest character.
      */
     static void migrateLegacyIfNeeded(final AdventurePlayer player) {
         if (player == null) {
@@ -231,7 +287,7 @@ public final class CoopCharacterStore {
         writeAtomic(guestCharacterFile(characterId), data);
     }
 
-    /** Write a legacy name-keyed file (tests only — documents host-clobber hazard). */
+    /** Write a legacy name-keyed file (tests — pre-PR / host-export migration). */
     static void writeLegacyRawForTests(final String characterName, final SaveFileData data)
             throws IOException {
         if (data == null) {
@@ -245,5 +301,23 @@ public final class CoopCharacterStore {
             return "player";
         }
         return name.replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
+    /**
+     * Thrown when a guest {@code .chr} cannot be loaded; the file has been
+     * quarantined to {@code .corrupt}. Join restores the solo stash and reseeds.
+     */
+    public static final class CoopCorruptChrException extends IOException {
+        private static final long serialVersionUID = 1L;
+        private final File quarantinedFrom;
+
+        CoopCorruptChrException(final File file, final Throwable cause) {
+            super("Corrupt co-op character file: " + (file != null ? file.getName() : "?"), cause);
+            this.quarantinedFrom = file;
+        }
+
+        public File getQuarantinedFrom() {
+            return quarantinedFrom;
+        }
     }
 }

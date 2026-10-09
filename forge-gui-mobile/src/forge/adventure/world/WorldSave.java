@@ -198,6 +198,19 @@ public class WorldSave {
 
                 currentSave.onLoadList.emit();
 
+                // CO1: old saves without characterId minted one on load — write it back
+                // immediately so a guest .chr keyed by that id is not orphaned if the
+                // player exits before the next autosave.
+                if (currentSave.player.consumeCharacterIdNeedsPersist()) {
+                    try {
+                        final String saveName = currentSave.header != null && currentSave.header.name != null
+                                ? currentSave.header.name : ("slot " + currentSlot);
+                        currentSave.save(saveName, currentSlot);
+                    } catch (final Exception e) {
+                        System.err.println("Failed to persist minted characterId: " + e.getMessage());
+                    }
+                }
+
             }
         } catch (ClassNotFoundException | IOException e) {
             e.printStackTrace();

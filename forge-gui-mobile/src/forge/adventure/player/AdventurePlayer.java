@@ -54,6 +54,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
      * Generated once; old saves receive an id on first {@link #load}/{@link #getCharacterId}.
      */
     private String characterId;
+    /**
+     * Set when {@link #characterId} was minted because the save lacked one — callers
+     * (WorldSave load / co-op join) must persist immediately so a guest {@code .chr}
+     * keyed by this id is not orphaned if the process exits before the next autosave.
+     */
+    private transient boolean characterIdNeedsPersist;
     private int heroRace;
     private int avatarIndex;
     private boolean isFemale;
@@ -257,6 +263,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         adventureMode = null;
         blessing = null;
         characterId = null;
+        characterIdNeedsPersist = false;
         gold = 0;
         maxLife = 20;
         life = 20;
@@ -677,17 +684,44 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     /**
      * Stable character identity (UUID string). Never changes when the display name
-     * changes. Old saves without an id receive one on first access and persist it
-     * on the next save. Used by CO1 guest {@code .chr} files and TR1 trade logs.
+     * changes. Old saves without an id receive one on first access; callers should
+     * persist when {@link #consumeCharacterIdNeedsPersist()} is true. Used by CO1
+     * guest {@code .chr} files and TR1 trade logs.
      */
     public String getCharacterId() {
         ensureCharacterId();
         return characterId;
     }
 
+    /**
+     * Force identity to match an on-disk co-op file key after loading a pre-PR
+     * {@code .chr} that lacked {@code characterId} (or had a different one).
+     * Without this, {@link #load} would mint a new id and orphan the guest file.
+     */
+    public void bindCharacterId(final String id) {
+        if (id == null || id.isEmpty()) {
+            throw new IllegalArgumentException("characterId required");
+        }
+        characterId = id;
+        characterIdNeedsPersist = false;
+    }
+
+    /**
+     * @return {@code true} once when an id was minted for a save that lacked one;
+     *         clears the flag. WorldSave / co-op join must persist when true.
+     */
+    public boolean consumeCharacterIdNeedsPersist() {
+        if (!characterIdNeedsPersist) {
+            return false;
+        }
+        characterIdNeedsPersist = false;
+        return true;
+    }
+
     private void ensureCharacterId() {
         if (characterId == null || characterId.isEmpty()) {
             characterId = java.util.UUID.randomUUID().toString();
+            characterIdNeedsPersist = true;
         }
     }
 
@@ -1288,6 +1322,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         // END SPECIAL CASES
 
         name = data.readString("name");
+        characterIdNeedsPersist = false;
         if (data.containsKey("characterId")) {
             characterId = data.readString("characterId");
             if (characterId != null && characterId.isEmpty()) {
@@ -1296,7 +1331,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         } else {
             characterId = null;
         }
-        ensureCharacterId(); // old saves: mint once; next WorldSave persists it
+        ensureCharacterId(); // old saves: mint once; WorldSave/co-op must persist immediately
         heroRace = data.readInt("heroRace");
         avatarIndex = data.readInt("avatarIndex");
         isFemale = data.readBool("isFemale");

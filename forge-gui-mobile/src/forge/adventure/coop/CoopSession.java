@@ -134,11 +134,22 @@ public final class CoopSession {
     private final Consumer<String> consoleStatusListener = msg -> System.out.println("[co-op] " + msg);
     private volatile boolean consoleListenerAttached;
 
+    /**
+     * Test-only: when true, {@link #host} / {@link #join} skip Netty bind/connect after
+     * the save-model runs so headless tests can drive the real entry points.
+     */
+    private static volatile boolean testBypassNetwork;
+
     private CoopSession() {
     }
 
     public static CoopSession get() {
         return INSTANCE;
+    }
+
+    /** Package-visible test hook — see {@link #testBypassNetwork}. */
+    static void setTestBypassNetwork(final boolean bypass) {
+        testBypassNetwork = bypass;
     }
 
     public CoopSessionRole getRole() {
@@ -436,7 +447,7 @@ public final class CoopSession {
         ensureExitHook();
         ensureAscendant();
         ensureWorldLoaded();
-        // If we were a guest, persist .chr and restore solo before becoming host.
+        // If we were a guest, persist .chr and restore solo synchronously before becoming host.
         endPreviousSessionForRestart("restarting host");
         this.skipUPnP = skipUPnPFlag;
         this.overworldPort = Config.instance().getConfigData().coopOverworldPort;
@@ -448,6 +459,11 @@ public final class CoopSession {
         state = State.HOSTING;
         // Do not export the host into characters/ — that shared the guest .chr namespace.
 
+        if (testBypassNetwork) {
+            status("Hosting co-op (test bypass network); session code " + sessionCode);
+            return;
+        }
+
         server = new CoopOverworldServer(overworldPort,
                 bindAddress.isEmpty() ? null : bindAddress,
                 new HostListener());
@@ -455,7 +471,7 @@ public final class CoopSession {
             server.start();
         } catch (final Exception e) {
             // A failed bind must not leave the session stuck in HOSTING with live event loops.
-            disconnectInternal("host failed", false);
+            disconnectInternal("host failed", false, false);
             throw e;
         }
         status("Hosting co-op on overworld port " + overworldPort
@@ -472,7 +488,7 @@ public final class CoopSession {
         ensureExitHook();
         ensureAscendant();
         ensureWorldLoaded();
-        // If we were already a guest, restore solo before stashing again.
+        // If we were already a guest, restore solo synchronously before stashing again.
         endPreviousSessionForRestart("restarting join");
 
         final URLValidator.HostPort hp = URLValidator.parseURL(address);
@@ -496,20 +512,20 @@ public final class CoopSession {
         state = State.JOINING;
         joinHostAddress = host;
         guestRestoreDone.set(false);
-        try {
-            applyGuestJoinSaveModel();
-        } catch (final Exception e) {
-            // applyGuestJoinSaveModel already restored the stash and reset role/state.
-            throw e;
-        }
+        applyGuestJoinSaveModel();
         sessionWorld = new World();
+
+        if (testBypassNetwork) {
+            status("Connecting (test bypass network) to " + host + ':' + port);
+            return;
+        }
 
         client = new CoopOverworldClient(host, port, new GuestListener());
         try {
             client.connect();
         } catch (final Exception e) {
             // Restore the guest's own save so autosave and quick save work again.
-            disconnectInternal("join failed", true);
+            disconnectInternal("join failed", true, false);
             throw e;
         }
         status("Connecting to " + host + ':' + port
@@ -517,15 +533,21 @@ public final class CoopSession {
     }
 
     /**
-     * Before host()/join() restart: if we are (or were) a guest with a stash,
-     * persist the co-op {@code .chr} and restore the solo save first.
+     * Before host()/join() restart: if we are a guest, persist the co-op {@code .chr}
+     * and restore the solo save <em>synchronously</em> before continuing so a queued
+     * GL restore cannot overwrite the next session's stashed player.
+     * Refuses if a solo restore is already pending.
      * Package-visible for tests.
      */
     void endPreviousSessionForRestart(final String reason) {
+        if (guestSoloRestorePending.get()) {
+            throw new IllegalStateException(
+                    "Cannot host or join while a co-op solo restore is still in progress");
+        }
         if (role == CoopSessionRole.GUEST) {
-            disconnectInternal(reason, true);
-        } else {
-            disconnectInternal(reason, false);
+            disconnectInternal(reason, true, true);
+        } else if (role != CoopSessionRole.NONE || state == State.HOSTING) {
+            disconnectInternal(reason, false, false);
         }
     }
 
@@ -549,15 +571,18 @@ public final class CoopSession {
     }
 
     public synchronized void disconnect() {
-        disconnectInternal("local disconnect", true);
+        disconnectInternal("local disconnect", true, false);
     }
 
     /**
      * @param restoreGuest when true, restore the guest's stashed WorldSave and
      *                     stop networking; used for real disconnect. When false
      *                     (restarting host/join), skip restore of a mid-flight stash.
+     * @param synchronousRestore when true (host/join restart from guest), restore
+     *                     solo inline before returning so the next stash sees solo state.
      */
-    private void disconnectInternal(final String reason, final boolean restoreGuest) {
+    private void disconnectInternal(final String reason, final boolean restoreGuest,
+                                    final boolean synchronousRestore) {
         final CoopSessionRole previousRole = role;
         final State previousState = state;
 
@@ -583,7 +608,7 @@ public final class CoopSession {
         if (previousRole == CoopSessionRole.GUEST) {
             // Always persist .chr when leaving guest; restore solo whenever requested
             // (real disconnect, join failure, or restart from guest → host/join).
-            applyGuestLeaveSaveModel(restoreGuest);
+            applyGuestLeaveSaveModel(restoreGuest, synchronousRestore);
         }
 
         // CO2: drop partner sprite / party on the GL thread without leaking listeners.
@@ -626,19 +651,47 @@ public final class CoopSession {
     /**
      * Production guest join save-model: stash the solo WorldSave, then seed the
      * co-op {@code .chr} from solo once or load the existing co-op character.
-     * On any failure (corrupt {@code .chr}, load exception), restores the stash,
-     * resets role/state, and never writes over the {@code .chr}.
-     * Called from {@link #join} before networking. Package-visible for tests.
+     * Corrupt {@code .chr} files are quarantined and reseeded from solo.
+     * On any other failure, restores the stash, resets role/state, and never
+     * writes over the {@code .chr}. Called from {@link #join} before networking.
      */
     void applyGuestJoinSaveModel() throws Exception {
         stashGuestSave();
         try {
             final AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
+            // Mint + persist id for old solo saves before keying the guest file.
             guestCharacterId = player.getCharacterId();
-            CoopCharacterStore.loadOrSeedForJoin(player);
+            if (player.consumeCharacterIdNeedsPersist()) {
+                persistMintedSoloCharacterId();
+            }
+            try {
+                CoopCharacterStore.loadOrSeedForJoin(player);
+            } catch (final CoopCharacterStore.CoopCorruptChrException corrupt) {
+                // Quarantined on disk; restore solo into memory and reseed a clean .chr.
+                if (guestPlayerBackup != null) {
+                    player.load(guestPlayerBackup);
+                    if (guestCharacterId != null) {
+                        player.bindCharacterId(guestCharacterId);
+                    }
+                }
+                CoopCharacterStore.savePlayer(player);
+                status("Quarantined corrupt co-op character; reseeded from solo");
+            }
+        } catch (final Throwable t) {
+            abortGuestJoinAfterStash(t);
+            if (t instanceof Exception) {
+                throw (Exception) t;
+            }
+            throw new Exception(t);
+        }
+    }
+
+    /** Best-effort: write a newly minted characterId into the current WorldSave slot. */
+    private void persistMintedSoloCharacterId() {
+        try {
+            WorldSave.getCurrentSave().autoSave();
         } catch (final Exception e) {
-            abortGuestJoinAfterStash(e);
-            throw e;
+            status("Could not autosave minted characterId: " + e.getMessage());
         }
     }
 
@@ -646,15 +699,15 @@ public final class CoopSession {
      * Join-model failure: restore the pre-join solo stash without saving the
      * co-op {@code .chr}, and clear guest session markers.
      */
-    private void abortGuestJoinAfterStash(final Exception cause) {
+    private void abortGuestJoinAfterStash(final Throwable cause) {
         lastError = "Co-op join save-model failed: "
                 + (cause.getMessage() != null ? cause.getMessage() : cause.toString());
         status(lastError);
         guestCharacterId = null;
-        // Restore solo from stash; do not call savePlayer (would overwrite a corrupt .chr).
+        // Restore solo from stash; do not call savePlayer (would overwrite a bad .chr).
         guestSoloRestorePending.set(true);
         guestRestoreDone.set(false);
-        restoreGuestSave();
+        restoreGuestSave(true);
         role = CoopSessionRole.NONE;
         state = State.DISCONNECTED;
         joinHostAddress = "";
@@ -664,9 +717,9 @@ public final class CoopSession {
     /**
      * Production guest leave save-model: persist the co-op {@code .chr} (atomic),
      * then optionally restore the stashed solo WorldSave without touching the
-     * {@code .chr}. Called from {@link #disconnectInternal}. Package-visible for tests.
+     * {@code .chr}. Called from {@link #disconnectInternal}.
      */
-    void applyGuestLeaveSaveModel(final boolean restoreSolo) {
+    void applyGuestLeaveSaveModel(final boolean restoreSolo, final boolean synchronousRestore) {
         try {
             CoopCharacterStore.savePlayer(WorldSave.getCurrentSave().getPlayer());
         } catch (final Exception e) {
@@ -674,7 +727,7 @@ public final class CoopSession {
         }
         if (restoreSolo) {
             guestSoloRestorePending.set(true);
-            restoreGuestSave();
+            restoreGuestSave(synchronousRestore);
         }
     }
 
@@ -699,11 +752,12 @@ public final class CoopSession {
     }
 
     /**
-     * Restore the guest's stashed world/player on the GL thread behind a loading
-     * screen (same pattern as Continue). Idempotent — a REJECTED path must not
-     * restore twice when the channel later closes.
+     * Restore the guest's stashed world/player. When {@code synchronous} is false
+     * (normal disconnect), runs on the GL thread behind a loading screen. When
+     * true (host/join restart), runs inline so the next stash sees solo state.
+     * Idempotent — a REJECTED path must not restore twice when the channel later closes.
      */
-    private void restoreGuestSave() {
+    private void restoreGuestSave(final boolean synchronous) {
         if (!guestRestoreDone.compareAndSet(false, true)) {
             // Another restore already ran or is running; if nothing is pending, clear the flag.
             if (guestWorldBackup == null && guestPlayerBackup == null && guestMultiverseBackup == null) {
@@ -726,42 +780,48 @@ public final class CoopSession {
             return;
         }
 
+        final Runnable restoreWork = () -> {
+            try {
+                if (worldBak != null) {
+                    WorldSave.getCurrentSave().getWorld().load(worldBak);
+                }
+                if (playerBak != null) {
+                    WorldSave.getCurrentSave().getPlayer().load(playerBak);
+                } else if (charId != null) {
+                    CoopCharacterStore.loadPlayer(
+                            WorldSave.getCurrentSave().getPlayer(), charId);
+                }
+                if (multiBak != null) {
+                    WorldSave.getCurrentSave().getMultiverse().loadRegistry(multiBak);
+                }
+                try {
+                    WorldStage.getInstance().load(WorldSave.emptyWorldStageData());
+                    forge.adventure.scene.GameScene.instance().enter();
+                } catch (final Exception ignored) {
+                }
+            } catch (final Exception e) {
+                lastError = "Failed to restore guest save: " + e.getMessage();
+                status(lastError);
+                try {
+                    Forge.delayedSwitchBack("",
+                            "Co-op restore error\nPress Resume on the Main Menu to continue.\n"
+                                    + e.getMessage());
+                } catch (final Exception ignored) {
+                }
+            } finally {
+                guestSoloRestorePending.set(false);
+            }
+        };
+
+        if (synchronous) {
+            restoreWork.run();
+            return;
+        }
+
         runWorldOpOnGl(Forge.getLocalizer() != null
                         ? Forge.getLocalizer().getMessage("lblLoadingWorld")
                         : "Loading world…",
-                () -> {
-                    try {
-                        if (worldBak != null) {
-                            WorldSave.getCurrentSave().getWorld().load(worldBak);
-                        }
-                        if (playerBak != null) {
-                            WorldSave.getCurrentSave().getPlayer().load(playerBak);
-                        } else if (charId != null) {
-                            CoopCharacterStore.loadPlayer(
-                                    WorldSave.getCurrentSave().getPlayer(), charId);
-                        }
-                        if (multiBak != null) {
-                            WorldSave.getCurrentSave().getMultiverse().loadRegistry(multiBak);
-                        }
-                        try {
-                            WorldStage.getInstance().load(WorldSave.emptyWorldStageData());
-                            forge.adventure.scene.GameScene.instance().enter();
-                        } catch (final Exception ignored) {
-                        }
-                    } catch (final Exception e) {
-                        lastError = "Failed to restore guest save: " + e.getMessage();
-                        status(lastError);
-                        // Match SaveFileData's delayedSwitchBack error path on the GL/EDT side.
-                        try {
-                            Forge.delayedSwitchBack("",
-                                    "Co-op restore error\nPress Resume on the Main Menu to continue.\n"
-                                            + e.getMessage());
-                        } catch (final Exception ignored) {
-                        }
-                    } finally {
-                        guestSoloRestorePending.set(false);
-                    }
-                });
+                restoreWork);
     }
 
     /**
@@ -1312,7 +1372,7 @@ public final class CoopSession {
                 if (role != CoopSessionRole.GUEST && state != State.REJECTED) {
                     return;
                 }
-                disconnectInternal(reason, restore);
+                disconnectInternal(reason, restore, false);
             }
         }
 
