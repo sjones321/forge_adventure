@@ -99,7 +99,7 @@ public final class PlanarPortalPlacer {
             placed++;
         }
         if (placed > 0) {
-            notifyCoopHashRefresh();
+            notifyCoopHashRefresh(world);
         }
         return placed;
     }
@@ -115,11 +115,10 @@ public final class PlanarPortalPlacer {
             return 0;
         }
         // Biome injection may already have placed a PlanarGate POI while road/sprite
-        // setup failed to clear terrain — always clear at the existing home gate so
-        // the live hash includes the walkable pad guests will replay.
+        // setup failed to clear terrain — clear the pad for live hash, but do not
+        // push a co-op gate-delta for this no-op ensure branch.
         if (existingPortalTargets(world).contains(PlaneMeta.HOME_ID)) {
             clearTerrainForTarget(world, PlaneMeta.HOME_ID);
-            notifyCoopHashRefresh();
             return 0;
         }
         PointOfInterestData gate = copyGate(template, PlaneMeta.HOME_ID, "Portal to Home");
@@ -133,7 +132,7 @@ public final class PlanarPortalPlacer {
         poi.setTargetPlane(PlaneMeta.HOME_ID);
         world.addPointOfInterest(poi);
         world.clearTerrainAroundWorld(pos.x, pos.y, 3);
-        notifyCoopHashRefresh();
+        notifyCoopHashRefresh(world);
         return 1;
     }
 
@@ -142,16 +141,16 @@ public final class PlanarPortalPlacer {
      * {@code setCode} empty → target home. Always clears terrain at the host spot
      * (even when the destination POI already exists from biome injection).
      *
-     * @return true when a new gate was placed
+     * @return the new POI, or {@code null} when nothing was placed
      */
-    public static boolean placeGateAt(World world, String setCode, float x, float y) {
+    public static PointOfInterest placeGateAt(World world, String setCode, float x, float y) {
         if (world == null || !ascendantGatesEnabled()) {
-            return false;
+            return null;
         }
         SetPlaneGenerator.ensurePlanarGateRegistered();
         PointOfInterestData template = PointOfInterestData.getPointOfInterest(SetPlaneGenerator.PLANAR_GATE_POI);
         if (template == null) {
-            return false;
+            return null;
         }
         final String planeId = (setCode == null || setCode.isEmpty())
                 ? PlaneMeta.HOME_ID
@@ -160,7 +159,7 @@ public final class PlanarPortalPlacer {
         // registered a same-target POI (sprite/road clear may have been skipped).
         world.clearTerrainAroundWorld(x, y, 3);
         if (existingPortalTargets(world).contains(planeId)) {
-            return false;
+            return null;
         }
         String display = "Planar Gate";
         if (PlaneMeta.HOME_ID.equals(planeId)) {
@@ -176,7 +175,10 @@ public final class PlanarPortalPlacer {
         poi.setDisplayName(display);
         poi.setTargetPlane(planeId);
         world.addPointOfInterest(poi);
-        return true;
+        // Host live-world placement: production notify path. Guest/staging no-op via
+        // CoopSession role + world-identity checks.
+        notifyCoopHashRefresh(world);
+        return poi;
     }
 
     /** Clear terrain at every planar gate aimed at {@code targetPlaneId}. */
@@ -198,10 +200,14 @@ public final class PlanarPortalPlacer {
         }
     }
 
-    /** After host gate placement: refresh co-op live-world hash if hosting. */
-    private static void notifyCoopHashRefresh() {
+    /**
+     * After host gate placement on {@code world}: refresh co-op live-world hash
+     * and, when a guest is connected and {@code world} is the live current world
+     * with a changed hash, push a mid-session gate-delta.
+     */
+    private static void notifyCoopHashRefresh(final World world) {
         try {
-            forge.adventure.coop.CoopSession.get().refreshHostLiveWorldHash();
+            forge.adventure.coop.CoopSession.get().notifyGatesChanged(world);
         } catch (Throwable ignored) {
             // Co-op optional / headless
         }

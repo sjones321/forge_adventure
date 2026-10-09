@@ -15,6 +15,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.serialization.ClassResolvers;
+import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.Future;
 
 import java.util.concurrent.CountDownLatch;
@@ -75,28 +76,51 @@ public final class CoopOverworldClient implements IHasForgeLog {
         connected = false;
         final Channel ch = channel;
         channel = null;
+        final EventLoopGroup g = group;
+        group = null;
         if (ch != null) {
             ch.close();
         }
-        final EventLoopGroup g = group;
-        group = null;
-        if (g != null) {
-            final Thread t = new Thread(() -> {
-                try {
-                    final Future<?> f = g.shutdownGracefully(0, 2, TimeUnit.SECONDS);
-                    f.awaitUninterruptibly(3, TimeUnit.SECONDS);
-                } catch (final Exception e) {
-                    netLog.debug("Co-op client shutdown: {}", e.toString());
-                }
-            }, "coop-overworld-client-shutdown");
+        if (g == null) {
+            return;
+        }
+        // Iterate executors: g.next() is unreliable on multi-thread groups.
+        final boolean inLoop = isCallerInEventLoop(g);
+        final Runnable shutdown = () -> {
+            try {
+                final Future<?> f = g.shutdownGracefully(0, 2, TimeUnit.SECONDS);
+                f.awaitUninterruptibly(3, TimeUnit.SECONDS);
+            } catch (final Exception e) {
+                netLog.debug("Co-op client shutdown: {}", e.toString());
+            }
+        };
+        if (inLoop) {
+            // Never block a Netty thread (deadlock).
+            final Thread t = new Thread(shutdown, "coop-overworld-client-shutdown");
             t.setDaemon(true);
             t.start();
+        } else {
+            // Test tearDown / UI: wait so the next connect does not inherit zombie groups.
+            shutdown.run();
         }
     }
 
     public boolean isConnected() {
         final Channel ch = channel;
         return connected && ch != null && ch.isActive();
+    }
+
+    /** True when the calling thread owns any event loop in {@code g}. */
+    static boolean isCallerInEventLoop(final EventLoopGroup g) {
+        if (g == null) {
+            return false;
+        }
+        for (final EventExecutor executor : g) {
+            if (executor != null && executor.inEventLoop()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private final class ClientHandler extends SimpleChannelInboundHandler<NetEvent> {

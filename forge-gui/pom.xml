@@ -116,6 +116,10 @@
                     <includes>
                         <include>**/*Should.java</include>
                     </includes>
+                    <!-- Isolate USER_DIR / forge.log from the real ~/.forge when -am runs this module. -->
+                    <systemPropertyVariables>
+                        <forge.test.userDir>${project.build.directory}/test-user-home</forge.test.userDir>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>

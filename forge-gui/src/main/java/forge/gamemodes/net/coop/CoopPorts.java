@@ -13,16 +13,15 @@ public final class CoopPorts {
 
     /**
      * Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change.
-     * CO2 (merged #18) is protocol 5; CO3 is 6.
-     * MV1 {@code CoopPlaneSwitchEvent} (host plane follow) = 7.
-     * MV2 = 8: live world hash + host gate list + {@code mv2SetCode} on offer/switch.
-     * EN2 (#44) = 9: host-authoritative {@code lootRolls} on {@code CoopDuelResultEvent}.
-     * Package K = 10: {@code planeFormat} plain-data field on world offer / plane switch.
-     *
-     * <p>Rule: set to {@code (feature/set-start PROTOCOL_VERSION) + 1} at review time;
-     * Steve checks the number at merge. Do not pre-assign numbers for in-flight PRs.
+     * Do not pre-assign future numbers — at review time set this to
+     * {@code (feature/set-start PROTOCOL_VERSION) + 1}.
+     * History: CO2=5, CO3=6, MV1 plane-follow=7, MV2 live hash/gates=8,
+     * EN2 host-authoritative {@code lootRolls} on {@code CoopDuelResultEvent}=9,
+     * Package K {@code planeFormat} on world offer / plane switch=10,
+     * MV2 mid-session gate-delta ({@code CoopGateUpdateEvent} /
+     * {@code CoopWorldResyncRequestEvent} + resync requestId)=11.
      */
-    public static final int PROTOCOL_VERSION = 10;
+    public static final int PROTOCOL_VERSION = 11;
 
     /** Length of the short session code shown by the host. */
     public static final int SESSION_CODE_LENGTH = 8;
@@ -36,6 +35,10 @@ public final class CoopPorts {
     /** Exact guest-side refusal when seed rebuild hash does not match the host. */
     public static final String WORLD_HASH_MISMATCH_MESSAGE =
             "Builds or world data differ; update both copies";
+
+    /** Guest/host status when a mid-session gate update fails the live hash check. */
+    public static final String GATE_UPDATE_MISMATCH_MESSAGE =
+            "Gate update hash mismatch — requesting world resync";
 
     private CoopPorts() {
     }

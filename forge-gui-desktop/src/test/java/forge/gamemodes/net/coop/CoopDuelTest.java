@@ -24,10 +24,10 @@ import java.util.function.Predicate;
 public class CoopDuelTest {
 
     @Test
-    public void protocolVersionIsExactlyTenForPackageK() {
-        // CO2=5; CO3=6; MV1=7; MV2=8; EN2 lootRolls=9; Package K planeFormat=10.
-        // Exact equality only. Set to (feature/set-start) + 1 at review.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
+    public void protocolVersionIsExactlyElevenForMv2GateDelta() {
+        // At review: PROTOCOL_VERSION must be (feature/set-start) + 1. After Package K (#42)
+        // base is 10 → this PR is 11. Exact equality only — never >=.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
     }
 
     @Test

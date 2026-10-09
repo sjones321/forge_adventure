@@ -197,6 +197,24 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         return disconnectPolicy;
     }
 
+    /**
+     * True while a co-op duel is in flight. Host: {@link #activeHostedMatch}.
+     * Guest: {@link #activeDuelId} / {@link #guestClient} (guest never has a HostedMatch).
+     */
+    public boolean isDuelActive() {
+        return activeHostedMatch != null || activeDuelId != 0L || guestClient != null;
+    }
+
+    /** Test hook: mark guest duel active/inactive without a real game client. */
+    public void testSetGuestDuelActive(final boolean active) {
+        if (active) {
+            activeDuelId = Math.max(1L, activeDuelId);
+        } else {
+            activeDuelId = 0L;
+            guestClient = null;
+        }
+    }
+
     public CoopFightRequestValidator getFightRequestValidator() {
         return fightRequestValidator;
     }
@@ -964,39 +982,52 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     }
 
     private void applyGuestLocalResult(final CoopDuelResultEvent event) {
-        final AdventurePlayer ap = Current.player();
-        if (ap == null || event == null) {
-            return;
-        }
-        // Never apply host character changes from wire numbers — outcome only.
-        // Resolve the fought enemy by id from the result event (not getCurrentMob()).
-        final boolean teamWon = event.isTeamWon();
-        EnemySprite mob = resolveEnemy(event.getEnemyId());
-        if (mob == null && event.getEnemyId() != 0L) {
-            try {
-                mob = CoopOverworldRuntime.get().getEnemyById(event.getEnemyId());
-            } catch (final Exception ignored) {
+        try {
+            final AdventurePlayer ap = Current.player();
+            if (ap == null || event == null) {
+                return;
             }
-        }
-        if (mob != null) {
-            WorldStage.getInstance().setCurrentMob(mob);
-            // EN2: use host-authoritative loot rolls from the result event (0 allowed).
-            WorldStage.getInstance().setPendingLootRolls(event.getLootRolls());
-            WorldStage.getInstance().setWinner(teamWon, false);
-        } else {
-            if (teamWon) {
-                ap.win(false);
+            // Never apply host character changes from wire numbers — outcome only.
+            // Resolve the fought enemy by id from the result event (not getCurrentMob()).
+            final boolean teamWon = event.isTeamWon();
+            EnemySprite mob = resolveEnemy(event.getEnemyId());
+            if (mob == null && event.getEnemyId() != 0L) {
+                try {
+                    mob = CoopOverworldRuntime.get().getEnemyById(event.getEnemyId());
+                } catch (final Exception ignored) {
+                }
+            }
+            if (mob != null) {
+                WorldStage.getInstance().setCurrentMob(mob);
+                // EN2: use host-authoritative loot rolls from the result event (0 allowed).
+                WorldStage.getInstance().setPendingLootRolls(event.getLootRolls());
+                WorldStage.getInstance().setWinner(teamWon, false);
             } else {
-                ap.defeated();
+                if (teamWon) {
+                    ap.win(false);
+                } else {
+                    ap.defeated();
+                }
+                try {
+                    CoopCharacterStore.savePlayer(ap);
+                } catch (final Exception ignored) {
+                }
             }
+            disconnectPolicy.endDuel();
+            disconnectGuestClient();
+        } finally {
+            activeDuelId = 0L;
+            // Next frame — never apply a deferred plane switch inside the reward/defeat flow.
             try {
-                CoopCharacterStore.savePlayer(ap);
+                CoopSession.get().scheduleTryApplyDeferredPlaneSwitch();
             } catch (final Exception ignored) {
             }
         }
-        disconnectPolicy.endDuel();
-        disconnectGuestClient();
-        activeDuelId = 0L;
+    }
+
+    /** Test hook: guest local duel-result path (clears duel + schedules deferred apply). */
+    public void testApplyGuestLocalResult(final CoopDuelResultEvent event) {
+        applyGuestLocalResult(event);
     }
 
     private void concedeGuestSeat() {

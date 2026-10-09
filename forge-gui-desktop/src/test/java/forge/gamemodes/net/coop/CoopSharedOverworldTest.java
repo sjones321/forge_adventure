@@ -32,6 +32,10 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Headless CO2 coverage: security, atomic claims, guest mirror snapshots,
  * invite expiry / mutual accept, host-in-interior pause.
+ *
+ * <p>Surefire runs this class in an isolated fork (see forge-gui-desktop pom
+ * {@code netty-coop} execution) so localhost Netty tests are not starved by
+ * the rest of the desktop suite.
  */
 public class CoopSharedOverworldTest {
 
@@ -95,23 +99,31 @@ public class CoopSharedOverworldTest {
         Assert.assertTrue(server.awaitBound(5000));
 
         final CountDownLatch guestReady = new CountDownLatch(1);
+        final CountDownLatch clientUp = new CountDownLatch(1);
+        final CountDownLatch gotOffer = new CountDownLatch(1);
+        final AtomicReference<CoopWorldOfferEvent> offerRef = new AtomicReference<>();
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
-            @Override public void onConnected() { client.send(hello(sessionCode)); }
+            @Override public void onConnected() { clientUp.countDown(); }
             @Override public void onMessage(final NetEvent event) {
                 if (event instanceof CoopWorldOfferEvent) {
-                    final CoopWorldOfferEvent offer = (CoopWorldOfferEvent) event;
-                    final String local = CoopWorldHash.hash(offer.getWorldSeed(), 4, 4,
-                            sampleBiome(4), sampleTerrain(4));
-                    client.send(new CoopSessionReadyEvent(false, "Guest", local));
-                    guestReady.countDown();
-                    client.send(new CoopPlayerMoveEvent(100f, 200f, 1f, System.currentTimeMillis(),
-                            "Guest", "sprites/heroes/Human_m.atlas"));
+                    offerRef.set((CoopWorldOfferEvent) event);
+                    gotOffer.countDown();
                 }
             }
             @Override public void onDisconnected(final String reason) { }
             @Override public void onError(final String message, final Throwable cause) { }
         });
         client.connect();
+        Assert.assertTrue(clientUp.await(5, TimeUnit.SECONDS), "client channel not active");
+        client.send(hello(sessionCode));
+        Assert.assertTrue(gotOffer.await(10, TimeUnit.SECONDS), "no world offer");
+        final CoopWorldOfferEvent offer = offerRef.get();
+        final String local = CoopWorldHash.hash(offer.getWorldSeed(), 4, 4,
+                sampleBiome(4), sampleTerrain(4));
+        client.send(new CoopSessionReadyEvent(false, "Guest", local));
+        guestReady.countDown();
+        client.send(new CoopPlayerMoveEvent(100f, 200f, 1f, System.currentTimeMillis(),
+                "Guest", "sprites/heroes/Human_m.atlas"));
         Assert.assertTrue(guestReady.await(10, TimeUnit.SECONDS));
         Assert.assertTrue(ready.await(10, TimeUnit.SECONDS));
         Assert.assertTrue(gotMove.await(10, TimeUnit.SECONDS));
@@ -507,6 +519,7 @@ public class CoopSharedOverworldTest {
         final AtomicInteger movesBeforeAuth = new AtomicInteger();
         final AtomicBoolean sawMoveAfterAuth = new AtomicBoolean(false);
         final CountDownLatch connected = new CountDownLatch(1);
+        final CountDownLatch moveAfterAuth = new CountDownLatch(1);
 
         server = new CoopOverworldServer(port, new CoopMessageListener() {
             @Override public void onConnected() { connected.countDown(); }
@@ -516,6 +529,7 @@ public class CoopSharedOverworldTest {
                         movesBeforeAuth.incrementAndGet();
                     } else {
                         sawMoveAfterAuth.set(true);
+                        moveAfterAuth.countDown();
                     }
                 } else if (event instanceof CoopHelloEvent) {
                     server.markGuestAuthenticated();
@@ -527,19 +541,22 @@ public class CoopSharedOverworldTest {
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
 
+        final CountDownLatch clientUp = new CountDownLatch(1);
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
-            @Override public void onConnected() {
-                client.send(new CoopPlayerMoveEvent(1f, 1f, 1f, 1L, "X", "sprites/heroes/Human_m.atlas"));
-                client.send(hello(sessionCode));
-                client.send(new CoopPlayerMoveEvent(3f, 3f, 1f, 3L, "X", "sprites/heroes/Human_m.atlas"));
-            }
+            @Override public void onConnected() { clientUp.countDown(); }
             @Override public void onMessage(final NetEvent event) { }
             @Override public void onDisconnected(final String reason) { }
             @Override public void onError(final String message, final Throwable cause) { }
         });
         client.connect();
         Assert.assertTrue(connected.await(5, TimeUnit.SECONDS));
-        Thread.sleep(500);
+        Assert.assertTrue(clientUp.await(5, TimeUnit.SECONDS), "client channel not active");
+        // Test-thread sends after both sides are up — avoids channelActive send races.
+        client.send(new CoopPlayerMoveEvent(1f, 1f, 1f, 1L, "X", "sprites/heroes/Human_m.atlas"));
+        client.send(hello(sessionCode));
+        client.send(new CoopPlayerMoveEvent(3f, 3f, 1f, 3L, "X", "sprites/heroes/Human_m.atlas"));
+        Assert.assertTrue(moveAfterAuth.await(10, TimeUnit.SECONDS),
+                "post-auth move not delivered");
         Assert.assertEquals(movesBeforeAuth.get(), 0);
         Assert.assertTrue(sawMoveAfterAuth.get());
     }
@@ -766,10 +783,10 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsExactlyTenForPackageK() {
-        // CO3=6; MV1=7; MV2=8; EN2 lootRolls=9; Package K planeFormat=10
-        // (set-start + 1 at review). Exact equality only.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
+    public void protocolVersionIsExactlyElevenForMv2GateDelta() {
+        // At review: PROTOCOL_VERSION must be (feature/set-start) + 1. After Package K (#42)
+        // base is 10 → this PR is 11. Exact equality only — soft lower-bounds hide collisions.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
     }
 
     private static long[][] sampleBiome(final int n) {
