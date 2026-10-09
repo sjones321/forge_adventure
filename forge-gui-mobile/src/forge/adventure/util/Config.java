@@ -61,24 +61,13 @@ public class Config {
         return currentConfig;
     }
 
-    /** Test-only: drop the singleton so the next {@link #instance()} re-reads settings. */
-    public static void resetInstanceForTests() {
-        currentConfig = null;
-    }
-
-    /** Absolute path of adventure {@code settings.json} (always under the live user dir). */
-    public static String settingsFilePath() {
-        return ForgeProfileProperties.getUserDir() + "adventure" + File.separator + "settings.json";
-    }
-
     private Config() {
         String path = resPath();
         FilenameFilter planesFilter = (file, s) -> !s.contains(".") && !s.equals(commonDirectoryName);
 
         adventures = new File(GuiBase.isMobile() ? ForgeConstants.ADVENTURE_DIR : path + "/res/adventure").list(planesFilter);
         try {
-            // Prefer live profile userDir (test-redirectable) over baked ForgeConstants.USER_ADVENTURE_DIR.
-            settingsData = new Json().fromJson(SettingData.class, new FileHandle(settingsFilePath()));
+            settingsData = new Json().fromJson(SettingData.class, new FileHandle(ForgeConstants.USER_ADVENTURE_DIR + "settings.json"));
         } catch (Exception e) {
             settingsData = new SettingData();
         }
@@ -461,7 +450,7 @@ public class Config {
 
     public void saveSettings() {
         Json json = new Json(JsonWriter.OutputType.json);
-        FileHandle handle = new FileHandle(settingsFilePath());
+        FileHandle handle = new FileHandle(ForgeProfileProperties.getUserDir() + "/adventure/settings.json");
         handle.writeString(json.prettyPrint(json.toJson(settingsData, SettingData.class)), false);
     }
 

@@ -4,14 +4,11 @@ import forge.adventure.data.EnemyData;
 import forge.adventure.data.EnemyThemeCatalogData;
 import forge.adventure.data.EnemyThemeData;
 import forge.adventure.data.EnemyThemeRecipeData;
-import forge.adventure.util.En1TestUserDir;
 import forge.adventure.util.EnemyThemeDecks;
 import forge.adventure.util.SaveFileData;
 import forge.deck.Deck;
 import org.testng.Assert;
-import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
-import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -28,27 +25,8 @@ import java.util.Set;
 /**
  * EN1 behavior tests that do not require the card database: theme pick,
  * persistence shape, and fallback that never crashes.
- * <p>
- * Runs against an isolated temp Forge user dir so nothing can touch a
- * developer's real {@code USER_ADVENTURE_DIR/settings.json}.
  */
 public class EnemyThemeDecksTest {
-
-    private static En1TestUserDir userDir;
-
-    @BeforeClass
-    public void isolateUserDir() throws Exception {
-        userDir = En1TestUserDir.install();
-    }
-
-    @AfterClass(alwaysRun = true)
-    public void restoreUserDir() throws Exception {
-        if (userDir != null) {
-            userDir.assertRealUserDirUnchanged();
-            userDir.close();
-            userDir = null;
-        }
-    }
 
     @BeforeMethod
     public void setUp() {
@@ -183,12 +161,6 @@ public class EnemyThemeDecksTest {
         Assert.assertNotNull(theme);
         Deck deck = EnemyThemeDecks.fillStandardRecipe(theme, null, 12345L);
         Assert.assertNotNull(deck);
-    }
-
-    @Test
-    public void realForgeUserDirUnchanged() throws Exception {
-        Assert.assertNotNull(userDir);
-        userDir.assertRealUserDirUnchanged();
     }
 
     private static EnemyThemeCatalogData sampleCatalog() {

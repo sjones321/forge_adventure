@@ -88,24 +88,6 @@ public class ForgeProfileProperties {
         save();
     }
 
-    /**
-     * Test-only: redirect {@code userDir} without writing {@code forge.profile.properties}.
-     * Callers that also need {@link ForgeConstants#USER_DIR} / {@code USER_ADVENTURE_DIR}
-     * updated must patch those statics separately (they are initialized once at class load).
-     */
-    public static void setUserDirWithoutSave(final String userDir0) {
-        String dir = userDir0 == null ? "" : userDir0.trim();
-        if (dir.isEmpty()) {
-            throw new IllegalArgumentException("userDir must not be empty");
-        }
-        dir = new File(dir).getAbsolutePath();
-        if (dir.charAt(dir.length() - 1) != File.separatorChar) {
-            dir = dir + File.separatorChar;
-        }
-        userDir = dir;
-        FileUtil.ensureDirectoryExists(userDir);
-    }
-
     public static String getCacheDir() {
         return cacheDir;
     }

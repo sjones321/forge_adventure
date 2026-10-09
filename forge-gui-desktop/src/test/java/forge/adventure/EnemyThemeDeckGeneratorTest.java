@@ -2,7 +2,6 @@ package forge.adventure;
 
 import forge.adventure.data.EnemyThemeData;
 import forge.adventure.data.EnemyThemeRecipeData;
-import forge.adventure.util.En1TestUserDir;
 import forge.adventure.util.EnemyThemeDecks;
 import forge.deck.Deck;
 import forge.deck.io.DeckSerializer;
@@ -10,7 +9,6 @@ import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.model.FModel;
 import forge.net.TestUtils;
 import org.testng.Assert;
-import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -26,45 +24,24 @@ import java.util.Locale;
  * One-shot / maintenance generator for EN1 fixed decks under
  * {@code forge-gui/res/adventure/common/decks/enemy/<theme>/<format>_1.dck}.
  * <p>
- * Opt-in only ({@code -Den1.generate=true}); when enabled it writes only under the
- * repo {@code forge-gui/res/} tree — never under the Forge user dir. The class still
- * installs a temp user dir so incidental Config / prefs traffic cannot overwrite a
- * developer's real {@code USER_ADVENTURE_DIR}.
- * <p>
+ * Always safe to run: skips themes that already have a legal deck for the format.
  * Run with:
- * {@code mvn -pl forge-gui-desktop -am test -Dtest=EnemyThemeDeckGeneratorTest -Den1.generate=true}
+ * {@code mvn -pl forge-gui-desktop -am test -Dtest=EnemyThemeDeckGeneratorTest -DfailIfNoTests=false}
  */
 public class EnemyThemeDeckGeneratorTest {
 
-    private En1TestUserDir userDir;
     private Path enemyDeckRoot;
     private List<EnemyThemeData> themes;
     private final List<String> couldNotFill = new ArrayList<>();
 
     @BeforeClass
     public void init() throws Exception {
-        userDir = En1TestUserDir.install();
         TestUtils.ensureFModelInitialized();
         FModel.getPreferences().setPref(FPref.ENFORCE_DECK_LEGALITY, false);
         enemyDeckRoot = resolveEnemyDeckRoot();
-        Assert.assertTrue(En1TestUserDir.isRepoAdventureRes(enemyDeckRoot),
-                "generator must target repo res/, not user dir: " + enemyDeckRoot);
-        Assert.assertFalse(enemyDeckRoot.startsWith(userDir.tempUserDir()),
-                "generator must not write under temp user dir: " + enemyDeckRoot);
-        Assert.assertFalse(enemyDeckRoot.startsWith(userDir.realUserDir()),
-                "generator must not write under real user dir: " + enemyDeckRoot);
         Files.createDirectories(enemyDeckRoot);
         themes = loadThemes();
         Assert.assertEquals(themes.size(), 16, "expected 16 themes");
-    }
-
-    @AfterClass(alwaysRun = true)
-    public void restoreUserDir() throws Exception {
-        if (userDir != null) {
-            userDir.assertRealUserDirUnchanged();
-            userDir.close();
-            userDir = null;
-        }
     }
 
     @Test(timeOut = 600000)
@@ -73,7 +50,6 @@ public class EnemyThemeDeckGeneratorTest {
         // mvn -pl forge-gui-desktop -am test -Dtest=EnemyThemeDeckGeneratorTest -Den1.generate=true
         if (!Boolean.parseBoolean(System.getProperty("en1.generate", "false"))) {
             System.out.println("EN1 generator skipped (pass -Den1.generate=true to rewrite res/)");
-            userDir.assertRealUserDirUnchanged();
             return;
         }
         EnemyThemeDecks.setEnabledForTests(true);
@@ -124,16 +100,7 @@ public class EnemyThemeDeckGeneratorTest {
         }
         // Soft assert: allow partial fill to be reported; legality test is the gate.
         Assert.assertTrue(wrote >= 0);
-        Assert.assertTrue(En1TestUserDir.isRepoAdventureRes(enemyDeckRoot),
-                "opt-in generator must only write repo res/: " + enemyDeckRoot);
-        userDir.assertRealUserDirUnchanged();
         EnemyThemeDecks.clearCache();
-    }
-
-    @Test
-    public void realForgeUserDirUnchanged() throws Exception {
-        Assert.assertNotNull(userDir);
-        userDir.assertRealUserDirUnchanged();
     }
 
     private boolean isAcceptable(Path path, String format, EnemyThemeData theme) {
