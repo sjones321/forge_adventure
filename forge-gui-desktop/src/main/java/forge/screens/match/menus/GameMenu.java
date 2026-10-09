@@ -90,14 +90,6 @@ public final class GameMenu {
                 gc.takeBackLastAction();
             }
         });
-        menu.addMenuListener(new MenuListener() {
-            @Override public void menuSelected(final MenuEvent e) {
-                final forge.interfaces.IGameController gc = matchUI.getGameController();
-                menuItem.setEnabled(gc != null && gc.canTakeBackLastAction());
-            }
-            @Override public void menuDeselected(final MenuEvent e) {}
-            @Override public void menuCanceled(final MenuEvent e) {}
-        });
         return menuItem;
     }
 
