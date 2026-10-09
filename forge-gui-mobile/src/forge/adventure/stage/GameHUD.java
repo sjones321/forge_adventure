@@ -1328,7 +1328,24 @@ public class GameHUD extends Stage {
             case PARTY: {
                 final String name = CoopWireLimits.clampString(party.getPartnerName(),
                         CoopWireLimits.MAX_PLAYER_NAME_LEN);
-                statusText = "[%90]Party with " + (name.isEmpty() ? "partner" : name);
+                String base = "[%90]Party with " + (name.isEmpty() ? "partner" : name);
+                // TR1: surface pending escrows on the party status line.
+                try {
+                    final java.util.List<forge.gamemodes.net.coop.CoopTradeLog.Entry> pending =
+                            forge.adventure.coop.CoopTradeRuntime.get().pendingEscrows();
+                    if (pending != null && !pending.isEmpty()) {
+                        final StringBuilder sb = new StringBuilder(base).append('\n')
+                                .append("[%80]Pending trades:");
+                        for (final forge.gamemodes.net.coop.CoopTradeLog.Entry e : pending) {
+                            sb.append('\n').append("[%75]")
+                                    .append(e.phase.name()).append(" ↔ ")
+                                    .append(e.peerCharacterId.isEmpty() ? "?" : e.peerCharacterId);
+                        }
+                        base = sb.toString();
+                    }
+                } catch (final Exception ignored) {
+                }
+                statusText = base;
                 buttonText = "[%100]Leave";
                 buttonDisabled = false;
                 break;

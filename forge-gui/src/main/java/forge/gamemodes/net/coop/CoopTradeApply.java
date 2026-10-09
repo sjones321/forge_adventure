@@ -121,19 +121,23 @@ public final class CoopTradeApply {
 
     /**
      * Refund this side's own escrowed goods back into the bag. Only used when
-     * reconcile shows the peer never escrowed. Does not touch received goods.
+     * reconcile shows the peer never escrowed. Snapshot-first: a partial grant
+     * restores the bag so the next reconcile does not repeat a half-refund (M1).
      */
     public static Result refundEscrow(final CoopTradeBag bag, final CoopTradeOffer ownOffer) {
         if (bag == null) {
             return Result.fail("null bag");
         }
         final CoopTradeOffer out = ownOffer != null ? ownOffer : CoopTradeOffer.empty();
+        final CoopTradeBag.Snapshot snap = bag.snapshot();
         try {
             if (!grantOffer(bag, out)) {
+                bag.restore(snap);
                 return Result.fail("refund grant");
             }
             return Result.ok();
         } catch (final RuntimeException ex) {
+            bag.restore(snap);
             return Result.fail("exception:" + ex.getMessage());
         }
     }

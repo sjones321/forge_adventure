@@ -41,6 +41,8 @@ public final class CoopTradeState {
         DELIVERED,
         /** Disconnected mid-flight; pending reconcile — no abandon. */
         NEEDS_RECONCILE,
+        /** Escrowed and peer escrowed, but deliver failed (e.g. gold overflow). Retry after freeing space. */
+        DELIVER_BLOCKED,
         COMPLETED,
         REFUNDED,
         CANCELLED
@@ -71,6 +73,8 @@ public final class CoopTradeState {
     private boolean peerEscrowed;
     private boolean peerDelivered;
     private String cancelReason = "";
+    private String peerCharacterId = "";
+    private String deliverBlockedReason = "";
     private long inviteSinceMs;
     private CoopTradeCancelEvent lastCancel;
 
@@ -127,9 +131,43 @@ public final class CoopTradeState {
         }
     }
 
+    public String getPeerCharacterId() {
+        synchronized (lock) {
+            return peerCharacterId;
+        }
+    }
+
+    public String getDeliverBlockedReason() {
+        synchronized (lock) {
+            return deliverBlockedReason;
+        }
+    }
+
+    public boolean isDeliverBlocked() {
+        synchronized (lock) {
+            return status == Status.DELIVER_BLOCKED;
+        }
+    }
+
     public boolean isOpen() {
         synchronized (lock) {
             return status == Status.OPEN;
+        }
+    }
+
+    /** True when any ESCROWED/DELIVERED log entry is bound to this peer. */
+    public boolean hasPendingWithPeer(final String peerId) {
+        return tradeLog.hasPendingWithPeer(peerId);
+    }
+
+    public boolean hasPendingEscrows() {
+        synchronized (lock) {
+            if (status == Status.NEEDS_RECONCILE || status == Status.ESCROWED
+                    || status == Status.DELIVERED || status == Status.DELIVER_BLOCKED) {
+                return true;
+            }
+            return !tradeLog.snapshotEscrowed().isEmpty()
+                    || !tradeLog.snapshotInFlight().isEmpty();
         }
     }
 
@@ -274,6 +312,8 @@ public final class CoopTradeState {
             tradeId = 0L;
             inviteId = 0L;
             cancelReason = "";
+            peerCharacterId = "";
+            deliverBlockedReason = "";
             peerEscrowed = false;
             peerDelivered = false;
             lastCancel = null;
@@ -292,42 +332,30 @@ public final class CoopTradeState {
      */
     public CoopTradeInviteEvent beginInvite(final String fromPlayer, final int timeoutSeconds,
                                             final long nowMs) {
+        return beginInvite(fromPlayer, timeoutSeconds, nowMs, "");
+    }
+
+    public CoopTradeInviteEvent beginInvite(final String fromPlayer, final int timeoutSeconds,
+                                            final long nowMs, final String peerCharacterId) {
         synchronized (lock) {
             if (status == Status.OPEN || status == Status.INVITE_SENT
                     || status == Status.ESCROWED || status == Status.DELIVERED
+                    || status == Status.DELIVER_BLOCKED
                     || status == Status.NEEDS_RECONCILE) {
                 return null;
             }
             if (!rateLimiter.tryAcquire(nowMs)) {
                 return null;
             }
+            final String peer = CoopTradeWireLimits.clampName(peerCharacterId);
+            if (!peer.isEmpty() && tradeLog.hasPendingWithPeer(peer)) {
+                return null;
+            }
             final String from = CoopTradeWireLimits.clampName(fromPlayer);
             if (from.isEmpty()) {
                 return null;
             }
-            long id = 0L;
-            for (int i = 0; i < 8; i++) {
-                id = CoopTradeIds.next();
-                if (!tradeLog.contains(id)) {
-                    break;
-                }
-                id = 0L;
-            }
-            if (id == 0L) {
-                return null;
-            }
-            resetOffersUnlocked();
-            status = Status.INVITE_SENT;
-            inviteId = id;
-            tradeId = id;
-            localRole = CoopTradeRole.HOST;
-            inviteSinceMs = nowMs;
-            cancelReason = "";
-            peerEscrowed = false;
-            peerDelivered = false;
-            lastCancel = null;
-            final int timeout = Math.max(1, Math.min(timeoutSeconds, 120));
-            return new CoopTradeInviteEvent(inviteId, from, timeout);
+            return beginInviteUnlocked(from, timeoutSeconds, nowMs, peer);
         }
     }
 
@@ -345,6 +373,7 @@ public final class CoopTradeState {
             }
             if (status == Status.OPEN || status == Status.INVITE_SENT
                     || status == Status.ESCROWED || status == Status.DELIVERED
+                    || status == Status.DELIVER_BLOCKED
                     || status == Status.NEEDS_RECONCILE) {
                 return null;
             }
@@ -355,12 +384,17 @@ public final class CoopTradeState {
             if (from == null || from.isEmpty() || from.length() > CoopTradeWireLimits.MAX_NAME_LEN) {
                 return null;
             }
-            return beginInviteUnlocked(hostName, timeoutSeconds, nowMs);
+            final String peer = CoopTradeWireLimits.clampName(from);
+            if (tradeLog.hasPendingWithPeer(peer)) {
+                return null;
+            }
+            return beginInviteUnlocked(hostName, timeoutSeconds, nowMs, peer);
         }
     }
 
     private CoopTradeInviteEvent beginInviteUnlocked(final String fromPlayer,
-                                                     final int timeoutSeconds, final long nowMs) {
+                                                     final int timeoutSeconds, final long nowMs,
+                                                     final String peerId) {
         final String from = CoopTradeWireLimits.clampName(fromPlayer);
         if (from.isEmpty()) {
             return null;
@@ -383,6 +417,8 @@ public final class CoopTradeState {
         localRole = CoopTradeRole.HOST;
         inviteSinceMs = nowMs;
         cancelReason = "";
+        deliverBlockedReason = "";
+        peerCharacterId = peerId != null ? peerId : "";
         peerEscrowed = false;
         peerDelivered = false;
         lastCancel = null;
@@ -396,12 +432,17 @@ public final class CoopTradeState {
             if (invite == null || invite.getInviteId() == 0L) {
                 return false;
             }
+            // Host never accepts a guest-chosen invite id — host mints only.
+            if (weAreHost) {
+                return false;
+            }
             // Reject any id already present in the local log.
             if (tradeLog.contains(invite.getInviteId())) {
                 return false;
             }
             if (status == Status.OPEN || status == Status.ESCROWED
-                    || status == Status.DELIVERED || status == Status.NEEDS_RECONCILE) {
+                    || status == Status.DELIVERED || status == Status.DELIVER_BLOCKED
+                    || status == Status.NEEDS_RECONCILE) {
                 return false;
             }
             if (!rateLimiter.tryAcquire(nowMs)) {
@@ -411,13 +452,19 @@ public final class CoopTradeState {
             if (from == null || from.isEmpty() || from.length() > CoopTradeWireLimits.MAX_NAME_LEN) {
                 return false;
             }
+            final String peer = CoopTradeWireLimits.clampName(from);
+            if (tradeLog.hasPendingWithPeer(peer)) {
+                return false;
+            }
             resetOffersUnlocked();
             status = Status.INVITE_RECEIVED;
             inviteId = invite.getInviteId();
             tradeId = inviteId;
-            localRole = weAreHost ? CoopTradeRole.HOST : CoopTradeRole.GUEST;
+            localRole = CoopTradeRole.GUEST;
             inviteSinceMs = nowMs;
             cancelReason = "";
+            deliverBlockedReason = "";
+            peerCharacterId = peer;
             peerEscrowed = false;
             peerDelivered = false;
             lastCancel = null;
@@ -459,6 +506,11 @@ public final class CoopTradeState {
             if (response.getInviteId() != inviteId && inviteId != 0L) {
                 return false;
             }
+            // Guest: response id must not already be in the local log (stale/replay).
+            if (!weAreHost && status == Status.REQUEST_SENT
+                    && tradeLog.contains(response.getInviteId())) {
+                return false;
+            }
             if (!response.isAccepted()) {
                 status = Status.CANCELLED;
                 cancelReason = "declined";
@@ -473,6 +525,15 @@ public final class CoopTradeState {
             hostConfirmed = false;
             guestConfirmed = false;
             return true;
+        }
+    }
+
+    /** Bind the peer character id once known (host invite path / session peer). */
+    public void setPeerCharacterId(final String peerId) {
+        synchronized (lock) {
+            if (peerId != null && !peerId.isEmpty()) {
+                peerCharacterId = CoopTradeWireLimits.clampName(peerId);
+            }
         }
     }
 
@@ -522,10 +583,17 @@ public final class CoopTradeState {
     public ConfirmResult acceptConfirm(final CoopTradeConfirmEvent event, final long nowMs) {
         synchronized (lock) {
             lastCancel = null;
-            if (event == null || status != Status.OPEN || event.getTradeId() != tradeId) {
+            // Confirm is never rate-limited (M3): dropping a confirm races escrow.
+            if (event == null || event.getTradeId() != tradeId) {
                 return ConfirmResult.IGNORED;
             }
-            if (!rateLimiter.tryAcquire(nowMs)) {
+            // After escrow started, ignore unconfirm / late confirms (race-proof).
+            if (status == Status.ESCROWED || status == Status.DELIVERED
+                    || status == Status.DELIVER_BLOCKED || status == Status.NEEDS_RECONCILE
+                    || status == Status.COMPLETED || tradeLog.hasEscrowed(tradeId)) {
+                return ConfirmResult.IGNORED;
+            }
+            if (status != Status.OPEN) {
                 return ConfirmResult.IGNORED;
             }
             final CoopTradeRole role = event.getFromRole();
@@ -536,6 +604,14 @@ public final class CoopTradeState {
             final int theirCurrent = role == CoopTradeRole.HOST ? guestOfferVersion : hostOfferVersion;
             if (event.getMyOfferVersion() != myCurrent
                     || event.getTheirOfferVersion() != theirCurrent) {
+                // Stale versions: unconfirm that side so a crossing unconfirm/confirm cannot lock.
+                if (!event.isConfirmed()) {
+                    if (role == CoopTradeRole.HOST) {
+                        hostConfirmed = false;
+                    } else {
+                        guestConfirmed = false;
+                    }
+                }
                 return ConfirmResult.IGNORED;
             }
             if (role == CoopTradeRole.HOST) {
@@ -572,8 +648,9 @@ public final class CoopTradeState {
     }
 
     /**
-     * After bag remove succeeds: write ESCROWED with both offers. Returns the
-     * wire event to send, or null if already escrowed / wrong state.
+     * After bag remove succeeds: write ESCROWED with both offers + local role +
+     * peer id. Returns the wire event to send, or null if record/save failed
+     * (caller must restore the bag and must not send).
      */
     public forge.gamemodes.net.event.coop.CoopTradeEscrowedEvent markEscrowed(final long nowMs) {
         synchronized (lock) {
@@ -587,8 +664,12 @@ public final class CoopTradeState {
             if (status != Status.OPEN && status != Status.NEEDS_RECONCILE) {
                 return null;
             }
-            tradeLog.record(tradeId, CoopTradeLog.Phase.ESCROWED, nowMs, hostOffer, guestOffer);
+            if (!tradeLog.record(tradeId, CoopTradeLog.Phase.ESCROWED, nowMs,
+                    hostOffer, guestOffer, localRole, peerCharacterId)) {
+                return null;
+            }
             status = Status.ESCROWED;
+            deliverBlockedReason = "";
             return new forge.gamemodes.net.event.coop.CoopTradeEscrowedEvent(tradeId, localRole);
         }
     }
@@ -612,7 +693,8 @@ public final class CoopTradeState {
             // Peer claiming escrowed for a trade we never reached escrow on, and
             // we have no OPEN/ESCROWED state — ignore hostile.
             if (status != Status.OPEN && status != Status.ESCROWED
-                    && status != Status.DELIVERED && status != Status.NEEDS_RECONCILE) {
+                    && status != Status.DELIVERED && status != Status.DELIVER_BLOCKED
+                    && status != Status.NEEDS_RECONCILE) {
                 return false;
             }
             peerEscrowed = true;
@@ -621,7 +703,8 @@ public final class CoopTradeState {
     }
 
     /**
-     * After bag grant succeeds: write DELIVERED. Returns wire event.
+     * After bag grant succeeds: write DELIVERED. Returns wire event, or null if
+     * record/save failed (caller restores bag, does not send).
      */
     public forge.gamemodes.net.event.coop.CoopTradeDeliveredEvent markDelivered(final long nowMs) {
         synchronized (lock) {
@@ -630,8 +713,10 @@ public final class CoopTradeState {
             }
             if (tradeLog.hasDelivered(tradeId)) {
                 status = Status.DELIVERED;
+                deliverBlockedReason = "";
                 if (peerDelivered) {
-                    tradeLog.record(tradeId, CoopTradeLog.Phase.COMPLETED, nowMs);
+                    tradeLog.record(tradeId, CoopTradeLog.Phase.COMPLETED, nowMs,
+                            null, null, localRole, peerCharacterId);
                     status = Status.COMPLETED;
                 }
                 return new forge.gamemodes.net.event.coop.CoopTradeDeliveredEvent(tradeId, localRole);
@@ -639,13 +724,29 @@ public final class CoopTradeState {
             if (!tradeLog.hasEscrowed(tradeId)) {
                 return null;
             }
-            tradeLog.record(tradeId, CoopTradeLog.Phase.DELIVERED, nowMs, hostOffer, guestOffer);
+            if (!tradeLog.record(tradeId, CoopTradeLog.Phase.DELIVERED, nowMs,
+                    hostOffer, guestOffer, localRole, peerCharacterId)) {
+                return null;
+            }
             status = Status.DELIVERED;
+            deliverBlockedReason = "";
             if (peerDelivered) {
-                tradeLog.record(tradeId, CoopTradeLog.Phase.COMPLETED, nowMs);
+                tradeLog.record(tradeId, CoopTradeLog.Phase.COMPLETED, nowMs,
+                        null, null, localRole, peerCharacterId);
                 status = Status.COMPLETED;
             }
             return new forge.gamemodes.net.event.coop.CoopTradeDeliveredEvent(tradeId, localRole);
+        }
+    }
+
+    /** Deliver failed (gold overflow, etc.) — keep escrow, allow retry. */
+    public void markDeliverBlocked(final String reason) {
+        synchronized (lock) {
+            if (status == Status.ESCROWED || status == Status.NEEDS_RECONCILE
+                    || status == Status.DELIVER_BLOCKED) {
+                status = Status.DELIVER_BLOCKED;
+                deliverBlockedReason = reason != null ? CoopTradeWireLimits.clampText(reason) : "";
+            }
         }
     }
 
@@ -664,12 +765,14 @@ public final class CoopTradeState {
             // Must have at least escrowed ourselves — never accept deliver for
             // a step we didn't reach.
             if (!tradeLog.hasEscrowed(tradeId) && status != Status.ESCROWED
-                    && status != Status.DELIVERED && status != Status.COMPLETED) {
+                    && status != Status.DELIVERED && status != Status.DELIVER_BLOCKED
+                    && status != Status.COMPLETED) {
                 return false;
             }
             peerDelivered = true;
             if (tradeLog.hasDelivered(tradeId)) {
-                tradeLog.record(tradeId, CoopTradeLog.Phase.COMPLETED, System.currentTimeMillis());
+                tradeLog.record(tradeId, CoopTradeLog.Phase.COMPLETED, System.currentTimeMillis(),
+                        null, null, localRole, peerCharacterId);
                 status = Status.COMPLETED;
             }
             return true;
@@ -680,7 +783,8 @@ public final class CoopTradeState {
     public boolean shouldDeliver() {
         synchronized (lock) {
             return peerEscrowed && tradeLog.hasEscrowed(tradeId) && !tradeLog.hasDelivered(tradeId)
-                    && (status == Status.ESCROWED || status == Status.NEEDS_RECONCILE);
+                    && (status == Status.ESCROWED || status == Status.NEEDS_RECONCILE
+                    || status == Status.DELIVER_BLOCKED);
         }
     }
 
@@ -716,6 +820,7 @@ public final class CoopTradeState {
 
     private CoopTradeCancelEvent cancelUnlocked(final String reason) {
         if (status == Status.ESCROWED || status == Status.DELIVERED
+                || status == Status.DELIVER_BLOCKED
                 || status == Status.NEEDS_RECONCILE || status == Status.COMPLETED
                 || status == Status.REFUNDED) {
             return null;
@@ -743,8 +848,10 @@ public final class CoopTradeState {
             if (event.getTradeId() != tradeId && event.getTradeId() != inviteId) {
                 return false;
             }
-            // After escrow: ignore cancel (no abandon / no reverse).
+            // After escrow: ignore cancel (no abandon / no reverse). Race-proof:
+            // peer cancel crossing our escrow must not wipe ESCROWED.
             if (status == Status.ESCROWED || status == Status.DELIVERED
+                    || status == Status.DELIVER_BLOCKED
                     || status == Status.NEEDS_RECONCILE || status == Status.COMPLETED
                     || tradeLog.hasEscrowed(tradeId)) {
                 return false;
@@ -769,8 +876,8 @@ public final class CoopTradeState {
                     || status == Status.CANCELLED || status == Status.REFUNDED) {
                 return null;
             }
-            if (status == Status.DELIVERED) {
-                // Waiting for peer delivered — reconcile, never abandon.
+            if (status == Status.DELIVERED || status == Status.DELIVER_BLOCKED) {
+                // Waiting for peer delivered / retry — reconcile, never abandon.
                 status = Status.NEEDS_RECONCILE;
                 return null;
             }
@@ -798,6 +905,16 @@ public final class CoopTradeState {
 
     public CoopTradeLog.ReconcileAction applyReconcile(final CoopTradeReconcileEvent event,
                                                        final long nowMs) {
+        return applyReconcile(event, nowMs, null);
+    }
+
+    /**
+     * @param connectedPeerCharacterId when non-empty, reject reconcile for entries
+     *        bound to a different peer (H1).
+     */
+    public CoopTradeLog.ReconcileAction applyReconcile(final CoopTradeReconcileEvent event,
+                                                       final long nowMs,
+                                                       final String connectedPeerCharacterId) {
         synchronized (lock) {
             if (event == null || event.getTradeId() == 0L) {
                 return CoopTradeLog.ReconcileAction.NONE;
@@ -805,6 +922,7 @@ public final class CoopTradeState {
             // Only for the matching in-flight id.
             if (tradeId != 0L && event.getTradeId() != tradeId
                     && (status == Status.ESCROWED || status == Status.DELIVERED
+                    || status == Status.DELIVER_BLOCKED
                     || status == Status.NEEDS_RECONCILE)) {
                 return CoopTradeLog.ReconcileAction.NONE;
             }
@@ -814,39 +932,50 @@ public final class CoopTradeState {
                 return CoopTradeLog.ReconcileAction.IGNORE_HOSTILE;
             }
             final CoopTradeLog.Entry local = tradeLog.get(id);
+            // H1: never reconcile an entry bound to a different peer.
+            if (local != null && connectedPeerCharacterId != null
+                    && !connectedPeerCharacterId.isEmpty()
+                    && !local.peerCharacterId.isEmpty()
+                    && !local.matchesPeer(connectedPeerCharacterId)) {
+                return CoopTradeLog.ReconcileAction.IGNORE_HOSTILE;
+            }
             final CoopTradeLog.Entry peer = new CoopTradeLog.Entry(id, event.getPhaseEnum(), nowMs);
             final CoopTradeLog.ReconcileAction action = CoopTradeLog.reconcile(local, peer);
-            if (action == CoopTradeLog.ReconcileAction.DELIVER) {
-                tradeId = id;
-                peerEscrowed = true;
+            if (action == CoopTradeLog.ReconcileAction.DELIVER
+                    || action == CoopTradeLog.ReconcileAction.REFUND
+                    || action == CoopTradeLog.ReconcileAction.RESEND_ESCROWED
+                    || action == CoopTradeLog.ReconcileAction.RESEND_DELIVERED
+                    || action == CoopTradeLog.ReconcileAction.COMPLETE) {
+                // C1: restore role + peer from the durable entry, never from reset().
                 if (local != null) {
+                    localRole = local.localRole;
+                    if (!local.peerCharacterId.isEmpty()) {
+                        peerCharacterId = local.peerCharacterId;
+                    }
                     hostOffer = local.hostOffer;
                     guestOffer = local.guestOffer;
                 }
+                tradeId = id;
+                inviteId = id;
+            }
+            if (action == CoopTradeLog.ReconcileAction.DELIVER) {
+                peerEscrowed = true;
                 if (status != Status.DELIVERED && status != Status.COMPLETED) {
                     status = Status.ESCROWED;
                 }
             } else if (action == CoopTradeLog.ReconcileAction.REFUND) {
-                tradeId = id;
-                if (local != null) {
-                    hostOffer = local.hostOffer;
-                    guestOffer = local.guestOffer;
-                }
                 status = Status.NEEDS_RECONCILE;
             } else if (action == CoopTradeLog.ReconcileAction.COMPLETE) {
-                tradeId = id;
                 status = Status.COMPLETED;
-                tradeLog.record(id, CoopTradeLog.Phase.COMPLETED, nowMs);
+                tradeLog.record(id, CoopTradeLog.Phase.COMPLETED, nowMs,
+                        null, null, localRole, peerCharacterId);
             } else if (action == CoopTradeLog.ReconcileAction.RESEND_ESCROWED) {
-                tradeId = id;
-                if (status != Status.ESCROWED && status != Status.DELIVERED) {
+                if (status != Status.ESCROWED && status != Status.DELIVERED
+                        && status != Status.DELIVER_BLOCKED) {
                     status = Status.ESCROWED;
                 }
             } else if (action == CoopTradeLog.ReconcileAction.RESEND_DELIVERED) {
-                tradeId = id;
                 status = Status.DELIVERED;
-            } else if (action == CoopTradeLog.ReconcileAction.IGNORE_HOSTILE) {
-                // leave state alone
             }
             return action;
         }
@@ -858,7 +987,8 @@ public final class CoopTradeState {
             if (tradeId == 0L || !tradeLog.hasEscrowed(tradeId) || tradeLog.hasDelivered(tradeId)) {
                 return false;
             }
-            final boolean ok = tradeLog.record(tradeId, CoopTradeLog.Phase.REFUNDED, nowMs);
+            final boolean ok = tradeLog.record(tradeId, CoopTradeLog.Phase.REFUNDED, nowMs,
+                    null, null, localRole, peerCharacterId);
             if (ok) {
                 status = Status.REFUNDED;
                 peerEscrowed = false;
@@ -869,13 +999,29 @@ public final class CoopTradeState {
     }
 
     public List<CoopTradeReconcileEvent> buildReconcileRequests(final boolean asRequests) {
+        return buildReconcileRequests(asRequests, peerCharacterId);
+    }
+
+    /**
+     * Only emit reconcile for entries bound to {@code connectedPeerCharacterId}.
+     * A different guest connecting gets nothing (H1).
+     */
+    public List<CoopTradeReconcileEvent> buildReconcileRequests(final boolean asRequests,
+                                                                final String connectedPeerCharacterId) {
         synchronized (lock) {
             final List<CoopTradeReconcileEvent> out = new ArrayList<>();
+            final String peer = connectedPeerCharacterId != null ? connectedPeerCharacterId : "";
             for (final CoopTradeLog.Entry e : tradeLog.snapshotInFlight()) {
-                out.add(new CoopTradeReconcileEvent(e.tradeId, localRole, e.phase, asRequests));
+                if (peer.isEmpty() || !e.matchesPeer(peer)) {
+                    continue;
+                }
+                final CoopTradeRole role = e.localRole != null ? e.localRole : localRole;
+                out.add(new CoopTradeReconcileEvent(e.tradeId, role, e.phase, asRequests));
             }
             if ((status == Status.NEEDS_RECONCILE || status == Status.ESCROWED
-                    || status == Status.DELIVERED) && tradeId != 0L) {
+                    || status == Status.DELIVERED || status == Status.DELIVER_BLOCKED)
+                    && tradeId != 0L
+                    && (peer.isEmpty() || peer.equals(peerCharacterId))) {
                 final CoopTradeLog.Phase phase;
                 if (tradeLog.hasDelivered(tradeId)) {
                     phase = CoopTradeLog.Phase.DELIVERED;
@@ -902,6 +1048,7 @@ public final class CoopTradeState {
     public void onTeardown() {
         synchronized (lock) {
             if (status == Status.ESCROWED || status == Status.DELIVERED
+                    || status == Status.DELIVER_BLOCKED
                     || (tradeId != 0L && tradeLog.hasEscrowed(tradeId)
                     && !tradeLog.hasDelivered(tradeId))) {
                 status = Status.NEEDS_RECONCILE;
@@ -916,9 +1063,10 @@ public final class CoopTradeState {
     }
 
     /**
-     * Restore in-flight ESCROWED status from the log after a crash reload.
+     * Restore in-flight status from the log after a crash reload.
+     * Role and peer id come from the entry (C1) — never default to GUEST.
      */
-    public void restoreFromLog(final long id, final CoopTradeRole role) {
+    public void restoreFromLog(final long id, final CoopTradeRole roleFallback) {
         synchronized (lock) {
             final CoopTradeLog.Entry e = tradeLog.get(id);
             if (e == null) {
@@ -926,7 +1074,9 @@ public final class CoopTradeState {
             }
             tradeId = id;
             inviteId = id;
-            localRole = role != null ? role : localRole;
+            localRole = e.localRole != null ? e.localRole
+                    : (roleFallback != null ? roleFallback : localRole);
+            peerCharacterId = e.peerCharacterId != null ? e.peerCharacterId : "";
             hostOffer = e.hostOffer;
             guestOffer = e.guestOffer;
             if (e.phase == CoopTradeLog.Phase.DELIVERED || e.phase == CoopTradeLog.Phase.COMPLETED) {
@@ -939,23 +1089,77 @@ public final class CoopTradeState {
         }
     }
 
-    public void reset() {
+    /** Restore every in-flight log entry into NEEDS_RECONCILE (no explicit restoreFromLog call needed). */
+    public void recoverPendingFromLog() {
         synchronized (lock) {
-            status = Status.IDLE;
-            tradeId = 0L;
-            inviteId = 0L;
-            localRole = CoopTradeRole.GUEST;
-            resetOffersUnlocked();
-            cancelReason = "";
-            inviteSinceMs = 0L;
-            peerEscrowed = false;
-            peerDelivered = false;
-            lastCancel = null;
-            rateLimiter.reset();
+            for (final CoopTradeLog.Entry e : tradeLog.snapshotInFlight()) {
+                if (e.phase == CoopTradeLog.Phase.ESCROWED
+                        || e.phase == CoopTradeLog.Phase.DELIVERED) {
+                    restoreFromLogUnlocked(e);
+                    return; // active pending trade
+                }
+            }
         }
     }
 
+    private void restoreFromLogUnlocked(final CoopTradeLog.Entry e) {
+        tradeId = e.tradeId;
+        inviteId = e.tradeId;
+        localRole = e.localRole != null ? e.localRole : localRole;
+        peerCharacterId = e.peerCharacterId != null ? e.peerCharacterId : "";
+        hostOffer = e.hostOffer;
+        guestOffer = e.guestOffer;
+        if (e.phase == CoopTradeLog.Phase.DELIVERED) {
+            status = Status.DELIVERED;
+        } else {
+            status = Status.NEEDS_RECONCILE;
+        }
+    }
+
+    /**
+     * Clear the active open trade only. Preserves NEEDS_RECONCILE / pending
+     * escrow state and never wipes role for in-flight log entries.
+     */
+    public void resetActiveIfIdle() {
+        synchronized (lock) {
+            if (status == Status.NEEDS_RECONCILE || status == Status.ESCROWED
+                    || status == Status.DELIVERED || status == Status.DELIVER_BLOCKED
+                    || tradeLog.hasEscrowed(tradeId)) {
+                return;
+            }
+            resetUnlocked();
+        }
+    }
+
+    public void reset() {
+        synchronized (lock) {
+            resetUnlocked();
+        }
+    }
+
+    private void resetUnlocked() {
+        status = Status.IDLE;
+        tradeId = 0L;
+        inviteId = 0L;
+        // Do not force GUEST when pending log entries exist — recoverPendingFromLog
+        // will restore role from the entry. Only default when truly idle.
+        if (tradeLog.snapshotInFlight().isEmpty()) {
+            localRole = CoopTradeRole.GUEST;
+            peerCharacterId = "";
+        }
+        resetOffersUnlocked();
+        cancelReason = "";
+        deliverBlockedReason = "";
+        inviteSinceMs = 0L;
+        peerEscrowed = false;
+        peerDelivered = false;
+        lastCancel = null;
+        rateLimiter.reset();
+    }
+
     private boolean isIdleUnlocked() {
+        // Pending escrows with other peers stay in the log; only the active
+        // status blocks a new trade. Per-peer blocking uses hasPendingWithPeer.
         return status == Status.IDLE || status == Status.COMPLETED
                 || status == Status.CANCELLED || status == Status.REFUNDED;
     }
