@@ -211,8 +211,6 @@ public class CoopGuestCharacterPersistTest {
             Assert.assertEquals(player.getGold(), soloGoldSnapshot,
                     "sync restore before host must put solo back");
             Assert.assertFalse(CoopSession.get().isGuestSoloRestorePending());
-            // disposeSessionWorld may post a dispose — that must not carry a solo restore.
-            final int postsAfterHost = queued.size();
 
             // Join again: stash must be solo, not co-op loot.
             joinAsGuest();
