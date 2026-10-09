@@ -31,6 +31,12 @@
                     <systemPropertyVariables>
                         <forge.test.userDir>${project.build.directory}/test-user-home</forge.test.userDir>
                     </systemPropertyVariables>
+                    <properties>
+                        <property>
+                            <name>listener</name>
+                            <value>forge.TestUserDirIsolationListener</value>
+                        </property>
+                    </properties>
                 </configuration>
             </plugin>
             <plugin>

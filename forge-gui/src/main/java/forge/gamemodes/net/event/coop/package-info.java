@@ -22,9 +22,10 @@
  * {@code FServerManager} / {@code FGameClient}, started only for co-op duels.
  *
  * <p>Protocol: CO2 is 5; CO3 is 6; MV1 plane-follow ({@link CoopPlaneSwitchEvent}) is 7;
- * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8;
+ * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8.
+ * Open PRs do not pre-assign numbers — at review, merge {@code feature/set-start} and
+ * set {@link forge.gamemodes.net.coop.CoopPorts#PROTOCOL_VERSION} to that tip + 1.
  * CO5 world-bound partners ({@link CoopPartnerOfferEvent} / {@link CoopPartnerCreateEvent} /
- * {@link CoopPartnerSnapshotEvent} / {@link CoopPartnerSnapshotAckEvent}) is 10
- * (9 reserved for in-flight MV2 gate sync / TR1).
+ * {@link CoopPartnerSnapshotEvent} / {@link CoopPartnerSnapshotAckEvent}) currently bump to 9.
  */
 package forge.gamemodes.net.event.coop;

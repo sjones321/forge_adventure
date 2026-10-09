@@ -116,6 +116,10 @@
                     <includes>
                         <include>**/*Should.java</include>
                     </includes>
+                    <!-- Explicit: do not rely on pluginManagement merge alone. -->
+                    <systemPropertyVariables>
+                        <forge.test.userDir>${project.build.directory}/test-user-home</forge.test.userDir>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>
