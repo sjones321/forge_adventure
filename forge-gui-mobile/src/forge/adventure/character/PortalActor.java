@@ -139,44 +139,46 @@ public class PortalActor extends EntryActor {
             boolean firstOpen = !save.getMultiverse().hasCompressedBlob(id)
                     && !id.equals(save.getMultiverse().getCurrentPlaneId());
             // Package K: first open of a set plane asks for format (default = current plane).
+            // Format is stamped only after travel succeeds — never on cancel / failed travel.
             // Return false so the collide path does not play the teleport FX yet.
             if (firstOpen && targetMeta != null && PlaneFormat.raw(targetMeta).isEmpty()
                     && !PlaneMeta.HOME_ID.equals(id)) {
                 final String planeIdFinal = id;
-                promptPlaneFormat(targetMeta, () -> {
-                    continueTravelAfterFormat(save, planeIdFinal, true);
+                promptPlaneFormat(targetMeta, chosen -> {
+                    continueTravelAfterFormat(save, planeIdFinal, true, chosen);
                     playPortalTravelEffect();
                 });
                 return false;
             }
-            // Legacy / home: planes without a format get a sensible default (no dialog).
-            if (targetMeta != null && PlaneFormat.raw(targetMeta).isEmpty()) {
-                PlaneFormat.setPlaneFormat(targetMeta, PlaneFormat.resolveCurrent());
-            }
+            // Legacy / home: pending default — stamped only after successful travel.
+            final String pendingAutoFormat = (targetMeta != null && PlaneFormat.raw(targetMeta).isEmpty())
+                    ? PlaneFormat.resolveCurrent() : null;
             if (firstOpen) {
                 final String planeIdFinal = id;
                 try {
                     materializePlaneWithLoadingScreen(save, planeIdFinal,
-                            () -> finishPortalTravel(planeIdFinal));
+                            () -> finishPortalTravel(planeIdFinal, pendingAutoFormat));
                 } catch (Exception e) {
                     notifyPortal("Could not create plane: "
                             + (e.getMessage() != null ? e.getMessage() : "unknown error"));
                 }
                 return true;
             }
-            return finishPortalTravel(id);
+            return finishPortalTravel(id, pendingAutoFormat);
         } catch (Exception e) {
             notifyPortal("Portal failed: " + (e.getMessage() != null ? e.getMessage() : "unknown error"));
             return false;
         }
     }
 
-    private void continueTravelAfterFormat(WorldSave save, String planeId, boolean materialize) {
+    private void continueTravelAfterFormat(WorldSave save, String planeId, boolean materialize,
+                                           String pendingFormat) {
         try {
             if (materialize) {
-                materializePlaneWithLoadingScreen(save, planeId, () -> finishPortalTravel(planeId));
+                materializePlaneWithLoadingScreen(save, planeId,
+                        () -> finishPortalTravel(planeId, pendingFormat));
             } else {
-                finishPortalTravel(planeId);
+                finishPortalTravel(planeId, pendingFormat);
             }
         } catch (Exception e) {
             notifyPortal("Could not create plane: "
@@ -185,10 +187,10 @@ public class PortalActor extends EntryActor {
     }
 
     /**
-     * Package K portal dialog: pick this plane's format (fixed once chosen).
-     * Default selection matches the plane you came from.
+     * Package K portal dialog: pick this plane's format (fixed once travel succeeds).
+     * Default selection matches the plane you came from. Does not stamp until travel ok.
      */
-    private void promptPlaneFormat(PlaneMeta targetMeta, Runnable onChosen) {
+    private void promptPlaneFormat(PlaneMeta targetMeta, java.util.function.Consumer<String> onChosen) {
         String from = PlaneFormat.resolveCurrent();
         List<String> options = ImmutableList.copyOf(PlaneFormat.CHOICES);
         int defaultIdx = 0;
@@ -209,10 +211,9 @@ public class PortalActor extends EntryActor {
                         return;
                     }
                     String chosen = PlaneFormat.fromChoiceLabel(PlaneFormat.CHOICES[result]);
-                    PlaneFormat.setPlaneFormat(targetMeta, chosen);
                     notifyPortal("Format: " + PlaneFormat.displayName(chosen));
                     if (onChosen != null) {
-                        onChosen.run();
+                        onChosen.accept(chosen);
                     }
                 });
     }
@@ -275,8 +276,13 @@ public class PortalActor extends EntryActor {
     /**
      * Charge gold, leave the POI, and switch planes. Called after any deferred
      * materialize has finished (possibly behind a loading screen).
+     * {@code pendingFormatIfUnset} is stamped only after a successful switch.
      */
     private boolean finishPortalTravel(String id) {
+        return finishPortalTravel(id, null);
+    }
+
+    private boolean finishPortalTravel(String id, String pendingFormatIfUnset) {
         WorldSave save = WorldSave.getCurrentSave();
         if (save == null) {
             return false;
@@ -295,6 +301,14 @@ public class PortalActor extends EntryActor {
             String err = save.getLastPlaneSwitchError();
             notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
             return false;
+        }
+        // Package K: stamp format only after successful travel (never on failure).
+        try {
+            PlaneMeta meta = save.getMultiverse() != null ? save.getMultiverse().getMeta(id) : null;
+            if (meta != null && pendingFormatIfUnset != null && !pendingFormatIfUnset.isEmpty()) {
+                PlaneFormat.stampFormatAfterSuccessfulTravel(meta, pendingFormatIfUnset);
+            }
+        } catch (Exception ignored) {
         }
         // GameScene.enter() happens exactly once inside switchPlane.
         String fmt = "";

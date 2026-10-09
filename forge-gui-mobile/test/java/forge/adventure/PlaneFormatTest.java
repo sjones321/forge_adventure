@@ -4,6 +4,8 @@ import forge.adventure.coop.CoopSession;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.RewardData;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.scene.SaveLoadScene;
+import forge.adventure.stage.WorldStage;
 import forge.adventure.util.AdventureModes;
 import forge.adventure.util.Config;
 import forge.adventure.util.Current;
@@ -31,6 +33,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
 
 /**
  * Package K: plane format storage, migration, resolver fallbacks, Commander mode,
@@ -308,6 +311,117 @@ public class PlaneFormatTest {
         } finally {
             cfg.kStrictOverworldLegalDecks = previous;
         }
+    }
+
+    @Test
+    public void guestHostFormatWinsOverLocalCommanderMode() throws Exception {
+        setAdventureMode(AdventureModes.Commander);
+        try {
+            Assert.assertTrue(Current.player().isCommanderMode());
+            CoopSession.get().testFollowHostPlane("set_dmu", GymUtil.FORMAT_PAUPER);
+            Assert.assertEquals(PlaneFormat.resolveCurrent(), GymUtil.FORMAT_PAUPER,
+                    "guest must follow host format even in local Commander mode");
+            Assert.assertEquals(Current.player().getRunFormat(), GymUtil.FORMAT_PAUPER);
+        } finally {
+            CoopSession.get().testClearGuestPlaneFollow();
+            restoreAdventureMode();
+        }
+    }
+
+    @Test
+    public void strictOverworldSkippedWhenCoopActive() {
+        ConfigData cfg = Config.instance().getConfigData();
+        final boolean previous = cfg.kStrictOverworldLegalDecks;
+        final String code = CoopSessionCode.generate();
+        final CoopSession session = CoopSession.get();
+        session.testPrepareHostingForHello(code);
+        try {
+            cfg.kStrictOverworldLegalDecks = true;
+            Assert.assertTrue(session.isActive(), "HOSTING must count as an active co-op session");
+            Assert.assertFalse(WorldStage.shouldEnforceStrictOverworldDeckRules(),
+                    "strict overworld deck checks must be skipped in co-op");
+        } finally {
+            cfg.kStrictOverworldLegalDecks = previous;
+            session.testClearHostingForHello();
+        }
+    }
+
+    @Test
+    public void strictRefuseGraceConstantsPreventPerFrameSpam() {
+        Assert.assertTrue(WorldStage.STRICT_REFUSE_KNOCKBACK_PX > 0f);
+        Assert.assertTrue(WorldStage.STRICT_REFUSE_GRACE_SECONDS > 0f);
+        Assert.assertTrue(WorldStage.STRICT_REFUSE_GRACE_SECONDS >= 1f,
+                "grace must cover at least a second of overlap spam");
+    }
+
+    @Test
+    public void stampFormatOnlyAfterSuccessfulTravel() {
+        Assert.assertFalse(PlaneFormat.shouldStampFormatOnTravel(false, false));
+        Assert.assertFalse(PlaneFormat.shouldStampFormatOnTravel(false, true));
+        Assert.assertFalse(PlaneFormat.shouldStampFormatOnTravel(true, true));
+        Assert.assertTrue(PlaneFormat.shouldStampFormatOnTravel(true, false));
+
+        PlaneMeta meta = new PlaneMeta("set_stamp", forge.adventure.world.PlaneKind.SET,
+                1L, "world/set_plane_world.json", "Stamp");
+        Assert.assertEquals(PlaneFormat.raw(meta), "");
+        Assert.assertTrue(PlaneFormat.stampFormatAfterSuccessfulTravel(meta, GymUtil.FORMAT_PAUPER));
+        Assert.assertEquals(meta.getFormat(), GymUtil.FORMAT_PAUPER);
+        // Already set — second stamp must not overwrite (failed-then-retry safety).
+        Assert.assertFalse(PlaneFormat.stampFormatAfterSuccessfulTravel(meta, GymUtil.FORMAT_HISTORIC));
+        Assert.assertEquals(meta.getFormat(), GymUtil.FORMAT_PAUPER);
+    }
+
+    @Test
+    public void portalAndConsoleStampOnlyAfterTravelSuccess() throws Exception {
+        String portal = Files.readString(
+                java.nio.file.Paths.get("src/forge/adventure/character/PortalActor.java"));
+        Assert.assertTrue(portal.contains("stampFormatAfterSuccessfulTravel"),
+                "PortalActor must stamp via stampFormatAfterSuccessfulTravel");
+        Assert.assertTrue(portal.contains("pendingFormatIfUnset")
+                        || portal.contains("pendingFormat"),
+                "PortalActor must carry pending format until travel succeeds");
+        // Must not stamp inside the dialog callback before travel.
+        int dialogStamp = portal.indexOf("PlaneFormat.setPlaneFormat(targetMeta, chosen)");
+        Assert.assertTrue(dialogStamp < 0,
+                "dialog must not stamp format before travel succeeds");
+
+        String console = Files.readString(
+                java.nio.file.Paths.get("src/forge/adventure/stage/ConsoleCommandInterpreter.java"));
+        Assert.assertTrue(console.contains("stampFormatAfterSuccessfulTravel"),
+                "plane go must stamp only after switchPlane succeeds");
+        int pending = console.indexOf("pendingFormat");
+        int stamp = console.indexOf("stampFormatAfterSuccessfulTravel");
+        int switchOk = console.indexOf("boolean ok = save.switchPlane(id)");
+        Assert.assertTrue(pending >= 0 && stamp > switchOk,
+                "console stamp must be after switchPlane");
+    }
+
+    @Test
+    public void ngPlusFormatBoxHiddenInCommanderMode() {
+        Assert.assertTrue(SaveLoadScene.shouldShowNgPlusPlaneFormatBox(true, false));
+        Assert.assertFalse(SaveLoadScene.shouldShowNgPlusPlaneFormatBox(true, true),
+                "Commander NG+ must hide the plane format picker");
+        Assert.assertFalse(SaveLoadScene.shouldShowNgPlusPlaneFormatBox(false, false));
+        Assert.assertFalse(SaveLoadScene.shouldShowNgPlusPlaneFormatBox(false, true));
+    }
+
+    @Test
+    public void newGameAndNgPlusInvalidateCardPoolAfterFormat() throws Exception {
+        String worldSave = Files.readString(
+                java.nio.file.Paths.get("src/forge/adventure/world/WorldSave.java"));
+        int setFmt = worldSave.indexOf("PlaneFormat.setPlaneFormat(home, fmt)");
+        int invalidate = worldSave.indexOf("RewardData.invalidateCardPool()", setFmt);
+        Assert.assertTrue(setFmt >= 0, "New Game must set home plane format");
+        Assert.assertTrue(invalidate > setFmt,
+                "New Game must invalidateCardPool after setting the home format");
+
+        String ngPlus = Files.readString(
+                java.nio.file.Paths.get("src/forge/adventure/scene/SaveLoadScene.java"));
+        int ngSet = ngPlus.indexOf("PlaneFormat.setPlaneFormat(home, fmt)");
+        int ngInv = ngPlus.indexOf("RewardData.invalidateCardPool()", ngSet);
+        Assert.assertTrue(ngSet >= 0, "NG+ must set home plane format");
+        Assert.assertTrue(ngInv > ngSet,
+                "NG+ must invalidateCardPool after setting the home format");
     }
 
     @SuppressWarnings("unchecked")

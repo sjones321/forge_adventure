@@ -2446,13 +2446,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     /**
-     * Current plane's format (Package K). Commander-mode saves always report Commander
-     * so gyms stay enterable. Falls back via {@link PlaneFormat#resolveCurrent()} when
-     * the plane has no format (legacy saves).
+     * Current plane's format (Package K). Co-op guests follow the host; Commander-mode
+     * solo/host runs report Commander. See {@link PlaneFormat#resolveCurrent()}.
      */
     public String getRunFormat() {
-        if (isCommanderMode())
-            return GymUtil.FORMAT_COMMANDER;
         return PlaneFormat.resolveCurrent();
     }
 

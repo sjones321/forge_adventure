@@ -13,6 +13,7 @@ import com.github.tommyettinger.textra.TextraButton;
 import com.github.tommyettinger.textra.TextraLabel;
 import forge.Forge;
 import forge.adventure.data.DifficultyData;
+import forge.adventure.data.RewardData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
@@ -52,6 +53,7 @@ public class SaveLoadScene extends UIScene {
     Selectable<TextraButton> autoSave;
     SelectBox difficulty;
     SelectBox<String> planeFormatBox;
+    Label planeFormatLabel;
     ScrollPane scrollPane;
     char ASCII_179 = '│';
     Dialog saveDialog;
@@ -81,6 +83,8 @@ public class SaveLoadScene extends UIScene {
         });
         planeFormatBox = Controls.newComboBox(PlaneFormat.CHOICES, null, o -> null);
         planeFormatBox.setVisible(false);
+        planeFormatLabel = Controls.newLabel("[BLACK]Plane format:");
+        planeFormatLabel.setVisible(false);
         previewImage = ui.findActor("preview");
         previewDate = ui.findActor("saveDate");
         playerLocation = Controls.newTextraLabel("");
@@ -94,7 +98,7 @@ public class SaveLoadScene extends UIScene {
         root.add(difficulty);
         root.row();
         if (Config.ascendant()) {
-            root.add(Controls.newLabel("[BLACK]Plane format:")).left();
+            root.add(planeFormatLabel).left();
             root.add(planeFormatBox).right();
             root.row();
         }
@@ -261,6 +265,9 @@ public class SaveLoadScene extends UIScene {
             if (previewDate != null)
                 previewDate.setVisible(false);
         }
+        if (mode == Modes.NewGamePlus) {
+            refreshNgPlusPlaneFormatVisibility();
+        }
         return true;
     }
 
@@ -340,17 +347,26 @@ public class SaveLoadScene extends UIScene {
                                 // Drop every set plane; registry restarts as a fresh home plane.
                                 WorldSave.getCurrentSave().resetForNewGamePlus();
                                 // Package K: NG+ picks the new home plane's format.
-                                if (Config.ascendant() && planeFormatBox != null) {
-                                    String fmt = PlaneFormat.fromChoiceLabel(
-                                            planeFormatBox.getSelected() != null
-                                                    ? planeFormatBox.getSelected()
-                                                    : PlaneFormat.CHOICES[0]);
+                                // Commander-mode saves always keep Commander (format box is hidden).
+                                if (Config.ascendant()) {
+                                    String fmt;
+                                    if (Current.player() != null && Current.player().isCommanderMode()) {
+                                        fmt = PlaneFormat.COMMANDER;
+                                    } else if (planeFormatBox != null) {
+                                        fmt = PlaneFormat.fromChoiceLabel(
+                                                planeFormatBox.getSelected() != null
+                                                        ? planeFormatBox.getSelected()
+                                                        : PlaneFormat.CHOICES[0]);
+                                    } else {
+                                        fmt = PlaneFormat.defaultFormat();
+                                    }
                                     PlaneMeta home = WorldSave.getCurrentSave().getMultiverse()
                                             .getMeta(PlaneMeta.HOME_ID);
                                     if (home != null) {
                                         PlaneFormat.setPlaneFormat(home, fmt);
                                     }
                                     Current.player().setLegacyRunFormat(fmt);
+                                    RewardData.invalidateCardPool();
                                 }
                                 WorldStage.getInstance().enterSpawnPOI();
                                 SoundSystem.instance.changeBackgroundTrack();
@@ -469,20 +485,41 @@ public class SaveLoadScene extends UIScene {
                 difficulty.setVisible(true);
                 difficulty.setSelectedIndex(1);
             }
-            if (planeFormatBox != null && Config.ascendant()) {
-                planeFormatBox.setVisible(true);
-                planeFormatBox.setSelectedIndex(0);
-            }
+            refreshNgPlusPlaneFormatVisibility();
         } else {
             if (difficulty != null) {
                 difficulty.setVisible(false);
             }
-            if (planeFormatBox != null) {
-                planeFormatBox.setVisible(false);
-            }
+            setNgPlusPlaneFormatVisible(false);
         }
         performTouch(scrollPane); //can use mouse wheel if available to scroll
         super.enter();
+    }
+
+    /**
+     * Package K: NG+ format picker is Ascendant-only and hidden for Commander-mode saves.
+     */
+    public static boolean shouldShowNgPlusPlaneFormatBox(boolean ascendant, boolean commanderMode) {
+        return ascendant && !commanderMode;
+    }
+
+    private void refreshNgPlusPlaneFormatVisibility() {
+        boolean commander = WorldSave.peekIsCommanderLike(currentSlot);
+        boolean show = mode == Modes.NewGamePlus
+                && shouldShowNgPlusPlaneFormatBox(Config.ascendant(), commander);
+        setNgPlusPlaneFormatVisible(show);
+        if (show && planeFormatBox != null) {
+            planeFormatBox.setSelectedIndex(0);
+        }
+    }
+
+    private void setNgPlusPlaneFormatVisible(boolean show) {
+        if (planeFormatBox != null) {
+            planeFormatBox.setVisible(show);
+        }
+        if (planeFormatLabel != null) {
+            planeFormatLabel.setVisible(show);
+        }
     }
 
     public void showMessage(String title, String message) {
