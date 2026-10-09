@@ -18,15 +18,12 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.zip.DeflaterOutputStream;
-import java.util.zip.InflaterInputStream;
 
 /**
  * CO5 partner behaviour against {@code forge.test.userDir}.
