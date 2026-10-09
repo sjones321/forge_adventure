@@ -89,6 +89,12 @@ public class CoopDuelServerE2ETest {
         } catch (final Exception ignored) {
         }
         server = null;
+        // Let the prior loopback bind release before the next E2E test allocates a port.
+        try {
+            Thread.sleep(200);
+        } catch (final InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static Deck landDeck(final String name, final String card) {
