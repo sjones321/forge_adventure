@@ -422,18 +422,44 @@ public class CoopDuelServerE2ETest {
             final ProtocolGuiGame hostGui) throws Exception {
         PlayerView guestView = null;
         IGameController netCtrl = null;
-        final long ctrlDeadline = System.currentTimeMillis() + 30_000;
-        while (System.currentTimeMillis() < ctrlDeadline && netCtrl == null) {
+        CardView castCard = null;
+        final long readyDeadline = System.currentTimeMillis() + 60_000;
+        while (System.currentTimeMillis() < readyDeadline
+                && (netCtrl == null || castCard == null)) {
             answerHost(hostRemote, hostGui, false);
-            for (final PlayerView p : guestLocalGui.getLocalPlayers()) {
-                if (p == null) {
-                    continue;
+            if (netCtrl == null) {
+                for (final PlayerView p : guestLocalGui.getLocalPlayers()) {
+                    if (p == null) {
+                        continue;
+                    }
+                    final IGameController c = guestLocalGui.getGameController(p);
+                    if (c instanceof NetGameController) {
+                        guestView = p;
+                        netCtrl = c;
+                        break;
+                    }
                 }
-                final IGameController c = guestLocalGui.getGameController(p);
-                if (c instanceof NetGameController) {
-                    guestView = p;
-                    netCtrl = c;
-                    break;
+            }
+            if (castCard == null) {
+                final GameView ggv = guestLocalGui.getGameView();
+                if (ggv != null && ggv.getPlayers() != null) {
+                    for (final PlayerView p : ggv.getPlayers()) {
+                        if (p == null || p.getName() == null
+                                || !p.getName().equalsIgnoreCase(guestName)
+                                || p.getHand() == null) {
+                            continue;
+                        }
+                        for (final CardView c : p.getHand()) {
+                            if (c != null) {
+                                castCard = c;
+                                guestView = p;
+                                break;
+                            }
+                        }
+                        if (castCard != null) {
+                            break;
+                        }
+                    }
                 }
             }
             Thread.sleep(50);
@@ -442,33 +468,6 @@ public class CoopDuelServerE2ETest {
         assertNotNull(netCtrl, "guest NetGameController from FGameClient");
         assertTrue(netCtrl instanceof NetGameController,
                 "guest seat must be NetGameController, was " + netCtrl.getClass().getName());
-
-        CardView castCard = null;
-        final long handDeadline = System.currentTimeMillis() + 30_000;
-        while (System.currentTimeMillis() < handDeadline && castCard == null) {
-            answerHost(hostRemote, hostGui, false);
-            final GameView ggv = guestLocalGui.getGameView();
-            if (ggv != null && ggv.getPlayers() != null) {
-                for (final PlayerView p : ggv.getPlayers()) {
-                    if (p == null || p.getName() == null
-                            || !p.getName().equalsIgnoreCase(guestName)
-                            || p.getHand() == null) {
-                        continue;
-                    }
-                    for (final CardView c : p.getHand()) {
-                        if (c != null) {
-                            castCard = c;
-                            guestView = p;
-                            break;
-                        }
-                    }
-                    if (castCard != null) {
-                        break;
-                    }
-                }
-            }
-            Thread.sleep(50);
-        }
         assertNotNull(castCard, "guest hand card synced over loopback");
 
         final AtomicInteger selectCardSends = new AtomicInteger();
