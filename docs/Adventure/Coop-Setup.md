@@ -176,6 +176,15 @@ See `CoopHooks` / `CoopOverworldRuntime` / `CoopDuelRuntime` and
 
 **Trust note (CO3 decks):** the host cannot verify that the guest owns the cards in their decklist — the partner is trusted. The host still clamps loadout life/hand, allowlists effect card names from items.json / skill perks, and enforces Adventure min deck size + ban lists.
 
+**CO5 (world-bound partners):** the guest's character lives inside the host world
+(`WorldPartners`), not a solo save slot. Create / import and leave-timeout dialogs
+use adventure Scene2D (`CoopAdventureDialogs`) — classic `FOptionPane` overlays are
+not drawn under `Adventure.render`. Partner snapshots flush into the host's
+**currently loaded slot**; after an autosave or F5 quicksave that means the
+auto/quick slot until the host loads a numbered slot again — that is intentional.
+New Game and guest unload clear `loadedSlot` so a later partner flush cannot
+overwrite an earlier host load. Guests cannot F8 quickload during a session.
+
 ## One-PC playtest (two Forge copies)
 
 Use this to manually verify co-op duels on a single machine before review.
