@@ -79,9 +79,14 @@ public final class ModernDuelController {
     private int manaFocusIndex;
     private int phaseFocusIndex;
 
-    private boolean swallowNextTap;
     /** Once touch is used, ignore leftover gamepad focus for targeting arrows. */
     private boolean touchInputActive;
+    /** True after any gamepad key — required before drawing the amber pad arrow. */
+    private boolean padInputSeen;
+
+    /** Reused for overlay arrows — never allocate Vector2 per frame. */
+    private final Vector2 overlayOrigin = new Vector2();
+    private final Vector2 overlayEnd = new Vector2();
 
     public static ModernDuelController get() {
         return INSTANCE;
@@ -96,8 +101,10 @@ public final class ModernDuelController {
         clearPadFocus();
         heldCard = null;
         heldFromHand = false;
-        swallowNextTap = false;
         touchInputActive = false;
+        padInputSeen = false;
+        // Combat-declare flag must not leak across matches / resets.
+        MatchController.instance.setCombatDeclareInput(false, false);
     }
 
     public boolean isBusy() {
@@ -120,7 +127,12 @@ public final class ModernDuelController {
     }
 
     public boolean shouldDrawPadFocusArrow() {
-        return ModernDuelGestures.shouldDrawPadFocusArrow(touchInputActive);
+        return ModernDuelGestures.shouldDrawPadFocusArrow(touchInputActive, padInputSeen);
+    }
+
+    /** True after the gamepad has been used this match (amber arrow gate). */
+    public boolean isPadInputSeen() {
+        return padInputSeen;
     }
 
     public ModernDuelPad.Focus getPadFocus() {
@@ -139,12 +151,10 @@ public final class ModernDuelController {
         markTouchInput();
     }
 
-    public boolean shouldSwallowTap() {
-        if (swallowNextTap) {
-            swallowNextTap = false;
-            return true;
-        }
-        return false;
+    /** Mark that the gamepad is driving input (enables amber focus arrow). */
+    public void markPadInput() {
+        padInputSeen = true;
+        touchInputActive = false;
     }
 
     // ------------------------------------------------------------------ press / pan / release from CardAreaPanel
@@ -160,7 +170,6 @@ public final class ModernDuelController {
         dragScreenY = screenY;
         dragActive = false;
         dragValid = false;
-        swallowNextTap = false;
 
         final boolean fromHand = card.getZone() == ZoneType.Hand;
         // Peek is long-press only — plain press must not swallow hand scrolling.
@@ -280,7 +289,6 @@ public final class ModernDuelController {
         final boolean overBoard = isOverBoard(screenX, screenY);
         final boolean overHand = isOverHand(screenX, screenY);
         clearDrag();
-        swallowNextTap = true;
         applyDrop(source, fromHand, target, overBoard, overHand, screenX);
         Gdx.graphics.requestRendering();
         return true;
@@ -305,8 +313,8 @@ public final class ModernDuelController {
         if (!ModernDuelScreen.enabled() || screen == null) {
             return false;
         }
-        // Gamepad resumes pad-focus arrows after touch.
-        touchInputActive = false;
+        // Gamepad resumes pad-focus arrows after touch (and unlocks amber after first input).
+        markPadInput();
         switch (keyCode) {
             case Keys.BUTTON_X:
                 return onPadX(focusedCard);
@@ -549,8 +557,16 @@ public final class ModernDuelController {
         if (!canControllerPickupCard(focused)) {
             return false;
         }
+        final boolean fromHand = focused.getZone() == ZoneType.Hand;
+        final boolean handCastable = fromHand && isHandCastable(focused);
+        // Castable hand: cast in ONE press (no pick-up / second A). Combat still uses hold+aim.
+        if (ModernDuelActions.isOnePressHandCast(fromHand, handCastable, false)) {
+            applyDrop(focused, true, null, true, false, -1);
+            Gdx.graphics.requestRendering();
+            return true;
+        }
         heldCard = focused;
-        heldFromHand = focused.getZone() == ZoneType.Hand;
+        heldFromHand = fromHand;
         Gdx.graphics.requestRendering();
         return true;
     }
@@ -601,28 +617,32 @@ public final class ModernDuelController {
                     peekBounds.width, peekBounds.height);
         }
         if (dragActive && dragSource != null) {
-            final Vector2 origin = arrowOriginFor(dragSource);
-            if (origin != null) {
+            if (copyArrowOriginFor(dragSource, overlayOrigin)) {
                 final Color c = dragValid ? ARROW_VALID : ARROW_AIM;
                 g.drawCurvedArrow(Utils.scale(3), c, Color.WHITE,
-                        origin.x, origin.y, dragScreenX, dragScreenY, true);
+                        overlayOrigin.x, overlayOrigin.y, dragScreenX, dragScreenY, true);
             }
         }
-        // Held card or targeting: amber arrow from the actual source to pad focus.
-        // Touch users must not see leftover gamepad focus arrows.
+        // Held / targeting amber: skip entirely when nothing is held and not selecting,
+        // and never before the pad has been used (match-start stray arrow).
+        if (heldCard == null && !MatchController.instance.isSelecting()) {
+            return;
+        }
         if (!shouldDrawPadFocusArrow()) {
             return;
         }
-        final Vector2 targetEnd = focusArrowEnd();
-        Vector2 origin = null;
-        if (heldCard != null) {
-            origin = arrowOriginFor(heldCard);
-        } else if (MatchController.instance.isSelecting()) {
-            origin = selectionArrowOrigin();
+        if (!copyFocusArrowEnd(overlayEnd)) {
+            return;
         }
-        if (origin != null && targetEnd != null) {
+        boolean hasOrigin = false;
+        if (heldCard != null) {
+            hasOrigin = copyArrowOriginFor(heldCard, overlayOrigin);
+        } else if (MatchController.instance.isSelecting()) {
+            hasOrigin = copySelectionArrowOrigin(overlayOrigin);
+        }
+        if (hasOrigin) {
             g.drawCurvedArrow(Utils.scale(3), ARROW_TARGET, Color.WHITE,
-                    origin.x, origin.y, targetEnd.x, targetEnd.y, true);
+                    overlayOrigin.x, overlayOrigin.y, overlayEnd.x, overlayEnd.y, true);
         }
     }
 
@@ -835,62 +855,59 @@ public final class ModernDuelController {
         return bestCard == null ? null : bestCard.getCard();
     }
 
-    private static Vector2 arrowOriginFor(final CardView card) {
-        if (card == null) {
-            return null;
+    private static boolean copyArrowOriginFor(final CardView card, final Vector2 out) {
+        if (card == null || out == null) {
+            return false;
         }
-        return CardAreaPanel.get(card).getTargetingArrowOrigin();
+        return CardAreaPanel.get(card).copyTargetingArrowOrigin(out);
     }
 
-    private Vector2 focusArrowEnd() {
+    private boolean copyFocusArrowEnd(final Vector2 out) {
         final CardAreaPanel focusPanel = focusedPanel();
-        if (focusPanel != null) {
-            return focusPanel.getTargetingArrowOrigin();
+        if (focusPanel != null && focusPanel.copyTargetingArrowOrigin(out)) {
+            return true;
         }
         try {
             final MatchScreen screen = MatchController.getView();
             if (screen == null) {
-                return null;
+                return false;
             }
             final VPlayerPanel panel = screen.selectedPlayerPanel();
             if (panel != null && panel.getAvatar() != null
                     && (panel.getSelectedTab() == null || !panel.getSelectedTab().getDisplayArea().isVisible())) {
                 // No card focused on this panel — aim at the player avatar (attack / player targets).
                 if (panel.getSelectedRow().getSelectedChild() == null) {
-                    return panel.getAvatar().getTargetingArrowOrigin();
+                    return panel.getAvatar().copyTargetingArrowOrigin(out);
                 }
             }
         } catch (Exception ignored) {
         }
-        return null;
+        return false;
     }
 
     /**
      * Amber targeting arrow origin: only the prompt's actual source card
      * (avoids stray arrows when selecting without a card source).
      */
-    private Vector2 selectionArrowOrigin() {
+    private boolean copySelectionArrowOrigin(final Vector2 out) {
         final CardView promptCard = promptSourceCard();
-        if (promptCard != null) {
-            final Vector2 o = arrowOriginFor(promptCard);
-            if (o != null) {
-                return o;
-            }
+        if (promptCard != null && copyArrowOriginFor(promptCard, out)) {
+            return true;
         }
         // Fallback: stack top only when it matches the prompt source (or prompt had no panel).
         final GameView gv = MatchController.instance.getGameView();
         if (gv == null || promptCard == null) {
-            return null;
+            return false;
         }
         final FCollectionView<StackItemView> stack = gv.getStack();
         if (stack != null && !stack.isEmpty()) {
             final StackItemView top = stack.getLast();
             if (top != null && top.getSourceCard() != null
                     && top.getSourceCard().getId() == promptCard.getId()) {
-                return arrowOriginFor(top.getSourceCard());
+                return copyArrowOriginFor(top.getSourceCard(), out);
             }
         }
-        return null;
+        return false;
     }
 
     private static CardView promptSourceCard() {
@@ -939,20 +956,13 @@ public final class ModernDuelController {
         return ModernDuelActions.canTouchDrag(fromHand, localCreature, combat, selecting);
     }
 
+    /**
+     * Castability for A / pickup. Uses card/player views only — never
+     * {@code getActivateDescription} (blocks the guest UI thread over the network).
+     */
     private static boolean isHandCastable(final CardView card) {
-        if (card == null || card.getZone() != ZoneType.Hand) {
-            return false;
-        }
-        try {
-            final IGameController c = MatchController.instance.getGameController();
-            if (c == null) {
-                return false;
-            }
-            final String desc = c.getActivateDescription(card);
-            return desc != null && !desc.isEmpty();
-        } catch (Exception ignored) {
-            return false;
-        }
+        final PlayerView local = MatchController.instance.getCurrentPlayer();
+        return ModernDuelActions.isHandCastableFromViews(card, local);
     }
 
     private static boolean isLocalCreature(final CardView card, final PlayerView local) {

@@ -692,6 +692,34 @@ public class CoopDuelInProcessTest {
         assertNotNull(handCard, "guest hand card available");
         assertNotNull(guestView);
 
+        // Wait until the guest seat is in MAIN1 so playing a land can apply.
+        final long mainWait = System.currentTimeMillis() + 60_000;
+        while (System.currentTimeMillis() < mainWait) {
+            final GameView gv = guestGui.getGameView();
+            if (gv != null && gv.getPhase() == PhaseType.MAIN1
+                    && gv.getPlayerTurn() != null
+                    && guestView.getId() == gv.getPlayerTurn().getId()) {
+                break;
+            }
+            answerOne(hostRemote, hostGui, true, false);
+            answerOne(guestRemote, guestGui, false, false);
+            flushEdt();
+        }
+        assertEquals(guestGui.getGameView().getPhase(), PhaseType.MAIN1,
+                "guest MAIN1 before modern cast");
+        assertEquals(guestGui.getGameView().getPlayerTurn().getId(), guestView.getId(),
+                "guest priority / turn for land play");
+
+        // Refresh hand card from current view (ids can churn across zone sync).
+        handCard = null;
+        for (final CardView c : guestView.getHand()) {
+            if (c != null) {
+                handCard = c;
+                break;
+            }
+        }
+        assertNotNull(handCard, "guest hand card in MAIN1");
+
         final IGameController seatController = guestGui.getGameController(guestView);
         assertNotNull(seatController, "guest seat controller");
 
@@ -723,7 +751,7 @@ public class CoopDuelInProcessTest {
         final NetGameController netGuest = new NetGameController(bridge);
         final CardView castCard = handCard;
         final int handBefore = guestView.getHand().size();
-        // Same call modern drag-to-cast uses after ModernDuelActions.Kind.CAST.
+        // Same call modern one-press / drag-to-cast uses after ModernDuelActions.Kind.CAST.
         forge.gui.GuiBase.getInterface().invokeInEdtNow(
                 () -> netGuest.selectCard(castCard, null, null));
         flushEdt();
@@ -761,9 +789,10 @@ public class CoopDuelInProcessTest {
             }
             Thread.sleep(100);
         }
-        // Wire delivery is required; battlefield apply depends on timing/phase — accept either.
-        assertTrue(selectCardSends.get() >= 1 && (applied || sentCard.get() != null),
-                "guest modern cast path delivered via NetGameController");
+        // When the guest seat can act, the land should leave hand or appear on the battlefield.
+        // Wire delivery is already asserted above; require apply so this is not an always-true check.
+        assertTrue(applied,
+                "guest modern cast via NetGameController applied (hand shrunk or card on battlefield)");
 
         forceConcedeHumans(match, false, null);
         waitGameOver(match, 20_000);

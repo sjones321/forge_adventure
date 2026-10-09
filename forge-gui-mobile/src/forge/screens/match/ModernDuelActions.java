@@ -17,6 +17,8 @@
  */
 package forge.screens.match;
 
+import forge.card.mana.ManaAtom;
+import forge.card.mana.ManaCost;
 import forge.game.GameEntityView;
 import forge.game.card.CardView;
 import forge.game.combat.CombatView;
@@ -113,6 +115,58 @@ public final class ModernDuelActions {
             return true;
         }
         return localCreature && combat != CombatPrompt.NONE;
+    }
+
+    /**
+     * View-only castability for controller A / pickup gating. Never calls
+     * {@code IGameController} (guest {@code getActivateDescription} would block the UI thread).
+     * Heuristic: lands when the player can still play a land; non-lands when total mana
+     * in the pool is at least the card CMC. Engine still validates on cast.
+     */
+    public static boolean isHandCastableFromViews(final CardView card, final PlayerView controller) {
+        if (card == null || card.getZone() != ZoneType.Hand) {
+            return false;
+        }
+        final CardView.CardStateView state = card.getCurrentState();
+        if (state == null) {
+            return false;
+        }
+        if (state.isLand()) {
+            return canPlayLandFromViews(controller);
+        }
+        final ManaCost cost = state.getManaCost();
+        if (cost == null || cost.isNoCost()) {
+            return false;
+        }
+        return estimateSpellCastable(cost.getCMC(), controller == null ? 0 : totalMana(controller));
+    }
+
+    /** Land playability from player views only (no network). */
+    public static boolean canPlayLandFromViews(final PlayerView controller) {
+        if (controller == null) {
+            return false;
+        }
+        return controller.hasUnlimitedLandPlay()
+                || controller.getNumLandThisTurn() < controller.getMaxLandPlay();
+    }
+
+    /** Spell affordability heuristic from CMC vs total mana pool. */
+    public static boolean estimateSpellCastable(final int cmc, final int totalMana) {
+        return cmc <= totalMana;
+    }
+
+    /** True when A on a castable hand card should cast immediately (no pick-up). */
+    public static boolean isOnePressHandCast(final boolean fromHand, final boolean handCastable,
+                                             final boolean alreadyHolding) {
+        return fromHand && handCastable && !alreadyHolding;
+    }
+
+    private static int totalMana(final PlayerView player) {
+        int total = 0;
+        for (final byte c : ManaAtom.MANATYPES) {
+            total += player.getMana(c);
+        }
+        return total;
     }
 
     /**
