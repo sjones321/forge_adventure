@@ -18,6 +18,7 @@
 package forge.screens.match;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Graphics;
 import com.badlogic.gdx.Input;
 import forge.Forge;
 import forge.adventure.AdventureTestUserDir;
@@ -27,6 +28,7 @@ import forge.model.FModel;
 import forge.toolbox.FGestureAdapter;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -41,10 +43,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class CardMagnifierDs3Test {
 
     private Input previousInput;
+    private Graphics previousGraphics;
     private boolean shiftHeld;
     private boolean savedToggle;
     private boolean savedDetails;
     private boolean savedEnable;
+
+    @BeforeClass
+    public void stubGdxGraphicsOnce() {
+        // FGestureAdapter → Utils clinit needs Gdx.graphics (headless suite has none).
+        if (Gdx.graphics == null) {
+            Gdx.graphics = stubGraphics();
+        }
+    }
 
     @BeforeMethod
     public void setUp() {
@@ -66,6 +77,10 @@ public class CardMagnifierDs3Test {
         CardMagnifierControls.clearHudNote();
 
         previousInput = Gdx.input;
+        previousGraphics = Gdx.graphics;
+        if (Gdx.graphics == null) {
+            Gdx.graphics = stubGraphics();
+        }
         shiftHeld = false;
         Gdx.input = stubInput();
     }
@@ -73,6 +88,7 @@ public class CardMagnifierDs3Test {
     @AfterMethod
     public void tearDown() {
         Gdx.input = previousInput;
+        Gdx.graphics = previousGraphics;
         CardMagnifierControls.clearHudNote();
         if (FModel.getPreferences() != null) {
             FModel.getPreferences().setPref(FPref.UI_ENABLE_MAGNIFIER, savedEnable);
@@ -145,33 +161,55 @@ public class CardMagnifierDs3Test {
         return (Input) Proxy.newProxyInstance(
                 Input.class.getClassLoader(),
                 new Class<?>[]{Input.class},
+                (proxy, method, args) -> defaultStub(method.getName(), method.getReturnType(), args));
+    }
+
+    private Graphics stubGraphics() {
+        return (Graphics) Proxy.newProxyInstance(
+                Graphics.class.getClassLoader(),
+                new Class<?>[]{Graphics.class},
                 (proxy, method, args) -> {
                     final String name = method.getName();
-                    if ("isKeyPressed".equals(name)) {
-                        final int key = (Integer) args[0];
-                        return shiftHeld && (key == Input.Keys.SHIFT_LEFT || key == Input.Keys.SHIFT_RIGHT);
+                    if ("getWidth".equals(name)) {
+                        return 1280;
                     }
-                    if ("getCurrentEventTime".equals(name)) {
-                        return System.nanoTime();
+                    if ("getHeight".equals(name)) {
+                        return 720;
                     }
-                    if ("isTouched".equals(name)) {
-                        return false;
+                    if ("getPpcX".equals(name) || "getPpcY".equals(name)) {
+                        return 96f;
                     }
-                    final Class<?> rt = method.getReturnType();
-                    if (rt == boolean.class) {
-                        return false;
+                    if ("getDensity".equals(name)) {
+                        return 1f;
                     }
-                    if (rt == int.class || rt == short.class || rt == byte.class) {
-                        return 0;
-                    }
-                    if (rt == long.class) {
-                        return 0L;
-                    }
-                    if (rt == float.class || rt == double.class) {
-                        return 0f;
-                    }
-                    return null;
+                    return defaultStub(name, method.getReturnType(), args);
                 });
+    }
+
+    private Object defaultStub(final String name, final Class<?> rt, final Object[] args) {
+        if ("isKeyPressed".equals(name)) {
+            final int key = (Integer) args[0];
+            return shiftHeld && (key == Input.Keys.SHIFT_LEFT || key == Input.Keys.SHIFT_RIGHT);
+        }
+        if ("getCurrentEventTime".equals(name)) {
+            return System.nanoTime();
+        }
+        if ("isTouched".equals(name)) {
+            return false;
+        }
+        if (rt == boolean.class) {
+            return false;
+        }
+        if (rt == int.class || rt == short.class || rt == byte.class) {
+            return 0;
+        }
+        if (rt == long.class) {
+            return 0L;
+        }
+        if (rt == float.class || rt == double.class) {
+            return 0f;
+        }
+        return null;
     }
 
     /** Records tap() from the real {@link FGestureAdapter} right-click path. */
@@ -179,6 +217,8 @@ public class CardMagnifierDs3Test {
         private final AtomicInteger tapCount;
 
         RecordingAdapter(final AtomicInteger tapCount) {
+            // Explicit sizes avoid Utils.AVG_FINGER_* if graphics stub races clinit.
+            super(16f, 0.25f, 0.5f, 0.15f);
             this.tapCount = tapCount;
         }
 

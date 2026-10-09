@@ -155,8 +155,8 @@ public final class CardMagnifierControls {
             } else {
                 Forge.setCursor(FSkin.getCursor().get(2), "2");
             }
-        } catch (RuntimeException ignored) {
-            // Skin / GL not ready (headless tests).
+        } catch (Throwable ignored) {
+            // Skin / native GL not ready (headless tests — UnsatisfiedLinkError).
         }
     }
 }

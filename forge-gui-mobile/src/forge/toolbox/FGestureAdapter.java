@@ -36,26 +36,33 @@ public abstract class FGestureAdapter extends InputAdapter {
     private final Vector2 prevPointer2 = new Vector2();
     private final Vector2 focalPoint = new Vector2();
 
-    private final Task longPressTask = new Task() {
-        @Override
-        public void run() {
-            if (pressed) {
-                if (Gdx.input.isTouched(0)) {
-                    if (!longPressed) {
-                        longPressed = true;
-                        if (longPress(pointer1.x, pointer1.y)) {
-                            HapticEngine.vibrate(FPref.UI_VIBRATE_ON_LONG_PRESS, 25);
-                            endPress(pointer1.x, pointer1.y); //end press immediately if long press handled
-                            longPressHandled = true;
+    private Task longPressTask;
+
+    private Task longPressTask() {
+        if (longPressTask == null) {
+            longPressTask = new Task() {
+                @Override
+                public void run() {
+                    if (pressed) {
+                        if (Gdx.input.isTouched(0)) {
+                            if (!longPressed) {
+                                longPressed = true;
+                                if (longPress(pointer1.x, pointer1.y)) {
+                                    HapticEngine.vibrate(FPref.UI_VIBRATE_ON_LONG_PRESS, 25);
+                                    endPress(pointer1.x, pointer1.y); //end press immediately if long press handled
+                                    longPressHandled = true;
+                                }
+                            }
+                        }
+                        else { //end press immediately if finger no longer down
+                            endPress(pointer1.x, pointer1.y);
                         }
                     }
                 }
-                else { //end press immediately if finger no longer down
-                    endPress(pointer1.x, pointer1.y);
-                }
-            }
+            };
         }
-    };
+        return longPressTask;
+    }
 
     public FGestureAdapter() {
         this(Utils.AVG_FINGER_WIDTH / 2f, 0.25f, 0.5f, 0.15f);
@@ -291,13 +298,16 @@ public abstract class FGestureAdapter extends InputAdapter {
             pressed = true;
             press(pointer1.x, pointer1.y);
         }
-        if (!longPressTask.isScheduled()) {
-            Timer.schedule(longPressTask, longPressDelay);
+        final Task task = longPressTask();
+        if (!task.isScheduled()) {
+            Timer.schedule(task, longPressDelay);
         }
     }
 
     private void endPress(float x, float y) {
-        longPressTask.cancel();
+        if (longPressTask != null) {
+            longPressTask.cancel();
+        }
 
         longPressed = false;
         if (pressed) {
