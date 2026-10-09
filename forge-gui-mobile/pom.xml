@@ -26,20 +26,56 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <!-- Suite-wide: set before any test class loads ForgeConstants. -->
+                    <!-- GL world-gen tests need headroom when the gl profile is enabled. -->
+                    <argLine>
+                        -Xmx3g
+                        --add-opens java.base/java.lang=ALL-UNNAMED
+                        --add-opens java.base/java.time=ALL-UNNAMED
+                        --add-opens java.base/java.text=ALL-UNNAMED
+                        --add-opens java.base/java.util=ALL-UNNAMED
+                        --add-opens java.base/java.util.regex=ALL-UNNAMED
+                        --add-opens java.base/java.util.stream=ALL-UNNAMED
+                        --add-opens java.base/java.lang.reflect=ALL-UNNAMED
+                        --add-opens java.desktop/javax.imageio.spi=ALL-UNNAMED
+                    </argLine>
+                    <!-- Suite-wide: set before any test class loads ForgeConstants (CO1 #38). -->
                     <systemPropertyVariables>
                         <forge.test.userDir>${project.build.directory}/test-user-home</forge.test.userDir>
                     </systemPropertyVariables>
+                    <!-- Default: skip LWJGL3 "gl" tests (hang on Windows/AMD without a driven GL loop). -->
+                    <excludedGroups>gl</excludedGroups>
                     <properties>
                         <property>
                             <name>listener</name>
-                            <value>forge.adventure.AdventureTestBootstrapListener</value>
+                            <value>forge.adventure.AdventureTestBootstrapListener,forge.adventure.AdventureGuiBootstrapListener</value>
                         </property>
                     </properties>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <!--
+          Opt-in GL world-gen / materialize / live-hash tests (LWJGL3).
+          CI / Linux: xvfb-run -a mvn -B -o -pl forge-gui-mobile -am -Pgl-tests test
+          Requires a GL context; default `mvn test` must stay fast on Windows without one.
+        -->
+        <profile>
+            <id>gl-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludedGroups combine.self="override"/>
+                            <groups>gl</groups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
     <repositories>
         <repository>
             <id>jitpack.io</id>
@@ -131,6 +167,35 @@
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>
             <version>7.10.2</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- GL / world-gen tests (same stack as WorldGenBench / forge-gui-mobile-dev). -->
+        <dependency>
+            <groupId>com.badlogicgames.gdx</groupId>
+            <artifactId>gdx-backend-lwjgl3</artifactId>
+            <version>1.14.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.badlogicgames.gdx</groupId>
+            <artifactId>gdx-platform</artifactId>
+            <version>1.14.2</version>
+            <classifier>natives-desktop</classifier>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.badlogicgames.gdx</groupId>
+            <artifactId>gdx-freetype-platform</artifactId>
+            <version>1.14.2</version>
+            <classifier>natives-desktop</classifier>
+            <scope>test</scope>
+        </dependency>
+        <!-- WorldStage.load → MapStage needs Box2D natives (same as forge-gui-mobile-dev). -->
+        <dependency>
+            <groupId>com.badlogicgames.gdx</groupId>
+            <artifactId>gdx-box2d-platform</artifactId>
+            <version>1.14.2</version>
+            <classifier>natives-desktop</classifier>
             <scope>test</scope>
         </dependency>
     </dependencies>

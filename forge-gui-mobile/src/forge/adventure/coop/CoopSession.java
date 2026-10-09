@@ -44,6 +44,7 @@ import forge.gamemodes.net.event.coop.CoopPartyInviteEvent;
 import forge.gamemodes.net.event.coop.CoopPartyResponseEvent;
 import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
+import forge.gamemodes.net.event.coop.CoopPlanarGateEntry;
 import forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent;
 import forge.gamemodes.net.event.coop.CoopSessionReadyEvent;
 import forge.gamemodes.net.event.coop.CoopWorldOfferEvent;
@@ -89,6 +90,8 @@ public final class CoopSession {
     private volatile String peerName = "";
     private volatile String lastError = "";
     private volatile String worldHash = "";
+    /** Host: last live planar-gate list paired with {@link #worldHash}. */
+    private volatile CoopPlanarGateEntry[] cachedGates = new CoopPlanarGateEntry[0];
     private volatile String sessionCode = "";
     private volatile int overworldPort = CoopPorts.OVERWORLD_PORT;
     private volatile int gamePort = CoopPorts.GAME_PORT;
@@ -243,9 +246,46 @@ public final class CoopSession {
     }
 
     /**
+     * Test hook: simulate a guest that has followed the host onto {@code planeId}.
+     * Clears with {@link #testClearGuestPlaneFollow()}.
+     */
+    public void testFollowHostPlane(final String planeId) {
+        role = CoopSessionRole.GUEST;
+        state = State.READY;
+        guestWorldPlaneId = planeId != null && !planeId.isEmpty() ? planeId : PlaneMeta.HOME_ID;
+    }
+
+    /** Test hook: restore idle co-op role after {@link #testFollowHostPlane(String)}. */
+    public void testClearGuestPlaneFollow() {
+        role = CoopSessionRole.NONE;
+        state = State.IDLE;
+        guestWorldPlaneId = PlaneMeta.HOME_ID;
+    }
+
+    /**
+     * Host: re-hash the live world and refresh the cached gate list.
+     * Must run on the GL thread (or when the live world is not being mutated).
+     */
+    public void refreshHostLiveWorldHash() {
+        if (role != CoopSessionRole.HOST) {
+            return;
+        }
+        try {
+            final WorldSave save = WorldSave.getCurrentSave();
+            if (save == null || save.getWorld() == null) {
+                return;
+            }
+            worldHash = CoopWorldSync.hashPlaneForOffer(save);
+            cachedGates = CoopWorldSync.collectPlanarGates(save.getWorld());
+        } catch (final Exception ignored) {
+            // Solo / early init
+        }
+    }
+
+    /**
      * Host MV1: after a local plane switch, tell the guest to follow onto the
-     * host's current plane (seed + world config + hash). World hash is computed
-     * on the GL thread; the wire send runs off Netty afterward.
+     * host's current plane (seed + world config + live hash + gate list).
+     * Hash/gates are taken on the GL thread; the wire send runs off Netty afterward.
      */
     public void offerCurrentPlaneToGuest() {
         if (role != CoopSessionRole.HOST || state != State.READY) {
@@ -257,23 +297,25 @@ public final class CoopSession {
         runWorldOpOnGl(loadingMsg, () -> {
             final WorldSave save = WorldSave.getCurrentSave();
             final World w = save.getWorld();
-            // Hash on the GL thread (world textures / data must not be touched off-GL).
-            final String hash = CoopWorldSync.hashWorld(w);
-            worldHash = hash;
+            refreshHostLiveWorldHash();
             final String worldPath = w.getWorldConfigPath();
             if (!PlaneConfigPaths.isAllowed(worldPath, save.getMultiverse())) {
                 status("Refusing plane offer — disallowed worldConfigPath " + worldPath);
                 return;
             }
+            // L1: planeConfigHash uses the same path that is sent on the wire.
+            final String mv2SetCode = CoopWorldSync.hostMv2SetCode(save);
             final CoopPlaneSwitchEvent switchEvent = new CoopPlaneSwitchEvent(
                     Config.instance().getPlane(),
                     save.getCurrentPlaneId(),
                     worldPath,
                     CoopWorldSync.planeConfigHash(worldPath),
                     w.getSeed(),
-                    hash,
+                    worldHash,
                     save.getPlayer().getWorldPosX(),
-                    save.getPlayer().getWorldPosY());
+                    save.getPlayer().getWorldPosY(),
+                    mv2SetCode,
+                    cachedGates);
             runOffNetty(() -> {
                 send(switchEvent);
                 status("Offered plane switch → " + save.getCurrentPlaneId()
@@ -282,13 +324,19 @@ public final class CoopSession {
         });
     }
 
+    /**
+     * Build the world offer from the live world. Caller must be on the GL thread
+     * (hashes live terrain; never regenerates).
+     */
     private CoopWorldOfferEvent buildWorldOffer() {
         final WorldSave save = WorldSave.getCurrentSave();
         final World w = save.getWorld();
-        worldHash = CoopWorldSync.hashWorld(w);
+        refreshHostLiveWorldHash();
         final String worldPath = w.getWorldConfigPath();
         final String safePath = PlaneConfigPaths.isAllowed(worldPath, save.getMultiverse())
                 ? worldPath : Paths.WORLD;
+        // L1: hash/config use the same path that is sent on the wire.
+        final String mv2SetCode = CoopWorldSync.hostMv2SetCode(save);
         return new CoopWorldOfferEvent(
                 save.getPlayer().getName(),
                 Config.instance().getPlane(),
@@ -298,7 +346,9 @@ public final class CoopSession {
                 gamePort,
                 overworldPort,
                 save.getCurrentPlaneId(),
-                safePath);
+                safePath,
+                mv2SetCode,
+                cachedGates);
     }
 
     public void addStatusListener(final Consumer<String> listener) {
@@ -886,8 +936,43 @@ public final class CoopSession {
      * Run World.generateNew / World.load (or restore) on the GL thread behind a
      * TransitionScreen, matching New Game / Continue. Never schedules on the
      * session worker or Netty threads.
+     *
+     * @param kickHostToMenuOnError when false (host building a guest world offer),
+     *        errors refuse the guest and leave the host in-adventure; when true,
+     *        guest-side failures may {@link Forge#delayedSwitchBack} to the menu.
      */
     private void runWorldOpOnGl(final String loadingMessage, final Runnable work) {
+        runWorldOpOnGl(loadingMessage, work, true);
+    }
+
+    /**
+     * Host-side: reject the current guest connection and remain {@link State#HOSTING}.
+     * Used when {@link #buildWorldOffer()} fails so the host is not sent to the main menu.
+     */
+    private void refuseGuestKeepHosting(final String reason) {
+        lastError = reason != null ? reason : "world offer failed";
+        final CoopOverworldServer s = server;
+        if (s != null) {
+            try {
+                s.rejectAndClose(lastError);
+            } catch (final Exception ignored) {
+            }
+        } else {
+            try {
+                send(new CoopHelloRejectEvent(lastError));
+            } catch (final Exception ignored) {
+            }
+        }
+        peerName = "";
+        if (state != State.IDLE && state != State.DISCONNECTED) {
+            state = State.HOSTING;
+        }
+        status("Rejected guest (kept hosting): " + lastError
+                + (sessionCode != null && !sessionCode.isEmpty() ? " code " + sessionCode : ""));
+    }
+
+    private void runWorldOpOnGl(final String loadingMessage, final Runnable work,
+                                final boolean kickHostToMenuOnError) {
         final Runnable wrapped = () -> {
             try {
                 work.run();
@@ -897,6 +982,11 @@ public final class CoopSession {
                 try {
                     Forge.clearTransitionScreen();
                 } catch (final Exception ignored) {
+                }
+                if (!kickHostToMenuOnError && role == CoopSessionRole.HOST) {
+                    // Guest join / offer failed — stay HOSTING; do not dump the host to the menu.
+                    refuseGuestKeepHosting(lastError);
+                    return;
                 }
                 try {
                     Forge.delayedSwitchBack("",
@@ -989,13 +1079,20 @@ public final class CoopSession {
                 s.markGuestAuthenticated();
             }
             peerName = hello.getCharacterName() != null ? hello.getCharacterName() : hello.getPlayerName();
-            runOffNetty(() -> {
+            // H1: live-world hash + gate collect must run on the GL thread (no regenerate).
+            // On failure: refuse the guest and keep hosting — never delayedSwitchBack to menu.
+            final String loadingMsg = Forge.getLocalizer() != null
+                    ? Forge.getLocalizer().getMessage("lblLoadingWorld")
+                    : "Preparing world…";
+            runWorldOpOnGl(loadingMsg, () -> {
                 final CoopWorldOfferEvent offer = buildWorldOffer();
-                send(offer);
-                status("Authenticated — offered plane " + offer.getWorldPlaneId()
-                        + " seed " + offer.getWorldSeed()
-                        + " hash " + worldHash.substring(0, Math.min(8, worldHash.length())) + "…");
-            });
+                runOffNetty(() -> {
+                    send(offer);
+                    status("Authenticated — offered plane " + offer.getWorldPlaneId()
+                            + " seed " + offer.getWorldSeed()
+                            + " hash " + worldHash.substring(0, Math.min(8, worldHash.length())) + "…");
+                });
+            }, false);
         }
 
         /**
@@ -1098,14 +1195,18 @@ public final class CoopSession {
             runWorldOpOnGl(loadingMsg, () -> {
                 World staging = new World();
                 try {
-                    // Rebuild into a staging world first — never overwrite sessionWorld on mismatch.
-                    final String localHash = CoopWorldSync.rebuildFromSeed(staging, offer.getWorldSeed(), worldPath);
+                    // Rebuild + replay host gates, then compare to host live hash.
+                    final String offerPlaneId = offer.getWorldPlaneId() != null && !offer.getWorldPlaneId().isEmpty()
+                            ? offer.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                    final String mv2SetCode = offer.getMv2SetCode();
+                    final String localHash = CoopWorldSync.rebuildFromSeed(
+                            staging, offer.getWorldSeed(), worldPath, mv2SetCode,
+                            offer.getGates());
                     if (CoopWorldHash.matches(localHash, offer.getWorldHash())) {
                         final World previous = sessionWorld;
                         sessionWorld = staging;
                         worldHash = localHash;
-                        guestWorldPlaneId = offer.getWorldPlaneId() != null && !offer.getWorldPlaneId().isEmpty()
-                                ? offer.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                        guestWorldPlaneId = offerPlaneId;
                         if (previous != null && previous != staging) {
                             try {
                                 previous.dispose();
@@ -1154,7 +1255,12 @@ public final class CoopSession {
             runWorldOpOnGl(loadingMsg, () -> {
                 World staging = new World();
                 try {
-                    final String localHash = CoopWorldSync.rebuildFromSeed(staging, event.getWorldSeed(), worldPath);
+                    final String switchPlaneId = event.getWorldPlaneId() != null && !event.getWorldPlaneId().isEmpty()
+                            ? event.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                    final String mv2SetCode = event.getMv2SetCode();
+                    final String localHash = CoopWorldSync.rebuildFromSeed(
+                            staging, event.getWorldSeed(), worldPath, mv2SetCode,
+                            event.getGates());
                     if (!CoopWorldHash.matches(localHash, event.getWorldHash())) {
                         try {
                             staging.dispose();
@@ -1166,8 +1272,7 @@ public final class CoopSession {
                     final World previous = sessionWorld;
                     sessionWorld = staging;
                     worldHash = localHash;
-                    guestWorldPlaneId = event.getWorldPlaneId() != null && !event.getWorldPlaneId().isEmpty()
-                            ? event.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                    guestWorldPlaneId = switchPlaneId;
                     if (previous != null && previous != staging) {
                         try {
                             previous.dispose();

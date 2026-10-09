@@ -121,6 +121,14 @@ public class Config {
             e.printStackTrace();
             configData = new ConfigData();
         }
+        // MV2: register PlanarGate so saves with gates resolve after restart.
+        if (configData != null && configData.ascendantRules) {
+            try {
+                forge.adventure.world.SetPlaneGenerator.ensurePlanarGateRegistered();
+            } catch (Throwable ignored) {
+                // Headless / missing res — gates register again on first use.
+            }
+        }
     }
 
     private String resPath() {

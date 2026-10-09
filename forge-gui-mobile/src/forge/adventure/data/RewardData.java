@@ -272,7 +272,20 @@ public class RewardData implements Serializable {
                             filter = new RewardData(this);
                             filter.editions = null;
                         }
-                        for (PaperCard card : CardUtil.generateCards(isForEnemy ? allEnemyCards:allCards, filter, count + addedCount, rewardRandom)) {
+                        // MV2: on a set plane, shops and rewards prefer that set; fall back
+                        // when CORE / debug / tiny sets would leave the pool empty.
+                        String planeSet = forge.adventure.world.SetPlaneRules.activeSetCode();
+                        Iterable<PaperCard> cardPool = isForEnemy ? allEnemyCards : allCards;
+                        if (planeSet != null && !planeSet.isEmpty()) {
+                            List<PaperCard> setPool = forge.adventure.world.SetPlaneRules.cardsFromSet(
+                                    isForEnemy ? allEnemyCards : CardUtil.getFullCardPool(false), planeSet);
+                            if (forge.adventure.world.SetPlaneRules.setPoolIsUsable(setPool, planeSet)) {
+                                filter = forge.adventure.world.SetPlaneRules.applySetEditionFilter(filter);
+                                cardPool = setPool;
+                            }
+                            // else: keep window/base pool so shops stay stocked
+                        }
+                        for (PaperCard card : CardUtil.generateCards(cardPool, filter, count + addedCount, rewardRandom)) {
                             if (card != null)
                                 ret.add(new Reward(card, isNoSell));
                         }

@@ -21,24 +21,40 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
  * Suite-wide bootstrap before any adventure test touches {@code Config} /
  * {@link forge.localinstance.properties.ForgeConstants}.
  *
- * <p>Surefire must set {@code forge.test.userDir} (see forge-gui-mobile pom).
- * This listener only installs GuiBase + Localizer and fail-fast checks isolation —
- * it does <em>not</em> write {@code settings.json}. MV2 should reuse
- * {@code forge.test.userDir} rather than a second user-dir mechanism.
+ * <p>Surefire must set {@code forge.test.userDir} to
+ * {@code ${project.build.directory}/test-user-home} (see forge-gui-mobile pom).
+ * This listener installs GuiBase + Localizer, fail-fast checks isolation, and
+ * snapshots the real OS Forge user dir (size/mtime/sha-256) so {@link #onFinish}
+ * fails the suite if anything wrote outside the Surefire test home.
+ * It does <em>not</em> write {@code settings.json} — that is
+ * {@link AdventureGuiBootstrapListener} under the isolated tree only.
  */
 public final class AdventureTestBootstrapListener implements ISuiteListener {
+    private Path realUserDir;
+    private Map<String, AdventureTestUserDir.FileStamp> realSnapshot;
+
     @Override
     public void onStart(final ISuite suite) {
+        try {
+            realUserDir = AdventureTestUserDir.defaultRealUserDir();
+            realSnapshot = AdventureTestUserDir.snapshot(realUserDir);
+        } catch (final IOException e) {
+            throw new IllegalStateException(
+                    "AdventureTestBootstrapListener: could not snapshot real user dir: " + e.getMessage(), e);
+        }
+
         final String assets = Files.exists(Paths.get("./forge-gui")) ? "./forge-gui/"
                 : Files.exists(Paths.get("./res")) ? "./" : "../forge-gui/";
         if (GuiBase.getInterface() == null) {
@@ -51,6 +67,22 @@ public final class AdventureTestBootstrapListener implements ISuiteListener {
         }
         // Bind ForgeConstants.USER_* under forge.test.userDir (Surefire) and fail if not.
         AdventureTestUserDir.requireIsolatedUserDir();
+    }
+
+    @Override
+    public void onFinish(final ISuite suite) {
+        if (realUserDir == null || realSnapshot == null) {
+            return;
+        }
+        try {
+            AdventureTestUserDir.assertUnchanged(realUserDir, realSnapshot,
+                    "AdventureTestBootstrapListener");
+        } catch (final Throwable t) {
+            throw new IllegalStateException(
+                    "REAL Forge user dir was mutated by tests (expected writes under "
+                            + AdventureTestUserDir.configuredTestUserDir() + "): "
+                            + (t.getMessage() != null ? t.getMessage() : t.getClass().getName()), t);
+        }
     }
 
     /** Minimal IGuiBase so ForgeConstants.ASSETS_DIR can resolve in headless TestNG. */

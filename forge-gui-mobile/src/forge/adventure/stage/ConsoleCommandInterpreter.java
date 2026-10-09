@@ -796,12 +796,31 @@ public class ConsoleCommandInterpreter {
                 String err = save.getLastPlaneSwitchError();
                 return err != null && !err.isEmpty() ? err : "plane go refused";
             }
+            String alignErr = forge.adventure.world.SetPlaneRules.checkTravel(id, Current.player(), false);
+            if (alignErr != null) {
+                return alignErr;
+            }
+            // Deferred MV2 gen: materialize pending set planes before leaving a POI.
+            if (!save.getMultiverse().hasCompressedBlob(id)
+                    && !id.equals(save.getMultiverse().getCurrentPlaneId())) {
+                try {
+                    save.materializeSetPlane(id);
+                } catch (Exception e) {
+                    return "Could not create plane: " + e.getMessage();
+                }
+            }
+            // Charge before persisting the switch; refund if switch fails.
+            int charged = forge.adventure.world.SetPlaneRules.chargePortalGold(id, Current.player());
+            if (charged < 0) {
+                return forge.adventure.world.SetPlaneRules.paymentFailureMessage(id, Current.player());
+            }
             // Exit POIs first so WorldStage owns the player before the switch.
             if (MapStage.getInstance().isInMap()) {
                 MapStage.getInstance().exitDungeon(false, false);
             }
             boolean ok = save.switchPlane(id);
             if (!ok) {
+                forge.adventure.world.SetPlaneRules.refundPortalGold(Current.player(), charged);
                 String err = save.getLastPlaneSwitchError();
                 return err != null && !err.isEmpty() ? err : "plane go failed";
             }

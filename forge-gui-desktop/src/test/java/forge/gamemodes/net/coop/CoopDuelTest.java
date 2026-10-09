@@ -23,11 +23,10 @@ import java.util.function.Predicate;
 public class CoopDuelTest {
 
     @Test
-    public void protocolVersionIsAtLeastCo3AndMv1() {
-        // CO2 = 5; CO3 = 6; MV1 plane-follow = 7.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 7);
-        Assert.assertTrue(CoopPorts.PROTOCOL_VERSION > 5);
-        Assert.assertTrue(CoopPorts.PROTOCOL_VERSION >= 6);
+    public void protocolVersionIsExactlyEightForMv2() {
+        // CO2=5; CO3=6; MV1=7; MV2=8. Exact equality only — TR1 will move to 9 on rebase;
+        // do not use >= 8 or that collision can pass silently.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 8);
     }
 
     @Test
