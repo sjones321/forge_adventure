@@ -97,6 +97,16 @@ public class EnemyData implements Serializable {
         if (preparedDeck != null)
             return preparedDeck;
 
+        // MV2: on a set plane, build a $generate deck restricted to that set.
+        try {
+            if (forge.adventure.world.SetPlaneRules.shouldGenerateSetDeck(this)) {
+                return forge.adventure.world.SetPlaneRules.generateEnemyDeck(this,
+                        forge.adventure.world.SetPlaneRules.activeSetCode());
+            }
+        } catch (Throwable ignored) {
+            // Fall through to stock path when MV2 helpers are unavailable.
+        }
+
         boolean canUseGeneticAI = useGeneticAI && life > 16;
 
         if (canUseGeneticAI && Config.instance().getSettingData().generateLDADecks) {

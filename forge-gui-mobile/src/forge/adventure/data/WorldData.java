@@ -35,6 +35,11 @@ public class WorldData implements Serializable {
      * Ascendant sets this higher so towns are spread out on the larger map.
      */
     public int minTownSpacing = 0;
+    /**
+     * MV2: max full POI-placement restarts during {@link forge.adventure.world.World#generateNew}.
+     * 0 = unlimited (stock worlds). Set planes use a small positive cap.
+     */
+    public int maxPoiPlacementRestarts = 0;
     public String[] biomesNames;
 
 
@@ -110,6 +115,11 @@ public class WorldData implements Serializable {
             }
         }
         return biomes;
+    }
+
+    /** MV2: install a pre-customised biome list (skips JSON reload). */
+    public void replaceBiomes(List<BiomeData> replacement) {
+        biomes = replacement != null ? new ArrayList<>(replacement) : new ArrayList<>();
     }
 
 }

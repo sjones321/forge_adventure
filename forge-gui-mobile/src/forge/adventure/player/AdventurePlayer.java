@@ -233,8 +233,12 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     private void clearDecks() {
         decks.clear();
+        // getMessageorUseDefault: WorldSave can clinit in headless tests before
+        // Localizer bundles are loaded; never NPE the singleton constructor.
+        final String emptyName = Forge.getLocalizer()
+                .getMessageorUseDefault("lblEmptyDeck", "Empty Deck");
         for (int i = 0; i < MIN_DECK_COUNT; i++)
-            decks.add(new Deck(Forge.getLocalizer().getMessage("lblEmptyDeck")));
+            decks.add(new Deck(emptyName));
         deck = decks.get(0);
         selectedDeckIndex = 0;
     }

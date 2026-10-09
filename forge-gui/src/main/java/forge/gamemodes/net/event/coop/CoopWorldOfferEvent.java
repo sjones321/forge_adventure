@@ -4,13 +4,18 @@ import forge.gamemodes.net.event.NetEvent;
 
 /**
  * Host → guest after a successful hello: enough info for the guest to rebuild
- * the world from seed + plane config and verify {@link #worldHash}.
+ * the world from seed + plane config, replay the host's planar gates, and verify
+ * {@link #worldHash} against the host's <em>live</em> world hash.
  *
  * <p>MV1: {@link #worldPlaneId} / {@link #worldConfigPath} identify the host's
  * current overworld plane inside the adventure pack ({@link #planeId}).
+ *
+ * <p>MV2: {@link #mv2SetCode} is the host-stamped set code for co-op rebuild
+ * customisation (empty for home / pre-MV2 / unknown editions). {@link #gates}
+ * carries the host's exact gate list (capped); world hash includes gate terrain clears.
  */
 public class CoopWorldOfferEvent implements NetEvent {
-    private static final long serialVersionUID = 2L;
+    private static final long serialVersionUID = 4L;
 
     private final String hostPlayerName;
     private final String planeId;
@@ -23,18 +28,40 @@ public class CoopWorldOfferEvent implements NetEvent {
     private final String worldPlaneId;
     /** Relative world.json for the host's current plane; empty → world/world.json. */
     private final String worldConfigPath;
+    /** MV2: non-empty when the host materialised this plane with set customisation. */
+    private final String mv2SetCode;
+    /** MV2: host live planar gates (set code + position); may be empty. */
+    private final CoopPlanarGateEntry[] gates;
 
     public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
                                final long worldSeed, final String worldHash,
                                final int gamePort, final int overworldPort) {
         this(hostPlayerName, planeId, planeConfigHash, worldSeed, worldHash, gamePort, overworldPort,
-                null, null);
+                null, null, "", null);
     }
 
     public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
                                final long worldSeed, final String worldHash,
                                final int gamePort, final int overworldPort,
                                final String worldPlaneId, final String worldConfigPath) {
+        this(hostPlayerName, planeId, planeConfigHash, worldSeed, worldHash, gamePort, overworldPort,
+                worldPlaneId, worldConfigPath, "", null);
+    }
+
+    public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
+                               final long worldSeed, final String worldHash,
+                               final int gamePort, final int overworldPort,
+                               final String worldPlaneId, final String worldConfigPath,
+                               final String mv2SetCode) {
+        this(hostPlayerName, planeId, planeConfigHash, worldSeed, worldHash, gamePort, overworldPort,
+                worldPlaneId, worldConfigPath, mv2SetCode, null);
+    }
+
+    public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
+                               final long worldSeed, final String worldHash,
+                               final int gamePort, final int overworldPort,
+                               final String worldPlaneId, final String worldConfigPath,
+                               final String mv2SetCode, final CoopPlanarGateEntry[] gates) {
         this.hostPlayerName = hostPlayerName;
         this.planeId = planeId;
         this.planeConfigHash = planeConfigHash;
@@ -44,6 +71,8 @@ public class CoopWorldOfferEvent implements NetEvent {
         this.overworldPort = overworldPort;
         this.worldPlaneId = worldPlaneId;
         this.worldConfigPath = worldConfigPath;
+        this.mv2SetCode = mv2SetCode != null ? mv2SetCode : "";
+        this.gates = copyGates(gates);
     }
 
     public String getHostPlayerName() {
@@ -81,5 +110,24 @@ public class CoopWorldOfferEvent implements NetEvent {
 
     public String getWorldConfigPath() {
         return worldConfigPath;
+    }
+
+    /** Host-stamped MV2 set code; empty means no set customisation on rebuild. */
+    public String getMv2SetCode() {
+        return mv2SetCode != null ? mv2SetCode : "";
+    }
+
+    /** Host live planar gates; never null (may be empty). */
+    public CoopPlanarGateEntry[] getGates() {
+        return copyGates(gates);
+    }
+
+    private static CoopPlanarGateEntry[] copyGates(final CoopPlanarGateEntry[] src) {
+        if (src == null || src.length == 0) {
+            return new CoopPlanarGateEntry[0];
+        }
+        final CoopPlanarGateEntry[] out = new CoopPlanarGateEntry[src.length];
+        System.arraycopy(src, 0, out, 0, src.length);
+        return out;
     }
 }
