@@ -23,7 +23,8 @@ public final class CoopPorts {
      *
      * <p>Rule: set to {@code (feature/set-start PROTOCOL_VERSION) + 1} at review time;
      * Steve checks the number at merge. Do not pre-assign numbers for in-flight PRs.
-     * At this revision {@code feature/set-start} is 10, so this branch is 11.
+     * After merging {@code feature/set-start} (#52 rename), base is still 10, so this
+     * branch remains 11.
      */
     public static final int PROTOCOL_VERSION = 11;
 

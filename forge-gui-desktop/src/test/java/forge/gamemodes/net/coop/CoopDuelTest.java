@@ -143,15 +143,42 @@ public class CoopDuelTest {
 
     @Test
     public void resultEventCarriesRw1GuestLootCredit() {
-        final String[] cands = new String[]{"Lord of Atlantis", "Merfolk Looter"};
+        final String[] cands = new String[]{"Lord of Atlantis", "Merfolk Looter", "Cancel"};
         final CoopDuelResultEvent ev = new CoopDuelResultEvent(
-                4L, 0, 9L, "Merfolk", 1, "Merfolk Tidecaller", "merfolk_tempo", cands);
-        Assert.assertEquals(ev.getCreditEnemyDataId(), "Merfolk Tidecaller");
+                4L, 0, 9L, "Merfolk", 1, "Merfolk Scout", "merfolk_tempo", cands);
+        // Catalog id, not display nameOverride.
+        Assert.assertEquals(ev.getCreditEnemyDataId(), "Merfolk Scout");
         Assert.assertEquals(ev.getCreditThemeId(), "merfolk_tempo");
-        Assert.assertEquals(ev.getSignatureCandidates().length, 2);
+        Assert.assertEquals(ev.getSignatureCandidates().length, 3);
         Assert.assertEquals(ev.getSignatureCandidates()[0], "Lord of Atlantis");
         // Empty credit fields remain safe on the legacy 5-arg ctor.
         Assert.assertEquals(oneArgLegacy().getCreditThemeId(), "");
+    }
+
+    @Test
+    public void resultEventRw1FieldsSurviveSerializationRoundTrip() throws Exception {
+        final String[] cands = new String[]{"Lord of Atlantis", "Cancel", "Unsummon"};
+        final CoopDuelResultEvent original = new CoopDuelResultEvent(
+                11L, 0, 42L, "Merfolk Scout", 1, "Merfolk Scout", "merfolk_tempo", cands);
+        final byte[] bytes;
+        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+             java.io.ObjectOutputStream out = new java.io.ObjectOutputStream(bos)) {
+            out.writeObject(original);
+            bytes = bos.toByteArray();
+        }
+        final CoopDuelResultEvent decoded;
+        try (java.io.ObjectInputStream in = new java.io.ObjectInputStream(
+                new java.io.ByteArrayInputStream(bytes))) {
+            decoded = (CoopDuelResultEvent) in.readObject();
+        }
+        Assert.assertEquals(decoded.getDuelId(), 11L);
+        Assert.assertEquals(decoded.getLootRolls(), 1);
+        Assert.assertEquals(decoded.getCreditEnemyDataId(), "Merfolk Scout");
+        Assert.assertEquals(decoded.getCreditThemeId(), "merfolk_tempo");
+        Assert.assertEquals(decoded.getSignatureCandidates().length, 3);
+        Assert.assertEquals(decoded.getSignatureCandidates()[0], "Lord of Atlantis");
+        Assert.assertEquals(decoded.getSignatureCandidates()[2], "Unsummon");
+        Assert.assertTrue(decoded.isTeamWon());
     }
 
     private static CoopDuelResultEvent oneArgLegacy() {

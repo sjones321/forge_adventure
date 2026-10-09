@@ -165,9 +165,11 @@ public final class FightRewards {
         WorldStage.PendingLootRolls pending = new WorldStage.PendingLootRolls();
         pending.set(rolls);
         int n = pending.consume();
+        // Co-op / credited path: played deck is known (may be empty) — no full-core fallback.
+        final boolean allowFullCore = playedDeck == null;
         for (int i = 0; i < n; i++) {
             if (applies(credited)) {
-                loot.addAll(generate(credited, null, playedDeck, true));
+                loot.addAll(generate(credited, null, playedDeck, true, allowFullCore));
             }
         }
         return loot;
@@ -181,6 +183,16 @@ public final class FightRewards {
      */
     public static Array<Reward> generate(EnemyData enemy, RewardData[] extraRewards,
             Iterable<PaperCard> deckCards, boolean useSeedlessRandom) {
+        return generate(enemy, extraRewards, deckCards, useSeedlessRandom, true);
+    }
+
+    /**
+     * @param allowFullCoreSignatureFallback when false (co-op wire / known empty deck),
+     *        an empty core∩deck yields no signature — never the full theme core.
+     */
+    public static Array<Reward> generate(EnemyData enemy, RewardData[] extraRewards,
+            Iterable<PaperCard> deckCards, boolean useSeedlessRandom,
+            boolean allowFullCoreSignatureFallback) {
         Array<Reward> out = new Array<>();
         if (enemy == null) {
             return out;
@@ -196,7 +208,8 @@ public final class FightRewards {
         // 1) Guaranteed signature(s) from theme core ∩ played deck.
         int sigWanted = signatureCount();
         if (sigWanted > 0) {
-            List<PaperCard> signatures = pickSignatures(enemy.themeId, deckList, sigWanted, rng);
+            List<PaperCard> signatures = pickSignatures(enemy.themeId, deckList, sigWanted, rng,
+                    allowFullCoreSignatureFallback);
             for (PaperCard pc : signatures) {
                 if (pc != null) {
                     out.add(new Reward(pc));
@@ -477,11 +490,16 @@ public final class FightRewards {
      */
     public static List<PaperCard> pickSignatures(String themeId, List<PaperCard> deckCards,
             int count, Random rng) {
+        return pickSignatures(themeId, deckCards, count, rng, true);
+    }
+
+    public static List<PaperCard> pickSignatures(String themeId, List<PaperCard> deckCards,
+            int count, Random rng, boolean allowFullCoreFallback) {
         List<PaperCard> out = new ArrayList<>();
         if (themeId == null || themeId.isEmpty() || count <= 0 || rng == null) {
             return out;
         }
-        List<String> candidates = signatureCandidateNameList(themeId, deckCards);
+        List<String> candidates = signatureCandidateNameList(themeId, deckCards, allowFullCoreFallback);
         if (candidates.isEmpty()) {
             return out;
         }
@@ -503,10 +521,17 @@ public final class FightRewards {
     }
 
     /**
-     * Core ∩ played-deck names. When {@code deckCards} is null/empty (unknown deck),
-     * last-resort fallback is the full theme core so a signature can still be granted.
+     * Core ∩ played-deck names. When {@code deckCards} is null/empty and
+     * {@code allowFullCoreFallback} is true, last-resort fallback is the full theme core.
+     * Co-op wire paths pass {@code allowFullCoreFallback=false} so an empty host list
+     * stays empty on the guest.
      */
     static List<String> signatureCandidateNameList(String themeId, Iterable<PaperCard> deckCards) {
+        return signatureCandidateNameList(themeId, deckCards, true);
+    }
+
+    static List<String> signatureCandidateNameList(String themeId, Iterable<PaperCard> deckCards,
+            boolean allowFullCoreFallback) {
         List<String> core = coreNames(themeId);
         if (core.isEmpty()) {
             return Collections.emptyList();
@@ -523,8 +548,9 @@ public final class FightRewards {
         }
         List<String> candidates = new ArrayList<>();
         if (!sawAny) {
-            // Last resort: played deck unknown — allow the full core.
-            candidates.addAll(core);
+            if (allowFullCoreFallback) {
+                candidates.addAll(core);
+            }
             return candidates;
         }
         for (String name : core) {
@@ -535,28 +561,83 @@ public final class FightRewards {
         return candidates;
     }
 
-    /** Wire helper: core ∩ played-deck names for {@link forge.gamemodes.net.event.coop.CoopDuelResultEvent}. */
+    /** Wire helper: core ∩ played-deck names only (legacy / tests). */
     public static String[] signatureCandidateNames(String themeId, Deck playedDeck) {
-        List<String> names = signatureCandidateNameList(themeId, deckCardsForRewards(playedDeck));
+        List<String> names = signatureCandidateNameList(themeId, deckCardsForRewards(playedDeck), false);
         return names.toArray(new String[0]);
     }
 
     /**
-     * Guest credit from host wire fields. Stamps {@code themeId} onto a copy of the
-     * mirror catalog enemy (or a blank EnemyData) so RW1 applies without a local theme.
+     * Wire helper for {@link forge.gamemodes.net.event.coop.CoopDuelResultEvent}:
+     * core ∩ deck names first (signature), then other played-deck names (thin-set
+     * fallback), length-capped. Empty when the played deck is null/empty — guest
+     * must not full-core-fallback.
+     */
+    public static String[] creditPlayedDeckNames(String themeId, Deck playedDeck) {
+        List<PaperCard> deck = deckCardsForRewards(playedDeck);
+        if (deck.isEmpty()) {
+            return new String[0];
+        }
+        Set<String> core = new HashSet<>(coreNames(themeId));
+        List<String> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        // Signature candidates first.
+        for (PaperCard pc : deck) {
+            if (pc == null || pc.getName() == null || pc.getName().isEmpty()) {
+                continue;
+            }
+            if (core.contains(pc.getName()) && seen.add(pc.getName())) {
+                out.add(pc.getName());
+            }
+        }
+        // Thin-set deck-fallback pool (same as host exclude-core deck picks).
+        for (PaperCard pc : deck) {
+            if (out.size() >= forge.gamemodes.net.coop.CoopWireLimits.MAX_SIGNATURE_CANDIDATES) {
+                break;
+            }
+            if (pc == null || pc.getName() == null || pc.getName().isEmpty()) {
+                continue;
+            }
+            if (!core.contains(pc.getName()) && seen.add(pc.getName())) {
+                out.add(pc.getName());
+            }
+        }
+        if (out.size() > forge.gamemodes.net.coop.CoopWireLimits.MAX_SIGNATURE_CANDIDATES) {
+            return out.subList(0, forge.gamemodes.net.coop.CoopWireLimits.MAX_SIGNATURE_CANDIDATES)
+                    .toArray(new String[0]);
+        }
+        return out.toArray(new String[0]);
+    }
+
+    /**
+     * Guest credit from host wire fields. Prefers the catalog enemy for
+     * {@code creditEnemyDataId} (partner reward table / colours), then stamps
+     * {@code themeId}. Falls back to a copy of the mirror when the catalog miss.
      */
     public static EnemyData creditFromWire(EnemyData mirrorPrimary, String creditEnemyDataId,
             String creditThemeId) {
-        EnemyData credit;
-        if (mirrorPrimary != null) {
+        EnemyData credit = null;
+        if (creditEnemyDataId != null && !creditEnemyDataId.isEmpty()) {
+            try {
+                EnemyData catalog = forge.adventure.data.WorldData.getEnemy(creditEnemyDataId);
+                if (catalog != null) {
+                    credit = new EnemyData(catalog);
+                }
+            } catch (Throwable ignored) {
+                credit = null;
+            }
+        }
+        if (credit == null && mirrorPrimary != null) {
             credit = new EnemyData(mirrorPrimary);
-        } else {
+        }
+        if (credit == null) {
             credit = new EnemyData();
-            credit.name = creditEnemyDataId != null ? creditEnemyDataId : "";
         }
         if (creditEnemyDataId != null && !creditEnemyDataId.isEmpty()) {
             credit.name = creditEnemyDataId;
         }
+        // Catalog id on the wire — clear display override so getName() matches.
+        credit.nameOverride = "";
         credit.themeId = creditThemeId != null ? creditThemeId : "";
         credit.boss = false;
         return credit;

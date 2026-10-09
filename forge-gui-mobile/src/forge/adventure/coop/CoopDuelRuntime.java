@@ -117,7 +117,9 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private volatile int pendingPartnerLootRolls = 1;
     /** EN2: partner enemy for RW1 guest loot credit (host stamps wire fields from this). */
     private volatile EnemyData pendingPartnerForLoot;
-    /** Played deck of the EN2 partner — used only to build wire signature candidates. */
+    /** Played deck of the primary (enemies.get(0)) — host loot + guest candidates when no partner. */
+    private volatile Deck pendingPrimaryPlayedDeck;
+    /** Played deck of the EN2 partner — guest credit candidates when a partner was built. */
     private volatile Deck pendingPartnerPlayedDeck;
     private volatile boolean gameServerStartedByUs;
     private volatile FGameClient guestClient;
@@ -755,6 +757,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                     advPlayer.isFantasyMode(), baseFreeMulligans);
             pendingPartnerLootRolls = enemyBuild.lootRollsPerPlayer;
             pendingPartnerForLoot = enemyBuild.partner;
+            pendingPrimaryPlayedDeck = enemyBuild.primaryDeck;
             pendingPartnerPlayedDeck = enemyBuild.partnerDeck;
             final List<CoopDuelMatchPlan.EnemySpec> enemies = enemyBuild.enemies;
 
@@ -925,28 +928,22 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         }
         final boolean teamWon = winningTeam == 0;
         final String encounterId = mob != null && mob.getData() != null ? mob.getData().getName() : "";
-        // EN2 + RW1: host-authoritative loot rolls and guest credit (theme + signature names).
+        // EN2 + RW1: host-authoritative loot rolls and guest credit (theme + deck names).
         final EnemyData guestCredit = forge.adventure.util.FightRewards.creditedLootEnemy(
                 mob != null ? mob.getData() : null, pendingPartnerForLoot, false);
-        final String creditDataId = guestCredit != null && guestCredit.getName() != null
-                ? guestCredit.getName() : "";
+        // Catalog id (EnemyData.name), never display nameOverride.
+        final String creditDataId = guestCredit != null && guestCredit.name != null
+                ? guestCredit.name : "";
         final String creditThemeId = guestCredit != null && guestCredit.themeId != null
                 ? guestCredit.themeId : "";
-        Deck creditDeck = null;
-        if (pendingPartnerForLoot != null && guestCredit == pendingPartnerForLoot) {
-            creditDeck = pendingPartnerPlayedDeck;
-        } else {
-            try {
-                creditDeck = Current.latestDeck();
-            } catch (final Exception ignored) {
-                creditDeck = null;
-            }
-        }
-        final String[] wireSigs = forge.adventure.util.FightRewards.signatureCandidateNames(
+        final boolean guestIsPartner = pendingPartnerForLoot != null && guestCredit == pendingPartnerForLoot;
+        final Deck creditDeck = guestIsPartner ? pendingPartnerPlayedDeck : pendingPrimaryPlayedDeck;
+        // Core ∩ deck first, then non-core deck names for thin-set fallback (length-capped).
+        final String[] wireDeckNames = forge.adventure.util.FightRewards.creditPlayedDeckNames(
                 creditThemeId, creditDeck);
         final CoopDuelResultEvent result = new CoopDuelResultEvent(
                 duelId, winningTeam, enemyId, encounterId, pendingPartnerLootRolls,
-                creditDataId, creditThemeId, wireSigs);
+                creditDataId, creditThemeId, wireDeckNames);
         CoopSession.get().send(result);
 
         // Local DuelScene / WorldStage result path (loot, removeEnemy, XP, penalties).
@@ -968,12 +965,13 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (mob != null) {
             WorldStage.getInstance().setCurrentMob(mob);
             WorldStage.getInstance().setPendingLootRolls(pendingPartnerLootRolls);
-            // RW1: host is credited with the primary (overworld) enemy.
+            // RW1: host is credited with the primary (overworld) enemy + the deck it played.
             final EnemyData credit = forge.adventure.util.FightRewards.creditedLootEnemy(
                     mob.getData(), pendingPartnerForLoot, true);
-            WorldStage.getInstance().setPendingLootCredit(credit, null);
+            WorldStage.getInstance().setPendingLootCredit(credit, pendingPrimaryPlayedDeck);
             pendingPartnerLootRolls = 1;
             pendingPartnerForLoot = null;
+            pendingPrimaryPlayedDeck = null;
             pendingPartnerPlayedDeck = null;
             // setWinner also calls CoopOverworldRuntime.onHostDuelEnded().
             WorldStage.getInstance().setWinner(teamWon, false);
@@ -1110,6 +1108,10 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private void clearPendingEncounter() {
         pendingEnemy = null;
         pendingEnemyId = 0L;
+        pendingPrimaryPlayedDeck = null;
+        pendingPartnerPlayedDeck = null;
+        pendingPartnerForLoot = null;
+        pendingPartnerLootRolls = 1;
     }
 
     private CoopFightLoadout buildLocalLoadout() {
@@ -1507,6 +1509,8 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         public final float lifeFactor;
         public final int extraCards;
         public final int lootRollsPerPlayer;
+        /** Deck the primary seat (enemies.get(0)) played — host loot credit. */
+        public final Deck primaryDeck;
         /** EN2 partner EnemyData for RW1 guest loot credit; null when no partner. */
         public final EnemyData partner;
         /** Deck the partner seat played; null when no partner. */
@@ -1514,12 +1518,13 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
 
         HostedCoopEnemyBuild(final List<CoopDuelMatchPlan.EnemySpec> enemies, final boolean partnerBuilt,
                              final float lifeFactor, final int extraCards, final int lootRollsPerPlayer,
-                             final EnemyData partner, final Deck partnerDeck) {
+                             final Deck primaryDeck, final EnemyData partner, final Deck partnerDeck) {
             this.enemies = enemies;
             this.partnerBuilt = partnerBuilt;
             this.lifeFactor = lifeFactor;
             this.extraCards = extraCards;
             this.lootRollsPerPlayer = lootRollsPerPlayer;
+            this.primaryDeck = primaryDeck;
             this.partner = partner;
             this.partnerDeck = partnerDeck;
         }
@@ -1566,8 +1571,10 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                     partner.life,
                     freeMulligans));
         }
+        final Deck primaryDeckOut = enemies.isEmpty() ? null : enemies.get(0).deck;
         return new HostedCoopEnemyBuild(enemies, partnerPlan.partnerBuilt, partnerPlan.lifeFactor,
-                partnerPlan.extraCards, partnerPlan.lootRollsPerPlayer, partnerData, partnerDeckOut);
+                partnerPlan.extraCards, partnerPlan.lootRollsPerPlayer,
+                primaryDeckOut, partnerData, partnerDeckOut);
     }
 
     /** RW1 guest credit resolved from a host {@link CoopDuelResultEvent}. */
@@ -1583,10 +1590,10 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
 
     /**
      * RW1: resolve host-authoritative guest loot credit from {@link CoopDuelResultEvent}.
-     * Stamps {@code themeId} onto a copy of the mirror's catalog data so RW1 applies
-     * even when the guest SPAWN mirror had no theme. Signature candidates on the wire
-     * become the played-deck intersection for {@link forge.adventure.util.FightRewards}.
-     * Same logic {@link #applyGuestLocalResult} uses (no biome / position rebuild).
+     * Loads the credited catalog enemy (rewards / colours) when possible, stamps
+     * {@code themeId}, and rebuilds the played-deck sample from wire names.
+     * An empty candidate list means no signature and no full-core fallback (host
+     * meaning preserved). Same logic {@link #applyGuestLocalResult} uses.
      */
     public static GuestLootCredit guestLootCreditFromEvent(final EnemyData mirrorPrimary,
             final CoopDuelResultEvent event) {
@@ -1598,6 +1605,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                     mirrorPrimary,
                     event.getCreditEnemyDataId(),
                     event.getCreditThemeId());
+            // Wire names are the host's played-deck sample (core-first, then filler).
             final Deck creditDeck = forge.adventure.util.FightRewards.deckFromCandidateNames(
                     event.getSignatureCandidates());
             return new GuestLootCredit(credit, creditDeck);

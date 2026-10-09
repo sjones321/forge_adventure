@@ -15,6 +15,7 @@ import forge.adventure.player.AdventurePlayer;
 import forge.adventure.coop.CoopDuelRuntime;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
+import forge.adventure.util.Current;
 import forge.adventure.util.EnemyCoopPartners;
 import forge.adventure.util.EnemyThemeDecks;
 import forge.adventure.util.FightRewards;
@@ -38,6 +39,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -45,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * RW1 behavior: themed-fight signature + current-set card rewards through
@@ -57,6 +60,9 @@ public class FightRewardsRw1Test {
     private Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
     private ConfigData ascendantConfig;
     private ConfigData stockConfig;
+    private List<String> standardWindowSnapshot;
+    private int dustCommonSnapshot;
+    private int goldSnapshot;
 
     @BeforeMethod
     public void setUp() throws Exception {
@@ -91,6 +97,9 @@ public class FightRewardsRw1Test {
         player.getStandardWindow().init(List.of("M11", "M12", "ZEN"));
         Assert.assertEquals(player.getStandardWindow().newestSet(), "ZEN");
         player.setLegacyRunFormat(GymUtil.FORMAT_STANDARD);
+        standardWindowSnapshot = new ArrayList<>(player.getStandardWindow().getSets());
+        dustCommonSnapshot = player.getDust(CardRarity.Common);
+        goldSnapshot = player.getGold();
     }
 
     @AfterMethod(alwaysRun = true)
@@ -102,7 +111,23 @@ public class FightRewardsRw1Test {
             EnemyThemeDecks.setEnabledForTests(null);
             EnemyCoopPartners.setEnabledForTests(null);
             try {
-                AdventurePlayer.current().setLegacyRunFormat(GymUtil.FORMAT_STANDARD);
+                AdventurePlayer player = AdventurePlayer.current();
+                player.setLegacyRunFormat(GymUtil.FORMAT_STANDARD);
+                if (standardWindowSnapshot != null) {
+                    player.getStandardWindow().init(standardWindowSnapshot);
+                }
+                int dustNow = player.getDust(CardRarity.Common);
+                if (dustNow != dustCommonSnapshot) {
+                    player.addDust(CardRarity.Common, dustCommonSnapshot - dustNow);
+                }
+                int goldNow = player.getGold();
+                if (goldNow != goldSnapshot) {
+                    player.takeGold(goldNow - goldSnapshot);
+                }
+            } catch (Throwable ignored) {
+            }
+            try {
+                Current.setLatestDeck(null);
             } catch (Throwable ignored) {
             }
             Config.resetInstanceForTest();
@@ -465,20 +490,22 @@ public class FightRewardsRw1Test {
 
         List<PaperCard> partnerDeck = deckWithCoreCards("merfolk_tempo");
         Assert.assertFalse(partnerDeck.isEmpty());
-        String[] wireSigs = FightRewards.signatureCandidateNames(
+        String[] wireDeck = FightRewards.creditPlayedDeckNames(
                 "merfolk_tempo", deckFromCards(partnerDeck));
-        Assert.assertTrue(wireSigs.length >= 1, "host must send signature candidates");
+        Assert.assertTrue(wireDeck.length >= 1, "host must send played-deck names");
 
+        // Catalog id (EnemyData.name), not display nameOverride ("… Tidecaller").
         CoopDuelResultEvent event = new CoopDuelResultEvent(
                 99L, 0, 42L, "Merfolk Scout", 1,
-                "Merfolk Tidecaller", "merfolk_tempo", wireSigs);
+                "Merfolk Scout", "merfolk_tempo", wireDeck);
 
         CoopDuelRuntime.GuestLootCredit resolved =
                 CoopDuelRuntime.guestLootCreditFromEvent(mirror, event);
         Assert.assertNotNull(resolved.credit);
         Assert.assertEquals(resolved.credit.themeId, "merfolk_tempo",
                 "wire themeId stamped onto guest credit");
-        Assert.assertEquals(resolved.credit.getName(), "Merfolk Tidecaller");
+        Assert.assertEquals(resolved.credit.name, "Merfolk Scout",
+                "creditEnemyDataId is the catalog id");
         Assert.assertTrue(FightRewards.applies(resolved.credit),
                 "credited enemy must enter RW1 even when the mirror had no theme");
         Assert.assertNotNull(resolved.creditDeck);
@@ -495,6 +522,151 @@ public class FightRewardsRw1Test {
                         FightRewards.coreNames("merfolk_tribal").contains(c.getName())
                                 && !tempoCore.contains(c.getName())),
                 "must not fall back to guest biome / primary theme");
+    }
+
+    @Test
+    public void coopHostWinCreditsPrimaryEnemyPlayedDeckNotStaleLatest() {
+        assumeCardDb();
+        FightRewards.setCurrentSetCodeForTest("ZEN");
+
+        EnemyData primary = merfolkEnemy();
+        primary.questTags = new String[]{"Merfolk"};
+        // Distinct primary deck: only one core name so the signature is forced.
+        List<String> core = FightRewards.coreNames("merfolk_tribal");
+        Assert.assertFalse(core.isEmpty());
+        String playedCore = core.get(0);
+        Deck primaryPlayed = new Deck("primary-played");
+        PaperCard playedPc = forge.adventure.util.CardUtil.getCardByName(playedCore);
+        Assert.assertNotNull(playedPc, playedCore);
+        primaryPlayed.getMain().add(playedPc);
+        for (String pad : List.of("Cancel", "Unsummon")) {
+            PaperCard p = forge.adventure.util.CardUtil.getCardByName(pad);
+            if (p != null) {
+                primaryPlayed.getMain().add(p);
+            }
+        }
+
+        // Stale solo latestDeck — must NOT be used for co-op host credit.
+        Deck stale = new Deck("stale-solo");
+        for (int i = 1; i < Math.min(core.size(), 4); i++) {
+            PaperCard p = forge.adventure.util.CardUtil.getCardByName(core.get(i));
+            if (p != null && !playedCore.equals(p.getName())) {
+                stale.getMain().add(p);
+            }
+        }
+        Current.setLatestDeck(stale);
+
+        CoopDuelRuntime.HostedCoopEnemyBuild build = CoopDuelRuntime.buildHostedCoopEnemies(
+                primary, 7L, Collections.emptyList(), new Deck("Host"), false, 0);
+        Assert.assertNotNull(build.primaryDeck, "host must retain enemies.get(0).deck");
+
+        // Simulate finishHostMatch host credit: primary + the deck that seat played.
+        // (build.primaryDeck is whatever generateDeck returned; pin our known deck.)
+        Array<Reward> loot = WorldStage.rollLootForCredit(null, primary, primaryPlayed);
+        List<PaperCard> cards = cardRewards(loot);
+        Set<String> tribal = new HashSet<>(core);
+        Assert.assertEquals(cards.stream().filter(c -> tribal.contains(c.getName())).count(), 1L,
+                "exactly one signature from the primary played deck; " + names(cards));
+        Assert.assertTrue(cards.stream().anyMatch(c -> playedCore.equals(c.getName())),
+                "signature must be the core card that was in the played deck, not stale latest");
+        // Stale-only core names must not appear as the signature.
+        Set<String> staleOnly = new HashSet<>();
+        for (PaperCard pc : stale.getMain().toFlatList()) {
+            if (pc != null && !playedCore.equals(pc.getName())) {
+                staleOnly.add(pc.getName());
+            }
+        }
+        Assert.assertTrue(cards.stream().noneMatch(c -> staleOnly.contains(c.getName())),
+                "must not credit stale Current.latestDeck; cards=" + names(cards));
+
+        // Wire candidates for no-partner guest also come from the primary played deck.
+        String[] wire = FightRewards.creditPlayedDeckNames("merfolk_tribal", primaryPlayed);
+        Assert.assertTrue(Arrays.asList(wire).contains(playedCore));
+        Assert.assertFalse(Arrays.asList(wire).isEmpty());
+    }
+
+    @Test
+    public void emptyWireCandidatesDoNotFullCoreFallbackOnGuest() {
+        assumeCardDb();
+        FightRewards.setCurrentSetCodeForTest("ZEN");
+        EnemyData mirror = merfolkEnemy();
+        mirror.themeId = null;
+        // Host meaning: empty list = no signature (deck had no core intersection).
+        CoopDuelResultEvent event = new CoopDuelResultEvent(
+                3L, 0, 1L, "Merfolk Scout", 1, "Merfolk Scout", "merfolk_tribal", new String[0]);
+        CoopDuelRuntime.GuestLootCredit resolved =
+                CoopDuelRuntime.guestLootCreditFromEvent(mirror, event);
+        Assert.assertTrue(FightRewards.applies(resolved.credit));
+        Assert.assertTrue(resolved.creditDeck.getMain().isEmpty());
+
+        Array<Reward> loot = WorldStage.rollLootForCredit(null, resolved.credit, resolved.creditDeck);
+        List<PaperCard> cards = cardRewards(loot);
+        Set<String> core = new HashSet<>(FightRewards.coreNames("merfolk_tribal"));
+        Assert.assertEquals(cards.stream().filter(c -> core.contains(c.getName())).count(), 0L,
+                "empty wire candidates must not full-core-fallback; cards=" + names(cards));
+    }
+
+    @Test
+    public void wireCreditUsedEvenWhenThemesMatch() {
+        assumeCardDb();
+        FightRewards.setCurrentSetCodeForTest("");
+        EnemyData primary = merfolkEnemy();
+        // Same theme as credit — previously skipped the credit path.
+        EnemyData credit = new EnemyData(primary);
+        credit.colors = "UB"; // distinct colours/reward table marker
+        credit.rewards = new RewardData[]{
+                deckCardRow(3, 0, new String[]{"Common"}),
+                goldRow(50)
+        };
+        for (RewardData r : credit.rewards) {
+            if ("gold".equals(r.type)) {
+                r.probability = 1f;
+            }
+        }
+        List<PaperCard> deck = deckWithCoreCards("merfolk_tribal");
+        // Fake mob data with matching theme.
+        EnemyData mobData = merfolkEnemy();
+        Assert.assertEquals(mobData.themeId, credit.themeId);
+
+        Array<Reward> routed = WorldStage.rollLootForCredit(null, credit, deckFromCards(deck));
+        boolean gold50 = false;
+        for (int i = 0; i < routed.size; i++) {
+            if (routed.get(i).getType() == Reward.Type.Gold && routed.get(i).getCount() == 50) {
+                gold50 = true;
+            }
+        }
+        Assert.assertTrue(gold50, "matching themes must still use credited reward table");
+        Set<String> core = new HashSet<>(FightRewards.coreNames("merfolk_tribal"));
+        Assert.assertEquals(cardRewards(routed).stream().filter(c -> core.contains(c.getName())).count(), 1L);
+    }
+
+    @Test
+    public void guestThinSetGetsDeckFallbackFromWirePlayedDeck() {
+        assumeCardDb();
+        FightRewards.setCurrentSetCodeForTest(""); // thin / no current set
+        EnemyData mirror = merfolkEnemy();
+        mirror.themeId = null;
+        List<PaperCard> played = deckWithCoreCards("merfolk_tempo");
+        String[] wire = FightRewards.creditPlayedDeckNames("merfolk_tempo", deckFromCards(played));
+        Assert.assertTrue(wire.length >= 2, "wire must carry core + non-core deck names");
+
+        CoopDuelResultEvent event = new CoopDuelResultEvent(
+                5L, 0, 2L, "Merfolk Scout", 1, "Merfolk Scout", "merfolk_tempo", wire);
+        CoopDuelRuntime.GuestLootCredit resolved =
+                CoopDuelRuntime.guestLootCreditFromEvent(mirror, event);
+        Array<Reward> loot = WorldStage.rollLootForCredit(null, resolved.credit, resolved.creditDeck);
+        List<PaperCard> cards = cardRewards(loot);
+        Set<String> tempoCore = new HashSet<>(FightRewards.coreNames("merfolk_tempo"));
+        Assert.assertEquals(cards.stream().filter(c -> tempoCore.contains(c.getName())).count(), 1L,
+                "exactly one signature; " + names(cards));
+        List<PaperCard> nonSig = cards.stream().filter(c -> !tempoCore.contains(c.getName()))
+                .collect(Collectors.toList());
+        Assert.assertFalse(nonSig.isEmpty(), "thin set: guest must get deck-fallback like the host");
+        Set<String> wireNames = new HashSet<>(Arrays.asList(wire));
+        for (PaperCard pc : nonSig) {
+            Assert.assertTrue(wireNames.contains(pc.getName()),
+                    "fallback from wire played-deck sample: " + pc.getName());
+        }
     }
 
     // ---- helpers ----

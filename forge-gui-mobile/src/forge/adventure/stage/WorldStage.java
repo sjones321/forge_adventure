@@ -537,19 +537,20 @@ public class WorldStage extends GameStage implements SaveFileContent {
     }
 
     /**
-     * One loot roll for the local peer. When EN2 credits a different enemy (guest →
-     * partner), roll RW1 against that enemy's theme core and played deck; otherwise
-     * use {@link EnemySprite#getRewards()} on the overworld mob (primary).
+     * One loot roll for the local peer. When EN2/RW1 has a pending credit (host →
+     * primary deck, guest → wire partner/primary), roll against that enemy's reward
+     * table, colours, theme core and played deck — even when themes match the
+     * overworld mob. Otherwise use {@link EnemySprite#getRewards()} on the mob.
      */
     public static com.badlogic.gdx.utils.Array<Reward> rollLootForCredit(final EnemySprite mob,
             final forge.adventure.data.EnemyData credit, final forge.deck.Deck creditDeck) {
-        if (credit != null && FightRewards.applies(credit)
-                && (mob == null || mob.getData() == null
-                || credit.themeId != null && !credit.themeId.equals(mob.getData().themeId))) {
+        if (credit != null && FightRewards.applies(credit)) {
             final java.util.List<forge.item.PaperCard> deckCards =
                     FightRewards.deckCardsForRewards(creditDeck);
+            // Wire / host credit decks are known — empty means no signature (no full-core).
+            final boolean allowFullCore = creditDeck == null;
             final com.badlogic.gdx.utils.Array<Reward> one =
-                    FightRewards.generate(credit, null, deckCards, true);
+                    FightRewards.generate(credit, null, deckCards, true, allowFullCore);
             forge.adventure.data.EnemyMaterialDropData.appendDrops(credit, one);
             return one;
         }
