@@ -352,7 +352,7 @@ public final class SetPlaneGenerator {
         data.type = "planar_gate";
         data.count = 1;
         data.spriteAtlas = "../common/maps/tileset/buildings.atlas";
-        data.sprite = "MageTowerBlack";
+        data.sprite = "Portal"; // buildings.atlas has Portal; MageTowerBlack lives in buildingsbosses.atlas
         data.map = "../common/maps/map/ascendant/planar_gate.tmx";
         data.radiusFactor = 0.5f;
         data.active = true;
