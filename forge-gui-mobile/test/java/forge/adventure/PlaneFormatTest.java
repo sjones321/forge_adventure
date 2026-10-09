@@ -2,13 +2,22 @@ package forge.adventure;
 
 import forge.adventure.coop.CoopSession;
 import forge.adventure.data.ConfigData;
+import forge.adventure.data.RewardData;
+import forge.adventure.player.AdventurePlayer;
+import forge.adventure.util.AdventureModes;
 import forge.adventure.util.Config;
+import forge.adventure.util.Current;
+import forge.adventure.util.EnemyThemeDecks;
 import forge.adventure.util.GymUtil;
 import forge.adventure.util.SaveFileData;
 import forge.adventure.world.MultiverseState;
 import forge.adventure.world.PlaneFormat;
 import forge.adventure.world.PlaneMeta;
+import forge.gamemodes.net.coop.CoopPorts;
+import forge.gamemodes.net.coop.CoopSessionCode;
+import forge.gamemodes.net.coop.CoopVersion;
 import forge.gamemodes.net.coop.CoopWireLimits;
+import forge.gamemodes.net.event.coop.CoopHelloEvent;
 import forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent;
 import forge.gamemodes.net.event.coop.CoopPlanarGateEntry;
 import forge.gamemodes.net.event.coop.CoopWorldOfferEvent;
@@ -21,21 +30,29 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.lang.reflect.Field;
 
 /**
- * Package K: plane format storage, migration, resolver fallbacks, and co-op
- * {@code planeFormat} on world offer / plane switch (protocol bump).
+ * Package K: plane format storage, migration, resolver fallbacks, Commander mode,
+ * and co-op {@code planeFormat} on world offer / plane switch.
  */
 public class PlaneFormatTest {
+
+    private AdventureModes savedAdventureMode;
 
     @BeforeMethod
     public void clearGuestFollow() {
         CoopSession.get().testClearGuestPlaneFollow();
+        CoopSession.get().testClearHostingForHello();
+        savedAdventureMode = null;
     }
 
     @AfterMethod
-    public void tearDown() {
+    public void tearDown() throws Exception {
+        restoreAdventureMode();
         CoopSession.get().testClearGuestPlaneFollow();
+        CoopSession.get().testClearHostingForHello();
+        RewardData.invalidateCardPool();
     }
 
     @Test
@@ -73,9 +90,13 @@ public class PlaneFormatTest {
 
     @Test
     public void missingFormatKeyLoadsAsUnset() {
+        // Pre-K blob: no "format" key at all (not an empty string value).
         PlaneMeta meta = PlaneMeta.home(2L);
         SaveFileData data = meta.save();
-        data.store("format", ""); // explicit empty
+        Assert.assertTrue(data.containsKey("format"));
+        data.remove("format");
+        Assert.assertFalse(data.containsKey("format"));
+
         PlaneMeta loaded = new PlaneMeta();
         loaded.load(data);
         Assert.assertEquals(PlaneFormat.raw(loaded), "");
@@ -109,6 +130,34 @@ public class PlaneFormatTest {
         CoopSession.get().testFollowHostPlane("set_dmu", GymUtil.FORMAT_COMMANDER);
         Assert.assertEquals(PlaneFormat.resolveCurrent(), GymUtil.FORMAT_COMMANDER);
         CoopSession.get().testClearGuestPlaneFollow();
+    }
+
+    @Test
+    public void guestUnknownFormatUsesHostDefaultNotLocalPlane() throws Exception {
+        // Local plane is Historic; unknown wire token must not fall through to it.
+        MultiverseState multi = Current.player() != null
+                && forge.adventure.world.WorldSave.getCurrentSave() != null
+                && forge.adventure.world.WorldSave.getCurrentSave().getMultiverse() != null
+                ? forge.adventure.world.WorldSave.getCurrentSave().getMultiverse() : null;
+        PlaneMeta prior = null;
+        String priorFmt = null;
+        if (multi != null && multi.getCurrentMeta() != null) {
+            prior = multi.getCurrentMeta();
+            priorFmt = prior.getFormat();
+            prior.setFormat(GymUtil.FORMAT_HISTORIC);
+        }
+        try {
+            Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat("Vintage"),
+                    PlaneFormat.defaultFormat());
+            CoopSession.get().testApplyGuestPlaneFormat("Vintage");
+            Assert.assertEquals(CoopSession.get().getGuestPlaneFormat(), PlaneFormat.defaultFormat());
+            Assert.assertEquals(PlaneFormat.resolveCurrent(), PlaneFormat.defaultFormat());
+        } finally {
+            if (prior != null) {
+                prior.setFormat(priorFmt != null ? priorFmt : "");
+            }
+            CoopSession.get().testClearGuestPlaneFollow();
+        }
     }
 
     @Test
@@ -161,15 +210,74 @@ public class PlaneFormatTest {
 
     @Test
     public void guestRejectsUnknownFormatGracefully() {
-        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat("Vintage"), "");
-        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat(""), "");
-        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat(null), "");
+        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat("Vintage"),
+                PlaneFormat.defaultFormat());
+        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat(""),
+                PlaneFormat.defaultFormat());
+        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat(null),
+                PlaneFormat.defaultFormat());
         Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat("pauper"), GymUtil.FORMAT_PAUPER);
         final StringBuilder longFmt = new StringBuilder();
         for (int i = 0; i < CoopWireLimits.MAX_PLANE_FORMAT_LEN + 3; i++) {
             longFmt.append('Z');
         }
-        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat(longFmt.toString()), "");
+        Assert.assertEquals(CoopSession.testAcceptGuestPlaneFormat(longFmt.toString()),
+                PlaneFormat.defaultFormat());
+    }
+
+    @Test
+    public void commanderModeResolveFormatWireAndRewardPool() throws Exception {
+        setAdventureMode(AdventureModes.Commander);
+        try {
+            Assert.assertTrue(Current.player().isCommanderMode());
+            Assert.assertEquals(PlaneFormat.resolveCurrent(), GymUtil.FORMAT_COMMANDER);
+            Assert.assertEquals(EnemyThemeDecks.resolveFormatForTest(), GymUtil.FORMAT_COMMANDER);
+            Assert.assertEquals(CoopSession.testHostWirePlaneFormat(), GymUtil.FORMAT_COMMANDER);
+            Assert.assertTrue(RewardData.cardPoolUsesCommanderBreadth());
+            Assert.assertEquals(Current.player().getRunFormat(), GymUtil.FORMAT_COMMANDER);
+        } finally {
+            restoreAdventureMode();
+        }
+    }
+
+    @Test
+    public void guestPlaneFormatChangeInvalidatesCardPool() {
+        RewardData.getAllCards();
+        Assert.assertTrue(RewardData.isCardPoolCached());
+        CoopSession.get().testApplyGuestPlaneFormat(GymUtil.FORMAT_PAUPER);
+        Assert.assertFalse(RewardData.isCardPoolCached(),
+                "guest offer/switch must invalidate the reward pool");
+        Assert.assertEquals(CoopSession.get().getGuestPlaneFormat(), GymUtil.FORMAT_PAUPER);
+    }
+
+    @Test
+    public void invalidateCardPoolClearsCache() {
+        RewardData.getAllCards();
+        Assert.assertTrue(RewardData.isCardPoolCached());
+        RewardData.invalidateCardPool();
+        Assert.assertFalse(RewardData.isCardPoolCached());
+    }
+
+    @Test
+    public void oldProtocolPeerIsRefusedViaRealOnHello() {
+        final String code = CoopSessionCode.generate();
+        final CoopSession session = CoopSession.get();
+        session.testPrepareHostingForHello(code);
+        try {
+            final int oldProtocol = CoopPorts.PROTOCOL_VERSION - 1;
+            Assert.assertTrue(oldProtocol >= 1);
+            session.testHostOnHello(new CoopHelloEvent(oldProtocol,
+                    CoopVersion.buildHash(), CoopVersion.cardDataHash(),
+                    "Guest", "Guest", code));
+            final String err = session.getLastError();
+            Assert.assertNotNull(err);
+            Assert.assertTrue(err.toLowerCase().contains("protocol"), err);
+            Assert.assertTrue(err.contains(String.valueOf(CoopPorts.PROTOCOL_VERSION)), err);
+            Assert.assertTrue(err.contains(String.valueOf(oldProtocol)), err);
+            Assert.assertEquals(session.getState(), CoopSession.State.HOSTING);
+        } finally {
+            session.testClearHostingForHello();
+        }
     }
 
     @Test
@@ -183,12 +291,18 @@ public class PlaneFormatTest {
     }
 
     @Test
-    public void strictOverworldDefaultOff() {
+    public void strictOverworldTunableWired() {
         ConfigData cfg = Config.instance() != null ? Config.instance().getConfigData() : null;
-        if (cfg != null) {
-            Assert.assertFalse(cfg.kStrictOverworldLegalDecks);
-        }
+        Assert.assertNotNull(cfg);
+        Assert.assertFalse(cfg.kStrictOverworldLegalDecks);
         Assert.assertFalse(PlaneFormat.strictOverworldLegalDecks());
+        final boolean previous = cfg.kStrictOverworldLegalDecks;
+        try {
+            cfg.kStrictOverworldLegalDecks = true;
+            Assert.assertTrue(PlaneFormat.strictOverworldLegalDecks());
+        } finally {
+            cfg.kStrictOverworldLegalDecks = previous;
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -200,5 +314,29 @@ public class PlaneFormatTest {
         try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
             return (T) in.readObject();
         }
+    }
+
+    private void setAdventureMode(final AdventureModes mode) throws Exception {
+        AdventurePlayer p = Current.player();
+        Assert.assertNotNull(p, "test bootstrap must provide a current player");
+        Field f = AdventurePlayer.class.getDeclaredField("adventureMode");
+        f.setAccessible(true);
+        if (savedAdventureMode == null) {
+            savedAdventureMode = (AdventureModes) f.get(p);
+        }
+        f.set(p, mode);
+    }
+
+    private void restoreAdventureMode() throws Exception {
+        if (savedAdventureMode == null) {
+            return;
+        }
+        AdventurePlayer p = Current.player();
+        if (p != null) {
+            Field f = AdventurePlayer.class.getDeclaredField("adventureMode");
+            f.setAccessible(true);
+            f.set(p, savedAdventureMode);
+        }
+        savedAdventureMode = null;
     }
 }

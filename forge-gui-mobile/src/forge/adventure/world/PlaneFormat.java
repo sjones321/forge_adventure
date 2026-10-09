@@ -113,13 +113,22 @@ public final class PlaneFormat {
      * The format that EN1, gyms, League and status should use right now.
      *
      * <ol>
-     *   <li>Co-op guest: host-synced plane format</li>
+     *   <li>Commander-mode run → always {@link #COMMANDER}</li>
+     *   <li>Co-op guest: host-synced plane format (unknown → host default)</li>
      *   <li>Current plane meta when set</li>
      *   <li>Legacy player {@code runFormat} (pre-K saves / home migration)</li>
      *   <li>{@link #defaultFormat()}</li>
      * </ol>
      */
     public static String resolveCurrent() {
+        try {
+            AdventurePlayer p = Current.player();
+            if (p != null && p.isCommanderMode()) {
+                return COMMANDER;
+            }
+        } catch (Throwable ignored) {
+        }
+
         try {
             CoopSession session = CoopSession.get();
             if (session != null && session.getRole() == CoopSessionRole.GUEST) {

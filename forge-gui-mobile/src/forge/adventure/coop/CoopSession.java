@@ -116,6 +116,8 @@ public final class CoopSession {
 
     private volatile CoopOverworldServer server;
     private volatile CoopOverworldClient client;
+    /** Kept so tests can dispatch hellos through the real {@link HostListener#onHello}. */
+    private volatile HostListener activeHostListener;
 
     private final List<Consumer<String>> statusListeners = new CopyOnWriteArrayList<>();
     private final List<CoopHooks.OverworldListener> overworldListeners = new CopyOnWriteArrayList<>();
@@ -285,6 +287,55 @@ public final class CoopSession {
         return acceptGuestPlaneFormat(raw);
     }
 
+    /** Test hook: host wire format (Commander mode / plane / default). */
+    public static String testHostWirePlaneFormat() {
+        return hostWirePlaneFormat();
+    }
+
+    /**
+     * Test hook: apply a guest-synced format as offer/switch does, and invalidate
+     * the reward card pool (same side effect as a real guest plane change).
+     */
+    public void testApplyGuestPlaneFormat(final String raw) {
+        role = CoopSessionRole.GUEST;
+        state = State.READY;
+        guestPlaneFormat = acceptGuestPlaneFormat(raw);
+        forge.adventure.data.RewardData.invalidateCardPool();
+    }
+
+    /**
+     * Test hook: prepare a host-side listener so {@link #testHostOnHello} runs the
+     * real {@code HostListener.onHello} path (no TCP bind required for protocol reject).
+     */
+    public void testPrepareHostingForHello(final String code) {
+        role = CoopSessionRole.HOST;
+        state = State.HOSTING;
+        sessionCode = code != null && !code.isEmpty() ? code : CoopSessionCode.generate();
+        lastError = "";
+        activeHostListener = new HostListener();
+    }
+
+    /** Test hook: dispatch through the real host hello handler. */
+    public void testHostOnHello(final CoopHelloEvent hello) {
+        if (activeHostListener == null) {
+            testPrepareHostingForHello(sessionCode);
+        }
+        activeHostListener.onMessage(hello);
+    }
+
+    public String testSessionCode() {
+        return sessionCode;
+    }
+
+    /** Test hook: restore idle after {@link #testPrepareHostingForHello}. */
+    public void testClearHostingForHello() {
+        role = CoopSessionRole.NONE;
+        state = State.IDLE;
+        sessionCode = "";
+        lastError = "";
+        activeHostListener = null;
+    }
+
     /**
      * Host: re-hash the live world and refresh the cached gate list.
      * Must run on the GL thread (or when the live world is not being mutated).
@@ -394,16 +445,14 @@ public final class CoopSession {
 
     /**
      * Package K: guest accepts host {@code planeFormat} from offer / plane-switch.
-     * Over-long or unknown tokens → empty (resolver applies the default); known
-     * tokens → canonical form. Never throws.
+     * Over-long or unknown tokens → host {@link forge.adventure.world.PlaneFormat#defaultFormat()}
+     * (not the guest's local plane); known tokens → canonical form. Never throws.
      */
     private static String acceptGuestPlaneFormat(final String raw) {
         final String accepted = forge.gamemodes.net.coop.CoopWireLimits.acceptPlaneFormat(raw);
-        if (accepted == null || accepted.isEmpty()) {
-            return "";
-        }
-        if (!forge.adventure.world.PlaneFormat.isKnown(accepted)) {
-            return "";
+        if (accepted == null || accepted.isEmpty()
+                || !forge.adventure.world.PlaneFormat.isKnown(accepted)) {
+            return forge.adventure.world.PlaneFormat.defaultFormat();
         }
         return forge.adventure.world.PlaneFormat.normalize(accepted);
     }
@@ -504,13 +553,15 @@ public final class CoopSession {
         state = State.HOSTING;
         CoopCharacterStore.exportCurrentPlayer();
 
+        activeHostListener = new HostListener();
         server = new CoopOverworldServer(overworldPort,
                 bindAddress.isEmpty() ? null : bindAddress,
-                new HostListener());
+                activeHostListener);
         try {
             server.start();
         } catch (final Exception e) {
             // A failed bind must not leave the session stuck in HOSTING with live event loops.
+            activeHostListener = null;
             disconnectInternal("host failed", false);
             throw e;
         }
@@ -632,6 +683,7 @@ public final class CoopSession {
         }
 
         disposeSessionWorld();
+        activeHostListener = null;
         try {
             CoopDuelRuntime.get().onSessionPeerDisconnected();
             CoopDuelRuntime.get().detach();
@@ -1214,6 +1266,7 @@ public final class CoopSession {
                         worldHash = localHash;
                         guestWorldPlaneId = offerPlaneId;
                         guestPlaneFormat = offeredFormat;
+                        forge.adventure.data.RewardData.invalidateCardPool();
                         if (previous != null && previous != staging) {
                             try {
                                 previous.dispose();
@@ -1282,6 +1335,7 @@ public final class CoopSession {
                     worldHash = localHash;
                     guestWorldPlaneId = switchPlaneId;
                     guestPlaneFormat = switchFormat;
+                    forge.adventure.data.RewardData.invalidateCardPool();
                     if (previous != null && previous != staging) {
                         try {
                             previous.dispose();

@@ -897,6 +897,8 @@ public class WorldSave {
             multiverse.updateCurrentSeed(world.getSeed());
             CardUtil.clearPriceCache();
             EnemyThemeDecks.clearCache();
+            // Package K: plane format (and Standard window) may change — rebuild shop/reward pool.
+            RewardData.invalidateCardPool();
             // MV2: place any missing Planar Gates on the plane we just entered.
             try {
                 PlanarPortalPlacer.ensureMissingGatesOnLoad(this);

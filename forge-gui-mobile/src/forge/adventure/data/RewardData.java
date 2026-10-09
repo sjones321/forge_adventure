@@ -329,10 +329,10 @@ public class RewardData implements Serializable {
         // Package K: plane format favors the shop/reward card pool. Bellwarden Standard
         // keeps the rotating window; Pauper prefers commons; Historic/Commander use the
         // broader adventure pool (enemies still use basePool via allEnemyCards).
+        // Commander-mode runs always take the Commander breadth path.
         StandardWindow window = AdventurePlayer.current().getStandardWindow();
-        boolean commander = AdventurePlayer.current().hasCommanderDeck()
-                || forge.adventure.world.PlaneFormat.COMMANDER.equals(
-                        forge.adventure.world.PlaneFormat.resolveCurrent());
+        boolean commander = cardPoolUsesCommanderBreadth()
+                || AdventurePlayer.current().hasCommanderDeck();
         if (forge.adventure.world.PlaneFormat.favorsStandardWindowPool() && window.isActive()) {
             allCards = basePool.stream().filter(pc -> window.allows(pc, commander)).collect(Collectors.toList());
         } else if (forge.adventure.world.PlaneFormat.favorsPauperPool()) {
@@ -365,6 +365,26 @@ public class RewardData implements Serializable {
     public static void invalidateCardPool() {
         allCards = null;
         invalidateRewardFilterCache();
+    }
+
+    /**
+     * Package K / tests: Commander-mode runs and Commander planes use the broad
+     * adventure reward pool (not the Standard window filter).
+     */
+    public static boolean cardPoolUsesCommanderBreadth() {
+        try {
+            if (AdventurePlayer.current() != null && AdventurePlayer.current().isCommanderMode()) {
+                return true;
+            }
+        } catch (Throwable ignored) {
+        }
+        return forge.adventure.world.PlaneFormat.COMMANDER.equals(
+                forge.adventure.world.PlaneFormat.resolveCurrent());
+    }
+
+    /** Package K / tests: whether the cached reward pool has been built. */
+    public static boolean isCardPoolCached() {
+        return allCards != null;
     }
 
     public Array<Reward> generate(boolean isForEnemy, boolean useSeedlessRandom) {

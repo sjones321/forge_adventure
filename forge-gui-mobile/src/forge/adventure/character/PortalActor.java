@@ -66,9 +66,9 @@ public class PortalActor extends EntryActor {
                 return;
             }
             if (Config.ascendant() && targetPlane != null && !targetPlane.isEmpty()) {
+                // Format dialog defers travel — no teleport FX until the dialog resolves.
                 if (travelToPlane(targetPlane)) {
-                    stage.getPlayerSprite().playEffect(Paths.EFFECT_TELEPORT, 0.5f);
-                    stage.startPause(1.5f);
+                    playPortalTravelEffect();
                 }
                 return;
             }
@@ -139,11 +139,15 @@ public class PortalActor extends EntryActor {
             boolean firstOpen = !save.getMultiverse().hasCompressedBlob(id)
                     && !id.equals(save.getMultiverse().getCurrentPlaneId());
             // Package K: first open of a set plane asks for format (default = current plane).
+            // Return false so the collide path does not play the teleport FX yet.
             if (firstOpen && targetMeta != null && PlaneFormat.raw(targetMeta).isEmpty()
                     && !PlaneMeta.HOME_ID.equals(id)) {
                 final String planeIdFinal = id;
-                promptPlaneFormat(targetMeta, () -> continueTravelAfterFormat(save, planeIdFinal, true));
-                return true;
+                promptPlaneFormat(targetMeta, () -> {
+                    continueTravelAfterFormat(save, planeIdFinal, true);
+                    playPortalTravelEffect();
+                });
+                return false;
             }
             // Legacy / home: planes without a format get a sensible default (no dialog).
             if (targetMeta != null && PlaneFormat.raw(targetMeta).isEmpty()) {
@@ -303,6 +307,15 @@ public class PortalActor extends EntryActor {
         }
         notifyPortal("Planeswalked to " + arrivalDisplayName(save, id) + fmt);
         return true;
+    }
+
+    /** Teleport FX + pause used after a portal travel actually starts (not during format dialog). */
+    private void playPortalTravelEffect() {
+        if (stage == null || stage.getPlayerSprite() == null) {
+            return;
+        }
+        stage.getPlayerSprite().playEffect(Paths.EFFECT_TELEPORT, 0.5f);
+        stage.startPause(1.5f);
     }
 
     /** Prefer set display name (MV2) over raw plane id / meta label. */

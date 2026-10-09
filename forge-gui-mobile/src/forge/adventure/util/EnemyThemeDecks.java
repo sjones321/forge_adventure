@@ -1248,7 +1248,7 @@ public final class EnemyThemeDecks {
 
     /**
      * Package K: EN1 reads the current plane's format through {@link forge.adventure.world.PlaneFormat}.
-     * Falls back to Bellwarden Standard when the plane / save has no format.
+     * Commander-mode runs resolve to Commander. Falls back to Bellwarden Standard when unset.
      */
     private static String resolveFormat() {
         try {
@@ -1256,6 +1256,11 @@ public final class EnemyThemeDecks {
         } catch (Throwable ignored) {
         }
         return FORMAT_STANDARD;
+    }
+
+    /** Package K / tests: EN1 format resolver. */
+    public static String resolveFormatForTest() {
+        return resolveFormat();
     }
 
     private static Deck loadFixedOrRecipe(EnemyThemeData theme, String format) {

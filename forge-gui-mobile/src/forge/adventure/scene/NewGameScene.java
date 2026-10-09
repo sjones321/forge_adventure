@@ -132,18 +132,11 @@ public class NewGameScene extends MenuScene {
         starterEditionLabel = ui.findActor("starterEditionL");
         planeFormat = ui.findActor("planeFormat");
         planeFormatLabel = ui.findActor("planeFormatL");
-        if (Config.ascendant() && planeFormat != null) {
+        if (planeFormat != null) {
             planeFormat.setTextList(PlaneFormat.CHOICES);
             planeFormat.setCurrentIndex(0); // Bellwarden Standard
-            if (planeFormatLabel != null)
-                planeFormatLabel.setVisible(true);
-            planeFormat.setVisible(true);
-        } else {
-            if (planeFormat != null)
-                planeFormat.setVisible(false);
-            if (planeFormatLabel != null)
-                planeFormatLabel.setVisible(false);
         }
+        // Visibility follows the selected mode (hidden for Commander-like modes).
         originalEditionLabelText = starterEditionLabel.storedText;
         String[] starterEditions = Config.instance().starterEditions();
         String[] starterEditionNames = Config.instance().starterEditionNames();
@@ -339,6 +332,15 @@ public class NewGameScene extends MenuScene {
             sealedSetBox.setBounds(starterEdition.getX(), starterEdition.getY(), starterEdition.getWidth(), starterEdition.getHeight());
             sealedSetBox.setVisible(sealed);
         }
+        // Package K: Commander-mode runs are always Commander — hide the plane-format picker.
+        boolean showPlaneFormat = Config.ascendant() && planeFormat != null
+                && !selectedMode.isCommanderLike();
+        if (planeFormat != null) {
+            planeFormat.setVisible(showPlaneFormat);
+        }
+        if (planeFormatLabel != null) {
+            planeFormatLabel.setVisible(showPlaneFormat);
+        }
 
         if (selectedMode == AdventureModes.Precon) {
             starterEdition.setTextList(Config.instance().getPreconSetNames());
@@ -416,7 +418,14 @@ public class NewGameScene extends MenuScene {
 
     /** Package K: home-plane format from the New Game selector (Ascendant only). */
     private String getSelectedHomePlaneFormat() {
-        if (!Config.ascendant() || planeFormat == null)
+        if (!Config.ascendant())
+            return PlaneFormat.defaultFormat();
+        AdventureModes selected = modes != null && mode != null && mode.getCurrentIndex() >= 0
+                && mode.getCurrentIndex() < modes.size
+                ? modes.get(mode.getCurrentIndex()) : null;
+        if (selected != null && selected.isCommanderLike())
+            return PlaneFormat.COMMANDER;
+        if (planeFormat == null)
             return PlaneFormat.defaultFormat();
         int idx = planeFormat.getCurrentIndex();
         if (idx < 0 || idx >= PlaneFormat.CHOICES.length)

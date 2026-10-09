@@ -417,6 +417,18 @@ public class WorldStage extends GameStage implements SaveFileContent {
             collided = false;
             return;
         }
+        // Package K: optional strict overworld deck legality (gyms always enforce).
+        if (Config.ascendant() && forge.adventure.world.PlaneFormat.strictOverworldLegalDecks()
+                && !GymUtil.selectedDeckLegalForRun()) {
+            Forge.advFreezePlayerControls = false;
+            collided = false;
+            currentMob = null;
+            try {
+                GameHUD.getInstance().addNotification(GymUtil.legalityMessage());
+            } catch (Exception ignored) {
+            }
+            return;
+        }
         currentMob = mob;
         final String encounterId = mob.getData() != null ? mob.getData().getName() : "enemy";
         float attackDuration = Math.max(
