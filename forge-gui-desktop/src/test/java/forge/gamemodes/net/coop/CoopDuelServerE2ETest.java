@@ -110,11 +110,6 @@ public class CoopDuelServerE2ETest {
     private static final class AutoRespondGuestGui extends HeadlessNetworkGuiGame {
         private final String username;
         private volatile IGameController gameController;
-        /**
-         * When true, skip auto-OK only during the local player's MAIN1 so the test
-         * can cast via {@link NetGameController}; other phases still auto-advance.
-         */
-        private volatile boolean holdLocalMain1;
         private final ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor(r -> {
             final Thread t = new Thread(r, "CoopE2E-GuestAuto");
             t.setDaemon(true);
@@ -126,25 +121,6 @@ public class CoopDuelServerE2ETest {
             this.username = username;
         }
 
-        void setHoldLocalMain1(final boolean hold) {
-            holdLocalMain1 = hold;
-            if (hold && pending != null && isLocalMain1()) {
-                pending.cancel(false);
-            }
-        }
-
-        private boolean isLocalMain1() {
-            if (!holdLocalMain1) {
-                return false;
-            }
-            final GameView gv = getGameView();
-            if (gv == null || gv.getPhase() != forge.game.phase.PhaseType.MAIN1
-                    || gv.getPlayerTurn() == null) {
-                return false;
-            }
-            return isLocalPlayer(gv.getPlayerTurn());
-        }
-
         void shutdown() {
             if (pending != null) {
                 pending.cancel(false);
@@ -153,15 +129,12 @@ public class CoopDuelServerE2ETest {
         }
 
         private void schedule(final Runnable action, final long delayMs) {
-            if (isLocalMain1()) {
-                return;
-            }
             if (pending != null) {
                 pending.cancel(false);
             }
             pending = exec.schedule(() -> {
                 try {
-                    if (gameController != null && !isLocalMain1()) {
+                    if (gameController != null) {
                         action.run();
                     }
                 } catch (final Exception ignored) {
@@ -212,9 +185,6 @@ public class CoopDuelServerE2ETest {
         @Override
         public void updateButtons(final PlayerView owner, final boolean okEnabled,
                                   final boolean cancelEnabled, final boolean focusOk) {
-            if (isLocalMain1()) {
-                return;
-            }
             if (gameController != null && okEnabled) {
                 schedule(() -> gameController.selectButtonOk(), 40);
             }
@@ -223,7 +193,7 @@ public class CoopDuelServerE2ETest {
         @Override
         public void updateButtons(final PlayerView owner, final String label1, final String label2,
                                   final boolean enable1, final boolean enable2, final boolean focus1) {
-            if (isLocalMain1() || gameController == null) {
+            if (gameController == null) {
                 return;
             }
             if (enable1) {
