@@ -112,6 +112,15 @@
       "yOffset": 8
     },
     {
+      "type": "Label",
+      "name" : "planeFormatL",
+      "text": "[BLACK]Plane format:",
+      "width": 128,
+      "height": 24,
+      "x": 16,
+      "yOffset": 8
+    },
+    {
       "type": "ImageButton",
       "name": "leftAvatar",
       "style": "leftarrow",
@@ -196,6 +205,15 @@
 	{
       "type": "Selector",
       "name": "starterEdition",
+      "selectable": true,
+      "width": 168,
+      "height": 24,
+      "x": 96,
+      "yOffset": 8
+    },
+    {
+      "type": "Selector",
+      "name": "planeFormat",
       "selectable": true,
       "width": 168,
       "height": 24,

@@ -326,12 +326,25 @@ public class RewardData implements Serializable {
                 .filter(filter)
                 .collect(Collectors.toList());
 
-        // Rotating Standard: shops, loot and Spell Smith only see the current window's sets plus this
-        // rotation's curated staples. Enemy decks keep the full pool so they stay themed.
+        // Package K: plane format favors the shop/reward card pool. Bellwarden Standard
+        // keeps the rotating window; Pauper prefers commons; Historic/Commander use the
+        // broader adventure pool (enemies still use basePool via allEnemyCards).
         StandardWindow window = AdventurePlayer.current().getStandardWindow();
-        if (window.isActive()) {
-            boolean commander = AdventurePlayer.current().hasCommanderDeck();
+        boolean commander = AdventurePlayer.current().hasCommanderDeck()
+                || forge.adventure.world.PlaneFormat.COMMANDER.equals(
+                        forge.adventure.world.PlaneFormat.resolveCurrent());
+        if (forge.adventure.world.PlaneFormat.favorsStandardWindowPool() && window.isActive()) {
             allCards = basePool.stream().filter(pc -> window.allows(pc, commander)).collect(Collectors.toList());
+        } else if (forge.adventure.world.PlaneFormat.favorsPauperPool()) {
+            forge.game.GameFormat pauper = forge.model.FModel.getFormats() != null
+                    ? forge.model.FModel.getFormats().getPauper() : null;
+            allCards = basePool.stream().filter(pc -> {
+                if (pc == null) return false;
+                if (pc.getRules() != null && pc.getRules().getType().isBasicLand()) return true;
+                if (pauper != null && pauper.getFilterRules() != null)
+                    return pauper.getFilterRules().test(pc);
+                return pc.getRarity() == forge.card.CardRarity.Common;
+            }).collect(Collectors.toList());
         } else {
             allCards = basePool;
         }

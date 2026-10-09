@@ -14,10 +14,13 @@ public final class CoopPorts {
     /**
      * Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change.
      * CO2 (merged #18) is protocol 5; CO3 is 6.
-     */
-    /**
-     * Bumped for MV1 {@code CoopPlaneSwitchEvent} (host plane follow) = 7.
+     * MV1 {@code CoopPlaneSwitchEvent} (host plane follow) = 7.
      * MV2 = 8: live world hash + host gate list + {@code mv2SetCode} on offer/switch.
+     *
+     * <p>Open claims (renumber at merge time): MV2 gate-sync (#40) takes 9;
+     * TR1 (#27) takes the next free number after whatever has merged.
+     * Package K does <em>not</em> bump — plane format rides on {@code mv2SetCode}
+     * ({@code SET#k:Format}) so offer / switch keep their field layout.
      */
     public static final int PROTOCOL_VERSION = 8;
 

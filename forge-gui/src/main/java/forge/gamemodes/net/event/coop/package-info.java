@@ -23,5 +23,8 @@
  *
  * <p>Protocol: CO2 is 5; CO3 is 6; MV1 plane-follow ({@link CoopPlaneSwitchEvent}) is 7;
  * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8.
+ * Open claims: MV2 gate-sync (#40) takes 9; TR1 (#27) takes the next free number after
+ * merge. Package K packs plane format into {@code mv2SetCode} ({@code #k:} suffix) and
+ * does not bump.
  */
 package forge.gamemodes.net.event.coop;

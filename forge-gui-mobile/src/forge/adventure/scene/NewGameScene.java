@@ -21,6 +21,7 @@ import forge.adventure.data.HeroListData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.*;
+import forge.adventure.world.PlaneFormat;
 import forge.adventure.world.WorldSave;
 import forge.adventure.player.StandardWindow;
 import forge.card.CardEdition;
@@ -52,6 +53,8 @@ public class NewGameScene extends MenuScene {
     private final Selector mode;
     private final Selector difficulty;
     private final Selector starterEdition;
+    private Selector planeFormat;
+    private TextraLabel planeFormatLabel;
     private SelectBox<String> sealedSetBox;
     private java.util.List<CardEdition> sealedSets;
     private final TextraLabel starterEditionLabel;
@@ -127,6 +130,20 @@ public class NewGameScene extends MenuScene {
 
         starterEdition = ui.findActor("starterEdition");
         starterEditionLabel = ui.findActor("starterEditionL");
+        planeFormat = ui.findActor("planeFormat");
+        planeFormatLabel = ui.findActor("planeFormatL");
+        if (Config.ascendant() && planeFormat != null) {
+            planeFormat.setTextList(PlaneFormat.CHOICES);
+            planeFormat.setCurrentIndex(0); // Bellwarden Standard
+            if (planeFormatLabel != null)
+                planeFormatLabel.setVisible(true);
+            planeFormat.setVisible(true);
+        } else {
+            if (planeFormat != null)
+                planeFormat.setVisible(false);
+            if (planeFormatLabel != null)
+                planeFormatLabel.setVisible(false);
+        }
         originalEditionLabelText = starterEditionLabel.storedText;
         String[] starterEditions = Config.instance().starterEditions();
         String[] starterEditionNames = Config.instance().starterEditionNames();
@@ -384,7 +401,7 @@ public class NewGameScene extends MenuScene {
                     getStartingColor(),
                     Config.instance().getConfigData().difficulties[difficulty.getCurrentIndex()],
                     modes.get(mode.getCurrentIndex()), colorId.getCurrentIndex(),
-                    getStartingEdition(), 0);
+                    getStartingEdition(), 0, getSelectedHomePlaneFormat());
             GamePlayerUtil.getGuiPlayer().setName(selectedName.getText());
             SoundSystem.instance.changeBackgroundTrack();
             WorldStage.getInstance().enterSpawnPOI();
@@ -395,6 +412,16 @@ public class NewGameScene extends MenuScene {
         };
         Forge.setTransitionScreen(new TransitionScreen(runnable, null, false, true, Forge.getLocalizer().getMessage("lblGeneratingWorld")));
         return true;
+    }
+
+    /** Package K: home-plane format from the New Game selector (Ascendant only). */
+    private String getSelectedHomePlaneFormat() {
+        if (!Config.ascendant() || planeFormat == null)
+            return PlaneFormat.defaultFormat();
+        int idx = planeFormat.getCurrentIndex();
+        if (idx < 0 || idx >= PlaneFormat.CHOICES.length)
+            return PlaneFormat.defaultFormat();
+        return PlaneFormat.fromChoiceLabel(PlaneFormat.CHOICES[idx]);
     }
 
     public boolean back() {
@@ -432,7 +459,7 @@ public class NewGameScene extends MenuScene {
                     getStartingColor(),
                     Config.instance().getConfigData().difficulties[difficulty.getCurrentIndex()],
                     modes.get(mode.getCurrentIndex()), colorId.getCurrentIndex(),
-                    getStartingEdition(), 0);
+                    getStartingEdition(), 0, getSelectedHomePlaneFormat());
             GamePlayerUtil.getGuiPlayer().setName(selectedName.getText());
             Forge.switchScene(GameScene.instance());
         }

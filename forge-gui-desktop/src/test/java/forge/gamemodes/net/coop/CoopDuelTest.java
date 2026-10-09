@@ -24,8 +24,9 @@ public class CoopDuelTest {
 
     @Test
     public void protocolVersionIsExactlyEightForMv2() {
-        // CO2=5; CO3=6; MV1=7; MV2=8. Exact equality only — TR1 will move to 9 on rebase;
-        // do not use >= 8 or that collision can pass silently.
+        // CO2=5; CO3=6; MV1=7; MV2=8. Exact equality only.
+        // Open claims: gate-sync (#40)=9; TR1 (#27)=next after merge.
+        // Package K does not bump (format on mv2SetCode via #k:).
         Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 8);
     }
 

@@ -19,6 +19,7 @@ import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.MapStage;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.*;
+import forge.adventure.world.PlaneFormat;
 import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.WorldSave;
 import forge.card.CardEdition;
@@ -147,9 +148,9 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     /** True after beating the League Champion at least once (unlocks rematches). */
     private boolean leagueCleared = false;
     /**
-     * Run format for gyms / League / tournaments (Package K). Until K lands every run is Standard.
-     * Saved optionally; missing → {@link forge.adventure.util.GymUtil#FORMAT_STANDARD}.
-     * Commander-mode saves always report Commander regardless of this field.
+     * Legacy player-level run format (pre-K). Package K stores format on {@link PlaneMeta};
+     * this field migrates onto the home plane and remains a save-compat mirror.
+     * Commander-mode saves still report Commander from {@link #getRunFormat()}.
      */
     private String runFormat = forge.adventure.util.GymUtil.FORMAT_STANDARD;
 
@@ -459,35 +460,61 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         return null;
     }
 
-    // ---- per-deck format: Standard (60-card Adventure), Commander, or Historic ----
+    // ---- per-deck format: Standard, Commander, Historic, or Pauper (Package K) ----
 
     public static final String COMMANDER_DECK_TAG = "AdventureCommanderDeck";
     public static final String HISTORIC_DECK_TAG = "AdventureHistoricDeck";
+    /** Package K: deck tagged for Pauper constructed (commons / Forge Pauper legality). */
+    public static final String PAUPER_DECK_TAG = "AdventurePauperDeck";
 
     public boolean isHistoricDeck(Deck d) {
-        return !isCommanderMode() && d != null && d.getTags().contains(HISTORIC_DECK_TAG);
+        return !isCommanderMode() && d != null && d.getTags().contains(HISTORIC_DECK_TAG)
+                && !d.getTags().contains(PAUPER_DECK_TAG);
     }
 
     public boolean isHistoricDeckSelected() {
         return isHistoricDeck(getSelectedDeck());
     }
 
-    /** Cycles a deck slot's format: Standard -> Commander -> Historic -> Standard. Returns the new format name. */
+    public boolean isPauperDeck(Deck d) {
+        return !isCommanderMode() && d != null && d.getTags().contains(PAUPER_DECK_TAG);
+    }
+
+    public boolean isPauperDeckSelected() {
+        return isPauperDeck(getSelectedDeck());
+    }
+
+    /**
+     * Cycles a deck slot's format: Standard → Commander → Historic → Pauper → Standard.
+     * Returns the new format name.
+     */
     public String cycleDeckFormat(int slot) {
         if (slot < 0 || slot >= decks.size() || isCommanderMode())
             return "Commander";
         Deck d = decks.get(slot);
-        if (isHistoricDeck(d)) {
+        if (isPauperDeck(d)) {
+            d.getTags().remove(PAUPER_DECK_TAG);
             d.getTags().remove(HISTORIC_DECK_TAG);
             setDeckCommander(slot, false);
+            RewardData.invalidateCardPool();
             return "Standard";
+        }
+        if (isHistoricDeck(d)) {
+            d.getTags().remove(HISTORIC_DECK_TAG);
+            d.getTags().add(PAUPER_DECK_TAG);
+            setDeckCommander(slot, false);
+            RewardData.invalidateCardPool();
+            return "Pauper";
         }
         if (isCommanderDeck(d)) {
             setDeckCommander(slot, false);
+            d.getTags().remove(PAUPER_DECK_TAG);
             d.getTags().add(HISTORIC_DECK_TAG);
             RewardData.invalidateCardPool();
             return "Historic";
         }
+        d.getTags().remove(PAUPER_DECK_TAG);
+        d.getTags().remove(HISTORIC_DECK_TAG);
         setDeckCommander(slot, true);
         return "Commander";
     }
@@ -1706,6 +1733,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                     decks.get(i).getTags().add(COMMANDER_DECK_TAG);
                 if (data.containsKey("deckHistoric_" + i) && data.readBool("deckHistoric_" + i))
                     decks.get(i).getTags().add(HISTORIC_DECK_TAG);
+                if (data.containsKey("deckPauper_" + i) && data.readBool("deckPauper_" + i))
+                    decks.get(i).getTags().add(PAUPER_DECK_TAG);
             }
             // In case we allow removing decks from the deck selection GUI, populate up to the minimum
             for (int i = dynamicDeckCount++; i < MIN_DECK_COUNT; i++) {
@@ -2165,6 +2194,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 data.storeObject("commanderCards_" + i, decks.get(i).get(DeckSection.Commander).toCardList("\n").split("\n"));
             data.store("deckCommander_" + i, decks.get(i).getTags().contains(COMMANDER_DECK_TAG));
             data.store("deckHistoric_" + i, decks.get(i).getTags().contains(HISTORIC_DECK_TAG));
+            data.store("deckPauper_" + i, decks.get(i).getTags().contains(PAUPER_DECK_TAG));
         }
 
         // Save deck loadouts (equipment tied to each deck)
@@ -2416,22 +2446,44 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     }
 
     /**
-     * Run format for gyms, League and (later) tournaments.
-     * Commander-mode saves always report Commander so gyms stay enterable.
-     * Package K persists the New Game+ choice; until then non-Commander runs are Standard.
+     * Current plane's format (Package K). Commander-mode saves always report Commander
+     * so gyms stay enterable. Falls back via {@link PlaneFormat#resolveCurrent()} when
+     * the plane has no format (legacy saves).
      */
     public String getRunFormat() {
         if (isCommanderMode())
             return GymUtil.FORMAT_COMMANDER;
+        return PlaneFormat.resolveCurrent();
+    }
+
+    /**
+     * Sets the <em>current plane's</em> format and mirrors onto legacy {@code runFormat}
+     * (home-plane migration / pre-K save readers). Prefer {@link PlaneFormat#setPlaneFormat}
+     * when the target plane is known.
+     */
+    public void setRunFormat(String format) {
+        String canonical = PlaneFormat.normalize(format);
+        runFormat = canonical;
+        try {
+            WorldSave save = WorldSave.getCurrentSave();
+            if (save != null && save.getMultiverse() != null && Config.ascendant()) {
+                PlaneMeta meta = save.getMultiverse().getCurrentMeta();
+                if (meta != null) {
+                    meta.setFormat(canonical);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** Raw legacy field for migration / PlaneFormat fallback (not the live plane format). */
+    public String getLegacyRunFormat() {
         return runFormat != null && !runFormat.isEmpty() ? runFormat : GymUtil.FORMAT_STANDARD;
     }
 
-    /** Package K sets this at New Game+. Missing on old saves → Standard. */
-    public void setRunFormat(String format) {
-        if (format == null || format.isEmpty())
-            runFormat = GymUtil.FORMAT_STANDARD;
-        else
-            runFormat = format;
+    /** Mirror only — does not write plane meta (used by {@link PlaneFormat#setPlaneFormat}). */
+    public void setLegacyRunFormat(String format) {
+        runFormat = PlaneFormat.normalize(format);
     }
 
     /**

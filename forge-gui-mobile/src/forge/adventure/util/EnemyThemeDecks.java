@@ -1241,11 +1241,13 @@ public final class EnemyThemeDecks {
         return f.toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * Package K: EN1 reads the current plane's format through {@link forge.adventure.world.PlaneFormat}.
+     * Falls back to Bellwarden Standard when the plane / save has no format.
+     */
     private static String resolveFormat() {
         try {
-            AdventurePlayer p = Current.player();
-            if (p != null)
-                return normalizeFormat(p.getRunFormat());
+            return normalizeFormat(forge.adventure.world.PlaneFormat.resolveCurrent());
         } catch (Throwable ignored) {
         }
         return FORMAT_STANDARD;
