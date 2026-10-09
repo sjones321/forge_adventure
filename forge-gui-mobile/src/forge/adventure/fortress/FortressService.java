@@ -26,11 +26,9 @@ import forge.adventure.world.WorldSave;
 import forge.util.MyRandom;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Live FT1 fortress orchestration: claim site, persist per-plane, build/demolish,
