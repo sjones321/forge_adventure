@@ -251,6 +251,41 @@ public final class EnemyThemeDecks {
     }
 
     /**
+     * Themes that list {@code tag} (case-insensitive). Empty when none. Used by EN2
+     * partner pairing and the creature-type tag coverage test.
+     */
+    public static List<EnemyThemeData> themesForTag(String tag) {
+        ensureLoaded();
+        synchronized (LOCK) {
+            if (tag == null || tag.isEmpty() || byTag == null)
+                return Collections.emptyList();
+            List<EnemyThemeData> list = byTag.get(normalizeTag(tag));
+            if (list == null || list.isEmpty())
+                return Collections.emptyList();
+            return Collections.unmodifiableList(new ArrayList<>(list));
+        }
+    }
+
+    /**
+     * Every distinct theme tag → theme count. EN2 requires each creature-type tag
+     * to have two or more themes so a pair never mirrors.
+     */
+    public static Map<String, Integer> themeCountsByTag() {
+        ensureLoaded();
+        synchronized (LOCK) {
+            Map<String, Integer> counts = new HashMap<>();
+            if (byTag == null)
+                return counts;
+            for (Map.Entry<String, List<EnemyThemeData>> e : byTag.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null)
+                    continue;
+                counts.put(e.getKey(), e.getValue().size());
+            }
+            return counts;
+        }
+    }
+
+    /**
      * Picks a theme for an enemy at spawn from its quest tags. Returns null when
      * EN1 is off, the enemy is a boss, or no theme matches.
      */
@@ -974,8 +1009,9 @@ public final class EnemyThemeDecks {
                 || theme.creatureTypes.length == 0)
             return false;
         String id = theme.id;
-        // Strict tribal lists + the two creature-type specialty themes.
-        return id.contains("tribal") || "spirit_tempo".equals(id) || "kraken_leviathan".equals(id);
+        // Strict tribal lists + creature-type specialty themes (EN1/EN2).
+        return id.contains("tribal") || "spirit_tempo".equals(id) || "merfolk_tempo".equals(id)
+                || "kraken_leviathan".equals(id) || "serpent_leviathan".equals(id);
     }
 
     public static int countNonLandsAll(Deck deck) {
@@ -1098,7 +1134,8 @@ public final class EnemyThemeDecks {
         if (theme == null || theme.id == null)
             return true;
         String id = theme.id;
-        return !id.contains("ramp") && !id.contains("dragon") && !id.contains("kraken");
+        return !id.contains("ramp") && !id.contains("dragon") && !id.contains("kraken")
+                && !id.contains("serpent") && !id.contains("leviathan");
     }
 
     public static float averageNonLandCmc(Deck deck) {

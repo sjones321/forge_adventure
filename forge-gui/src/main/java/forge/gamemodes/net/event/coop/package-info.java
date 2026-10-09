@@ -23,7 +23,7 @@
  *
  * <p>Protocol: CO2 is 5; CO3 is 6; MV1 plane-follow ({@link CoopPlaneSwitchEvent}) is 7;
  * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8;
- * Package K {@code planeFormat} on {@link CoopWorldOfferEvent} /
- * {@link CoopPlaneSwitchEvent} is 9 (set to set-start + 1 at review).
+ * EN2 lootRolls on {@link CoopDuelResultEvent} is 9; Package K {@code planeFormat} on
+ * {@link CoopWorldOfferEvent} / {@link CoopPlaneSwitchEvent} is 10 (set-start + 1 at review).
  */
 package forge.gamemodes.net.event.coop;

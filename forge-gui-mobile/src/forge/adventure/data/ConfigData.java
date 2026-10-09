@@ -436,6 +436,7 @@ public class ConfigData {
      */
     public boolean en1LogFallbacks = true;
 
+<<<<<<< HEAD
     // ---- Ascendant K: formats per plane ----
 
     /**
@@ -448,5 +449,30 @@ public class ConfigData {
      * format. Default false — only gyms, League and tournaments enforce legality.
      */
     public boolean kStrictOverworldLegalDecks = false;
+=======
+    // ---- Ascendant EN2: co-op enemy partners ----
+
+    /**
+     * When true (Ascendant default), a co-op duel attaches a partner enemy of the same
+     * creature-type tag on a different theme (or a biome-themed fallback).
+     */
+    public boolean en2CoopEnemyPartners = true;
+    /**
+     * Enemy starting-life multiplier when a co-op partner was successfully built.
+     * Default 1.0 drops the single-enemy co-op boost; keep
+     * {@link #coopDuelEnemyLifeFactor} for the no-partner fallback.
+     */
+    public float coopDuelPartnerLifeFactor = 1.0f;
+    /**
+     * Extra cards enemies start with when a co-op partner was built.
+     * Default 0 (no extra card); {@link #coopDuelEnemyExtraCards} applies when no partner.
+     */
+    public int coopDuelPartnerExtraCards = 0;
+    /**
+     * How many loot rolls each player gets for a partnered co-op kill.
+     * Default 1 so a pair is not worth double; tunable.
+     */
+    public int coopDuelPartnerLootRollsPerPlayer = 1;
+>>>>>>> origin/feature/set-start
 
 }
