@@ -1397,7 +1397,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 if (nTimeouts != null && nMats != null && nX != null && nY != null) {
                     int n = Math.min(Math.min(nTimeouts.size(), nMats.size()), Math.min(nX.size(), nY.size()));
                     for (int i = 0; i < n; i++) {
-                        String matId = nMats.get(i); // nodes only exist in saves made after the color-line rename
+                        // Schema 3 ore-line ids (idempotent for already-migrated saves).
+                        String matId = MaterialListData.migrateOreLineMaterialId(nMats.get(i));
                         MaterialData mat = MaterialListData.get(matId);
                         if (mat == null)
                             continue;

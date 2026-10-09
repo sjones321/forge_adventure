@@ -164,21 +164,21 @@
           "materialId": "oak",
           "outputPerHour": 2,
           "gold": 40,
-          "materials": { "oak": 15, "copper": 3 }
+          "materials": { "oak": 15, "ore_iron": 3 }
         },
         {
           "level": 2,
           "materialId": "willow",
           "outputPerHour": 3,
           "gold": 100,
-          "materials": { "willow": 20, "iron": 5 }
+          "materials": { "willow": 20, "ore_mithral": 5 }
         },
         {
           "level": 3,
           "materialId": "yew",
           "outputPerHour": 4,
           "gold": 220,
-          "materials": { "yew": 25, "mithril": 4 }
+          "materials": { "yew": 25, "ore_adamant": 4 }
         }
       ]
     },
@@ -191,24 +191,24 @@
       "levels": [
         {
           "level": 1,
-          "materialId": "copper",
+          "materialId": "ore_iron",
           "outputPerHour": 2,
           "gold": 40,
-          "materials": { "copper": 15, "ash": 3 }
+          "materials": { "ore_iron": 15, "ash": 3 }
         },
         {
           "level": 2,
-          "materialId": "iron",
+          "materialId": "ore_mithral",
           "outputPerHour": 3,
           "gold": 100,
-          "materials": { "iron": 20, "charcoal": 5 }
+          "materials": { "ore_mithral": 20, "charcoal": 5 }
         },
         {
           "level": 3,
-          "materialId": "mithril",
+          "materialId": "ore_adamant",
           "outputPerHour": 4,
           "gold": 220,
-          "materials": { "mithril": 20, "brimstone": 4 }
+          "materials": { "ore_adamant": 20, "brimstone": 4 }
         }
       ]
     },
@@ -224,21 +224,21 @@
           "materialId": "limestone",
           "outputPerHour": 2,
           "gold": 40,
-          "materials": { "limestone": 15, "copper": 3 }
+          "materials": { "limestone": 15, "ore_iron": 3 }
         },
         {
           "level": 2,
           "materialId": "marble",
           "outputPerHour": 3,
           "gold": 100,
-          "materials": { "marble": 20, "iron": 5 }
+          "materials": { "marble": 20, "ore_mithral": 5 }
         },
         {
           "level": 3,
           "materialId": "sunstone",
           "outputPerHour": 4,
           "gold": 220,
-          "materials": { "sunstone": 20, "mithril": 4 }
+          "materials": { "sunstone": 20, "ore_adamant": 4 }
         }
       ]
     },
@@ -254,21 +254,21 @@
           "materialId": "spring_water",
           "outputPerHour": 2,
           "gold": 40,
-          "materials": { "spring_water": 15, "copper": 3 }
+          "materials": { "spring_water": 15, "ore_iron": 3 }
         },
         {
           "level": 2,
           "materialId": "glacier_ice",
           "outputPerHour": 3,
           "gold": 100,
-          "materials": { "glacier_ice": 20, "iron": 5 }
+          "materials": { "glacier_ice": 20, "ore_mithral": 5 }
         },
         {
           "level": 3,
           "materialId": "purified_water",
           "outputPerHour": 4,
           "gold": 220,
-          "materials": { "purified_water": 20, "mithril": 4 }
+          "materials": { "purified_water": 20, "ore_adamant": 4 }
         }
       ]
     },
@@ -291,14 +291,14 @@
           "materialId": "grave_moss",
           "outputPerHour": 3,
           "gold": 100,
-          "materials": { "grave_moss": 20, "iron": 5 }
+          "materials": { "grave_moss": 20, "ore_mithral": 5 }
         },
         {
           "level": 3,
           "materialId": "ancient_bone",
           "outputPerHour": 4,
           "gold": 220,
-          "materials": { "ancient_bone": 20, "mithril": 4 }
+          "materials": { "ancient_bone": 20, "ore_adamant": 4 }
         }
       ]
     },
@@ -344,21 +344,21 @@
           "materialId": "scrap",
           "outputPerHour": 2,
           "gold": 40,
-          "materials": { "scrap": 15, "copper": 3 }
+          "materials": { "scrap": 15, "ore_iron": 3 }
         },
         {
           "level": 2,
           "materialId": "brass_gears",
           "outputPerHour": 3,
           "gold": 100,
-          "materials": { "brass_gears": 15, "iron": 5 }
+          "materials": { "brass_gears": 15, "ore_mithral": 5 }
         },
         {
           "level": 3,
           "materialId": "thran_parts",
           "outputPerHour": 4,
           "gold": 220,
-          "materials": { "thran_parts": 15, "mithril": 4 }
+          "materials": { "thran_parts": 15, "ore_adamant": 4 }
         }
       ]
     }

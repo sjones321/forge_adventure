@@ -536,7 +536,7 @@
     }
   },
   {
-    "name": "Mithril Boots",
+    "name": "Mithral Boots",
     "equipmentSlot": "Boots",
     "iconName": "MithrilBoots",
     "cost": 10000,
@@ -546,7 +546,7 @@
     }
   },
   {
-    "name": "Mithril Shield",
+    "name": "Mithral Shield",
     "equipmentSlot": "Right",
     "iconName": "MithrilShield",
     "cost": 4500,
@@ -558,7 +558,7 @@
 
   },
   {
-    "name": "Mithril Armor",
+    "name": "Mithral Armor",
     "equipmentSlot": "Body",
     "iconName": "MithrilArmor",
     "cost": 15000,
