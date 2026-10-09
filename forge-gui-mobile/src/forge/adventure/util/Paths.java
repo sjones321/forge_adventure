@@ -53,6 +53,8 @@ public class Paths {
     public static final String EFFECT_WATER_SPARKLE = "particle_effects/water_sparkle.p";
     /** Gathering node art sheet (Steve's ore row = atlas regions ore_iron…ore_rune). */
     public static final String RESOURCE_NODES_ATLAS = "maps/tileset/resource_nodes.atlas";
+    /** Two-tile-tall tree nodes (tiers 1–4); collision uses the bottom tile only. */
+    public static final String RESOURCE_NODES_TALL_ATLAS = "maps/tileset/resource_nodes_tall.atlas";
     public static final String CARD_PRICES = "world/cardprices.txt";
     public static final String CUSTOM_CARDS = "custom_cards";
     public static final String CUSTOM_CARDS_PICS = "custom_card_pics";
