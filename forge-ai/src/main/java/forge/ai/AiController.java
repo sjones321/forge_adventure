@@ -1689,7 +1689,13 @@ public class AiController {
         if (options.isEmpty())
             return null;
 
-        SpellAbility pick = LlmOpponent.chooseSpell(player, options);
+        // Routine activations only: keep Forge AI. LLM handles key spells / counters.
+        SpellAbility pick;
+        if (LlmOpponent.isKeySpellDecision(options)) {
+            pick = LlmOpponent.chooseSpell(player, options);
+        } else {
+            pick = options.get(0);
+        }
         if (pick == null)
             return null;
 
