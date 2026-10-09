@@ -129,7 +129,7 @@ public class EnemyThemeDecksTest {
     }
 
     @Test
-    public void enemyThemesJsonIsUtf8WithoutBomAndHasSixteenThemes() throws Exception {
+    public void enemyThemesJsonIsUtf8WithoutBomAndHasEighteenThemes() throws Exception {
         Path path = resolveEnemyThemesJson();
         Assert.assertTrue(Files.isRegularFile(path), "missing " + path);
         byte[] raw = Files.readAllBytes(path);

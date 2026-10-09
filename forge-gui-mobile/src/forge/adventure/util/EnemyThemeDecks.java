@@ -1128,7 +1128,8 @@ public final class EnemyThemeDecks {
         if (theme == null || theme.id == null)
             return true;
         String id = theme.id;
-        return !id.contains("ramp") && !id.contains("dragon") && !id.contains("kraken");
+        return !id.contains("ramp") && !id.contains("dragon") && !id.contains("kraken")
+                && !id.contains("serpent") && !id.contains("leviathan");
     }
 
     public static float averageNonLandCmc(Deck deck) {
