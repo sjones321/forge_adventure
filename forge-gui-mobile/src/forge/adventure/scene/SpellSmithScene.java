@@ -473,7 +473,16 @@ public class SpellSmithScene extends UIScene {
         lockedPrice = currentPrice;
         PaperCard P = cardPool.get(MyRandom.getRandom().nextInt(cardPool.size())); //Don't use the standard RNG.
         currentReward = null;
-        if (Config.instance().getSettingData().useAllCardVariants) {
+        if (SourcePrintings.enabled()) {
+            // CS0: Spell Smith uses the selected set printing, or a rotation/normal printing.
+            PaperCard pulled;
+            if (!edition.isEmpty()) {
+                pulled = SourcePrintings.printingFromSet(P.getCardName(), edition);
+            } else {
+                pulled = SourcePrintings.printingFromRotation(P.getCardName());
+            }
+            currentReward = new Reward(pulled != null ? pulled : P);
+        } else if (Config.instance().getSettingData().useAllCardVariants) {
             if (!edition.isEmpty()) {
                 currentReward = new Reward(CardUtil.getCardByNameAndEdition(P.getCardName(), edition));
             } else {

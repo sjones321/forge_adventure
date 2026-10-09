@@ -330,7 +330,7 @@ public class CardUtil {
 
     public static List<PaperCard> generateCards(Iterable<PaperCard> cards, final RewardData data, final int count,
             Random r) {
-        boolean allCardVariants = Config.instance().getSettingData().useAllCardVariants;
+        boolean allCardVariants = SourcePrintings.useAllCardVariants();
 
         final List<PaperCard> result = new ArrayList<>();
         List<PaperCard> pool = getPredicateResult(cards, data);
@@ -338,7 +338,10 @@ public class CardUtil {
             for (int i = 0; i < count; i++) {
                 PaperCard candidate = pool.get(r.nextInt(pool.size()));
                 if (candidate != null) {
-                    if (allCardVariants) {
+                    if (SourcePrintings.enabled()) {
+                        // CS0: pin to source set / rotation; never random variants.
+                        result.add(SourcePrintings.resolve(candidate, data));
+                    } else if (allCardVariants) {
                         // Get a random variant, preserving edition when specified
                         PaperCard finalCandidate = CardUtil.getCardByNameAndEdition(candidate.getCardName(), candidate.getEdition());
                         result.add(finalCandidate);
@@ -603,7 +606,7 @@ public class CardUtil {
         int red = 0, blue = 0, green = 0, white = 0, black = 0, colorless = 0;
         int cardCount = nonLands.size();
         List<PaperCard> cards = new ArrayList<>();
-        boolean allCardVariants = Config.instance().getSettingData().useAllCardVariants;
+        boolean allCardVariants = SourcePrintings.useAllCardVariants();
         boolean useSnowLands = false;
 
         for (PaperCard nonLand : nonLands) {
@@ -771,7 +774,7 @@ public class CardUtil {
     }
 
     private static Collection<PaperCard> generateLands(String landName, int count, String edition) {
-        boolean allCardVariants = Config.instance().getSettingData().useAllCardVariants;
+        boolean allCardVariants = SourcePrintings.useAllCardVariants();
         Collection<PaperCard> ret = new ArrayList<>();
 
         if (allCardVariants) {
@@ -925,9 +928,15 @@ public class CardUtil {
     }
 
     public static PaperCard getCardByName(String cardName) {
+        if (SourcePrintings.enabled()) {
+            PaperCard fromSource = SourcePrintings.printingFromRotation(cardName);
+            if (fromSource != null) {
+                return fromSource;
+            }
+        }
         List<PaperCard> validCards;
         ConfigData configData = Config.instance().getConfigData();
-        if (Config.instance().getSettingData().useAllCardVariants) {
+        if (SourcePrintings.useAllCardVariants()) {
             Predicate<PaperCard> editionFilter;
             if (configData.allowedEditions != null && configData.allowedEditions.length > 0) {
                 Set<String> allowed = new HashSet<>(Arrays.asList(configData.allowedEditions));
@@ -988,7 +997,14 @@ public class CardUtil {
                 return getCardByName(cardName);
             }
         }
-        List<PaperCard> cardPool = Config.instance().getSettingData().useAllCardVariants
+        if (SourcePrintings.enabled()) {
+            PaperCard pinned = SourcePrintings.printingFromSet(cardName, edition);
+            if (pinned != null) {
+                return pinned;
+            }
+            return getCardByName(cardName);
+        }
+        List<PaperCard> cardPool = SourcePrintings.useAllCardVariants()
                 ? FModel.getMagicDb().getCommonCards().getAllCardsNoAlt(cardName)
                 : List.of(FModel.getMagicDb().getCommonCards().getUniqueByNameNoAlt(cardName));
         List<PaperCard> validCards = cardPool.stream()

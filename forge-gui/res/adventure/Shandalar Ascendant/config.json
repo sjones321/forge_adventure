@@ -120,6 +120,7 @@
   "en1EnemyThemeDecks": true,
   "en1StandardDeckSize": 60,
   "en1LogFallbacks": true,
+  "cs0SourcePrintings": true,
   "screenWidth": 480,
   "screenHeight": 270,
   "skin": "skin/ui_skin.json",

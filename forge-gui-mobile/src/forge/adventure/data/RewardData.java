@@ -367,7 +367,7 @@ public class RewardData implements Serializable {
     }
 
     public Array<Reward> generate(boolean isForEnemy, Iterable<PaperCard> cards, boolean useSeedlessRandom, boolean isNoSell) {
-        boolean allCardVariants = Config.instance().getSettingData().useAllCardVariants;
+        boolean allCardVariants = SourcePrintings.useAllCardVariants();
         Random rewardRandom = useSeedlessRandom ? new Random() : WorldSave.getCurrentSave().getWorld().getRandom();
         //Keep using same generation method for shop rewards, but fully randomize loot drops by not using the instance pre-seeded by the map
 
@@ -440,9 +440,12 @@ public class RewardData implements Serializable {
                         } else {
                             for (int i = 0; i < count + addedCount; i++) {
                                 PaperCard card = StaticData.instance().getCommonCards().getCard(cardName);
-                                if (card != null)
+                                if (card != null) {
+                                    if (SourcePrintings.enabled()) {
+                                        card = SourcePrintings.resolve(card, this);
+                                    }
                                     ret.add(new Reward(card, isNoSell));
-                                else
+                                } else
                                     System.err.println("Missing card: " + cardName);
                             }
                         }
@@ -452,10 +455,12 @@ public class RewardData implements Serializable {
                                 ret.add(new Reward(card, isNoSell));
                         }
                     } else {
-                        // Rotating Standard: shops pinned to a set outside the window would come up empty,
-                        // so the window replaces their set restriction (color/type/rarity filters still apply).
+                        // Rotating Standard (stock / pre-CS0): shops pinned to a set outside the window would
+                        // come up empty, so the window replaces their set restriction. CS0 keeps the shop's
+                        // set pin so printings come from that shop's pool.
                         RewardData filter = this;
-                        if (!isForEnemy && editions != null && AdventurePlayer.current().getStandardWindow().isActive()) {
+                        if (!isForEnemy && editions != null && AdventurePlayer.current().getStandardWindow().isActive()
+                                && !SourcePrintings.enabled()) {
                             filter = new RewardData(this);
                             filter.editions = null;
                         }
@@ -612,7 +617,7 @@ public class RewardData implements Serializable {
     static public List<PaperCard> rewardsToCards(Iterable<Reward> dataList) {
         ArrayList<PaperCard> ret = new ArrayList<PaperCard>();
 
-        boolean allCardVariants = Config.instance().getSettingData().useAllCardVariants;
+        boolean allCardVariants = SourcePrintings.useAllCardVariants();
 
         if (allCardVariants) {
             String basicLandEdition = "";
