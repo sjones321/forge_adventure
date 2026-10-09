@@ -2,7 +2,6 @@ package forge.adventure.coop;
 
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.SaveFileData;
-import forge.adventure.world.WorldSave;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -48,10 +47,6 @@ public final class WorldPartners {
         put(profileId, player.save());
     }
 
-    public Set<String> profileIds() {
-        return Collections.unmodifiableSet(partners.keySet());
-    }
-
     public int size() {
         return partners.size();
     }
@@ -80,15 +75,21 @@ public final class WorldPartners {
             if (id.isEmpty()) {
                 continue;
             }
-            final SaveFileData player = data.readSubData(key);
-            if (player != null) {
-                partners.put(id, player);
+            try {
+                final SaveFileData player = data.readSubData(key);
+                if (player != null) {
+                    partners.put(id, player);
+                }
+            } catch (final OutOfMemoryError oom) {
+                System.err.println("CO5 partners load OOM for " + id + ": " + oom);
+            } catch (final Throwable t) {
+                System.err.println("CO5 partners load skip " + id + ": " + t);
             }
         }
     }
 
-    /** Convenience: partners map on the live host WorldSave. */
-    public static WorldPartners ofCurrent() {
-        return WorldSave.getCurrentSave().getPartners();
+    /** Snapshot of profile ids (tests / diagnostics). */
+    public Set<String> keySet() {
+        return Collections.unmodifiableSet(partners.keySet());
     }
 }

@@ -658,6 +658,10 @@ public class InventoryScene extends UIScene {
         if (data == null) return;
         Current.player().equip(data);
         updateInventory();
+        try {
+            forge.adventure.coop.CoopHooks.notifyPartnerProgressChanged(false);
+        } catch (final Exception ignored) {
+        }
     }
 
     @Override

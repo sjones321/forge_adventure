@@ -59,6 +59,10 @@ public class ShopScene extends ForgeScene {
 
     @Override
     public boolean leave() {
+        try {
+            forge.adventure.coop.CoopHooks.notifyPartnerProgressChanged(false);
+        } catch (final Exception ignored) {
+        }
         Adventure.getInstance().renderTransitionScreen = true;
         return super.leave();
     }

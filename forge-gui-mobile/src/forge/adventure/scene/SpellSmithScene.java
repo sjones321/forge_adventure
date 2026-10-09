@@ -233,6 +233,10 @@ public class SpellSmithScene extends UIScene {
 
         if (rewardActor != null) rewardActor.remove();
         cardPool.clear(); //Get rid of cardPool, filtering is fast enough to justify keeping it cached.
+        try {
+            forge.adventure.coop.CoopHooks.notifyPartnerProgressChanged(false);
+        } catch (final Exception ignored) {
+        }
         Forge.switchToLast();
         return true;
     }

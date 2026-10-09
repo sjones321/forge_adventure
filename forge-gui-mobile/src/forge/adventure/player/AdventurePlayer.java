@@ -243,6 +243,15 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         selectedDeckIndex = 0;
     }
 
+    /**
+     * CO5: wipe in-memory character state after a guest leaves co-op so partner
+     * data cannot be Saved/Resumed. Does not touch any on-disk solo save.
+     */
+    public void unload() {
+        clear();
+        name = "";
+    }
+
     private void clear() {
         //Ensure sensitive gameplay data is properly reset between games.
         //Reset all properties HERE.
@@ -2786,6 +2795,20 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     public void renameDeck(String text) {
         deck = (Deck) deck.copyTo(text);
         decks.set(selectedDeckIndex, deck);
+    }
+
+    /**
+     * Replace the deck in {@code slot} without touching the collection.
+     * Callers that gift a deck should {@link #addCard} its cards first.
+     */
+    public void setDeckInSlot(final int slot, final Deck newDeck) {
+        if (newDeck == null || slot < 0 || slot >= decks.size()) {
+            return;
+        }
+        decks.set(slot, newDeck);
+        if (slot == selectedDeckIndex) {
+            deck = newDeck;
+        }
     }
 
     public int cardSellPrice(PaperCard card) {

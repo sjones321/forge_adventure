@@ -24,6 +24,7 @@
  * <p>Protocol: CO2 is 5; CO3 is 6; MV1 plane-follow ({@link CoopPlaneSwitchEvent}) is 7;
  * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8;
  * CO5 world-bound partners ({@link CoopPartnerOfferEvent} / {@link CoopPartnerCreateEvent} /
- * {@link CoopPartnerSnapshotEvent}) is 10 (9 reserved for in-flight MV2 gate sync / TR1).
+ * {@link CoopPartnerSnapshotEvent} / {@link CoopPartnerSnapshotAckEvent}) is 10
+ * (9 reserved for in-flight MV2 gate sync / TR1).
  */
 package forge.gamemodes.net.event.coop;

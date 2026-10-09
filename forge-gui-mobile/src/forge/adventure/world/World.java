@@ -1234,6 +1234,22 @@ public class World implements Disposable, SaveFileContent {
         worldDataLoaded = false;
     }
 
+    /**
+     * CO5: clear world data after a guest leaves co-op so StartScene hides Save/Resume
+     * and the guest must Load/Continue from disk. Disposes textures then nulls {@link #data}.
+     */
+    public void unloadData() {
+        try {
+            dispose();
+        } catch (final Exception ignored) {
+        }
+        data = null;
+        worldDataLoaded = false;
+        seed = 0;
+        width = 0;
+        height = 0;
+    }
+
     /** Dispose {@link BiomeTexture} pixmaps on the GL/EDT thread when available. */
     void disposeBiomeTexturesAsync() {
         final BiomeTexture[] old = biomeTexture;

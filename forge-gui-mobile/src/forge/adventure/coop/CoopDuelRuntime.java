@@ -980,6 +980,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (mob != null) {
             WorldStage.getInstance().setCurrentMob(mob);
             WorldStage.getInstance().setWinner(teamWon, false);
+            // Snapshot after rewards are collected (RewardScene.done) via CoopHooks.
         } else {
             if (teamWon) {
                 ap.win(false);
@@ -987,7 +988,6 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 ap.defeated();
             }
             try {
-                // CO5: persist partner progress to the host via snapshot (not a local .chr).
                 CoopSession.get().sendPartnerSnapshotNow();
             } catch (final Exception ignored) {
             }

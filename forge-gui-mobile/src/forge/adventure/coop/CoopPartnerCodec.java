@@ -1,22 +1,27 @@
 package forge.adventure.coop;
 
+import com.google.common.io.ByteStreams;
 import forge.adventure.util.SaveFileData;
+import forge.gamemodes.net.WireClassFilter;
+import forge.gamemodes.net.WireStreamLimits;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.util.HashMap;
-import java.util.Map;
+import java.io.ObjectStreamClass;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 
 /**
- * CO5: encode/decode partner {@link SaveFileData} as a deflated byte blob for the host
- * world save and for plain-data wire events. Network peers never receive live
- * {@code AdventurePlayer} / {@code PaperCard} graphs — only this blob inside a
- * registered NetEvent; the host validates size before inflate.
+ * CO5: encode/decode partner {@link SaveFileData} as a deflated byte blob.
+ * Decode uses the same {@link WireClassFilter} + {@link WireStreamLimits} as the
+ * multiplayer wire (including a decompressed-byte ceiling), and nested
+ * {@code SaveFileData} reads. Catches {@link OutOfMemoryError} / {@link Throwable}
+ * so a bad blob cannot kill Netty.
  */
 public final class CoopPartnerCodec {
     private CoopPartnerCodec() {
@@ -35,65 +40,66 @@ public final class CoopPartnerCodec {
         return bos.toByteArray();
     }
 
-    /** Inflate a blob produced by {@link #encode}. */
+    /**
+     * Inflate a blob produced by {@link #encode}. Applies wire class filter and
+     * stream limits. Returns null on failure (never throws into Netty).
+     */
+    public static SaveFileData decodeSafe(final byte[] blob) {
+        try {
+            return decode(blob);
+        } catch (final OutOfMemoryError oom) {
+            System.err.println("CO5 partner blob OOM: " + oom);
+            return null;
+        } catch (final Throwable t) {
+            System.err.println("CO5 partner blob rejected: " + t);
+            return null;
+        }
+    }
+
+    /** Inflate a blob; throws on hard failures (tests). Prefer {@link #decodeSafe}. */
     public static SaveFileData decode(final byte[] blob) throws IOException, ClassNotFoundException {
         if (blob == null || blob.length == 0) {
             return null;
         }
+        if (!CoopPartnerValidator.blobSizeOk(blob)) {
+            throw new IOException("Partner blob size rejected (" + blob.length + ")");
+        }
+        SaveFileData.beginWireFilteredReads();
         try (ByteArrayInputStream bis = new ByteArrayInputStream(blob);
              InflaterInputStream inf = new InflaterInputStream(bis);
-             ObjectInputStream ois = new ObjectInputStream(inf)) {
+             InputStream bounded = ByteStreams.limit(inf, WireStreamLimits.MAX_DECOMPRESSED_BYTES);
+             ObjectInputStream ois = new FilteredPartnerInputStream(bounded)) {
             final Object obj = ois.readObject();
             if (!(obj instanceof SaveFileData)) {
                 throw new IOException("Partner blob is not SaveFileData");
             }
             return (SaveFileData) obj;
+        } finally {
+            SaveFileData.endWireFilteredReads();
         }
     }
 
     /**
-     * Persist the partners map into a nested {@link SaveFileData} for the world save.
-     * Keys are profile ids; values are encoded player blobs stored as raw bytes.
+     * ObjectInputStream that runs every resolved class through
+     * {@link WireClassFilter} and installs {@link WireStreamLimits}.
      */
-    public static SaveFileData encodeMap(final Map<String, SaveFileData> partners) {
-        final SaveFileData out = new SaveFileData();
-        if (partners == null || partners.isEmpty()) {
-            return out;
+    static final class FilteredPartnerInputStream extends ObjectInputStream {
+        FilteredPartnerInputStream(final InputStream in) throws IOException {
+            super(in);
+            WireStreamLimits.applyTo(this);
         }
-        for (final Map.Entry<String, SaveFileData> e : partners.entrySet()) {
-            final String id = CoopProfileId.sanitize(e.getKey());
-            if (id.isEmpty() || e.getValue() == null) {
-                continue;
-            }
-            try {
-                out.put(id, encode(e.getValue()));
-            } catch (final IOException ignored) {
-                // Skip corrupt entries rather than aborting the host save.
-            }
-        }
-        return out;
-    }
 
-    /** Load partners from a world-save nested blob. Missing/empty → empty map. */
-    public static Map<String, SaveFileData> decodeMap(final SaveFileData stored) {
-        final Map<String, SaveFileData> out = new HashMap<>();
-        if (stored == null || stored.isEmpty()) {
-            return out;
+        @Override
+        protected Class<?> resolveClass(final ObjectStreamClass desc)
+                throws IOException, ClassNotFoundException {
+            WireClassFilter.checkAllowed(desc.getName());
+            return super.resolveClass(desc);
         }
-        for (final Map.Entry<String, byte[]> e : stored.entrySet()) {
-            final String id = CoopProfileId.sanitize(e.getKey());
-            if (id.isEmpty() || e.getValue() == null || e.getValue().length == 0) {
-                continue;
-            }
-            try {
-                final SaveFileData player = decode(e.getValue());
-                if (player != null) {
-                    out.put(id, player);
-                }
-            } catch (final Exception ignored) {
-                // Skip corrupt partner slots so the rest of the world still loads.
-            }
+
+        @Override
+        protected Class<?> resolveProxyClass(final String[] interfaces) throws IOException {
+            throw new InvalidClassException("dynamic proxy",
+                    "proxy classes are not permitted in partner blobs");
         }
-        return out;
     }
 }

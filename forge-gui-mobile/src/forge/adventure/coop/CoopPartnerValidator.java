@@ -5,11 +5,10 @@ import forge.adventure.util.SaveFileData;
 
 /**
  * CO5: host-side sanity checks for partner create/snapshot payloads.
- * Caps names/text, blob size, and inbound snapshot rate.
+ * Caps names, blob size, and inbound snapshot rate (final snapshots bypass rate limit).
  */
 public final class CoopPartnerValidator {
     public static final int MAX_NAME_CHARS = 32;
-    public static final int MAX_TEXT_CHARS = 200;
     /** Default max partner blob size (deflated SaveFileData). */
     public static final int DEFAULT_MAX_BLOB_BYTES = 2 * 1024 * 1024;
 
@@ -30,16 +29,6 @@ public final class CoopPartnerValidator {
         return trimmed.substring(0, MAX_NAME_CHARS);
     }
 
-    public static String capText(final String text) {
-        if (text == null) {
-            return "";
-        }
-        if (text.length() <= MAX_TEXT_CHARS) {
-            return text;
-        }
-        return text.substring(0, MAX_TEXT_CHARS);
-    }
-
     public static int maxBlobBytes() {
         try {
             final int configured = Config.instance().getConfigData().coopPartnerMaxBlobBytes;
@@ -57,6 +46,7 @@ public final class CoopPartnerValidator {
 
     /**
      * Rate-limit partner snapshots. Returns true when the snapshot may be accepted.
+     * Callers must skip this for final leave snapshots.
      */
     public synchronized boolean acceptSnapshot() {
         final int maxPerMinute;

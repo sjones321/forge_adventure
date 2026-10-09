@@ -83,6 +83,34 @@ public class WorldSave {
         return partners;
     }
 
+    /**
+     * CO5: after a guest leaves (or a failed partner load), wipe in-memory world and
+     * player so StartScene hides Save/Resume and autosave cannot write partner data
+     * into a solo slot. Disk solo {@code .sav} files are never touched.
+     */
+    public void unloadAfterGuestSession() {
+        try {
+            world.unloadData();
+        } catch (final Exception ignored) {
+        }
+        try {
+            player.unload();
+        } catch (final Exception ignored) {
+        }
+        try {
+            partners.clear();
+        } catch (final Exception ignored) {
+        }
+        try {
+            pointOfInterestChanges.clear();
+        } catch (final Exception ignored) {
+        }
+        try {
+            GamePlayerUtil.getGuiPlayer().setName("");
+        } catch (final Exception ignored) {
+        }
+    }
+
     /** MV1 current plane instance id ({@link PlaneMeta#HOME_ID} for legacy / home). */
     public String getCurrentPlaneId() {
         return multiverse.getCurrentPlaneId();
@@ -388,18 +416,25 @@ public class WorldSave {
             System.err.println("Co-op guest: refusing to write WorldSave slot " + currentSlot);
             return false;
         }
+        // No live world → nothing to save (CO5 guest leave leaves data null).
+        if (currentSave.world.getData() == null) {
+            return false;
+        }
         header.name = text;
-        CollectionExporter.export(currentSave.player); // collection + decks for external deck builders
 
         String fileName = WorldSave.getSaveFile(currentSlot);
         String oldFileName = fileName.replace(".sav", ".old");
         new File(getSaveDir()).mkdirs();
         File currentFile = new File(fileName);
         File backupFile = new File(oldFileName);
-        if (currentFile.exists())
-            currentFile.renameTo(backupFile);
+        boolean renamedToOld = false;
+        if (currentFile.exists()) {
+            renamedToOld = currentFile.renameTo(backupFile);
+        }
 
         try {
+            CollectionExporter.export(currentSave.player); // collection + decks for external deck builders
+
             try (FileOutputStream fos = new FileOutputStream(fileName);
                  DeflaterOutputStream def = new DeflaterOutputStream(fos);
                  ObjectOutputStream oos = new ObjectOutputStream(def)) {
@@ -426,7 +461,7 @@ public class WorldSave {
                     fos.close();
                     restoreBackup(oldFileName, fileName);
                     finish(message);
-                    return true;
+                    return false;
                 }
 
                 SaveFileData mainData = new SaveFileData();
@@ -451,7 +486,7 @@ public class WorldSave {
                     fos.close();
                     restoreBackup(oldFileName, fileName);
                     finish("Please check forge.log for errors.");
-                    return true;
+                    return false;
                 }
 
                 header.saveDate = new Date();
@@ -459,15 +494,20 @@ public class WorldSave {
                 oos.writeObject(mainData);
             }
 
-        } catch (IOException e) {
-            restoreBackup(oldFileName, fileName);
+        } catch (final Throwable e) {
+            // Never leave a truncated .sav — restore .old on any failure.
+            System.err.println("WorldSave.save failed: " + e);
+            try {
+                restoreBackup(oldFileName, fileName);
+            } catch (final Exception ignored) {
+            }
             finish("Please check forge.log for errors.");
-            return true;
+            return false;
         }
 
         Config.instance().getSettingData().lastActiveSave = WorldSave.filename(currentSlot);
         Config.instance().saveSettings();
-        if (backupFile.exists())
+        if (backupFile.exists() && renamedToOld)
             backupFile.delete();
         finish(null);
         return true;

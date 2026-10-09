@@ -13,6 +13,26 @@ import java.io.*;
 import java.util.HashMap;
 
 public class SaveFileData extends HashMap<String, byte[]> {
+    /**
+     * When true on the current thread, nested {@link DecompressibleInputStream}
+     * reads apply the multiplayer {@link forge.gamemodes.net.WireClassFilter} and
+     * {@link forge.gamemodes.net.WireStreamLimits} (CO5 partner blob decode).
+     */
+    private static final ThreadLocal<Boolean> WIRE_FILTERED = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+    /** CO5: enable wire class filter + stream limits for nested SaveFileData reads. */
+    public static void beginWireFilteredReads() {
+        WIRE_FILTERED.set(Boolean.TRUE);
+    }
+
+    public static void endWireFilteredReads() {
+        WIRE_FILTERED.set(Boolean.FALSE);
+    }
+
+    public static boolean isWireFilteredReads() {
+        return Boolean.TRUE.equals(WIRE_FILTERED.get());
+    }
+
     public void store(String key, SaveFileData subData) {
         try {
             ByteArrayOutputStream stream = new ByteArrayOutputStream();
@@ -332,11 +352,25 @@ public class SaveFileData extends HashMap<String, byte[]> {
 
         public DecompressibleInputStream(InputStream in) throws IOException {
             super(in);
+            if (isWireFilteredReads()) {
+                forge.gamemodes.net.WireStreamLimits.applyTo(this);
+            }
+        }
+
+        @Override
+        protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+            if (isWireFilteredReads()) {
+                forge.gamemodes.net.WireClassFilter.checkAllowed(desc.getName());
+            }
+            return super.resolveClass(desc);
         }
 
         @Override
         protected ObjectStreamClass readClassDescriptor() throws IOException, ClassNotFoundException {
             ObjectStreamClass resultClassDescriptor = super.readClassDescriptor(); // initially streams descriptor
+            if (isWireFilteredReads()) {
+                forge.gamemodes.net.WireClassFilter.checkAllowed(resultClassDescriptor.getName());
+            }
             Class localClass; // the class in the local JVM that this descriptor represents.
             try {
                 localClass = Class.forName(resultClassDescriptor.getName());

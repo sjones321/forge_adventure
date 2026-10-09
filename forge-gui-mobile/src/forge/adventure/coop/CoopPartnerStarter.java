@@ -2,31 +2,36 @@ package forge.adventure.coop;
 
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.DifficultyData;
+import forge.adventure.data.RewardData;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.player.StandardWindow;
+import forge.adventure.util.AdventureEventController;
 import forge.adventure.util.AdventureModes;
 import forge.adventure.util.Config;
 import forge.adventure.util.SaveFileData;
 import forge.adventure.world.WorldSave;
 import forge.deck.Deck;
 import forge.deck.io.DeckSerializer;
+import forge.gamemodes.limited.SealedDeckBuilder;
+import forge.item.PaperCard;
+import forge.model.FModel;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * CO5: build a new partner character for the host world — sealed-style starter gift
- * from the world's current sets (tunable), plus optional solo deck copy.
+ * CO5: build a new partner character for the host world — sealed starter gift
+ * from the world's current sets (same path as New Game sealed), plus optional
+ * solo deck copy whose cards also enter the collection.
  */
 public final class CoopPartnerStarter {
     private CoopPartnerStarter() {
     }
 
     /**
-     * Create a fresh partner AdventurePlayer for the host world.
-     * Uses the host player's difficulty and Standard window as the world context.
-     * When the sealed/card path is unavailable (headless tests), falls back to an
-     * empty Sealed character with the given name/look.
+     * Create a fresh partner with a sealed pool from the host world's current
+     * Standard sets. The starter deck must pass {@code minDeckSize} when card
+     * data is available.
      */
     public static AdventurePlayer createNew(final String name, final boolean male,
                                             final int race, final int avatarIndex,
@@ -37,27 +42,88 @@ public final class CoopPartnerStarter {
                 ? copyDifficulty(host.getDifficulty())
                 : defaultDifficulty();
 
-        final AdventurePlayer partner = new AdventurePlayer();
         final ConfigData cfg = Config.instance().getConfigData();
-        final int packs = Math.max(1, cfg.coopPartnerStarterPacks > 0
+        final int totalPacks = Math.max(1, cfg.coopPartnerStarterPacks > 0
                 ? cfg.coopPartnerStarterPacks : Math.max(1, cfg.sealedStartPacks));
-        final int opened = Math.max(1, cfg.coopPartnerStarterOpenedPacks > 0
-                ? cfg.coopPartnerStarterOpenedPacks : Math.max(1, cfg.sealedStartOpenedPacks));
+        final int openedPacks = Math.max(1, Math.min(
+                cfg.coopPartnerStarterOpenedPacks > 0
+                        ? cfg.coopPartnerStarterOpenedPacks
+                        : Math.max(1, cfg.sealedStartOpenedPacks),
+                totalPacks));
         final int bonusGold = cfg.coopPartnerStarterBonusGold >= 0
                 ? cfg.coopPartnerStarterBonusGold : Math.max(0, cfg.sealedStartBonusGold);
 
-        final Deck starter = new Deck(safeName + " Starter");
-        partner.create(safeName, starter, male, race, avatarIndex, false, false, diff, AdventureModes.Sealed);
-        if (host != null && host.getStandardWindow() != null && host.getStandardWindow().isActive()) {
-            final List<String> sets = new ArrayList<>(host.getStandardWindow().getSets());
-            partner.getStandardWindow().init(sets);
+        final List<String> setCodes = hostStandardSets(host);
+        final AdventurePlayer partner = new AdventurePlayer();
+
+        try {
+            final List<PaperCard> pool = new ArrayList<>();
+            final List<Deck> unopened = new ArrayList<>();
+            final String primarySet = setCodes.isEmpty() ? "JMP" : setCodes.get(setCodes.size() - 1);
+            for (final String code : setCodes.isEmpty() ? List.of(primarySet) : setCodes) {
+                for (int i = 0; i < totalPacks; i++) {
+                    final Deck booster = StandardWindow.CORE_COLLECTION.equals(code)
+                            ? StandardWindow.generateCoreCollectionBooster()
+                            : AdventureEventController.instance().generateBooster(code);
+                    if (booster == null) {
+                        continue;
+                    }
+                    if (i < openedPacks) {
+                        pool.addAll(booster.getMain().toFlatList());
+                    } else {
+                        unopened.add(booster);
+                    }
+                }
+            }
+
+            Deck starterDeck;
+            if (!pool.isEmpty()) {
+                starterDeck = new SealedDeckBuilder(pool).buildDeck(primarySet);
+                try {
+                    final String setName = FModel.getMagicDb().getEditions().get(primarySet) != null
+                            ? FModel.getMagicDb().getEditions().get(primarySet).getName()
+                            : primarySet;
+                    starterDeck.setName(setName + " Sealed");
+                } catch (final Exception e) {
+                    starterDeck.setName(safeName + " Starter");
+                }
+            } else {
+                starterDeck = new Deck(safeName + " Starter");
+            }
+
+            partner.create(safeName, starterDeck, male, race, avatarIndex, false, false, diff, AdventureModes.Sealed);
+            // Do not freeze a Standard window copy at creation — guest applies host live sets on offer.
+            RewardData.invalidateCardPool();
+
+            if (!pool.isEmpty()) {
+                final List<PaperCard> leftovers = new ArrayList<>(pool);
+                for (final PaperCard card : starterDeck.getAllCardsInASinglePool(true, true).toFlatList()) {
+                    leftovers.remove(card);
+                }
+                for (final PaperCard card : leftovers) {
+                    partner.addCard(card);
+                }
+            }
+            for (final Deck booster : unopened) {
+                partner.addBooster(booster);
+            }
+            if (bonusGold > 0) {
+                partner.giveGold(bonusGold);
+            }
+            try {
+                partner.getSkills().clear();
+            } catch (final Exception ignored) {
+            }
+            partner.setCharacterFlag("coopPartner", 1);
+        } catch (final Exception e) {
+            // Headless / missing card DB — empty Sealed character still joins.
+            partner.create(safeName, new Deck(safeName + " Starter"), male, race, avatarIndex,
+                    false, false, diff, AdventureModes.Sealed);
+            if (bonusGold > 0) {
+                partner.giveGold(bonusGold);
+            }
+            partner.setCharacterFlag("coopPartner", 1);
         }
-        if (bonusGold > 0) {
-            partner.giveGold(bonusGold);
-        }
-        partner.setCharacterFlag("coopPartner", 1);
-        partner.setCharacterFlag("coopPartnerStarterPacks", packs);
-        partner.setCharacterFlag("coopPartnerStarterOpened", opened);
 
         if (soloDecklistText != null && !soloDecklistText.isEmpty()) {
             tryApplySoloDeck(partner, soloDecklistText);
@@ -66,40 +132,56 @@ public final class CoopPartnerStarter {
     }
 
     /**
-     * Import a legacy co-op character SaveFileData as this world's partner.
+     * Import a legacy co-op character. Keeps the imported name and look unless
+     * the create event supplies empty look fields (then preserve legacy values).
      */
-    public static AdventurePlayer fromLegacy(final SaveFileData legacy,
-                                             final String name, final boolean male,
-                                             final int race, final int avatarIndex) {
+    public static AdventurePlayer fromLegacy(final SaveFileData legacy) {
         final AdventurePlayer partner = new AdventurePlayer();
         if (legacy != null) {
             partner.load(legacy);
         }
-        final String safeName = CoopPartnerValidator.capName(
-                name != null && !name.isEmpty() ? name : partner.getName());
-        if (safeName != null && !safeName.isEmpty()) {
-            try {
-                final Field f = AdventurePlayer.class.getDeclaredField("name");
-                f.setAccessible(true);
-                f.set(partner, safeName);
-            } catch (final Exception ignored) {
-            }
-        }
-        try {
-            final Field raceF = AdventurePlayer.class.getDeclaredField("heroRace");
-            raceF.setAccessible(true);
-            raceF.setInt(partner, race);
-            final Field avatarF = AdventurePlayer.class.getDeclaredField("avatarIndex");
-            avatarF.setAccessible(true);
-            avatarF.setInt(partner, avatarIndex);
-            final Field femaleF = AdventurePlayer.class.getDeclaredField("isFemale");
-            femaleF.setAccessible(true);
-            femaleF.setBoolean(partner, !male);
-        } catch (final Exception ignored) {
-        }
         partner.setCharacterFlag("coopPartner", 1);
         partner.setCharacterFlag("coopLegacyImport", 1);
         return partner;
+    }
+
+    static List<String> hostStandardSets(final AdventurePlayer host) {
+        final List<String> sets = new ArrayList<>();
+        if (host != null && host.getStandardWindow() != null && host.getStandardWindow().isActive()) {
+            sets.addAll(host.getStandardWindow().getSets());
+        }
+        if (sets.isEmpty()) {
+            final String[] cores = Config.instance().getConfigData().coreSets;
+            if (cores != null) {
+                for (final String c : cores) {
+                    if (c != null && !c.isEmpty() && sets.size() < 2) {
+                        sets.add(c);
+                    }
+                }
+            }
+        }
+        return sets;
+    }
+
+    /** Apply the host's live Standard window onto a guest partner (rotation follow). */
+    public static void applyHostStandardWindow(final AdventurePlayer partner, final String[] hostSets) {
+        if (partner == null) {
+            return;
+        }
+        final List<String> sets = new ArrayList<>();
+        if (hostSets != null) {
+            for (final String s : hostSets) {
+                if (s != null && !s.isEmpty()) {
+                    sets.add(s);
+                }
+            }
+        }
+        if (sets.isEmpty()) {
+            sets.addAll(hostStandardSets(WorldSave.getCurrentSave().getPlayer()));
+        }
+        if (!sets.isEmpty()) {
+            partner.getStandardWindow().init(sets);
+        }
     }
 
     private static void tryApplySoloDeck(final AdventurePlayer partner, final String decklistText) {
@@ -107,26 +189,17 @@ public final class CoopPartnerStarter {
                 ? decklistText.substring(0, 32_000) : decklistText;
         try {
             final Deck deck = DeckSerializer.fromDecklistText(text);
-            if (deck != null && deck.getMain() != null && deck.getMain().countAll() > 0) {
-                // Replace slot 0 with the gifted deck when empty/starter.
-                try {
-                    final Field decksF = AdventurePlayer.class.getDeclaredField("decks");
-                    decksF.setAccessible(true);
-                    @SuppressWarnings("unchecked")
-                    final com.badlogic.gdx.utils.Array<Deck> decks =
-                            (com.badlogic.gdx.utils.Array<Deck>) decksF.get(partner);
-                    if (decks != null && decks.size > 0) {
-                        decks.set(0, deck);
-                        final Field deckF = AdventurePlayer.class.getDeclaredField("deck");
-                        deckF.setAccessible(true);
-                        deckF.set(partner, deck);
-                    }
-                } catch (final Exception ignored) {
-                }
-                partner.setCharacterFlag("coopSoloDeckGift", 1);
+            if (deck == null || deck.getMain() == null || deck.getMain().countAll() == 0) {
+                return;
             }
+            // Add every card to the collection, then place the deck in slot 0.
+            for (final PaperCard pc : deck.getAllCardsInASinglePool(true, true).toFlatList()) {
+                if (pc != null) {
+                    partner.addCard(pc);
+                }
+            }
+            partner.setDeckInSlot(0, deck);
         } catch (final Exception ignored) {
-            // Optional gift — ignore parse failures.
         }
     }
 
