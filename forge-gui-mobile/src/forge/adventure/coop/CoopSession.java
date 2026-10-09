@@ -52,6 +52,7 @@ import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
 import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
 import forge.gamemodes.net.event.coop.CoopTradeInviteEvent;
 import forge.gamemodes.net.event.coop.CoopTradeOfferEvent;
+import forge.gamemodes.net.event.coop.CoopTradeReconcileEvent;
 import forge.gamemodes.net.event.coop.CoopTradeResponseEvent;
 import forge.gamemodes.net.event.coop.CoopWorldOfferEvent;
 import forge.screens.TransitionScreen;
@@ -804,6 +805,11 @@ public final class CoopSession {
                 l.onTradeAck((CoopTradeAckEvent) event);
                 l.onOverworldMessage(event);
             }
+        } else if (event instanceof CoopTradeReconcileEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onTradeReconcile((CoopTradeReconcileEvent) event);
+                l.onOverworldMessage(event);
+            }
         }
     }
 
@@ -814,6 +820,7 @@ public final class CoopSession {
         }
         try {
             CoopTradeRuntime.get().attach();
+            CoopTradeRuntime.get().onSessionReadyReconcile();
         } catch (final Exception ignored) {
         }
     }

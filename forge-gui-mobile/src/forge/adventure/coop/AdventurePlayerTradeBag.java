@@ -3,8 +3,10 @@ package forge.adventure.coop;
 import forge.adventure.data.ItemData;
 import forge.adventure.data.ItemListData;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.player.OverflowEntry;
 import forge.adventure.util.Config;
 import forge.deck.CardPool;
+import forge.deck.Deck;
 import forge.gamemodes.net.coop.CoopTradeBag;
 import forge.gamemodes.net.coop.CoopTradeValidator;
 import forge.item.PaperCard;
@@ -19,7 +21,7 @@ import java.util.Map;
  * Adapts {@link AdventurePlayer} to {@link CoopTradeBag} for TR1 host validation
  * and atomic apply. Received items/materials use INV1 grant paths (Overflow, never lost).
  * Guest character files stay isolated via {@link CoopCharacterStore}.
- * {@link #restore} reconstitutes gold, materials, items and cards.
+ * {@link #restore} reconstitutes gold, materials, items, cards, <b>and Overflow</b>.
  */
 public final class AdventurePlayerTradeBag implements CoopTradeBag {
     private final AdventurePlayer player;
@@ -202,6 +204,12 @@ public final class AdventurePlayerTradeBag implements CoopTradeBag {
                 s.cards.put(cardKey(e.getKey()), e.getValue());
             }
         }
+        // Overflow must round-trip with rollback (INV1 extras from a failed commit).
+        for (final OverflowEntry entry : player.getBags().getOverflow()) {
+            if (entry != null) {
+                s.overflow.add(copyOverflow(entry));
+            }
+        }
         return s;
     }
 
@@ -282,6 +290,30 @@ public final class AdventurePlayerTradeBag implements CoopTradeBag {
                 addCard(e.getKey(), e.getValue() - have);
             }
         }
+
+        // Overflow: replace with the snapshotted entries (no auto-sell on restore).
+        final OverflowEntry[] restored = new OverflowEntry[s.overflow.size()];
+        for (int i = 0; i < s.overflow.size(); i++) {
+            restored[i] = copyOverflow(s.overflow.get(i));
+        }
+        player.getBags().loadOverflowEntries(restored);
+    }
+
+    private static OverflowEntry copyOverflow(final OverflowEntry src) {
+        if (src == null) {
+            return null;
+        }
+        final OverflowEntry e = new OverflowEntry();
+        e.kind = src.kind;
+        e.key = src.key;
+        e.amount = src.amount;
+        if (src.item != null) {
+            e.item = src.item.clone();
+        }
+        if (src.booster != null) {
+            e.booster = new Deck(src.booster);
+        }
+        return e;
     }
 
     public static String cardKey(final PaperCard card) {
@@ -317,5 +349,6 @@ public final class AdventurePlayerTradeBag implements CoopTradeBag {
         final Map<String, Integer> materials = new HashMap<>();
         final List<String> itemNames = new ArrayList<>();
         final Map<String, Integer> cards = new HashMap<>();
+        final List<OverflowEntry> overflow = new ArrayList<>();
     }
 }

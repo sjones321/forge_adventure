@@ -98,6 +98,11 @@ public final class CoopTradeApply {
         if (!check.ok()) {
             return Result.fail(check.reason + ":" + check.detail);
         }
+        // Overflow-safe: refuse if the RECEIVER (this bag) cannot accept the gold.
+        final CoopTradeValidator.Result recvGold = CoopTradeValidator.validateReceiverGold(in, bag);
+        if (!recvGold.ok()) {
+            return Result.fail(recvGold.reason + ":" + recvGold.detail);
+        }
         try {
             if (!removeOffer(bag, out)) {
                 bag.restore(snap);
@@ -112,6 +117,21 @@ public final class CoopTradeApply {
             bag.restore(snap);
             return Result.fail("exception:" + ex.getMessage());
         }
+    }
+
+    /**
+     * Idempotent local apply keyed by trade id. If {@code log} already records a
+     * local apply for {@code role}, returns ok without mutating the bag. The
+     * caller records the phase via {@link CoopTradeState} after success.
+     */
+    public static Result applyLocalIdempotent(final long tradeId, final CoopTradeRole role,
+                                              final CoopTradeLog log, final CoopTradeBag bag,
+                                              final CoopTradeOffer give, final CoopTradeOffer receive,
+                                              final CoopTradeBag.Snapshot snap) {
+        if (log != null && log.hasLocalApply(tradeId, role)) {
+            return Result.ok();
+        }
+        return applyLocal(bag, give, receive, snap);
     }
 
     public static boolean removeOffer(final CoopTradeBag bag, final CoopTradeOffer offer) {

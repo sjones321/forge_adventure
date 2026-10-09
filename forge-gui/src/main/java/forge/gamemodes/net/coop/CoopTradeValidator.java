@@ -68,10 +68,8 @@ public final class CoopTradeValidator {
             if (gold > bag.getGold()) {
                 return Result.reject(RejectReason.OWNERSHIP, "gold");
             }
-            if (gold > 0 && bag.getGold() > Integer.MAX_VALUE - gold) {
-                // Peer receiving this gold would overflow — refuse the offer.
-                return Result.reject(RejectReason.GOLD_OVERFLOW, "recv");
-            }
+            // Gold overflow is checked against the RECEIVER via
+            // {@link #validateReceiverGold}, not the giver's bag.
         }
 
         final List<CoopTradeOffer.Line> materials = offer.getMaterials();
@@ -123,6 +121,24 @@ public final class CoopTradeValidator {
             return true;
         }
         return current > Integer.MAX_VALUE - add;
+    }
+
+    /**
+     * Refuse an incoming grant that would overflow the <b>receiver's</b> gold
+     * (not the giver's).
+     */
+    public static Result validateReceiverGold(final CoopTradeOffer incoming, final CoopTradeBag receiver) {
+        if (incoming == null || receiver == null) {
+            return Result.okResult();
+        }
+        final int gold = incoming.getGold();
+        if (gold <= 0) {
+            return Result.okResult();
+        }
+        if (goldAddWouldOverflow(receiver.getGold(), gold)) {
+            return Result.reject(RejectReason.GOLD_OVERFLOW, "receiver");
+        }
+        return Result.okResult();
     }
 
     private static Result validateLine(final CoopTradeOffer.Line line, final Set<String> seen,

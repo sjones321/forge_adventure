@@ -13,6 +13,7 @@ import forge.gamemodes.net.coop.CoopInviteUiState;
 import forge.gamemodes.net.coop.CoopRateLimiter;
 import forge.gamemodes.net.coop.CoopTradeApply;
 import forge.gamemodes.net.coop.CoopTradeBag;
+import forge.gamemodes.net.coop.CoopTradeLog;
 import forge.gamemodes.net.coop.CoopTradeOffer;
 import forge.gamemodes.net.coop.CoopTradeRole;
 import forge.gamemodes.net.coop.CoopTradeState;
@@ -23,31 +24,36 @@ import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
 import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
 import forge.gamemodes.net.event.coop.CoopTradeInviteEvent;
 import forge.gamemodes.net.event.coop.CoopTradeOfferEvent;
+import forge.gamemodes.net.event.coop.CoopTradeReconcileEvent;
 import forge.gamemodes.net.event.coop.CoopTradeResponseEvent;
+import forge.localinstance.properties.ForgeConstants;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Ascendant TR1 player trading with two-phase commit.
+ * Ascendant TR1 player trading with two-phase commit, idempotent trade ids, and
+ * reconnect reconcile via a persisted {@link CoopTradeLog}.
  *
- * <p>Guest applies first and acks; host applies only after a successful ack.
- * Failure or disconnect before the ack leaves both bags unchanged. If the guest
- * applied but the host complete ack never arrives, the guest rolls back after
- * {@code coopTradeAckTimeoutSeconds} (see {@link CoopTradeState#expireGuestAckIfNeeded}).
- *
- * <p>Peers are identified by {@link CoopTradeRole}. Offer changes bump a version;
- * confirms for a stale version are ignored. Invite goes through
- * {@link CoopInviteUiState} (never replaces exit-dungeon).
+ * <p>Guest applies first and acks; host applies only after a successful ack
+ * (atomic {@link CoopTradeState#beginHostApply}). Failure or disconnect before
+ * the host commit point leaves both bags unchanged. After host commit the guest
+ * never rolls back on timeout — it reconciles. Overflow is included in rollback
+ * snapshots. Confirms carry both offer versions. Peers are identified by
+ * {@link CoopTradeRole}.
  */
 public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
     private static final CoopTradeRuntime INSTANCE = new CoopTradeRuntime();
 
+    private final CoopTradeLog tradeLog = new CoopTradeLog();
     private final CoopTradeState state = new CoopTradeState(
             new CoopRateLimiter(CoopTradeWireLimits.DEFAULT_MAX_PER_WINDOW,
-                    CoopTradeWireLimits.DEFAULT_WINDOW_MS));
+                    CoopTradeWireLimits.DEFAULT_WINDOW_MS), tradeLog);
     private volatile boolean attached;
     private volatile ScheduledExecutorService timers;
     private volatile ScheduledFuture<?> ackTimeoutFuture;
@@ -63,10 +69,16 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         return state;
     }
 
+    public CoopTradeLog getTradeLog() {
+        return tradeLog;
+    }
+
     public synchronized void attach() {
         if (attached || !Config.ascendant()) {
             return;
         }
+        bindTradeLogPath();
+        tradeLog.load();
         CoopSession.get().addOverworldListener(this);
         state.setBagLookup(this::bagForRole);
         if (timers == null || timers.isShutdown()) {
@@ -88,14 +100,20 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             CoopSession.get().removeOverworldListener(this);
         } catch (final Exception ignored) {
         }
-        state.reset();
+        // Reset only after any in-flight GL rollback would have run; detach is
+        // session teardown — post GL reset so ordering matches onSessionEnded.
+        postGl(() -> {
+            rollbackGuestIfNeeded();
+            state.reset();
+        });
         attached = false;
     }
 
-    /** Peer left — cancel and roll back any guest apply. */
+    /** Peer left — cancel and roll back any guest apply before host commit. */
     public void onSessionPeerDisconnected() {
         final CoopTradeCancelEvent cancel = state.onDisconnect();
         if (cancel == null) {
+            // Host may have committed — keep apply; or idle.
             return;
         }
         cancelAckTimeout();
@@ -106,11 +124,28 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         });
     }
 
+    /**
+     * Session ended. Reset runs <b>after</b> the GL-thread rollback finishes,
+     * never before.
+     */
     public void onSessionEnded() {
         cancelAckTimeout();
-        postGl(this::rollbackGuestIfNeeded);
-        state.reset();
-        postGl(() -> closeTradeUi(null));
+        postGl(() -> {
+            rollbackGuestIfNeeded();
+            state.reset();
+            closeTradeUi(null);
+        });
+    }
+
+    /** After (re)connect / session ready — exchange in-flight trade log phases. */
+    public void onSessionReadyReconcile() {
+        if (!Config.ascendant() || !attached) {
+            return;
+        }
+        final List<CoopTradeReconcileEvent> events = state.buildReconcileRequests(true);
+        for (final CoopTradeReconcileEvent ev : events) {
+            CoopSession.get().send(ev);
+        }
     }
 
     // ---- UI actions ----
@@ -183,7 +218,8 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         }
         final CoopTradeRole role = localRole();
         final CoopTradeConfirmEvent event = new CoopTradeConfirmEvent(
-                state.getTradeId(), role, confirmed, state.getLocalOfferVersion());
+                state.getTradeId(), role, confirmed,
+                state.getLocalOfferVersion(), state.getPeerOfferVersion());
         final boolean host = CoopHooks.isWorldAuthority();
         final Object result = state.acceptConfirm(event, host);
         if (result == null) {
@@ -209,6 +245,11 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
     public void cancelTrade(final String reason) {
         cancelAckTimeout();
         final CoopTradeCancelEvent cancel = state.cancel(reason != null ? reason : "cancelled");
+        if (cancel == null) {
+            // Host apply in progress — cancel rejected until apply finishes.
+            notifyHud("Trade commit in progress");
+            return;
+        }
         CoopSession.get().send(cancel);
         postGl(() -> {
             rollbackGuestIfNeeded();
@@ -265,7 +306,9 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         if (accepted == null) {
             if (CoopHooks.isWorldAuthority()) {
                 final CoopTradeCancelEvent cancel = state.cancel("invalid offer");
-                CoopSession.get().send(cancel);
+                if (cancel != null) {
+                    CoopSession.get().send(cancel);
+                }
                 postGl(() -> closeTradeUi("Invalid offer — trade cancelled"));
             }
             return;
@@ -287,7 +330,7 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         final boolean host = CoopHooks.isWorldAuthority();
         final Object result = state.acceptConfirm(event, host);
         if (result == null) {
-            return; // stale version or rejected
+            return; // stale versions or rejected
         }
         if (result instanceof CoopTradeExecuteEvent) {
             final CoopTradeExecuteEvent exec = (CoopTradeExecuteEvent) result;
@@ -312,7 +355,9 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             return;
         }
         cancelAckTimeout();
-        state.receiveCancel(event);
+        if (!state.receiveCancel(event)) {
+            return;
+        }
         postGl(() -> {
             rollbackGuestIfNeeded();
             closeTradeUi("Trade cancelled: " + event.getReason());
@@ -333,7 +378,7 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             refreshUi();
             return;
         }
-        // Guest applies first on the GL thread.
+        // Guest applies first on the GL thread (idempotent by trade id).
         postGl(() -> guestApplyAndAck(event));
     }
 
@@ -347,6 +392,12 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             if (result instanceof CoopTradeCancelEvent) {
                 CoopSession.get().send((CoopTradeCancelEvent) result);
                 postGl(() -> closeTradeUi("Guest apply failed — nothing changed"));
+                return;
+            }
+            if (result instanceof CoopTradeAckEvent
+                    && ((CoopTradeAckEvent) result).getFromRole() == CoopTradeRole.HOST) {
+                // Idempotent re-complete.
+                CoopSession.get().send((CoopTradeAckEvent) result);
                 return;
             }
             if (!(result instanceof CoopTradeAckEvent)) {
@@ -373,6 +424,23 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         }
     }
 
+    @Override
+    public void onTradeReconcile(final CoopTradeReconcileEvent event) {
+        if (event == null || !Config.ascendant()) {
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        if (event.isRequest()) {
+            // Reply with our log phase for this trade id.
+            final CoopTradeLog.Entry local = tradeLog.get(event.getTradeId());
+            final CoopTradeLog.Phase phase = local != null ? local.phase : CoopTradeLog.Phase.NONE;
+            CoopSession.get().send(new CoopTradeReconcileEvent(
+                    event.getTradeId(), localRole(), phase, false));
+        }
+        final CoopTradeLog.ReconcileAction action = state.applyReconcile(event, now);
+        handleReconcileAction(action, event.getTradeId());
+    }
+
     // ---- Two-phase apply ----
 
     private void guestApplyAndAck(final CoopTradeExecuteEvent exec) {
@@ -383,7 +451,10 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             if (fail != null) {
                 CoopSession.get().send(fail);
             }
-            CoopSession.get().send(state.cancel("no player"));
+            final CoopTradeCancelEvent cancel = state.cancel("no player");
+            if (cancel != null) {
+                CoopSession.get().send(cancel);
+            }
             closeTradeUi("Trade failed");
             return;
         }
@@ -391,17 +462,18 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         final CoopTradeBag.Snapshot snap = bag.snapshot();
         final CoopTradeOffer give = exec.getGuestOffer();
         final CoopTradeOffer recv = exec.getHostOffer();
-        final CoopTradeApply.Result result = CoopTradeApply.applyLocal(bag, give, recv, snap);
+        final long now = System.currentTimeMillis();
+        final CoopTradeApply.Result result = CoopTradeApply.applyLocalIdempotent(
+                exec.getTradeId(), CoopTradeRole.GUEST, tradeLog, bag, give, recv, snap);
         if (!result.applied) {
-            final CoopTradeAckEvent fail = state.markGuestApplied(false, result.detail, null,
-                    System.currentTimeMillis());
+            final CoopTradeAckEvent fail = state.markGuestApplied(false, result.detail, null, now);
             if (fail != null) {
                 CoopSession.get().send(fail);
             }
             closeTradeUi("Trade failed — nothing changed");
             return;
         }
-        final CoopTradeAckEvent ack = state.markGuestApplied(true, "", snap, System.currentTimeMillis());
+        final CoopTradeAckEvent ack = state.markGuestApplied(true, "", snap, now);
         if (ack != null) {
             CoopSession.get().send(ack);
         }
@@ -411,21 +483,38 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
 
     private void hostApplyAfterGuestAck(final CoopTradeAckEvent guestAck) {
         final AdventurePlayer ap = Current.player();
-        final CoopTradeExecuteEvent exec = state.getPendingExecute();
+        // Atomic claim — cancel cannot interleave between claim and complete.
+        final CoopTradeExecuteEvent exec = state.beginHostApply();
         if (ap == null || exec == null) {
-            final CoopTradeCancelEvent cancel = state.cancel("host apply missing state");
-            CoopSession.get().send(cancel);
+            if (tradeLog.hasLocalApply(
+                    guestAck != null ? guestAck.getTradeId() : state.getTradeId(),
+                    CoopTradeRole.HOST)) {
+                final CoopTradeAckEvent complete = new CoopTradeAckEvent(
+                        guestAck != null ? guestAck.getTradeId() : state.getTradeId(),
+                        CoopTradeRole.HOST, true, "complete");
+                CoopSession.get().send(complete);
+                closeTradeUi("Trade complete");
+                return;
+            }
+            final CoopTradeCancelEvent cancel = state.abortHostApply("host apply missing state");
+            if (cancel != null) {
+                CoopSession.get().send(cancel);
+            }
             closeTradeUi("Trade failed — nothing changed");
             return;
         }
         final CoopTradeBag bag = new AdventurePlayerTradeBag(ap);
         final CoopTradeBag.Snapshot snap = bag.snapshot();
-        final CoopTradeApply.Result result = CoopTradeApply.applyLocal(
-                bag, exec.getHostOffer(), exec.getGuestOffer(), snap);
+        final CoopTradeApply.Result result = CoopTradeApply.applyLocalIdempotent(
+                exec.getTradeId(), CoopTradeRole.HOST, tradeLog, bag,
+                exec.getHostOffer(), exec.getGuestOffer(), snap);
         if (!result.applied) {
-            // Guest already applied — tell them to roll back via cancel.
-            final CoopTradeCancelEvent cancel = state.cancel("host apply failed: " + result.detail);
-            CoopSession.get().send(cancel);
+            // Commit point not reached — guest may roll back.
+            final CoopTradeCancelEvent cancel = state.abortHostApply(
+                    "host apply failed: " + result.detail);
+            if (cancel != null) {
+                CoopSession.get().send(cancel);
+            }
             closeTradeUi("Trade failed — guest will roll back");
             return;
         }
@@ -441,6 +530,54 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         notifyHud("Trade complete");
     }
 
+    private void handleReconcileAction(final CoopTradeLog.ReconcileAction action, final long tradeId) {
+        if (action == null || action == CoopTradeLog.ReconcileAction.NONE) {
+            return;
+        }
+        switch (action) {
+            case RESEND_GUEST_ACK:
+                CoopSession.get().send(new CoopTradeAckEvent(tradeId, CoopTradeRole.GUEST, true, "reconcile"));
+                break;
+            case RESEND_HOST_COMPLETE:
+                CoopSession.get().send(new CoopTradeAckEvent(tradeId, CoopTradeRole.HOST, true, "complete"));
+                break;
+            case COMPLETE_GUEST:
+                cancelAckTimeout();
+                postGl(() -> {
+                    // Keep applied bags; discard rollback snap (already done in state).
+                    try {
+                        final AdventurePlayer ap = Current.player();
+                        if (ap != null) {
+                            CoopCharacterStore.savePlayer(ap);
+                        }
+                    } catch (final Exception ignored) {
+                    }
+                    closeTradeUi("Trade complete (reconciled)");
+                    notifyHud("Trade complete");
+                });
+                break;
+            case ROLLBACK_GUEST:
+                cancelAckTimeout();
+                postGl(() -> {
+                    rollbackGuestIfNeeded();
+                    closeTradeUi("Trade cancelled (reconciled)");
+                    notifyHud("Trade rolled back");
+                });
+                break;
+            case APPLY_HOST:
+                if (CoopHooks.isWorldAuthority()) {
+                    postGl(() -> hostApplyAfterGuestAck(
+                            new CoopTradeAckEvent(tradeId, CoopTradeRole.GUEST, true, "reconcile")));
+                }
+                break;
+            case ABORT:
+                postGl(() -> closeTradeUi("Trade aborted"));
+                break;
+            default:
+                break;
+        }
+    }
+
     private void scheduleAckTimeout() {
         cancelAckTimeout();
         final int sec = Math.max(1, Config.instance().getConfigData().coopTradeAckTimeoutSeconds);
@@ -449,7 +586,22 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
             return;
         }
         ackTimeoutFuture = exec.schedule(() -> {
-            if (state.expireGuestAckIfNeeded(System.currentTimeMillis(), sec * 1000L)) {
+            final CoopTradeState.TimeoutOutcome outcome =
+                    state.expireGuestAckIfNeeded(System.currentTimeMillis(), sec * 1000L);
+            if (outcome == CoopTradeState.TimeoutOutcome.ALREADY_COMPLETE) {
+                postGl(() -> {
+                    closeTradeUi("Trade complete");
+                    notifyHud("Trade complete");
+                });
+            } else if (outcome == CoopTradeState.TimeoutOutcome.RECONCILE) {
+                // Do NOT roll back — host may have committed; advertise log phase.
+                postGl(() -> {
+                    notifyHud("Trade pending reconcile…");
+                    for (final CoopTradeReconcileEvent ev : state.buildReconcileRequests(true)) {
+                        CoopSession.get().send(ev);
+                    }
+                });
+            } else if (outcome == CoopTradeState.TimeoutOutcome.ROLLBACK) {
                 postGl(() -> {
                     rollbackGuestIfNeeded();
                     closeTradeUi("Trade timed out — rolled back");
@@ -471,11 +623,34 @@ public final class CoopTradeRuntime implements CoopHooks.OverworldListener {
         if (!state.hasGuestRollbackSnap()) {
             return;
         }
+        // Guard: never roll back after host commit.
+        if (tradeLog.isAtLeast(state.getTradeId(), CoopTradeLog.Phase.HOST_COMMITTED)) {
+            return;
+        }
         final AdventurePlayer ap = Current.player();
         if (ap == null) {
             return;
         }
         state.rollbackGuestApply(new AdventurePlayerTradeBag(ap));
+    }
+
+    private void bindTradeLogPath() {
+        try {
+            final AdventurePlayer ap = Current.player();
+            final String name = ap != null ? ap.getName() : "player";
+            final Path dir = Paths.get(ForgeConstants.USER_ADVENTURE_DIR,
+                    Config.instance().getPlane(), "characters");
+            tradeLog.setPersistPath(dir.resolve(sanitize(name) + ".tradelog"));
+        } catch (final Exception ignored) {
+            tradeLog.setPersistPath(null);
+        }
+    }
+
+    private static String sanitize(final String name) {
+        if (name == null || name.isEmpty()) {
+            return "player";
+        }
+        return name.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 
     // ---- helpers ----

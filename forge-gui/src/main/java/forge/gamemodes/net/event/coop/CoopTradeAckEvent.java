@@ -9,9 +9,9 @@ import forge.gamemodes.net.event.NetEvent;
  * <ul>
  *   <li>Guest → host after applying (or failing to apply) {@link CoopTradeExecuteEvent}.
  *       Host applies only on {@code success=true}.</li>
- *   <li>Host → guest after the host has applied — the guest discards its rollback
- *       snapshot. If this never arrives before the guest ack timeout, the guest
- *       rolls back so neither side keeps a partial swap.</li>
+ *   <li>Host → guest after the host has applied (commit point) — the guest discards
+ *       its rollback snapshot. If this ack is lost, the guest must <b>not</b> roll
+ *       back after host commit; it reconciles via {@link CoopTradeReconcileEvent}.</li>
  * </ul>
  */
 public class CoopTradeAckEvent implements NetEvent {

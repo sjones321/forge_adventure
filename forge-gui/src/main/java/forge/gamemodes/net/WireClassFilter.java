@@ -100,10 +100,12 @@ public final class WireClassFilter implements IHasForgeLog {
             "forge.gamemodes.net.event.coop.CoopTradeCancelEvent",
             "forge.gamemodes.net.event.coop.CoopTradeExecuteEvent",
             "forge.gamemodes.net.event.coop.CoopTradeAckEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeReconcileEvent",
             "forge.gamemodes.net.coop.CoopTradeOffer",
             "forge.gamemodes.net.coop.CoopTradeOffer$Line",
             "forge.gamemodes.net.coop.CoopTradeOffer$CardLine",
-            "forge.gamemodes.net.coop.CoopTradeRole");
+            "forge.gamemodes.net.coop.CoopTradeRole",
+            "forge.gamemodes.net.coop.CoopTradeLog$Phase");
 
     private static final String JAVA_LANG = "java.lang.";
     private static final String PRIMITIVE_DESCRIPTORS = "BCDFIJSZ";

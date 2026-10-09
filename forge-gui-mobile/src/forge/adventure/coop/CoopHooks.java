@@ -29,6 +29,7 @@ import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
 import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
 import forge.gamemodes.net.event.coop.CoopTradeInviteEvent;
 import forge.gamemodes.net.event.coop.CoopTradeOfferEvent;
+import forge.gamemodes.net.event.coop.CoopTradeReconcileEvent;
 import forge.gamemodes.net.event.coop.CoopTradeResponseEvent;
 
 /**
@@ -117,6 +118,9 @@ public final class CoopHooks {
         }
 
         default void onTradeAck(CoopTradeAckEvent event) {
+        }
+
+        default void onTradeReconcile(CoopTradeReconcileEvent event) {
         }
 
         default void onOverworldMessage(NetEvent event) {
