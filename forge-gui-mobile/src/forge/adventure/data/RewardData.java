@@ -387,20 +387,46 @@ public class RewardData implements Serializable {
                     for (RewardData r : cardUnion) {
                         if (r.cardName != null && !r.cardName.isEmpty() ) {
                             PaperCard pc;
+                            CardDb.CardRequest req = CardDb.CardRequest.fromString(r.cardName);
                             if (allCardVariants) {
-                                CardDb.CardRequest req = CardDb.CardRequest.fromString(r.cardName);
                                 pc = (req.edition != null)
                                     ? CardUtil.getCardByNameAndEdition(req.cardName, req.edition)
                                     : CardUtil.getCardByName(req.cardName);
                             } else {
                                 pc = StaticData.instance().getCommonCards().getCard(r.cardName);
                             }
-                            if (pc != null)
+                            if (pc != null) {
+                                // CS0: honour Union sub-entry editions and Name|SET pins.
+                                if (SourcePrintings.enabled()) {
+                                    if (req.edition != null && !req.edition.isEmpty()) {
+                                        pc = SourcePrintings.resolve(pc, new String[]{req.edition});
+                                    } else {
+                                        pc = SourcePrintings.resolve(pc, r);
+                                    }
+                                }
                                 pool.add(pc);
+                            }
                         } else if (r.sourceDeck != null && !r.sourceDeck.isEmpty() ) {
-                            pool.addAll(CardUtil.getDeck(r.sourceDeck, false, false, "", false, false).getAllCardsInASinglePool().toFlatList());
+                            List<PaperCard> fromDeck = CardUtil.getDeck(r.sourceDeck, false, false, "", false, false)
+                                    .getAllCardsInASinglePool().toFlatList();
+                            if (SourcePrintings.enabled()) {
+                                for (PaperCard pc : fromDeck) {
+                                    if (pc != null)
+                                        pool.add(SourcePrintings.resolve(pc, r));
+                                }
+                            } else {
+                                pool.addAll(fromDeck);
+                            }
                         } else {
-                            pool.addAll(CardUtil.getPredicateResult(allCards, r));
+                            List<PaperCard> fromFilter = CardUtil.getPredicateResult(allCards, r);
+                            if (SourcePrintings.enabled()) {
+                                for (PaperCard pc : fromFilter) {
+                                    if (pc != null)
+                                        pool.add(SourcePrintings.resolve(pc, r));
+                                }
+                            } else {
+                                pool.addAll(fromFilter);
+                            }
                         }
                     }
                     ArrayList<PaperCard> finalPool = new ArrayList<>(pool);
@@ -415,14 +441,10 @@ public class RewardData implements Serializable {
                                         ret.add(new Reward(finalCard, isNoSell));
                                 }
                             } else {
+                                // World-seeded pick (identity stable); CS0 rematch already applied above.
                                 PaperCard card = finalPool.get(rewardRandom.nextInt(finalPool.size()));
-                                if (card != null) {
-                                    // CS0: Union shops (157 Ascendant entries) must rematch printings.
-                                    if (SourcePrintings.enabled()) {
-                                        card = SourcePrintings.resolve(card, this);
-                                    }
+                                if (card != null)
                                     ret.add(new Reward(card, isNoSell));
-                                }
                             }
                         }
                     }
@@ -443,11 +465,17 @@ public class RewardData implements Serializable {
                                 }
                             }
                         } else {
+                            CardDb.CardRequest namedReq = CardDb.CardRequest.fromString(cardName);
                             for (int i = 0; i < count + addedCount; i++) {
                                 PaperCard card = StaticData.instance().getCommonCards().getCard(cardName);
                                 if (card != null) {
                                     if (SourcePrintings.enabled()) {
-                                        card = SourcePrintings.resolve(card, this);
+                                        // Honour Name|SET pins; else RewardData.editions / rotation.
+                                        if (namedReq.edition != null && !namedReq.edition.isEmpty()) {
+                                            card = SourcePrintings.resolve(card, new String[]{namedReq.edition});
+                                        } else {
+                                            card = SourcePrintings.resolve(card, this);
+                                        }
                                     }
                                     ret.add(new Reward(card, isNoSell));
                                 } else
@@ -481,17 +509,15 @@ public class RewardData implements Serializable {
                             }
                             // else: keep window/base pool so shops stay stocked
                         }
-                        // CS0: keep set-pinned shops when the pin hits the pool; if the pin is
-                        // outside the rotation (40K / D&D shops) the pinned filter is empty — fall
-                        // back to the window pool so the shop stays stocked.
+                        // CS0: keep set-pinned shops only when the pin has enough non-basic
+                        // cards in the window pool (same floor as SetPlaneRules.setPoolIsUsable).
+                        // Basics / Commander reprints in 40K or AFR must not keep a dead pin.
                         if (SourcePrintings.enabled() && !isForEnemy && editions != null && editions.length > 0
                                 && AdventurePlayer.current().getStandardWindow().isActive()
-                                && filter.editions != null) {
-                            List<PaperCard> pinnedHits = CardUtil.getPredicateResult(cardPool, filter);
-                            if (pinnedHits.isEmpty()) {
-                                filter = new RewardData(this);
-                                filter.editions = null;
-                            }
+                                && filter.editions != null
+                                && !SourcePrintings.pinnedEditionsUsable(cardPool, editions)) {
+                            filter = new RewardData(this);
+                            filter.editions = null;
                         }
                         for (PaperCard card : CardUtil.generateCards(cardPool, filter, count + addedCount, rewardRandom)) {
                             if (card != null)

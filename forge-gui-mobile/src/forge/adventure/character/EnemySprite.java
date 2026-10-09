@@ -24,6 +24,7 @@ import forge.adventure.util.Config;
 import forge.adventure.util.Current;
 import forge.adventure.util.MapDialog;
 import forge.adventure.util.Reward;
+import forge.adventure.util.SourcePrintings;
 import forge.adventure.util.pathfinding.MovementBehavior;
 import forge.adventure.util.pathfinding.NavigationVertex;
 import forge.adventure.util.pathfinding.ProgressableGraphPath;
@@ -525,19 +526,19 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
                 }
                 // random uncommons from deck
                 if (!uncommonCards.isEmpty()) {
-                    rewardCollectionPool.add(new Reward(Aggregates.random(uncommonCards)));
-                    rewardCollectionPool.add(new Reward(Aggregates.random(uncommonCards)));
+                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(uncommonCards))));
+                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(uncommonCards))));
                 }
                 // random commons from deck
                 if (!commonCards.isEmpty()) {
-                    rewardCollectionPool.add(new Reward(Aggregates.random(commonCards)));
-                    rewardCollectionPool.add(new Reward(Aggregates.random(commonCards)));
-                    rewardCollectionPool.add(new Reward(Aggregates.random(commonCards)));
+                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(commonCards))));
+                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(commonCards))));
+                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(commonCards))));
                 }
                 // random rare from deck
                 if (!rareCards.isEmpty()) {
-                    rewardCollectionPool.add(new Reward(Aggregates.random(rareCards)));
-                    rewardCollectionPool.add(new Reward(Aggregates.random(rareCards)));
+                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(rareCards))));
+                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(rareCards))));
                 }
 
                 int val = ((MyRandom.getRandom().nextInt(2) + 1) * 100) + (MyRandom.getRandom().nextInt(101));
@@ -707,6 +708,16 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
 
     public boolean isFrozen() {
         return _freeze;
+    }
+
+    /** CS0: fantasy-mode loot uses a normal / rotation printing when Ascendant. */
+    private static PaperCard cs0LootPrinting(PaperCard card) {
+        if (card == null) {
+            return null;
+        }
+        return SourcePrintings.enabled()
+                ? SourcePrintings.resolve(card, (String[]) null)
+                : card;
     }
 }
 

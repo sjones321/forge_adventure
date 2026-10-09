@@ -3194,6 +3194,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         for (PaperCard pc : FModel.getMagicDb().getCommonCards().getAllCards(cardName)) {
             if (pc == null || !history.contains(pc.getEdition()))
                 continue;
+            // CS0: prefer normal printings from unlocked history.
+            if (forge.adventure.util.SourcePrintings.enabled()
+                    && !forge.adventure.util.SourcePrintings.isNormalPrinting(pc))
+                continue;
             CardEdition ed = FModel.getMagicDb().getEditions().get(pc.getEdition());
             long time = ed != null && ed.getDate() != null ? ed.getDate().getTime() : 0L;
             if (best == null || time > bestTime) {
@@ -3203,8 +3207,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         }
         if (best != null)
             return best;
-        if (isUnlockedStapleName(cardName))
-            return FModel.getMagicDb().getCommonCards().getUniqueByName(cardName);
+        if (isUnlockedStapleName(cardName)) {
+            PaperCard unique = FModel.getMagicDb().getCommonCards().getUniqueByName(cardName);
+            if (unique == null)
+                return null;
+            return forge.adventure.util.SourcePrintings.enabled()
+                    ? forge.adventure.util.SourcePrintings.resolve(unique, (String[]) null)
+                    : unique;
+        }
         return null;
     }
 

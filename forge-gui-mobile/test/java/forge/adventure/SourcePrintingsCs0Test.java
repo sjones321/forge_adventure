@@ -358,36 +358,90 @@ public class SourcePrintingsCs0Test {
     }
 
     @Test
-    public void generatePinnedShopOutsideRotationFallsBackAndStocks() {
+    public void pinnedEditionsUsableRejectsBasicsAndReprintsAlone() {
         warmRotationCardPool();
-        // 40K / D&D style pin outside ZEN/WWK/ROE — must not come up empty.
-        RewardData pinned = new RewardData();
-        pinned.type = "randomCard";
-        pinned.count = 4;
-        pinned.probability = 1f;
-        pinned.editions = new String[]{"40K"};
-        pinned.cardTypes = new String[]{"Creature"};
+        List<PaperCard> pool = new ArrayList<>();
+        for (PaperCard pc : RewardData.getAllCards()) {
+            if (pc != null) {
+                pool.add(pc);
+            }
+        }
+        Assert.assertFalse(pool.isEmpty(), "window card pool required");
 
-        List<PaperCard> cards = cardsFromGenerate(pinned, 6);
+        // CardPredicate edition match is non-empty for 40K/DnD (basics + Commander
+        // reprints of window names) — that must NOT keep the pin.
+        RewardData fortyKFilter = new RewardData();
+        fortyKFilter.editions = new String[]{"40K"};
+        Assert.assertFalse(CardUtil.getPredicateResult(pool, fortyKFilter).isEmpty(),
+                "sanity: 40K pin hits the window via basics/reprints (old empty check)");
+        Assert.assertFalse(SourcePrintings.pinnedEditionsUsable(pool, new String[]{"40K"}),
+                "40K pin must be unusable without enough non-basic pin cards");
+
+        RewardData dndFilter = new RewardData();
+        dndFilter.editions = new String[]{"AFR", "HBG", "CLB", "AFC"};
+        Assert.assertFalse(CardUtil.getPredicateResult(pool, dndFilter).isEmpty(),
+                "sanity: DnD pins hit the window via basics/reprints");
+        Assert.assertFalse(
+                SourcePrintings.pinnedEditionsUsable(pool, new String[]{"AFR", "HBG", "CLB", "AFC"}),
+                "DnD pin must be unusable on a ZEN/WWK/ROE window");
+
+        Assert.assertTrue(SourcePrintings.pinnedEditionsUsable(pool, new String[]{"ZEN"}),
+                "ZEN pin inside the window must stay usable");
+    }
+
+    @Test
+    public void generateSpaceMarineShopFallsBackToRotation() {
+        warmRotationCardPool();
+        // Real Ascendant shops.json SpaceMarine entry: count 8, editions ["40K"] only.
+        RewardData spaceMarine = new RewardData();
+        spaceMarine.count = 8;
+        spaceMarine.probability = 1f;
+        spaceMarine.editions = new String[]{"40K"};
+
+        List<PaperCard> cards = cardsFromGenerate(spaceMarine, 6);
         Assert.assertFalse(cards.isEmpty(),
-                "set-pinned shop outside rotation must fall back and stay stocked");
+                "SpaceMarine (40K) shop must fall back and stay stocked");
         Set<String> rotation = Set.of("ZEN", "WWK", "ROE");
         for (PaperCard pc : cards) {
             Assert.assertTrue(rotation.contains(pc.getEdition()),
-                    "fallback stock should use rotation printings; got "
+                    "SpaceMarine fallback must use rotation printings; got "
                             + pc.getName() + " [" + pc.getEdition() + "]");
+            Assert.assertNotEquals(pc.getEdition(), "40K",
+                    "must not stock 40K basics/reprints after unusable pin fallback");
+        }
+    }
+
+    @Test
+    public void generateDnDShopFallsBackToRotation() {
+        warmRotationCardPool();
+        // Real Ascendant shops.json DnD entry: count 8, editions AFR/HBG/CLB/AFC.
+        RewardData dnd = new RewardData();
+        dnd.count = 8;
+        dnd.probability = 1f;
+        dnd.editions = new String[]{"AFR", "HBG", "CLB", "AFC"};
+
+        List<PaperCard> cards = cardsFromGenerate(dnd, 6);
+        Assert.assertFalse(cards.isEmpty(),
+                "DnD shop must fall back and stay stocked");
+        Set<String> rotation = Set.of("ZEN", "WWK", "ROE");
+        Set<String> dndPins = Set.of("AFR", "HBG", "CLB", "AFC");
+        for (PaperCard pc : cards) {
+            Assert.assertTrue(rotation.contains(pc.getEdition()),
+                    "DnD fallback must use rotation printings; got "
+                            + pc.getName() + " [" + pc.getEdition() + "]");
+            Assert.assertFalse(dndPins.contains(pc.getEdition()),
+                    "must not stock AFR/CLB basics/reprints after unusable pin fallback");
         }
     }
 
     @Test
     public void generateZenPinnedShopKeepsZenPrintings() {
         warmRotationCardPool();
+        // Same shape as a real set-pinned shop: count + editions only (no cardTypes).
         RewardData pinned = new RewardData();
-        pinned.type = "randomCard";
-        pinned.count = 4;
+        pinned.count = 8;
         pinned.probability = 1f;
         pinned.editions = new String[]{"ZEN"};
-        pinned.cardTypes = new String[]{"Creature"};
 
         List<PaperCard> cards = cardsFromGenerate(pinned, 6);
         Assert.assertFalse(cards.isEmpty(), "ZEN-pinned shop inside rotation must stock");
@@ -398,52 +452,70 @@ public class SourcePrintingsCs0Test {
     }
 
     @Test
-    public void onlineAndRestrictedEditionsExcludedFromNormalFallback() {
-        SourcePrintings.clearCachesForTest();
-        // Shock: paper + online printings exist; empty rotation → most recent normal.
-        PaperCard shock = SourcePrintings.printingFromRotation("Shock", List.of());
-        Assert.assertNotNull(shock);
-        Assert.assertTrue(SourcePrintings.isNormalPrinting(shock),
-                "empty-rotation fallback must be a normal printing");
-        CardEdition ed = FModel.getMagicDb().getEditions().get(shock.getEdition());
-        Assert.assertNotNull(ed);
-        Assert.assertNotEquals(ed.getType(), CardEdition.Type.ONLINE);
-        Assert.assertNotEquals(ed.getType(), CardEdition.Type.FUNNY);
-        Assert.assertNotEquals(ed.getType(), CardEdition.Type.COLLECTOR_EDITION);
-        Assert.assertFalse(SourcePrintings.isRestrictedEdition(shock.getEdition()));
+    public void generateExcludesOnlineCollectorFunnyRestrictedPlstMb1() {
+        warmRotationCardPool();
+        SourcePrintings.clearCaches();
 
-        // Direct: an ONLINE printing must fail isNormalPrinting.
-        PaperCard online = SourcePrintings.printingFromSet("Shock", "ANB");
-        if (online != null) {
-            Assert.assertFalse(SourcePrintings.isNormalPrinting(online),
-                    "Arena Beginner (ONLINE) Shock must not count as normal");
+        // Hard availability checks — do not silently skip.
+        Assert.assertNotNull(FModel.getMagicDb().getEditions().get("ANB"), "ANB (ONLINE) required");
+        Assert.assertNotNull(FModel.getMagicDb().getEditions().get("V15"), "V15 (COLLECTOR) required");
+        Assert.assertNotNull(FModel.getMagicDb().getEditions().get("UST"), "UST (FUNNY/restricted) required");
+        Assert.assertNotNull(FModel.getMagicDb().getEditions().get("PLST"), "PLST required");
+        Assert.assertNotNull(FModel.getMagicDb().getEditions().get("MB1"), "MB1 required");
+        Assert.assertEquals(FModel.getMagicDb().getEditions().get("ANB").getType(), CardEdition.Type.ONLINE);
+        Assert.assertEquals(FModel.getMagicDb().getEditions().get("V15").getType(),
+                CardEdition.Type.COLLECTOR_EDITION);
+        Assert.assertEquals(FModel.getMagicDb().getEditions().get("UST").getType(), CardEdition.Type.FUNNY);
+        Assert.assertTrue(SourcePrintings.isRestrictedEdition("UST"),
+                "Ascendant restrictedEditions must list UST");
+
+        PaperCard onlineShock = SourcePrintings.printingFromSet("Shock", "ANB");
+        Assert.assertNotNull(onlineShock, "ANB Shock printing required");
+        Assert.assertFalse(SourcePrintings.isNormalPrinting(onlineShock),
+                "ONLINE Shock must fail isNormalPrinting");
+
+        CardEdition ustEd = FModel.getMagicDb().getEditions().get("UST");
+        Assert.assertFalse(ustEd.getCards().isEmpty(), "UST must have cards");
+        PaperCard ustCard = SourcePrintings.printingFromSet(ustEd.getCards().get(0).name(), "UST");
+        Assert.assertNotNull(ustCard, "UST printing must resolve for isNormalPrinting check");
+        Assert.assertFalse(SourcePrintings.isNormalPrinting(ustCard),
+                "restricted FUNNY UST must fail isNormalPrinting");
+
+        // Junk / generic shop via generate() — no editions pin.
+        RewardData junk = new RewardData();
+        junk.type = "randomCard";
+        junk.count = 8;
+        junk.probability = 1f;
+
+        List<PaperCard> cards = cardsFromGenerate(junk, 12);
+        Assert.assertFalse(cards.isEmpty(), "junk generate must stock cards");
+        Set<String> bannedCodes = Set.of("PLST", "MB1", "ANB", "V15", "UST");
+        for (PaperCard pc : cards) {
+            Assert.assertFalse(bannedCodes.contains(pc.getEdition().toUpperCase()),
+                    "generate must not yield banned edition " + pc.getEdition()
+                            + " for " + pc.getName());
+            CardEdition ed = FModel.getMagicDb().getEditions().get(pc.getEdition());
+            Assert.assertNotNull(ed, "edition must resolve: " + pc.getEdition());
+            Assert.assertNotEquals(ed.getType(), CardEdition.Type.ONLINE,
+                    "generate must exclude ONLINE: " + pc.getName() + " [" + pc.getEdition() + "]");
+            Assert.assertNotEquals(ed.getType(), CardEdition.Type.COLLECTOR_EDITION,
+                    "generate must exclude COLLECTOR: " + pc.getName() + " [" + pc.getEdition() + "]");
+            Assert.assertNotEquals(ed.getType(), CardEdition.Type.FUNNY,
+                    "generate must exclude FUNNY: " + pc.getName() + " [" + pc.getEdition() + "]");
+            Assert.assertFalse(SourcePrintings.isRestrictedEdition(pc.getEdition()),
+                    "generate must exclude restrictedEditions: " + pc.getEdition());
+            Assert.assertTrue(SourcePrintings.isNormalPrinting(pc)
+                            || Set.of("ZEN", "WWK", "ROE").contains(pc.getEdition()),
+                    "generate card should be normal or in-rotation: "
+                            + pc.getName() + " [" + pc.getEdition() + "]");
         }
 
-        // Restricted funny set (UST) must never be chosen as normal.
-        PaperCard ust = SourcePrintings.printingFromSet("Steamflogger Boss", "UST");
-        if (ust == null) {
-            // Any UST card name from the edition list.
-            CardEdition ustEd = FModel.getMagicDb().getEditions().get("UST");
-            Assert.assertNotNull(ustEd);
-            if (!ustEd.getCards().isEmpty()) {
-                ust = SourcePrintings.printingFromSet(ustEd.getCards().get(0).name(), "UST");
-            }
-        }
-        if (ust != null) {
-            Assert.assertTrue(SourcePrintings.isRestrictedEdition("UST"));
-            Assert.assertFalse(SourcePrintings.isNormalPrinting(ust),
-                    "restrictedEditions UST must fail isNormalPrinting");
-        }
-
-        // getCardByName early return must also avoid ONLINE / restricted.
         PaperCard byName = CardUtil.getCardByName("Shock");
         Assert.assertNotNull(byName);
-        Assert.assertTrue(SourcePrintings.isNormalPrinting(byName)
-                        || Set.of("ZEN", "WWK", "ROE").contains(byName.getEdition()),
-                "getCardByName under CS0 must not return online/restricted when avoidable");
         Assert.assertNotEquals(
                 FModel.getMagicDb().getEditions().get(byName.getEdition()).getType(),
                 CardEdition.Type.ONLINE);
+        Assert.assertFalse(SourcePrintings.isRestrictedEdition(byName.getEdition()));
     }
 
     @Test

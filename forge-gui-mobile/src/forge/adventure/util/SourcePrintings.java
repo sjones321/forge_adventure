@@ -23,10 +23,29 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * CS0: Ascendant card printings come from their source (pack set, set plane, shop pool),
- * never from random variants. When no set context exists (junk shops, generic loot), pick a
- * normal printing from the player's current rotation, falling back to the most recent normal
- * (non-promo, non-showcase) printing. Stock worlds are unchanged.
+ * CS0 — Ascendant source printings (stable public API for rewards, shops, packs,
+ * Spell Smith, gym staples, fantasy loot, craft, and future RW1 fight rewards).
+ *
+ * <p><b>Public entry points</b> (keep signatures stable):
+ * <ul>
+ *   <li>{@link #enabled()} — Ascendant + {@code cs0SourcePrintings}</li>
+ *   <li>{@link #useAllCardVariants()} — always false when enabled</li>
+ *   <li>{@link #isNormalPrinting(PaperCard)} — non-promo / non-special / allowed</li>
+ *   <li>{@link #printingFromSet(String, String)} — pin a name to a set code</li>
+ *   <li>{@link #printingFromRotation(String)} / {@link #printingFromRotation(String, Collection)}</li>
+ *   <li>{@link #resolve(PaperCard, String[])} / {@link #resolve(PaperCard, RewardData)}</li>
+ *   <li>{@link #pinnedEditionsUsable(Iterable, String[])} — shop pin keep-or-fallback</li>
+ *   <li>{@link #currentRotationSets()}, {@link #isRestrictedEdition(String)}</li>
+ *   <li>{@link #clearCaches()} — call on plane / config reload</li>
+ * </ul>
+ *
+ * <p>When no set context exists, picks a normal printing from the player's current
+ * rotation, else the most recent normal printing. Stock worlds are unchanged.
+ *
+ * <p>Note: CS0 rematches <em>printings</em> only. Shop / reward card <em>picks</em>
+ * still use the world-seeded {@link java.util.Random} from
+ * {@link forge.adventure.data.RewardData#generate}; seeded shop identity is stable,
+ * only the edition/art of each pick may change under CS0.
  */
 public final class SourcePrintings {
     private static final Set<String> SPECIAL_SECTIONS = Set.of(
@@ -54,8 +73,12 @@ public final class SourcePrintings {
             CardEdition.Type.PROMO,
             CardEdition.Type.ONLINE,
             CardEdition.Type.COLLECTOR_EDITION,
-            CardEdition.Type.FUNNY
+            CardEdition.Type.FUNNY,
+            CardEdition.Type.REPRINT
     );
+
+    /** The List / Mystery Booster — never treated as a "normal" source printing. */
+    private static final Set<String> EXCLUDED_EDITION_CODES = Set.of("PLST", "MB1");
 
     /** Cache: edition|collectorNumber → section name (empty string if unknown). */
     private static final Map<String, String> SECTION_CACHE = new ConcurrentHashMap<>();
@@ -65,10 +88,15 @@ public final class SourcePrintings {
     private SourcePrintings() {
     }
 
-    /** Test helper: drop section / normal caches. */
-    public static void clearCachesForTest() {
+    /** Drop section / normal caches (plane switch, config reload, tests). */
+    public static void clearCaches() {
         SECTION_CACHE.clear();
         NORMAL_CACHE.clear();
+    }
+
+    /** @deprecated use {@link #clearCaches()} */
+    public static void clearCachesForTest() {
+        clearCaches();
     }
 
     /**
@@ -88,7 +116,7 @@ public final class SourcePrintings {
     }
 
     /**
-     * Effective {@code useAllCardVariants}: always false under CS0 so Ascendant ignores
+     * Effective {@code useAllCardVariants}: always false when enabled so Ascendant ignores
      * the player setting for rewards, shops, packs and Spell Smith. Stock worlds return
      * the real setting.
      */
@@ -105,9 +133,9 @@ public final class SourcePrintings {
     }
 
     /**
-     * A normal printing: not promo / online / collector / funny, not from a special sheet
-     * (showcase, borderless, conjured, rebalanced, eternal, precon, …), and not from a
-     * {@code restrictedEditions} code. Main {@code cards} sheet printings count as normal.
+     * A normal printing: not promo / online / collector / funny / reprint-set, not PLST/MB1,
+     * not from a special sheet (showcase, borderless, conjured, …), not
+     * {@code restrictedEditions}, and inside {@code allowedEditions} when that list is set.
      */
     public static boolean isNormalPrinting(PaperCard pc) {
         if (pc == null) {
@@ -123,14 +151,15 @@ public final class SourcePrintings {
         if (cached != null) {
             return cached;
         }
-        boolean normal = computeIsNormalPrinting(pc, editionCode, cn);
+        boolean normal = computeIsNormalPrinting(editionCode, cn);
         NORMAL_CACHE.put(cacheKey, normal);
         return normal;
     }
 
-    private static boolean computeIsNormalPrinting(PaperCard pc, String editionCode, String cn) {
+    private static boolean computeIsNormalPrinting(String editionCode, String cn) {
         try {
-            if (isRestrictedEdition(editionCode)) {
+            if (isExcludedEditionCode(editionCode) || isRestrictedEdition(editionCode)
+                    || !isAllowedEdition(editionCode)) {
                 return false;
             }
             CardEdition edition = editions().get(editionCode);
@@ -155,12 +184,69 @@ public final class SourcePrintings {
         }
     }
 
+    /**
+     * Whether a shop/reward edition pin is worth keeping against {@code pool}.
+     * Counts distinct non-basic pool names that have a non-basic printing in a
+     * non-reprint pin edition — same floor as {@link SetPlaneRules#MIN_SET_POOL_SIZE}.
+     * Basics and Commander reprints of window staples alone are not enough, so 40K /
+     * D&amp;D pins over a Standard window fall back to the rotation.
+     */
+    public static boolean pinnedEditionsUsable(Iterable<PaperCard> pool, String[] pinEditions) {
+        if (pool == null || pinEditions == null || pinEditions.length == 0) {
+            return false;
+        }
+        List<String> usablePins = new ArrayList<>();
+        for (String ed : pinEditions) {
+            if (ed == null || ed.isEmpty() || isRestrictedEdition(ed) || isExcludedEditionCode(ed)) {
+                continue;
+            }
+            if (!isAllowedEdition(ed)) {
+                continue;
+            }
+            try {
+                CardEdition edition = editions().get(ed);
+                if (edition != null && EXCLUDED_EDITION_TYPES.contains(edition.getType())) {
+                    continue;
+                }
+            } catch (Throwable ignored) {
+                continue;
+            }
+            usablePins.add(ed);
+        }
+        if (usablePins.isEmpty()) {
+            return false;
+        }
+        int n = 0;
+        Set<String> seen = new HashSet<>();
+        for (PaperCard pc : pool) {
+            if (pc == null || SetPlaneRules.isBasicLand(pc)) {
+                continue;
+            }
+            String name = pc.getName();
+            if (name == null || !seen.add(name)) {
+                continue;
+            }
+            for (String ed : usablePins) {
+                PaperCard pinPrint = printingFromSet(name, ed);
+                if (pinPrint != null && ed.equalsIgnoreCase(pinPrint.getEdition())
+                        && !SetPlaneRules.isBasicLand(pinPrint)) {
+                    n++;
+                    break;
+                }
+            }
+            if (n >= SetPlaneRules.MIN_SET_POOL_SIZE) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Prefer a main-sheet printing of {@code cardName} from {@code setCode}. */
     public static PaperCard printingFromSet(String cardName, String setCode) {
         if (cardName == null || cardName.isEmpty() || setCode == null || setCode.isEmpty()) {
             return null;
         }
-        if (isRestrictedEdition(setCode)) {
+        if (isRestrictedEdition(setCode) || isExcludedEditionCode(setCode) || !isAllowedEdition(setCode)) {
             return null;
         }
         List<PaperCard> inSet = new ArrayList<>();
@@ -178,7 +264,7 @@ public final class SourcePrintings {
 
     /**
      * Normal printing from one of {@code rotationSets}, else most recent normal printing
-     * anywhere, else any printing.
+     * anywhere, else any non-restricted printing.
      */
     public static PaperCard printingFromRotation(String cardName, Collection<String> rotationSets) {
         if (cardName == null || cardName.isEmpty()) {
@@ -194,6 +280,9 @@ public final class SourcePrintings {
             List<PaperCard> anyInRotation = new ArrayList<>();
             for (PaperCard pc : all) {
                 if (pc == null || !rotation.contains(pc.getEdition().toUpperCase(Locale.ROOT))) {
+                    continue;
+                }
+                if (!isAllowedEdition(pc.getEdition())) {
                     continue;
                 }
                 anyInRotation.add(pc);
@@ -220,10 +309,11 @@ public final class SourcePrintings {
         if (recent != null) {
             return recent;
         }
-        // Last resort: any non-restricted printing (still avoid online/funny when possible).
         List<PaperCard> usable = new ArrayList<>();
         for (PaperCard pc : all) {
-            if (pc != null && !isRestrictedEdition(pc.getEdition())) {
+            if (pc != null && !isRestrictedEdition(pc.getEdition())
+                    && !isExcludedEditionCode(pc.getEdition())
+                    && isAllowedEdition(pc.getEdition())) {
                 usable.add(pc);
             }
         }
@@ -238,7 +328,8 @@ public final class SourcePrintings {
 
     /**
      * Rematch {@code candidate} to its source printing when CS0 is on.
-     * Source editions (shop / reward pin) win; else the active set plane; else rotation.
+     * Source editions (shop / reward / Name|SET pin) win; else the active set plane;
+     * else rotation / most-recent normal.
      */
     public static PaperCard resolve(PaperCard candidate, String[] sourceEditions) {
         if (candidate == null || !enabled()) {
@@ -246,7 +337,8 @@ public final class SourcePrintings {
         }
         if (sourceEditions != null) {
             for (String ed : sourceEditions) {
-                if (ed == null || ed.isEmpty() || isRestrictedEdition(ed)) {
+                if (ed == null || ed.isEmpty() || isRestrictedEdition(ed)
+                        || isExcludedEditionCode(ed) || !isAllowedEdition(ed)) {
                     continue;
                 }
                 PaperCard pinned = printingFromSet(candidate.getName(), ed);
@@ -257,7 +349,8 @@ public final class SourcePrintings {
         }
         try {
             String planeSet = SetPlaneRules.activeSetCode();
-            if (planeSet != null && !planeSet.isEmpty() && !isRestrictedEdition(planeSet)) {
+            if (planeSet != null && !planeSet.isEmpty() && !isRestrictedEdition(planeSet)
+                    && isAllowedEdition(planeSet)) {
                 PaperCard pinned = printingFromSet(candidate.getName(), planeSet);
                 if (pinned != null && planeSet.equalsIgnoreCase(pinned.getEdition())) {
                     return pinned;
@@ -309,6 +402,31 @@ public final class SourcePrintings {
             // Config unavailable.
         }
         return false;
+    }
+
+    /** True when {@code allowedEditions} is unset/empty, or {@code code} is listed. */
+    public static boolean isAllowedEdition(String code) {
+        if (code == null || code.isEmpty()) {
+            return false;
+        }
+        try {
+            ConfigData data = Config.instance().getConfigData();
+            if (data == null || data.allowedEditions == null || data.allowedEditions.length == 0) {
+                return true;
+            }
+            for (String a : data.allowedEditions) {
+                if (code.equalsIgnoreCase(a)) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    private static boolean isExcludedEditionCode(String code) {
+        return code != null && EXCLUDED_EDITION_CODES.contains(code.toUpperCase(Locale.ROOT));
     }
 
     private static List<PaperCard> allPrintings(String cardName) {
@@ -367,7 +485,7 @@ public final class SourcePrintings {
         return out;
     }
 
-    /** Prefer normal main-sheet, then lowest collector number (numeric / natural order). */
+    /** Prefer normal main-sheet, then lowest collector number (numeric order). */
     private static PaperCard pickPreferred(List<PaperCard> cards) {
         if (cards == null || cards.isEmpty()) {
             return null;
@@ -380,6 +498,10 @@ public final class SourcePrintings {
                 .orElse(null);
     }
 
+    /**
+     * Newest edition date, then lowest collector number (same CN direction as
+     * {@link #pickPreferred}).
+     */
     private static PaperCard pickMostRecent(List<PaperCard> cards) {
         if (cards == null || cards.isEmpty()) {
             return null;
@@ -388,7 +510,7 @@ public final class SourcePrintings {
                 .filter(pc -> pc != null)
                 .max(Comparator
                         .comparing(SourcePrintings::editionDate, Comparator.nullsFirst(Date::compareTo))
-                        .thenComparing(SourcePrintings::sortableCn))
+                        .thenComparing(SourcePrintings::sortableCn, Comparator.reverseOrder()))
                 .orElse(null);
     }
 
