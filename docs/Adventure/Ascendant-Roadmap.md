@@ -237,6 +237,27 @@ perk layer with a tree per skill so more levels matter and builds differ:
   Pauper option in the deck format cycle.
 - The current plane's format is shown on the status screen and in the portal dialog.
 
+### EC1. Game-based card economy (Ascendant; replaces real-world prices)
+Card prices come from the game, not from real-world market data, so no card is a jackpot (an early Badlands is
+worth what its rarity and power say, not hundreds of dollars).
+- **Base value by rarity** (tunable table in the Ascendant config): common, uncommon, rare, mythic, special. Basic
+  lands are worth nothing.
+- **Power within its set** from Forge's own draft pick rankings (`forge-gui/res/draft/rankings`): a card ranked near
+  the top of its set is worth more than a weak card of the same rarity, so a strong common can outprice a bad rare.
+  Cards with no ranking use the rarity base. The multiplier range is tunable (e.g. 0.5x to 3x).
+- **Rotation**: cards legal in the current Standard window are worth more (demand); rotated (Historic-only) cards
+  less. With K, use the format of the plane the shop is on.
+- **Living local markets** (per world save): each town shop tracks supply per card. Selling copies there lowers its
+  price, buying raises it, and prices drift back toward the base over in-game days. Towns lean by color (a red
+  plane's town pays more for red cards). Bounded so prices never leave a tunable band around the base.
+- **Selling pays a fixed share** of the current local price (tunable, about 30%). Auto-sell and bulk sell use the same.
+- **One source of value**: dust refine and craft costs (A2), salvage yields and shop restock prices read the same
+  value function, so buying, crafting and salvaging stay consistent.
+- Replace `CardUtil.getCardPrice` usage in Ascendant with the new function; the stock world keeps real prices.
+- Tests: a ZEN common vs a ZEN rare by ranking; Badlands priced by rarity/power (no market data); selling five copies
+  in one town lowers that town's price and not another's; drift back over time; sale share applied; stock world
+  unchanged.
+
 ### L. Tournaments and lifetime stats (depends on K)
 - **Tournament ring**: inns run small events (the existing inn event code: draft, jumpstart, sealed) plus
   constructed events in the run format.
@@ -642,6 +663,16 @@ All input still goes through `getGameController().selectCard/selectPlayer`, so i
 - Works in solo and co-op duels and in stock Forge matches on the mobile/libGDX client; gate anything that changes
   stock behaviour behind a preference defaulting to the new UI only in Ascendant until it's proven.
 
+### DS2. Clear counter and fizzle banner (small; Ascendant duel screen and the classic one)
+- When a spell or ability **you** control is countered, show a banner in the middle of the duel screen with both
+  cards side by side: "Your Lightning Bolt was countered by Cancel". Same banner when your spell or ability fizzles
+  because its target became illegal ("Your Lightning Bolt fizzled: its target is gone"), and when an opponent's
+  spell is countered by yours (shorter, quieter).
+- Stays about 3 seconds or until clicked/tapped; never blocks input; queued if several happen at once.
+- Driven by Forge's game events (countered/fizzled), not by parsing the log. Works for the LLM opponent and in co-op
+  (each player sees banners for their own spells).
+- Tests: a countered spell and a fizzled spell each raise exactly one banner event for the right player.
+
 ## AI opponent: bring your own
 
 The LLM opponent (`forge-ai/.../llm/LlmOpponent.java`, settings in `%APPDATA%\Forge\llm_opponent.properties`)
@@ -783,18 +814,30 @@ with him.
   its own Hall of Fame entry.
 - Forge has an achievement system in its other game modes; reuse its pieces only if they fit cleanly.
 
-### CS1. Card styles: alternate arts, special versions and foils (depends on AC1 for some sources)
-- **An account-wide unlock list of card styles** per card name (printing/set code, art index, foil). Kept through
-  prestige; a style applies as soon as the player owns that card again.
-- **Deck editor**: pick which unlocked style each card shows. Forge already stores a set and art per card in a deck.
-- Sources, so chasing shinies is a real goal:
-  - **Packs**: a small chance at foils and special printings; pulling one unlocks that style.
-  - **Shops** sell the normal printing only. Special printings, if offered at all, cost a steep markup (tunable).
-  - **Quests, achievements and friendship rewards** grant specific styles (e.g. a townsperson's signature card in
-    their own art).
-  - **Card mastery (T)**: its foil and alt-art unlocks feed this same list.
-- **Stop the random sprinkle**: card rewards and shop stock default to the normal printing; special versions come
-  only from the sources above. Ascendant only; the stock world is unchanged.
+### CS0. Printings come from where you got them (small, do first; Ascendant only)
+- Every card the player receives uses the printing from its source: a pack gives that pack's set printing, a set
+  plane's rewards and shops give that set's printing, a shop gives the printing from its own set pool. Anything with
+  no set context (generic loot, junk shops) uses the card's normal printing from a set in the player's current
+  rotation, falling back to its most recent normal (non-promo, non-showcase) printing.
+- No random variants anywhere in Ascendant: ignore the `useAllCardVariants` setting for rewards, shops, packs and the
+  Spell Smith. The stock world keeps today's behaviour.
+- Tests: rewards, shop stock and pack contents from a ZEN source are all ZEN printings; a junk-shop card uses a
+  printing inside the rotation; `useAllCardVariants=true` changes nothing in Ascendant.
+
+### CS1. Card styles: alternate arts, special versions and foils (depends on CS0; AC1 for some sources)
+- **A style is cosmetic, not a different card.** Alternate art, showcase, borderless, foil and reprint art from other
+  sets are styles unlocked per card name (printing/set code, art index, foil). An unlocked style can be applied to
+  any copy the player owns; it never changes the card, its legality, sale price or crafting value.
+- **Account-wide and kept through prestige**: a style applies as soon as the player owns that card again.
+- **Deck editor and collection**: pick which unlocked style each card shows (Forge already stores a set and art per
+  card in a deck).
+- **Three ways to get styles:**
+  - **Buy**: a cosmetics vendor in towns (an artist or engraver) sells styles for gold or shards; stock rotates.
+  - **Craft**: dust plus a rare cosmetic material (e.g. "prismatic ink" from delves or achievements) crafts a chosen
+    style, so a specific chase is possible.
+  - **Earn**: achievements (AC1), quests, card mastery (T) foil and alt-art unlocks, and friendship rewards (e.g. a
+    townsperson's signature card in their own art).
+- Packs may still show a small chance at a foil; pulling one unlocks that foil style.
 
 ## Suggested order
 
