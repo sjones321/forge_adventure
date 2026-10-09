@@ -438,25 +438,108 @@ public final class GymUtil {
     }
 
     public static String legalityMessage() {
-        AdventurePlayer p = Current.player();
-        Deck d = p.getSelectedDeck();
-        String format = p.getRunFormat();
-        if (FORMAT_STANDARD.equals(format)) {
-            String problem = p.standardDeckProblem(d);
-            if (problem != null)
-                return problem;
-            if (p.isCommanderDeckSelected() || p.isHistoricDeckSelected())
-                return "Select a Standard deck for this run (not Commander or Historic).";
-        } else if (FORMAT_HISTORIC.equals(format)) {
-            String problem = p.historicDeckProblem(d);
-            if (problem != null)
-                return problem;
-        } else if (FORMAT_PAUPER.equals(format)) {
-            String problem = p.pauperDeckProblem(d);
-            if (problem != null)
-                return problem;
+        // CO5: list every illegal card before a gym / League / tournament fight
+        // instead of dropping the player on the first problem only.
+        final java.util.List<String> illegal = listIllegalCardsForRun();
+        if (!illegal.isEmpty()) {
+            final StringBuilder sb = new StringBuilder("Illegal for this run's format (");
+            sb.append(Current.player().getRunFormat()).append("): ");
+            for (int i = 0; i < illegal.size(); i++) {
+                if (i > 0) {
+                    sb.append("; ");
+                }
+                sb.append(illegal.get(i));
+                if (i >= 11) {
+                    sb.append("; …");
+                    break;
+                }
+            }
+            return sb.toString();
+        }
+        final AdventurePlayer p = Current.player();
+        final String format = p.getRunFormat();
+        if (FORMAT_STANDARD.equals(format)
+                && (p.isCommanderDeckSelected() || p.isHistoricDeckSelected())) {
+            return "Select a Standard deck for this run (not Commander or Historic).";
         }
         return "Your selected deck must be legal for this run's format (" + format + ").";
+    }
+
+    /**
+     * CO5: every card (and tag) problem for the selected deck vs the run format.
+     * Empty when the deck is legal. Used by gyms, League and tournaments to list
+     * illegals before the fight.
+     */
+    public static java.util.List<String> listIllegalCardsForRun() {
+        final java.util.List<String> out = new java.util.ArrayList<>();
+        final AdventurePlayer p = Current.player();
+        final Deck d = p.getSelectedDeck();
+        if (d == null) {
+            out.add("No deck selected");
+            return out;
+        }
+        final String format = p.getRunFormat();
+        if (FORMAT_COMMANDER.equals(format)) {
+            if (!p.isCommanderDeck(d)) {
+                out.add("Select a Commander deck for this run");
+            }
+            return out;
+        }
+        if (FORMAT_HISTORIC.equals(format)) {
+            if (!p.isHistoricDeck(d)) {
+                out.add("Select a Historic-tagged deck for this run");
+            }
+            if (p.isCommanderDeck(d)) {
+                out.add("Commander decks can't be used in a Historic run");
+            }
+            for (final java.util.Map.Entry<forge.item.PaperCard, Integer> e : d.getAllCardsInASinglePool()) {
+                final forge.item.PaperCard pc = e.getKey();
+                if (pc != null && BanLists.isBanned("historic", pc.getName())) {
+                    out.add(pc.getName() + " is banned in Historic");
+                }
+            }
+            return out;
+        }
+        if (FORMAT_PAUPER.equals(format)) {
+            if (p.isCommanderDeck(d)) {
+                out.add("Commander decks can't be used in a Pauper run");
+            }
+            final forge.game.GameFormat pauper = forge.model.FModel.getFormats().getPauper();
+            for (final java.util.Map.Entry<forge.item.PaperCard, Integer> e : d.getAllCardsInASinglePool()) {
+                final forge.item.PaperCard pc = e.getKey();
+                if (pc == null || pc.getRules().getType().isBasicLand()) {
+                    continue;
+                }
+                if (BanLists.isBanned("pauper", pc.getName())) {
+                    out.add(pc.getName() + " is banned in Pauper");
+                } else if (pauper != null && pauper.getFilterRules() != null
+                        && !pauper.getFilterRules().test(pc)) {
+                    out.add(pc.getName() + " is not Pauper-legal");
+                } else if ((pauper == null || pauper.getFilterRules() == null)
+                        && pc.getRarity() != forge.card.CardRarity.Common) {
+                    out.add(pc.getName() + " is not Pauper-legal (commons only)");
+                }
+            }
+            return out;
+        }
+        // Standard (default)
+        if (p.isCommanderDeck(d) || p.isHistoricDeck(d)) {
+            out.add("Select a Standard deck for this run (not Commander or Historic)");
+        }
+        if (p.getStandardWindow().isActive()) {
+            for (final java.util.Map.Entry<forge.item.PaperCard, Integer> e : d.getAllCardsInASinglePool()) {
+                final forge.item.PaperCard pc = e.getKey();
+                if (pc == null) {
+                    continue;
+                }
+                if (!p.isStandardLegal(pc)) {
+                    out.add(pc.getName() + " rotated out of Standard");
+                } else if (BanLists.isBanned("standard", pc.getName())) {
+                    out.add(pc.getName() + " is banned in Standard");
+                }
+            }
+        }
+        return out;
     }
 
     public static Array<Reward> grantRewards(GymRewardData reward) {

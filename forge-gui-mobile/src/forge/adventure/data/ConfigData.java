@@ -287,6 +287,29 @@ public class ConfigData {
      */
     public int coopDuelGuestConnectGraceSeconds = 8;
 
+    // ---- Ascendant co-op (Package CO5): world-bound partner characters. ----
+
+    /**
+     * Seconds between debounced partner snapshots during gather/craft batches.
+     * Duels and leave always send immediately.
+     */
+    public int coopPartnerSnapshotDebounceSeconds = 30;
+    /** Max partner snapshots accepted from a guest per minute (host rate limit). */
+    public int coopPartnerSnapshotMaxPerMinute = 12;
+    /** Max deflated partner SaveFileData blob size in bytes. */
+    public int coopPartnerMaxBlobBytes = 2097152;
+    /**
+     * Host setting: when true, a new partner may copy one deck from the guest's
+     * solo character as a gift. Default false.
+     */
+    public boolean coopPartnerAllowCopySoloDeck = false;
+    /** Sealed starter packs for a new partner (0 → use sealedStartPacks). */
+    public int coopPartnerStarterPacks = 0;
+    /** Opened packs from the starter gift (0 → use sealedStartOpenedPacks). */
+    public int coopPartnerStarterOpenedPacks = 0;
+    /** Bonus gold for a new partner (-1 → use sealedStartBonusGold). */
+    public int coopPartnerStarterBonusGold = -1;
+
     // ---- Ascendant inventory bags (INV1): slot counts and stack sizes (no weight). ----
 
     /** Default backpack slots for gear and usable items. */

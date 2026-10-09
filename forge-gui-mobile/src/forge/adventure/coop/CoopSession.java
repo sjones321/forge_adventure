@@ -40,6 +40,9 @@ import forge.gamemodes.net.event.coop.CoopLocationExitEvent;
 import forge.gamemodes.net.event.coop.CoopLocationInviteEvent;
 import forge.gamemodes.net.event.coop.CoopLocationResponseEvent;
 import forge.gamemodes.net.event.coop.CoopNodeStateEvent;
+import forge.gamemodes.net.event.coop.CoopPartnerCreateEvent;
+import forge.gamemodes.net.event.coop.CoopPartnerOfferEvent;
+import forge.gamemodes.net.event.coop.CoopPartnerSnapshotEvent;
 import forge.gamemodes.net.event.coop.CoopPartyInviteEvent;
 import forge.gamemodes.net.event.coop.CoopPartyResponseEvent;
 import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
@@ -48,26 +51,26 @@ import forge.gamemodes.net.event.coop.CoopPlanarGateEntry;
 import forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent;
 import forge.gamemodes.net.event.coop.CoopSessionReadyEvent;
 import forge.gamemodes.net.event.coop.CoopWorldOfferEvent;
+import forge.adventure.scene.StartScene;
+import forge.player.GamePlayerUtil;
 import forge.screens.TransitionScreen;
 import forge.util.URLValidator;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
- * Ascendant co-op session (CO1). Host owns the world; guest brings their own
- * character and never overwrites their local WorldSave with host world data.
- * Hard session-code + version check on connect. Provides send/listen hooks for CO2/CO3.
+ * Ascendant co-op session (CO1 + CO5). Host owns the world and the guest's
+ * world-bound partner character. Hard session-code + version check on connect.
  *
- * <p>Guest character model: the co-op {@code .chr} under {@code characters/} is the
- * source of truth across sessions. Join seeds it from the solo player only when
- * missing; later joins load the existing {@code .chr}. Leave persists the
- * {@code .chr} atomically and restores the stashed solo WorldSave without
- * touching the co-op character file.
+ * <p>CO5 partner model: partners live in the host {@link WorldSave} {@code partners}
+ * map keyed by the guest's install {@link CoopProfileId}. The guest's solo save is
+ * never read, written, stashed or restored by a session. On leave the guest returns
+ * to the main menu; a crash loses at most the last snapshot window.
  *
  * <p>{@link World#generateNew} / {@link World#load} for co-op run only on the GL
  * thread via {@link Gdx#app}{@Runnable} behind a {@link TransitionScreen},
@@ -103,14 +106,16 @@ public final class CoopSession {
 
     /** Host world held separately for the guest — never written into WorldSave slots. */
     private volatile World sessionWorld;
-    private volatile SaveFileData guestWorldBackup;
-    private volatile SaveFileData guestPlayerBackup;
-    private volatile String guestCharacterName;
+    /** CO5: guest install profile id for this session (host and guest). */
+    private volatile String guestProfileId = "";
+    /** CO5: true after the guest has loaded a partner blob into the local player. */
+    private volatile boolean partnerLoaded;
+    /** CO5: host-side snapshot rate limit for the connected guest. */
+    private final CoopPartnerValidator partnerValidator = new CoopPartnerValidator();
+    /** CO5: guest last snapshot send time (debounce for gather/craft). */
+    private volatile long lastPartnerSnapshotSendMs;
     /** MV1: plane instance id the guest last accepted from the host. */
     private volatile String guestWorldPlaneId = PlaneMeta.HOME_ID;
-    private volatile SaveFileData guestMultiverseBackup;
-    /** Guards against double {@link #restoreGuestSave()} on REJECTED + disconnect. */
-    private final AtomicBoolean guestRestoreDone = new AtomicBoolean(false);
 
     private volatile CoopOverworldServer server;
     private volatile CoopOverworldClient client;
@@ -184,12 +189,25 @@ public final class CoopSession {
     }
 
     /**
-     * True while the local peer is a guest in an active/joining session — blocks
-     * writing co-op world state into the guest's normal save slots.
+     * True while this peer is a guest in an active/joining/rejected session.
+     * Guests must not write host-world or partner state into local WorldSave slots.
      */
-    public boolean blocksLocalWorldSave() {
+    public boolean isGuestSession() {
         return role == CoopSessionRole.GUEST
                 && (state == State.JOINING || state == State.READY || state == State.REJECTED);
+    }
+
+    /** @deprecated CO5: use {@link #isGuestSession()} */
+    public boolean blocksLocalWorldSave() {
+        return isGuestSession();
+    }
+
+    public String getGuestProfileId() {
+        return guestProfileId != null ? guestProfileId : "";
+    }
+
+    public boolean isPartnerLoaded() {
+        return partnerLoaded;
     }
 
     /**
@@ -430,7 +448,9 @@ public final class CoopSession {
         this.sessionCode = CoopSessionCode.generate();
         role = CoopSessionRole.HOST;
         state = State.HOSTING;
-        CoopCharacterStore.exportCurrentPlayer();
+        guestProfileId = "";
+        partnerLoaded = false;
+        partnerValidator.resetRateLimit();
 
         server = new CoopOverworldServer(overworldPort,
                 bindAddress.isEmpty() ? null : bindAddress,
@@ -478,15 +498,16 @@ public final class CoopSession {
         role = CoopSessionRole.GUEST;
         state = State.JOINING;
         joinHostAddress = host;
-        guestRestoreDone.set(false);
-        applyGuestJoinSaveModel();
+        guestProfileId = CoopProfileId.getOrCreate();
+        partnerLoaded = false;
+        lastPartnerSnapshotSendMs = 0L;
+        // CO5: solo save is never stashed/restored; partner arrives from the host.
         sessionWorld = new World();
 
         client = new CoopOverworldClient(host, port, new GuestListener());
         try {
             client.connect();
         } catch (final Exception e) {
-            // Restore the guest's own save so autosave and quick save work again.
             disconnectInternal("join failed", true);
             throw e;
         }
@@ -518,13 +539,20 @@ public final class CoopSession {
     }
 
     /**
-     * @param restoreGuest when true, restore the guest's stashed WorldSave and
-     *                     stop networking; used for real disconnect. When false
-     *                     (restarting host/join), skip restore of a mid-flight stash.
+     * @param returnToMenu when true (real disconnect), guest sends a final partner
+     *                     snapshot then returns to the main menu without touching
+     *                     the solo save. When false (restarting host/join), skip menu.
      */
-    private void disconnectInternal(final String reason, final boolean restoreGuest) {
+    private void disconnectInternal(final String reason, final boolean returnToMenu) {
         final CoopSessionRole previousRole = role;
         final State previousState = state;
+
+        if (previousRole == CoopSessionRole.GUEST && partnerLoaded && returnToMenu) {
+            try {
+                sendPartnerSnapshotNow();
+            } catch (final Exception ignored) {
+            }
+        }
 
         final CoopOverworldClient c = client;
         client = null;
@@ -543,10 +571,6 @@ public final class CoopSession {
             } catch (final Exception ignored) {
             }
             s.stop();
-        }
-
-        if (previousRole == CoopSessionRole.GUEST) {
-            applyGuestLeaveSaveModel(restoreGuest);
         }
 
         // CO2: drop partner sprite / party on the GL thread without leaking listeners.
@@ -571,11 +595,18 @@ public final class CoopSession {
         }
         peerName = "";
         joinHostAddress = "";
+        guestProfileId = "";
+        partnerLoaded = false;
         if (previousRole == CoopSessionRole.HOST) {
             sessionCode = "";
             bindAddress = "";
+            partnerValidator.resetRateLimit();
         }
         status("Disconnected: " + reason);
+
+        if (previousRole == CoopSessionRole.GUEST && returnToMenu) {
+            returnGuestToMainMenu();
+        }
     }
 
     /** Frees the session world's textures on the GL thread, after any queued guest-save restore has run. */
@@ -587,110 +618,205 @@ public final class CoopSession {
     }
 
     /**
-     * Production guest join save-model: stash the solo WorldSave, then seed the
-     * co-op {@code .chr} from solo once or load the existing co-op character.
-     * Called from {@link #join} before networking. Package-visible for tests.
+     * CO5: return the guest to the Adventure main menu without writing or reading
+     * the solo save. In-memory partner state is abandoned; Continue loads solo from disk.
      */
-    void applyGuestJoinSaveModel() throws Exception {
-        stashGuestSave();
-        final AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
-        guestCharacterName = player.getName();
-        CoopCharacterStore.loadOrSeedForJoin(player);
-    }
-
-    /**
-     * Production guest leave save-model: persist the co-op {@code .chr} (atomic),
-     * then optionally restore the stashed solo WorldSave without touching the
-     * {@code .chr}. Called from {@link #disconnectInternal}. Package-visible for tests.
-     */
-    void applyGuestLeaveSaveModel(final boolean restoreSolo) {
-        try {
-            CoopCharacterStore.savePlayer(WorldSave.getCurrentSave().getPlayer());
-        } catch (final Exception e) {
-            lastError = "Failed to save character: " + e.getMessage();
-        }
-        if (restoreSolo) {
-            restoreGuestSave();
-        }
-    }
-
-    private void stashGuestSave() {
-        final World world = WorldSave.getCurrentSave().getWorld();
-        if (world.getData() != null) {
-            try {
-                guestWorldBackup = world.save();
-            } catch (final Exception e) {
-                guestWorldBackup = null;
-            }
-        } else {
-            guestWorldBackup = null;
-        }
-        guestPlayerBackup = WorldSave.getCurrentSave().getPlayer().save();
-        try {
-            guestMultiverseBackup = WorldSave.getCurrentSave().getMultiverse().saveRegistry();
-        } catch (final Exception e) {
-            guestMultiverseBackup = null;
-        }
-        guestRestoreDone.set(false);
-    }
-
-    /**
-     * Restore the guest's stashed world/player on the GL thread behind a loading
-     * screen (same pattern as Continue). Idempotent — a REJECTED path must not
-     * restore twice when the channel later closes.
-     */
-    private void restoreGuestSave() {
-        if (!guestRestoreDone.compareAndSet(false, true)) {
-            return;
-        }
-        final SaveFileData worldBak = guestWorldBackup;
-        final SaveFileData playerBak = guestPlayerBackup;
-        final SaveFileData multiBak = guestMultiverseBackup;
-        final String charName = guestCharacterName;
-        guestWorldBackup = null;
-        guestPlayerBackup = null;
-        guestMultiverseBackup = null;
-        // Drop session-world overlay so Current.world() returns the guest save again.
+    private void returnGuestToMainMenu() {
         guestWorldPlaneId = PlaneMeta.HOME_ID;
+        final Runnable go = () -> {
+            try {
+                // Invalidate live world so Resume cannot continue with partner state.
+                try {
+                    WorldSave.getCurrentSave().getWorld().dispose();
+                } catch (final Exception ignored) {
+                }
+                Forge.switchScene(StartScene.instance());
+            } catch (final Exception e) {
+                status("Could not return to menu: " + e.getMessage());
+            }
+        };
+        if (Gdx.app != null) {
+            Gdx.app.postRunnable(go);
+        } else {
+            go.run();
+        }
+    }
 
-        if (worldBak == null && playerBak == null && multiBak == null && charName == null) {
+    /**
+     * Guest → host: send a full partner snapshot immediately (duel / leave).
+     * Package-visible for tests and {@link CoopDuelRuntime}.
+     */
+    public void sendPartnerSnapshotNow() {
+        if (role != CoopSessionRole.GUEST || !partnerLoaded) {
             return;
         }
+        try {
+            final SaveFileData data = WorldSave.getCurrentSave().getPlayer().save();
+            final byte[] blob = CoopPartnerCodec.encode(data);
+            if (!CoopPartnerValidator.blobSizeOk(blob)) {
+                status("Partner snapshot too large — not sent");
+                return;
+            }
+            send(new CoopPartnerSnapshotEvent(guestProfileId, blob));
+            lastPartnerSnapshotSendMs = System.currentTimeMillis();
+        } catch (final Exception e) {
+            status("Partner snapshot failed: " + e.getMessage());
+        }
+    }
 
-        runWorldOpOnGl(Forge.getLocalizer() != null
-                        ? Forge.getLocalizer().getMessage("lblLoadingWorld")
-                        : "Loading world…",
-                () -> {
-                    try {
-                        if (worldBak != null) {
-                            WorldSave.getCurrentSave().getWorld().load(worldBak);
-                        }
-                        if (playerBak != null) {
-                            WorldSave.getCurrentSave().getPlayer().load(playerBak);
-                        } else if (charName != null) {
-                            CoopCharacterStore.loadPlayer(
-                                    WorldSave.getCurrentSave().getPlayer(), charName);
-                        }
-                        if (multiBak != null) {
-                            WorldSave.getCurrentSave().getMultiverse().loadRegistry(multiBak);
-                        }
-                        try {
-                            WorldStage.getInstance().load(WorldSave.emptyWorldStageData());
-                            forge.adventure.scene.GameScene.instance().enter();
-                        } catch (final Exception ignored) {
-                        }
-                    } catch (final Exception e) {
-                        lastError = "Failed to restore guest save: " + e.getMessage();
-                        status(lastError);
-                        // Match SaveFileData's delayedSwitchBack error path on the GL/EDT side.
-                        try {
-                            Forge.delayedSwitchBack("",
-                                    "Co-op restore error\nPress Resume on the Main Menu to continue.\n"
-                                            + e.getMessage());
-                        } catch (final Exception ignored) {
-                        }
-                    }
-                });
+    /**
+     * Guest → host: debounced snapshot for gather/craft batches.
+     */
+    public void sendPartnerSnapshotDebounced() {
+        if (role != CoopSessionRole.GUEST || !partnerLoaded) {
+            return;
+        }
+        final int debounceSec;
+        try {
+            debounceSec = Math.max(1, Config.instance().getConfigData().coopPartnerSnapshotDebounceSeconds);
+        } catch (final Exception e) {
+            sendPartnerSnapshotNow();
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        if (now - lastPartnerSnapshotSendMs < debounceSec * 1000L) {
+            return;
+        }
+        sendPartnerSnapshotNow();
+    }
+
+    /**
+     * Host: apply a validated partner snapshot into the world save.
+     * Package-visible for tests.
+     */
+    boolean applyHostPartnerSnapshot(final String profileId, final byte[] blob) {
+        final String id = CoopProfileId.sanitize(profileId);
+        if (id.isEmpty()) {
+            return false;
+        }
+        if (!CoopPartnerValidator.blobSizeOk(blob)) {
+            status("Rejected partner snapshot: size");
+            return false;
+        }
+        if (!partnerValidator.acceptSnapshot()) {
+            status("Rejected partner snapshot: rate limit");
+            return false;
+        }
+        try {
+            final SaveFileData data = CoopPartnerCodec.decode(blob);
+            final String problem = CoopPartnerValidator.validateDecoded(data);
+            if (problem != null) {
+                status("Rejected partner snapshot: " + problem);
+                return false;
+            }
+            // Cap name in the stored blob.
+            final String name = CoopPartnerValidator.capName(data.readString("name"));
+            if (!name.isEmpty()) {
+                data.store("name", name);
+            }
+            WorldSave.getCurrentSave().getPartners().put(id, data);
+            status("Stored partner snapshot for " + id.substring(0, Math.min(8, id.length())) + "…");
+            return true;
+        } catch (final Exception e) {
+            status("Rejected partner snapshot: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Host: create a new partner (or import legacy) and store it.
+     * Package-visible for tests.
+     */
+    boolean applyHostPartnerCreate(final CoopPartnerCreateEvent event) {
+        if (event == null) {
+            return false;
+        }
+        final String id = CoopProfileId.sanitize(event.getProfileId());
+        if (id.isEmpty() || !id.equals(guestProfileId)) {
+            status("Rejected partner create: profile mismatch");
+            return false;
+        }
+        if (WorldSave.getCurrentSave().getPartners().has(id)) {
+            status("Partner already exists — sending stored copy");
+            sendPartnerOffer(id, false);
+            return true;
+        }
+        final String name = CoopPartnerValidator.capName(event.getCharacterName());
+        if (name.isEmpty()) {
+            status("Rejected partner create: name");
+            return false;
+        }
+        try {
+            final AdventurePlayer partner;
+            final byte[] legacy = event.getLegacyChrBlob();
+            if (legacy != null && legacy.length > 0) {
+                if (!CoopPartnerValidator.blobSizeOk(legacy)) {
+                    status("Rejected legacy import: size");
+                    return false;
+                }
+                final SaveFileData legacyData = CoopPartnerCodec.decode(legacy);
+                partner = CoopPartnerStarter.fromLegacy(legacyData, name, event.isMale(),
+                        event.getRace(), event.getAvatarIndex());
+            } else {
+                final boolean allowCopy = Config.instance().getConfigData().coopPartnerAllowCopySoloDeck;
+                final String deckText = allowCopy ? event.getSoloDecklistText() : "";
+                partner = CoopPartnerStarter.createNew(name, event.isMale(),
+                        event.getRace(), event.getAvatarIndex(), deckText);
+            }
+            WorldSave.getCurrentSave().getPartners().putPlayer(id, partner);
+            sendPartnerOffer(id, false);
+            status("Created partner \"" + name + "\" for " + id.substring(0, Math.min(8, id.length())) + "…");
+            return true;
+        } catch (final Exception e) {
+            status("Partner create failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private void sendPartnerOffer(final String profileId, final boolean needCreate) {
+        try {
+            boolean create = needCreate;
+            byte[] blob = new byte[0];
+            if (!create) {
+                final SaveFileData data = WorldSave.getCurrentSave().getPartners().get(profileId);
+                if (data != null) {
+                    blob = CoopPartnerCodec.encode(data);
+                } else {
+                    create = true;
+                }
+            }
+            final boolean allowCopy = Config.instance().getConfigData().coopPartnerAllowCopySoloDeck;
+            send(new CoopPartnerOfferEvent(profileId, create, allowCopy, blob));
+        } catch (final Exception e) {
+            status("Partner offer failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Guest: load a partner blob into the in-memory player (never written to solo slots).
+     * Package-visible for tests.
+     */
+    void applyGuestPartnerBlob(final byte[] blob) throws Exception {
+        if (!CoopPartnerValidator.blobSizeOk(blob)) {
+            throw new IOException("Partner blob size rejected");
+        }
+        final SaveFileData data = CoopPartnerCodec.decode(blob);
+        final String problem = CoopPartnerValidator.validateDecoded(data);
+        if (problem != null) {
+            throw new IOException(problem);
+        }
+        WorldSave.getCurrentSave().getPlayer().load(data);
+        partnerLoaded = true;
+        GamePlayerUtil.getGuiPlayer().setName(WorldSave.getCurrentSave().getPlayer().getName());
+    }
+
+    /**
+     * Package-visible test helper: host stores a partner and returns the encoded blob.
+     */
+    byte[] testHostCreatePartner(final String profileId, final String name) throws Exception {
+        final AdventurePlayer partner = CoopPartnerStarter.createNew(name, true, 0, 0, "");
+        WorldSave.getCurrentSave().getPartners().putPlayer(profileId, partner);
+        return CoopPartnerCodec.encode(WorldSave.getCurrentSave().getPartners().get(profileId));
     }
 
     /**
@@ -978,7 +1104,17 @@ public final class CoopSession {
                 } catch (final Exception ignored) {
                 }
                 peerName = "";
+                guestProfileId = "";
                 status("Guest disconnected: " + ((CoopDisconnectEvent) event).getReason());
+            } else if (event instanceof CoopPartnerCreateEvent) {
+                if (s != null && s.isGuestAuthenticated()) {
+                    applyHostPartnerCreate((CoopPartnerCreateEvent) event);
+                }
+            } else if (event instanceof CoopPartnerSnapshotEvent) {
+                if (s != null && s.isGuestAuthenticated()) {
+                    final CoopPartnerSnapshotEvent snap = (CoopPartnerSnapshotEvent) event;
+                    applyHostPartnerSnapshot(snap.getProfileId(), snap.getPartnerBlob());
+                }
             } else if (s != null && s.isGuestAuthenticated()) {
                 handleHookMessage(event);
             }
@@ -1008,6 +1144,13 @@ public final class CoopSession {
                 s.markGuestAuthenticated();
             }
             peerName = hello.getCharacterName() != null ? hello.getCharacterName() : hello.getPlayerName();
+            final String profileId = CoopProfileId.sanitize(hello.getProfileId());
+            if (profileId.isEmpty()) {
+                rejectGuest("CO5: guest profile id missing or invalid", false);
+                return;
+            }
+            guestProfileId = profileId;
+            partnerValidator.resetRateLimit();
             // H1: live-world hash + gate collect must run on the GL thread (no regenerate).
             // On failure: refuse the guest and keep hosting — never delayedSwitchBack to menu.
             final String loadingMsg = Forge.getLocalizer() != null
@@ -1015,11 +1158,14 @@ public final class CoopSession {
                     : "Preparing world…";
             runWorldOpOnGl(loadingMsg, () -> {
                 final CoopWorldOfferEvent offer = buildWorldOffer();
+                final boolean hasPartner = WorldSave.getCurrentSave().getPartners().has(profileId);
                 runOffNetty(() -> {
                     send(offer);
+                    sendPartnerOffer(profileId, !hasPartner);
                     status("Authenticated — offered plane " + offer.getWorldPlaneId()
                             + " seed " + offer.getWorldSeed()
-                            + " hash " + worldHash.substring(0, Math.min(8, worldHash.length())) + "…");
+                            + " hash " + worldHash.substring(0, Math.min(8, worldHash.length()))
+                            + (hasPartner ? " + partner" : " + partner create") + "…");
                 });
             }, false);
         }
@@ -1072,15 +1218,17 @@ public final class CoopSession {
         @Override
         public void onConnected() {
             final AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
+            final String display = player != null && player.getName() != null ? player.getName() : "Guest";
             final CoopHelloEvent hello = new CoopHelloEvent(
                     CoopPorts.PROTOCOL_VERSION,
                     CoopVersion.buildHash(),
                     CoopVersion.cardDataHash(),
-                    player.getName(),
-                    player.getName(),
-                    joinSessionCode);
+                    display,
+                    display,
+                    joinSessionCode,
+                    guestProfileId);
             send(hello);
-            status("Sent hello (session code + build/card hash check)");
+            status("Sent hello (session code + build/card hash + profile id)");
         }
 
         @Override
@@ -1089,16 +1237,92 @@ public final class CoopSession {
                 lastError = ((CoopHelloRejectEvent) event).getReason();
                 state = State.REJECTED;
                 status("Rejected: " + lastError);
-                // Close networking + restore once; onDisconnected must not restore again.
                 endGuestSession(lastError, true);
             } else if (event instanceof CoopWorldOfferEvent) {
                 onWorldOffer((CoopWorldOfferEvent) event);
+            } else if (event instanceof CoopPartnerOfferEvent) {
+                onPartnerOffer((CoopPartnerOfferEvent) event);
             } else if (event instanceof CoopPlaneSwitchEvent) {
                 onPlaneSwitch((CoopPlaneSwitchEvent) event);
             } else if (event instanceof CoopDisconnectEvent) {
                 endGuestSession(((CoopDisconnectEvent) event).getReason(), true);
             } else {
                 handleHookMessage(event);
+            }
+        }
+
+        private void onPartnerOffer(final CoopPartnerOfferEvent offer) {
+            if (offer.isNeedCreate()) {
+                status("Host needs a new partner character for this world");
+                // Auto-create with a default look when no UI is attached (tests / headless).
+                // In-game StartScene / dialog path can send a richer CoopPartnerCreateEvent first.
+                if (Gdx.app == null) {
+                    send(new CoopPartnerCreateEvent(guestProfileId, "Partner",
+                            true, 0, 0, new byte[0], ""));
+                } else {
+                    Gdx.app.postRunnable(() -> promptPartnerCreate(offer.isAllowCopySoloDeck()));
+                }
+                return;
+            }
+            final byte[] blob = offer.getPartnerBlob();
+            runWorldOpOnGl(Forge.getLocalizer() != null
+                            ? Forge.getLocalizer().getMessage("lblLoadingWorld")
+                            : "Loading partner…",
+                    () -> {
+                        try {
+                            applyGuestPartnerBlob(blob);
+                            status("Loaded partner \""
+                                    + WorldSave.getCurrentSave().getPlayer().getName() + "\"");
+                            if (state == State.JOINING && sessionWorld != null
+                                    && sessionWorld.getData() != null) {
+                                finishReady(peerName);
+                            }
+                        } catch (final Exception e) {
+                            lastError = "Partner load failed: " + e.getMessage();
+                            state = State.REJECTED;
+                            status(lastError);
+                            endGuestSession(lastError, true);
+                        }
+                    });
+        }
+
+        private void promptPartnerCreate(final boolean allowCopySoloDeck) {
+            try {
+                String name = "Partner";
+                byte[] legacyBlob = new byte[0];
+                String soloDeck = "";
+                if (CoopLegacyChrImport.hasLegacyCharacters()) {
+                    final java.util.List<java.io.File> legacy = CoopLegacyChrImport.listLegacyChrFiles();
+                    if (!legacy.isEmpty()) {
+                        try {
+                            legacyBlob = CoopLegacyChrImport.encodeChrFile(legacy.get(0));
+                            status("Importing legacy co-op character from " + legacy.get(0).getName());
+                        } catch (final Exception ignored) {
+                            legacyBlob = new byte[0];
+                        }
+                    }
+                }
+                if (allowCopySoloDeck) {
+                    try {
+                        final forge.deck.Deck d = WorldSave.getCurrentSave().getPlayer().getSelectedDeck();
+                        if (d != null) {
+                            soloDeck = forge.deck.io.DeckSerializer.toDecklistText(d);
+                        }
+                    } catch (final Exception ignored) {
+                    }
+                }
+                // Prefer a typed name when possible.
+                try {
+                    final String typed = forge.gui.GuiBase.getInterface() != null
+                            ? null : null;
+                    if (typed != null && !typed.trim().isEmpty()) {
+                        name = CoopPartnerValidator.capName(typed);
+                    }
+                } catch (final Exception ignored) {
+                }
+                send(new CoopPartnerCreateEvent(guestProfileId, name, true, 0, 0, legacyBlob, soloDeck));
+            } catch (final Exception e) {
+                send(new CoopPartnerCreateEvent(guestProfileId, "Partner", true, 0, 0, new byte[0], ""));
             }
         }
 
@@ -1142,7 +1366,13 @@ public final class CoopSession {
                             } catch (final Exception ignored) {
                             }
                         }
-                        finishReady(offer.getHostPlayerName());
+                        // CO5: wait for partner blob before READY (finishReady from onPartnerOffer).
+                        if (partnerLoaded) {
+                            finishReady(offer.getHostPlayerName());
+                        } else {
+                            peerName = offer.getHostPlayerName();
+                            status("World hash matched — waiting for partner");
+                        }
                         status("World hash matched after seed rebuild (plane "
                                 + guestWorldPlaneId + ")");
                     } else {
@@ -1226,6 +1456,14 @@ public final class CoopSession {
         }
 
         private void finishReady(final String hostName) {
+            if (!partnerLoaded) {
+                status("Partner not loaded — not ready yet");
+                return;
+            }
+            if (sessionWorld == null || sessionWorld.getData() == null) {
+                status("World not ready — waiting for world offer");
+                return;
+            }
             state = State.READY;
             attachDuelRuntime();
             send(new CoopSessionReadyEvent(false, WorldSave.getCurrentSave().getPlayer().getName(), worldHash));

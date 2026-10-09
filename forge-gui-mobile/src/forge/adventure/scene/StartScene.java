@@ -210,7 +210,7 @@ public class StartScene extends UIScene {
                     .append(e.getValue()).append(':')
                     .append(CoopSession.get().getOverworldPort()).append('\n');
         }
-        msg.append("\nGuest brings their own character; your save owns the world.");
+        msg.append("\nGuests play a partner character stored in your world save (CO5).");
         if (CoopSession.get().getLastError() != null
                 && !CoopSession.get().getLastError().isEmpty()) {
             msg.append("\n\nLast reject: ").append(CoopSession.get().getLastError());
@@ -284,7 +284,8 @@ public class StartScene extends UIScene {
         }
         if (WorldSave.getCurrentSave().getWorld().getData() == null) {
             showDialog(createGenericDialog("Co-op",
-                    "Load or Continue your character before joining.\nYour character stays on this PC; the host owns the world.",
+                    "Load or Continue a game before joining so the client can rebuild the host world.\n"
+                            + "Your solo save is never modified — you play a partner character in the host's world.",
                     Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null));
             return true;
         }

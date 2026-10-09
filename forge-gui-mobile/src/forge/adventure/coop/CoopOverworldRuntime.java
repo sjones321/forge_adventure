@@ -568,7 +568,14 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
         if (!CoopHooks.isOverworldReady() || CoopHooks.isWorldAuthority()) {
             return;
         }
-        postGl(() -> applyGatherResult(event));
+        postGl(() -> {
+            applyGatherResult(event);
+            // CO5: debounced partner snapshot after gather batches.
+            try {
+                CoopSession.get().sendPartnerSnapshotDebounced();
+            } catch (final Exception ignored) {
+            }
+        });
     }
 
     @Override

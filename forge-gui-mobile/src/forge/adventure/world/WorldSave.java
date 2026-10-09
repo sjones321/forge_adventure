@@ -15,6 +15,7 @@ import forge.adventure.scene.MapViewScene;
 import forge.adventure.scene.SaveLoadScene;
 import forge.adventure.stage.PointOfInterestMapSprite;
 import forge.adventure.stage.WorldStage;
+import forge.adventure.coop.WorldPartners;
 import forge.adventure.fortress.FortressService;
 import forge.adventure.util.*;
 import forge.card.CardEdition;
@@ -53,6 +54,8 @@ public class WorldSave {
     private final World world = new World();
     private final PointOfInterestChanges.Map pointOfInterestChanges = new PointOfInterestChanges.Map();
     private final MultiverseState multiverse = new MultiverseState();
+    /** CO5: guest partner characters keyed by profile id (host world save only). */
+    private final WorldPartners partners = new WorldPartners();
     private String lastPlaneSwitchError = "";
     /** Test hook: count of {@link forge.adventure.scene.GameScene#enter()} after switches. */
     private int planeSwitchEnterCount;
@@ -73,6 +76,11 @@ public class WorldSave {
 
     public MultiverseState getMultiverse() {
         return multiverse;
+    }
+
+    /** CO5: world-bound partner characters (host save). Missing on old saves → empty. */
+    public WorldPartners getPartners() {
+        return partners;
     }
 
     /** MV1 current plane instance id ({@link PlaneMeta#HOME_ID} for legacy / home). */
@@ -197,6 +205,13 @@ public class WorldSave {
                     FortressService.get().clear();
                 }
 
+                // CO5: world-bound partners (missing → empty; old saves still load).
+                if (Config.ascendant() && mainData.containsKey("partners")) {
+                    currentSave.partners.load(mainData.readSubData("partners"));
+                } else {
+                    currentSave.partners.clear();
+                }
+
                 currentSave.onLoadList.emit();
 
             }
@@ -245,6 +260,7 @@ public class WorldSave {
         Forge.getLocalizer().loadAdventureBundle(Config.instance().getPlanePath(Config.instance().getSettingData().plane) + "languages/");
         currentSave.world.generateNew(seed);
         currentSave.pointOfInterestChanges.clear();
+        currentSave.partners.clear();
         FortressService.get().clear();
         boolean chaos = mode == AdventureModes.Chaos;
         boolean custom = mode == AdventureModes.Custom;
@@ -349,14 +365,15 @@ public class WorldSave {
     }
 
     public boolean autoSave() {
-        if (forge.adventure.coop.CoopSession.get().blocksLocalWorldSave()) {
-            return false; // Guest co-op: never write host world into local slots.
+        // CO5: guests play a host-world partner in memory — never write local slots mid-session.
+        if (forge.adventure.coop.CoopSession.get().isGuestSession()) {
+            return false;
         }
         return save("auto save" + SaveLoadScene.instance().getSaveFileSuffix(), AUTO_SAVE_SLOT);
     }
 
     public boolean quickSave() {
-        if (forge.adventure.coop.CoopSession.get().blocksLocalWorldSave()) {
+        if (forge.adventure.coop.CoopSession.get().isGuestSession()) {
             return false;
         }
         return save("quick save" + SaveLoadScene.instance().getSaveFileSuffix(), QUICK_SAVE_SLOT);
@@ -367,7 +384,7 @@ public class WorldSave {
     }
 
     public boolean save(String text, int currentSlot) {
-        if (forge.adventure.coop.CoopSession.get().blocksLocalWorldSave()) {
+        if (forge.adventure.coop.CoopSession.get().isGuestSession()) {
             System.err.println("Co-op guest: refusing to write WorldSave slot " + currentSlot);
             return false;
         }
@@ -423,6 +440,10 @@ public class WorldSave {
                 }
                 if (fortress != null) {
                     mainData.store("fortress", fortress);
+                }
+                // CO5: partners map (host world). Empty on solo / pre-CO5 saves.
+                if (Config.ascendant()) {
+                    mainData.store("partners", currentSave.partners.save());
                 }
 
                 if (mainData.readString("IOException") != null) {
