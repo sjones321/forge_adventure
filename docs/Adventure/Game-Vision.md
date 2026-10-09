@@ -47,7 +47,9 @@ Tone: **war-torn frontier, not a cozy farm.** You carve out strongholds on a con
 - **Territory**: a fortress controls the land around it: more resource nodes, weaker roaming enemies, outposts
   linked to it, and a fast-travel anchor. On other planes, a fortress is your portal anchor.
 - **Garrison**: recruited companions defend raids alongside you.
-- Your **first fortress is your home** and never resets except by prestige.
+- Your **first fortress is your prime base** and never resets except by prestige. Only it has the vault, trophy
+  hall, Hall of Remembrance and top-tier stations. Each set plane allows **one forward fortress** (portal anchor,
+  smaller and tier-capped); outposts are lighter links.
 
 ### Logistics, not conveyors
 - **Auto-sorting storage**: every fortress chest feeds one sorted stockpile; stations pull from it directly.
@@ -93,9 +95,14 @@ Firstborn. Losses are real; dialog stays skippable; the stakes live in the world
 
 - **Skills 1-99** with talent trees (built).
 - **Collection** grows through rewards, crafting (dust + color reagents) and set mastery (built).
-- **Gyms and the League** per run format (built), tournaments and Grand Prix (planned).
-- **Prestige**: an opt-in full reset (collection, gold, materials, skills, planes) that keeps unlocked staples,
-  the Hall of Fame, cosmetics and the prestige tree. **Prestige XP scales with how far you went**: delve depth
+- **Formats per plane**: Bellwarden Standard, Historic, Pauper or Commander (with 2HG for co-op). You pick the
+  home plane's format at the start and each new plane's format when you open it. Enemies, gyms and events on a
+  plane play its format. Gyms and the League are built; tournaments and Grand Prix are planned.
+- **Achievements and card styles**: account-wide achievements, set completion rewards (and something unique for
+  completing every set), and unlockable alternate arts and foils earned from packs, quests and achievements.
+  Both survive prestige.
+- **Prestige** is the game's New Game+: an opt-in full reset (collection, gold, materials, skills, planes) that keeps unlocked staples,
+  the Hall of Fame, achievements, card styles, cosmetics and the prestige tree. **Prestige XP scales with how far you went**: delve depth
   reached, planes mastered, League titles, total level. Spend it on the account-wide prestige talent tree.
 
 ## Co-op: shared world (decided)

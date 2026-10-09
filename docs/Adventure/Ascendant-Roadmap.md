@@ -16,6 +16,14 @@ with a second progression track of **gym badges and a League**.
 - **Gear never breaks.** No durability or repairs. Bulk sinks (homestead, town requests) do that job.
 - **Full skill set**: 5 new gathering skills + 4 new crafting skills, 20 skills total.
 - **Any gathered material can be refined into card dust**, so gathering is a full alternative path to crafting cards.
+- **One continuous world, no New Game+ reset.** You progress by mastering sets and opening portals to new planes;
+  your prime base stays reachable. The only resets are Standard rotation (cards become Historic, nothing is lost)
+  and **prestige**, which is what New Game+ means from now on (2026-10-08).
+- **Formats: Bellwarden Standard, Historic, Pauper and Commander**, each with its 2HG version for co-op. Real-world
+  Standard is not offered. The format is set **per plane** (package K) and decides what that plane's enemies, gyms
+  and events play.
+- **Nothing you earn is ever locked away by format.** Crafted and earned cards stay in the collection; rotation only
+  changes which formats they are legal in.
 - Map rework and new world locations only affect **new games** (the world is generated at New Game). Gyms and
   everything else must work on existing saves.
 
@@ -168,8 +176,8 @@ Upgrades and camps are data (`world/gathering_methods.json`).
 - Existing ~200 items stay as loot and shop stock.
 
 ### G. Gyms and the League (no hard dependency; must work on existing saves)
-- **Gyms play your run's format.** In a Standard run every gym is Standard; in a Pauper, Historic or Commander run
-  (package K) every gym uses that format. Your deck must be legal for the run format to challenge a gym.
+- **Gyms play their plane's format** (package K). A gym on a Pauper plane is Pauper, and so on. Your deck must be
+  legal for that format to challenge the gym.
 - **8 gyms, each themed by color**: White, Blue, Black, Red, Green, Colorless (artifacts/Eldrazi),
   Guild (two-color), and Rainbow (three or more colors). Theme decides the leader's and trainers' decks, the town
   the gym sits in, and the badge perk.
@@ -210,27 +218,38 @@ perk layer with a tree per skill so more levels matter and builds differ:
 - Trees are data (`world/skill_trees.json`: node id, branch, tier, cost, requires, exclusiveWith, effect), shown on a
   tree screen reached from the Skills screen. Existing saves: refund color perks into points automatically.
 
-### K. Run formats and New Game+ (depends on G for gym decks)
-- The first run is Standard (sealed start). At **New Game+** the player picks the run format:
-  **Standard, Pauper, Historic or Commander**. The run format sets which decks may enter gyms, the League and
-  tournaments, and which card pool shops and rewards favor.
+### K. Formats per plane (revised 2026-10-08; replaces "run formats and New Game+")
+- Formats: **Bellwarden Standard** (the in-game rotation window), **Historic**, **Pauper**, **Commander**. Co-op
+  duels use each format's 2HG version.
+- **The home plane's format** is chosen on the New Game screen (default Bellwarden Standard) and again at each
+  prestige (M).
+- **Each new set plane picks its format when it is opened** (the portal dialog in MV2; default = the format of the
+  plane you came from). Once chosen it is fixed for that plane. This keeps commitment early while letting the
+  player shift formats as they move through sets.
+- A plane's format sets: its overworld enemy decks (EN1), its gyms and League, its tournaments, and which card pool
+  its shops and rewards favor. Gyms, the League and tournaments need a deck legal in that format; ordinary
+  overworld fights accept any deck (tunable, so a later "strict" option can require legal decks everywhere).
+- Store the format on the plane (in its plane data), not on the player. Migrate the existing player-level
+  `runFormat` (`AdventurePlayer`) to the home plane's format; `getRunFormat()` becomes "the current plane's format".
+- Co-op: the host's plane format applies to both players.
 - **Pauper**: cards printed at common in any set (use Forge's Pauper format definition under
   `forge-gui/res/formats/Sanctioned/`). Add `AdventureHistoric`-style deck tag `AdventurePauperDeck` and a
   Pauper option in the deck format cycle.
-- The chosen format is saved in the world save and shown on the status screen.
+- The current plane's format is shown on the status screen and in the portal dialog.
 
 ### L. Tournaments and lifetime stats (depends on K)
 - **Tournament ring**: inns run small events (the existing inn event code: draft, jumpstart, sealed) plus
   constructed events in the run format.
 - **Grand Prix** in capitals: scheduled every N in-game days, entry fee, Swiss rounds then a top 8, prizes scale with
   placement (gold, dust, packs, unique materials, trophies).
-- **Lifetime stats** that survive New Game+ and prestige: tournaments entered, top 8s, GP wins, badges and League
+- **Lifetime stats** that survive prestige: tournaments entered, top 8s, GP wins, badges and League
   titles per run format, total duels, best win streak. Shown on a **Hall of Fame** screen.
 
 ### M. Prestige (depends on J and L)
-- Separate from New Game+. **Prestige is a full account reset**: collection, gold, dust, materials, items, skills and
+- **Prestige is the game's New Game+**: a full account reset: collection, gold, dust, materials, items, skills and
   decks are wiped. Kept: unlocked staples, lifetime stats / Hall of Fame, prestige level, prestige tree, cosmetics
-  (skill capes, trophies).
+  (skill capes, trophies), achievements (AC1) and every unlocked card style (CS1). At prestige the player picks
+  the new home plane's format (K).
 - **Requirements are steep**, e.g. League champion in the current run, total level 1000+, and a Grand Prix win.
   Exact numbers are tunables.
 - Each prestige grants **prestige points** for a **prestige skill tree** (account-wide perks: faster XP, extra perk
@@ -268,7 +287,7 @@ perk layer with a tree per skill so more levels matter and builds differ:
 - Uses a duel perk slot, so it competes with skill perks.
 
 ### R. Ironman and Hardcore Ironman (needs K's New Game screen)
-- Chosen at New Game / New Game+. **Ironman**: shops never sell cards or packs, Spell Smith random pulls are allowed,
+- Chosen at New Game or at prestige. **Ironman**: shops never sell cards or packs, Spell Smith random pulls are allowed,
   crafting is allowed; everything else is self-found. **Hardcore**: losing your last life ends the character
   (save becomes read-only, stats go to the Hall of Fame).
 - Mode tag shown on the status screen and Hall of Fame entries.
@@ -349,14 +368,14 @@ These packages turn the single big map into a home plane plus an endless chain o
 
 ### MV2. Plane-per-set generator (depends on MV1)
 - Generate a set plane from a template (smaller map than the home plane, e.g. 300-400 tiles) plus the set's data:
-  biome mix from the set's color balance, enemies with `$generate` decks restricted to that set, shops and rewards
+  the plane's format chosen in the portal dialog (K), biome mix from the set's color balance, enemies with `$generate` decks restricted to that set, shops and rewards
   from that set, town names themed per set.
 - **Alignment**: planes of the sets in the Standard window are reachable by a normal portal. Mastering a set
   (existing mastery) unlocks the next set's plane. Rotated-out planes stay reachable through a costlier portal.
 
 ### MV3. Home fortress (depends on MV1, FT1)
-- The first fortress is the home base: stations, storage, vault, trophy room, outposts. It never resets except by
-  prestige. See the FT packages.
+- The first fortress is the **prime base**: stations, storage, vault, trophy room, outposts. It never resets except
+  by prestige. See the FT packages and the fortress limits in FT1.
 
 ### MV4. Delves (depends on MV1, B; absorbs N)
 - Temporary **pocket-plane portals** spawn at random in set planes. A delve is a chain of small instanced floors.
@@ -429,8 +448,13 @@ Replaces the homestead. War-torn frontier strongholds, built and defended.
 ### FT1. Claim a site and the fortress instance (depends on E)
 - **Construction** skill added to `PlayerSkills.Skill`, with a talent tree.
 - **Banner** item: on the overworld, valid only on walkable land at least N tiles from towns and other POIs. Planting
-  it creates a fortress POI (new `type: fortress`), saved in the world's POI data. Max fortresses per plane is
-  tunable (start with 1 per plane).
+  it creates a fortress POI (new `type: fortress`), saved in the world's POI data. **Fortress limits** (2026-10-08):
+  - **One prime base** per account, the first fortress (home plane). Only it can build the vault, trophy hall,
+    Hall of Remembrance and top-tier stations (mark these `primeOnly` in `structures_fortress.json`).
+  - **One forward fortress per set plane**: portal anchor, fast-travel point and supply-line hub, with a tier cap
+    (start at Keep) and a smaller structure list (walls, gates, towers, basic stations, storage that feeds the
+    prime base's stockpile once LG1 exists).
+  - Outposts (LG3) stay as lighter links and don't count against this limit.
 - Entering loads an **instanced map**: a template `.tmx` per biome (open ground, a buildable zone marked by an
   object layer, an entry/exit). The template is the base; player structures are stored separately in the save and
   added on load.
@@ -667,6 +691,55 @@ with him.
 - **Watcher**: spy, advisor, scout; starts literal and alien and gradually talks like someone who knows you
   (dialogue lines keyed to playtime, friendships and events). Voice of raid warnings, Nothing reports, intel.
 
+## Formats, achievements and card styles (2026-10-08)
+
+### EN1. Enemy decks by format and theme (depends on K for the plane format; data can start now)
+- Enemies carry **theme tags** by creature type (merfolk, goblin, zombie, ...). Each tag has **2-3 themes**: for
+  merfolk, e.g. merfolk tribal, krakens/octopus, leviathans. A spawned enemy picks one theme at random and keeps
+  it, so not every merfolk plays the same deck.
+- Each theme has a version for **every format**: Historic, Pauper and Commander are fixed deck lists (several per
+  theme where possible). **Bellwarden Standard** versions are built from a **theme recipe** (colors, creature
+  types, key cards and mechanics to look for) filled from the sets in the current Standard window, because fixed
+  Standard lists go stale on rotation.
+- 2HG: co-op fights pair two themed decks of the plane's format.
+- Data: `world/enemy_themes.json` (theme id, tags, colors, recipe) plus deck files under
+  `decks/enemy/<theme>/<format>_N.dck`. If a theme has no deck for the format, fall back to the nearest one and
+  log it; never crash.
+- **Important fights use real, hand-picked lists**: gym leaders and trainers, the League, the Nothing's commanders
+  and story fights. Generated lists are for ordinary overworld enemies.
+- **Test**: every fixed deck is legal in its format (Forge's format checks; Commander via its deck rules: 100
+  cards, singleton, color identity), and every Standard recipe produces a legal deck for the current window or
+  falls back cleanly.
+- First batch: about 8 common enemy types with 2 themes each (merfolk, goblins, zombies, elves, vampires,
+  dragons, soldiers/knights, spirits). Grow the library over time.
+
+### AC1. Achievements (no hard dependency)
+- **Account-wide, stored outside the save** (next to the Hall of Fame and prestige data) and **kept through
+  prestige**.
+- Data-driven `world/achievements.json`: id, name, description, category, condition (counters and game events),
+  reward (title, card style, trophy, cosmetic). Unlock toast plus an **Achievements screen** reachable from the
+  status menu, controller-friendly.
+- Categories: collection, gyms and League per format, delves, fortresses, friendships, skills (99s), co-op,
+  the Nothing.
+- **Set completion**: owning every card in a set (each distinct card in the set's main card list) grants a trophy
+  for the trophy hall and an exclusive style for one of that set's cards.
+- **Completing every set in Bellwarden** grants something unique: a title, a card style no other source gives and
+  its own Hall of Fame entry.
+- Forge has an achievement system in its other game modes; reuse its pieces only if they fit cleanly.
+
+### CS1. Card styles: alternate arts, special versions and foils (depends on AC1 for some sources)
+- **An account-wide unlock list of card styles** per card name (printing/set code, art index, foil). Kept through
+  prestige; a style applies as soon as the player owns that card again.
+- **Deck editor**: pick which unlocked style each card shows. Forge already stores a set and art per card in a deck.
+- Sources, so chasing shinies is a real goal:
+  - **Packs**: a small chance at foils and special printings; pulling one unlocks that style.
+  - **Shops** sell the normal printing only. Special printings, if offered at all, cost a steep markup (tunable).
+  - **Quests, achievements and friendship rewards** grant specific styles (e.g. a townsperson's signature card in
+    their own art).
+  - **Card mastery (T)**: its foil and alt-art unlocks feed this same list.
+- **Stop the random sprinkle**: card rewards and shop stock default to the normal printing; special versions come
+  only from the sources above. Ascendant only; the stock world is unchanged.
+
 ## Suggested order
 
 1. A (materials core) alone. A2 and B2 after B lands the new material lines.
@@ -683,7 +756,8 @@ with him.
 10. Fortresses: FT1 → FT2 → FT3 and FT4.
 11. TR1 with co-op; then LG1 → LG2 → LG3; WAR1 after FT3.
 12. INV1, then DS1 (duel screen).
-13. Core loop: LT1 + FR1 (first living town) → AR1 → SE1 → BL1 with WAR1; CH1 alongside.
+13. EN1 data and AC1 can start now; K after MV2; CS1 after AC1.
+14. Core loop: LT1 + FR1 (first living town) → AR1 → SE1 → BL1 with WAR1; CH1 alongside.
 
 ## Art
 
