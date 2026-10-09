@@ -367,10 +367,10 @@ public class WorldSave {
     }
 
     /**
-     * Same {@code loadedSlot} clear as New Game. Package-visible for headless tests
-     * that cannot run {@link #generateNewWorld} (needs GL / {@code -Pgl-tests}).
+     * Same {@code loadedSlot} clear as New Game. Public for headless tests that
+     * cannot run {@link #generateNewWorld} (needs GL / {@code -Pgl-tests}).
      */
-    void clearLoadedSlotAfterNewGame() {
+    public void clearLoadedSlotAfterNewGame() {
         loadedSlot = INVALID_SAVE_SLOT;
     }
 
