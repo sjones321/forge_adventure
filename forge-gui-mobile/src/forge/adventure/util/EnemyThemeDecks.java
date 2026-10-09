@@ -2871,11 +2871,12 @@ public final class EnemyThemeDecks {
         } catch (Throwable ignored) {
         }
         Collections.shuffle(pool, MyRandom.getRandom());
-        // Prefer tribe creatures for dragon themes so payoffs like Dragonstorm connect.
-        if (theme != null && theme.id != null && theme.id.contains("dragon")) {
+        // Prefer tribe creatures for tribal themes so filler does not spend slots on
+        // off-tribe "flash/flying" matches (e.g. Undersea Invader in spirit_tempo).
+        if (isTribalTheme(theme)) {
             pool.sort((a, b) -> Boolean.compare(
-                    b.getRules().getType().hasSubtype("Dragon"),
-                    a.getRules().getType().hasSubtype("Dragon")));
+                    countsAsTribalCreature(b, theme),
+                    countsAsTribalCreature(a, theme)));
         }
         int fillerCap = FORMAT_COMMANDER.equals(format) ? MAX_FILLER_COMMANDER : MAX_FILLER_NONLAND;
         int added = 0;
@@ -2886,6 +2887,22 @@ public final class EnemyThemeDecks {
             if (theme != null && theme.id != null && theme.id.contains("dragon")
                     && "Studious First-Year".equals(pc.getName()))
                 continue;
+            // Tribal constructed: spend filler on tribe creatures before off-tribe glue.
+            if (isTribalTheme(theme) && !FORMAT_COMMANDER.equals(format)
+                    && !countsAsTribalCreature(pc, theme)) {
+                // Allow a little non-tribe only if we somehow cannot fill with tribe.
+                boolean anyTribeLeft = false;
+                for (PaperCard t : pool) {
+                    if (countsAsTribalCreature(t, theme)
+                            && main.countByName(t.getName()) < (singleton ? 1
+                            : (FORMAT_PAUPER.equals(format) ? 4 : 2))) {
+                        anyTribeLeft = true;
+                        break;
+                    }
+                }
+                if (anyTribeLeft)
+                    continue;
+            }
             if (countFillerInPool(main, theme) >= fillerCap)
                 break;
             int max = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 2);
