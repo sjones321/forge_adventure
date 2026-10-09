@@ -766,9 +766,9 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsSevenForMv1() {
-        // CO3 was 6; MV1 CoopPlaneSwitchEvent bumps the overworld protocol to 7.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 7);
+    public void protocolVersionIsEightForTr1() {
+        // CO3 was 6; MV1 was 7; TR1 trade bumps the overworld protocol to 8.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 8);
     }
 
     private static long[][] sampleBiome(final int n) {

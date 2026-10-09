@@ -287,6 +287,13 @@ public class ConfigData {
      */
     public int coopDuelGuestConnectGraceSeconds = 8;
 
+    // ---- Ascendant co-op (Package TR1): face-to-face player trading. ----
+
+    /** Seconds a trade invite waits for Accept/Decline before expiring. */
+    public int coopTradeInviteTimeoutSeconds = 20;
+    /** Max trade request / offer / confirm messages accepted per peer per second. */
+    public int coopTradeMaxPerSecond = 8;
+
     // ---- Ascendant inventory bags (INV1): slot counts and stack sizes (no weight). ----
 
     /** Default backpack slots for gear and usable items. */

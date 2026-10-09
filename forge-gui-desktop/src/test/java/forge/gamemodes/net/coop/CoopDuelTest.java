@@ -24,10 +24,11 @@ public class CoopDuelTest {
 
     @Test
     public void protocolVersionIsAtLeastCo3AndMv1() {
-        // CO2 = 5; CO3 = 6; MV1 plane-follow = 7.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 7);
+        // CO2 = 5; CO3 = 6; MV1 plane-follow = 7; TR1 trade = 8.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 8);
         Assert.assertTrue(CoopPorts.PROTOCOL_VERSION > 5);
         Assert.assertTrue(CoopPorts.PROTOCOL_VERSION >= 6);
+        Assert.assertTrue(CoopPorts.PROTOCOL_VERSION >= 7);
     }
 
     @Test

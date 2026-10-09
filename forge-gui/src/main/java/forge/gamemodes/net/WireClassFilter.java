@@ -91,7 +91,17 @@ public final class WireClassFilter implements IHasForgeLog {
             "forge.gamemodes.net.event.coop.CoopFightLoadoutEvent",
             "forge.gamemodes.net.event.coop.CoopDuelStartEvent",
             "forge.gamemodes.net.event.coop.CoopDuelResultEvent",
-            "forge.gamemodes.net.coop.CoopFightLoadout");
+            "forge.gamemodes.net.coop.CoopFightLoadout",
+            // TR1 player trading (plain-data offers; no PaperCard / ItemData on the wire)
+            "forge.gamemodes.net.event.coop.CoopTradeInviteEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeResponseEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeOfferEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeConfirmEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeCancelEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeExecuteEvent",
+            "forge.gamemodes.net.coop.CoopTradeOffer",
+            "forge.gamemodes.net.coop.CoopTradeOffer$Line",
+            "forge.gamemodes.net.coop.CoopTradeOffer$CardLine");
 
     private static final String JAVA_LANG = "java.lang.";
     private static final String PRIMITIVE_DESCRIPTORS = "BCDFIJSZ";

@@ -4,13 +4,13 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 /**
- * Headless model of in-game invite prompts (party / location / join-fight).
+ * Headless model of in-game invite prompts (party / location / join-fight / trade).
  * Invites are queued — never replace an open dialog (especially exit-dungeon).
  * Tracks whether a modal Accept/Decline dialog is visible and closes it when
  * the underlying invite expires ({@code coopLocationInviteTimeoutSeconds}).
  */
 public final class CoopInviteUiState {
-    public enum PromptKind { NONE, PARTY, LOCATION, JOIN_FIGHT }
+    public enum PromptKind { NONE, PARTY, LOCATION, JOIN_FIGHT, TRADE }
 
     /** One queued or active invite prompt. */
     public static final class Prompt {
@@ -119,6 +119,11 @@ public final class CoopInviteUiState {
 
     public void showJoinFightInvite(final long inviteId, final String fromPlayer, final String encounter) {
         enqueue(PromptKind.JOIN_FIGHT, inviteId, fromPlayer, encounter);
+    }
+
+    /** TR1 trade invite — queued like party/location; never replaces exit-dungeon. */
+    public void showTradeInvite(final long inviteId, final String fromPlayer) {
+        enqueue(PromptKind.TRADE, inviteId, fromPlayer, "");
     }
 
     /**

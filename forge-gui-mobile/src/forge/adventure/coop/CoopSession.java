@@ -46,6 +46,12 @@ import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
 import forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent;
 import forge.gamemodes.net.event.coop.CoopSessionReadyEvent;
+import forge.gamemodes.net.event.coop.CoopTradeCancelEvent;
+import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
+import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
+import forge.gamemodes.net.event.coop.CoopTradeInviteEvent;
+import forge.gamemodes.net.event.coop.CoopTradeOfferEvent;
+import forge.gamemodes.net.event.coop.CoopTradeResponseEvent;
 import forge.gamemodes.net.event.coop.CoopWorldOfferEvent;
 import forge.screens.TransitionScreen;
 import forge.util.URLValidator;
@@ -516,6 +522,12 @@ public final class CoopSession {
             CoopDuelRuntime.get().detach();
         } catch (final Exception ignored) {
         }
+        try {
+            CoopTradeRuntime.get().onSessionPeerDisconnected();
+            CoopTradeRuntime.get().onSessionEnded();
+            CoopTradeRuntime.get().detach();
+        } catch (final Exception ignored) {
+        }
         role = CoopSessionRole.NONE;
         // Keep REJECTED visible until the next host/join clears it.
         if (previousState == State.REJECTED) {
@@ -756,12 +768,46 @@ public final class CoopSession {
                 l.onDuelResult((CoopDuelResultEvent) event);
                 l.onDuelMessage(event);
             }
+        } else if (event instanceof CoopTradeInviteEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onTradeInvite((CoopTradeInviteEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopTradeResponseEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onTradeResponse((CoopTradeResponseEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopTradeOfferEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onTradeOffer((CoopTradeOfferEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopTradeConfirmEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onTradeConfirm((CoopTradeConfirmEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopTradeCancelEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onTradeCancel((CoopTradeCancelEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopTradeExecuteEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onTradeExecute((CoopTradeExecuteEvent) event);
+                l.onOverworldMessage(event);
+            }
         }
     }
 
     private void attachDuelRuntime() {
         try {
             CoopDuelRuntime.get().attach();
+        } catch (final Exception ignored) {
+        }
+        try {
+            CoopTradeRuntime.get().attach();
         } catch (final Exception ignored) {
         }
     }
@@ -854,6 +900,10 @@ public final class CoopSession {
                     CoopDuelRuntime.get().onSessionPeerDisconnected();
                 } catch (final Exception ignored) {
                 }
+                try {
+                    CoopTradeRuntime.get().onSessionPeerDisconnected();
+                } catch (final Exception ignored) {
+                }
                 peerName = "";
                 status("Guest disconnected: " + ((CoopDisconnectEvent) event).getReason());
             } else if (s != null && s.isGuestAuthenticated()) {
@@ -923,6 +973,10 @@ public final class CoopSession {
             }
             try {
                 CoopDuelRuntime.get().onSessionPeerDisconnected();
+            } catch (final Exception ignored) {
+            }
+            try {
+                CoopTradeRuntime.get().onSessionPeerDisconnected();
             } catch (final Exception ignored) {
             }
             // Do not save host player or stop the server — wait for another guest.

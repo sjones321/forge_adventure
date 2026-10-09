@@ -39,6 +39,13 @@ public class WireClassFilterTest {
             "forge.gamemodes.net.event.coop.CoopGatherRequestEvent",
             "forge.gamemodes.net.event.coop.CoopNodeStateEvent",
             "forge.gamemodes.net.event.coop.CoopLocationInviteEvent",
+            // TR1 player trading
+            "forge.gamemodes.net.event.coop.CoopTradeInviteEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeOfferEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeExecuteEvent",
+            "forge.gamemodes.net.coop.CoopTradeOffer",
+            "forge.gamemodes.net.coop.CoopTradeOffer$Line",
+            "forge.gamemodes.net.coop.CoopTradeOffer$CardLine",
     };
 
     private static final String[] REJECTED = {
