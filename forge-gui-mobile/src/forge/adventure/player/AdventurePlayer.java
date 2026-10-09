@@ -2273,6 +2273,9 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
     private void awardCollectingXp(PaperCard card, int amount) {
         if (card == null || amount <= 0)
             return;
+        // Basic lands are free from the deck editor, so they must not farm Collecting XP.
+        if (card.getRules() != null && card.getRules().getType().isBasicLand())
+            return;
         boolean firstCopy = cards.countByName(card.getName()) == 0;
         skills.onCardCollected(card, firstCopy);
         for (int i = 1; i < amount; i++)
