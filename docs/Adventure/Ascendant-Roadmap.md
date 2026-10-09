@@ -783,18 +783,30 @@ with him.
   its own Hall of Fame entry.
 - Forge has an achievement system in its other game modes; reuse its pieces only if they fit cleanly.
 
-### CS1. Card styles: alternate arts, special versions and foils (depends on AC1 for some sources)
-- **An account-wide unlock list of card styles** per card name (printing/set code, art index, foil). Kept through
-  prestige; a style applies as soon as the player owns that card again.
-- **Deck editor**: pick which unlocked style each card shows. Forge already stores a set and art per card in a deck.
-- Sources, so chasing shinies is a real goal:
-  - **Packs**: a small chance at foils and special printings; pulling one unlocks that style.
-  - **Shops** sell the normal printing only. Special printings, if offered at all, cost a steep markup (tunable).
-  - **Quests, achievements and friendship rewards** grant specific styles (e.g. a townsperson's signature card in
-    their own art).
-  - **Card mastery (T)**: its foil and alt-art unlocks feed this same list.
-- **Stop the random sprinkle**: card rewards and shop stock default to the normal printing; special versions come
-  only from the sources above. Ascendant only; the stock world is unchanged.
+### CS0. Printings come from where you got them (small, do first; Ascendant only)
+- Every card the player receives uses the printing from its source: a pack gives that pack's set printing, a set
+  plane's rewards and shops give that set's printing, a shop gives the printing from its own set pool. Anything with
+  no set context (generic loot, junk shops) uses the card's normal printing from a set in the player's current
+  rotation, falling back to its most recent normal (non-promo, non-showcase) printing.
+- No random variants anywhere in Ascendant: ignore the `useAllCardVariants` setting for rewards, shops, packs and the
+  Spell Smith. The stock world keeps today's behaviour.
+- Tests: rewards, shop stock and pack contents from a ZEN source are all ZEN printings; a junk-shop card uses a
+  printing inside the rotation; `useAllCardVariants=true` changes nothing in Ascendant.
+
+### CS1. Card styles: alternate arts, special versions and foils (depends on CS0; AC1 for some sources)
+- **A style is cosmetic, not a different card.** Alternate art, showcase, borderless, foil and reprint art from other
+  sets are styles unlocked per card name (printing/set code, art index, foil). An unlocked style can be applied to
+  any copy the player owns; it never changes the card, its legality, sale price or crafting value.
+- **Account-wide and kept through prestige**: a style applies as soon as the player owns that card again.
+- **Deck editor and collection**: pick which unlocked style each card shows (Forge already stores a set and art per
+  card in a deck).
+- **Three ways to get styles:**
+  - **Buy**: a cosmetics vendor in towns (an artist or engraver) sells styles for gold or shards; stock rotates.
+  - **Craft**: dust plus a rare cosmetic material (e.g. "prismatic ink" from delves or achievements) crafts a chosen
+    style, so a specific chase is possible.
+  - **Earn**: achievements (AC1), quests, card mastery (T) foil and alt-art unlocks, and friendship rewards (e.g. a
+    townsperson's signature card in their own art).
+- Packs may still show a small chance at a foil; pulling one unlocks that foil style.
 
 ## Suggested order
 
