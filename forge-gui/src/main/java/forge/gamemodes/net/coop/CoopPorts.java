@@ -17,10 +17,11 @@ public final class CoopPorts {
      * {@code (feature/set-start PROTOCOL_VERSION) + 1}.
      * History: CO2=5, CO3=6, MV1 plane-follow=7, MV2 live hash/gates=8,
      * EN2 host-authoritative {@code lootRolls} on {@code CoopDuelResultEvent}=9,
+     * Package K {@code planeFormat} on world offer / plane switch=10,
      * MV2 mid-session gate-delta ({@code CoopGateUpdateEvent} /
-     * {@code CoopWorldResyncRequestEvent} + resync requestId)=10.
+     * {@code CoopWorldResyncRequestEvent} + resync requestId)=11.
      */
-    public static final int PROTOCOL_VERSION = 10;
+    public static final int PROTOCOL_VERSION = 11;
 
     /** Length of the short session code shown by the host. */
     public static final int SESSION_CODE_LENGTH = 8;

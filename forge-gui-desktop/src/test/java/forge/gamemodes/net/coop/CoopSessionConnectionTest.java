@@ -226,6 +226,19 @@ public class CoopSessionConnectionTest {
         Assert.assertTrue(reason.get().toLowerCase().contains("card"), reason.get());
     }
 
+    /**
+     * Package K: old peers must be refused by the real {@code CoopSession} host
+     * hello handler (not a mirrored Netty stub). Covered in mobile
+     * {@code PlaneFormatTest.oldProtocolPeerIsRefusedViaRealOnHello}; kept here as
+     * a protocol-number pin for the desktop coop suite.
+     */
+    @Test
+    public void oldProtocolNumberIsBelowCurrent() {
+        // Pin: current is set-start (Package K = 10) + 1 for gate-delta (#40).
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
+        Assert.assertTrue(CoopPorts.PROTOCOL_VERSION - 1 >= 1);
+    }
+
     @Test
     public void wrongSessionCodeIsRejected() throws Exception {
         final CountDownLatch rejected = new CountDownLatch(1);

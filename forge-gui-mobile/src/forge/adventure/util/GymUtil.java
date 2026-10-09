@@ -432,7 +432,7 @@ public final class GymUtil {
             return p.historicDeckProblem(d) == null;
         if (FORMAT_PAUPER.equals(format))
             return p.pauperDeckProblem(d) == null;
-        if (p.isCommanderDeck(d) || p.isHistoricDeck(d))
+        if (p.isCommanderDeck(d) || p.isHistoricDeck(d) || p.isPauperDeck(d))
             return false;
         return p.standardDeckProblem(d) == null;
     }
@@ -445,8 +445,8 @@ public final class GymUtil {
             String problem = p.standardDeckProblem(d);
             if (problem != null)
                 return problem;
-            if (p.isCommanderDeckSelected() || p.isHistoricDeckSelected())
-                return "Select a Standard deck for this run (not Commander or Historic).";
+            if (p.isCommanderDeckSelected() || p.isHistoricDeckSelected() || p.isPauperDeckSelected())
+                return "Select a Standard deck for this plane (not Commander, Historic or Pauper).";
         } else if (FORMAT_HISTORIC.equals(format)) {
             String problem = p.historicDeckProblem(d);
             if (problem != null)
@@ -456,7 +456,8 @@ public final class GymUtil {
             if (problem != null)
                 return problem;
         }
-        return "Your selected deck must be legal for this run's format (" + format + ").";
+        return "Your selected deck must be legal for this plane's format ("
+                + forge.adventure.world.PlaneFormat.displayName(format) + ").";
     }
 
     public static Array<Reward> grantRewards(GymRewardData reward) {

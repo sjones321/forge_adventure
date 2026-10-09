@@ -1,5 +1,6 @@
 package forge.gamemodes.net.event.coop;
 
+import forge.gamemodes.net.coop.CoopWireLimits;
 import forge.gamemodes.net.event.NetEvent;
 
 /**
@@ -13,9 +14,12 @@ import forge.gamemodes.net.event.NetEvent;
  * <p>MV2: {@link #mv2SetCode} is the host-stamped set code for co-op rebuild
  * customisation (empty for home / pre-MV2 / unknown editions). {@link #gates}
  * carries the host's exact gate list (capped); world hash includes gate terrain clears.
+ *
+ * <p>Package K: {@link #planeFormat} is the host's current plane duel format
+ * (Standard / Historic / Pauper / Commander), length-capped plain data.
  */
 public class CoopWorldOfferEvent implements NetEvent {
-    private static final long serialVersionUID = 4L;
+    private static final long serialVersionUID = 5L;
 
     private final String hostPlayerName;
     private final String planeId;
@@ -32,12 +36,14 @@ public class CoopWorldOfferEvent implements NetEvent {
     private final String mv2SetCode;
     /** MV2: host live planar gates (set code + position); may be empty. */
     private final CoopPlanarGateEntry[] gates;
+    /** Package K: host current plane format; empty → guest applies default. */
+    private final String planeFormat;
 
     public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
                                final long worldSeed, final String worldHash,
                                final int gamePort, final int overworldPort) {
         this(hostPlayerName, planeId, planeConfigHash, worldSeed, worldHash, gamePort, overworldPort,
-                null, null, "", null);
+                null, null, "", null, "");
     }
 
     public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
@@ -45,7 +51,7 @@ public class CoopWorldOfferEvent implements NetEvent {
                                final int gamePort, final int overworldPort,
                                final String worldPlaneId, final String worldConfigPath) {
         this(hostPlayerName, planeId, planeConfigHash, worldSeed, worldHash, gamePort, overworldPort,
-                worldPlaneId, worldConfigPath, "", null);
+                worldPlaneId, worldConfigPath, "", null, "");
     }
 
     public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
@@ -54,7 +60,7 @@ public class CoopWorldOfferEvent implements NetEvent {
                                final String worldPlaneId, final String worldConfigPath,
                                final String mv2SetCode) {
         this(hostPlayerName, planeId, planeConfigHash, worldSeed, worldHash, gamePort, overworldPort,
-                worldPlaneId, worldConfigPath, mv2SetCode, null);
+                worldPlaneId, worldConfigPath, mv2SetCode, null, "");
     }
 
     public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
@@ -62,6 +68,16 @@ public class CoopWorldOfferEvent implements NetEvent {
                                final int gamePort, final int overworldPort,
                                final String worldPlaneId, final String worldConfigPath,
                                final String mv2SetCode, final CoopPlanarGateEntry[] gates) {
+        this(hostPlayerName, planeId, planeConfigHash, worldSeed, worldHash, gamePort, overworldPort,
+                worldPlaneId, worldConfigPath, mv2SetCode, gates, "");
+    }
+
+    public CoopWorldOfferEvent(final String hostPlayerName, final String planeId, final String planeConfigHash,
+                               final long worldSeed, final String worldHash,
+                               final int gamePort, final int overworldPort,
+                               final String worldPlaneId, final String worldConfigPath,
+                               final String mv2SetCode, final CoopPlanarGateEntry[] gates,
+                               final String planeFormat) {
         this.hostPlayerName = hostPlayerName;
         this.planeId = planeId;
         this.planeConfigHash = planeConfigHash;
@@ -73,6 +89,8 @@ public class CoopWorldOfferEvent implements NetEvent {
         this.worldConfigPath = worldConfigPath;
         this.mv2SetCode = mv2SetCode != null ? mv2SetCode : "";
         this.gates = copyGates(gates);
+        this.planeFormat = CoopWireLimits.clampString(
+                planeFormat != null ? planeFormat : "", CoopWireLimits.MAX_PLANE_FORMAT_LEN);
     }
 
     public String getHostPlayerName() {
@@ -120,6 +138,11 @@ public class CoopWorldOfferEvent implements NetEvent {
     /** Host live planar gates; never null (may be empty). */
     public CoopPlanarGateEntry[] getGates() {
         return copyGates(gates);
+    }
+
+    /** Package K: host current plane format token; empty when unset. */
+    public String getPlaneFormat() {
+        return planeFormat != null ? planeFormat : "";
     }
 
     private static CoopPlanarGateEntry[] copyGates(final CoopPlanarGateEntry[] src) {

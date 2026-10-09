@@ -24,8 +24,10 @@
  * <p>Protocol: CO2 is 5; CO3 is 6; MV1 plane-follow ({@link CoopPlaneSwitchEvent}) is 7;
  * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8;
  * EN2 host-authoritative {@code lootRolls} on {@link CoopDuelResultEvent} is 9;
+ * Package K {@code planeFormat} on {@link CoopWorldOfferEvent} /
+ * {@link CoopPlaneSwitchEvent} is 10;
  * MV2 mid-session gate-delta ({@link CoopGateUpdateEvent} /
- * {@link CoopWorldResyncRequestEvent} + resync requestId) is 10.
+ * {@link CoopWorldResyncRequestEvent} + resync requestId) is 11.
  * TR1 trading takes the next number on merge.
  */
 package forge.gamemodes.net.event.coop;
