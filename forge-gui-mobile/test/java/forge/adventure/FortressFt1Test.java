@@ -361,7 +361,7 @@ public class FortressFt1Test {
 
     @Test
     public void structureMaterialIdsUsedInCatalog() {
-        // Listed for the parallel ore-line rename PR.
+        // After the ore-line rename, structures use ore_iron (was copper). Every id must exist in the catalog.
         Set<String> ids = new HashSet<>();
         for (FortressStructureData s : FortressStructureListData.getAll()) {
             if (s.materials == null)
@@ -372,7 +372,8 @@ public class FortressFt1Test {
             }
         }
         Assert.assertTrue(ids.contains("oak"));
-        Assert.assertTrue(ids.contains("copper"));
+        Assert.assertTrue(ids.contains("ore_iron"));
+        Assert.assertFalse(ids.contains("copper"));
         Assert.assertTrue(ids.contains("wild_herbs"));
         Assert.assertTrue(ids.contains("garnet"));
     }
