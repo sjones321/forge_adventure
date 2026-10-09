@@ -664,7 +664,11 @@ public class SetPlaneGeneratorTest {
         Assert.assertFalse(drifted.isEmpty());
     }
 
-    @Test(timeOut = 300_000)
+    /**
+     * Opt-in GL group: needs LWJGL3 + a driven render loop (Linux/CI: {@code -Pgl-tests}
+     * under xvfb). Excluded from default {@code mvn test}.
+     */
+    @Test(groups = "gl", timeOut = 300_000)
     public void hostLiveSetPlaneHashMatchesGuestGateReplay() {
         // Real paths on GL: home generateNew → materializeSetPlane → switchPlane →
         // character save/load → live hash; guest = rebuildFromSeed + applyHostGates.
@@ -718,7 +722,7 @@ public class SetPlaneGeneratorTest {
             World guest = new World();
             try {
                 String guestHash = CoopWorldSync.rebuildFromSeed(
-                        guest, worldSeed, worldPath, planeId, mv2, gates);
+                        guest, worldSeed, worldPath, mv2, gates);
                 Assert.assertEquals(guestHash, hostLiveHash,
                         "guest rebuildFromSeed+applyHostGates must match host live hash");
             } finally {
@@ -732,7 +736,7 @@ public class SetPlaneGeneratorTest {
             World wrongSeed = new World();
             try {
                 String regenWrongSeed = CoopWorldSync.rebuildFromSeed(
-                        wrongSeed, worldSeed ^ 0x5A5A5A5AL, worldPath, planeId, mv2, gates);
+                        wrongSeed, worldSeed ^ 0x5A5A5A5AL, worldPath, mv2, gates);
                 Assert.assertNotEquals(regenWrongSeed, hostLiveHash,
                         "regenerated world with wrong seed must not match live host hash");
             } finally {
@@ -758,7 +762,7 @@ public class SetPlaneGeneratorTest {
             World noMv2 = new World();
             try {
                 String bare = CoopWorldSync.rebuildFromSeed(
-                        noMv2, worldSeed, worldPath, planeId, "", gates);
+                        noMv2, worldSeed, worldPath, "", gates);
                 Assert.assertNotEquals(bare, hostLiveHash,
                         "guest without host mv2SetCode stamp must not match live host");
             } finally {
@@ -767,7 +771,8 @@ public class SetPlaneGeneratorTest {
         });
     }
 
-    @Test(timeOut = 300_000)
+    /** @see #hostLiveSetPlaneHashMatchesGuestGateReplay */
+    @Test(groups = "gl", timeOut = 300_000)
     public void hostLiveHomeHashMatchesGuestGateReplay() {
         // Real home world: generateNew → real gate placement → character save/load → live hash.
         AdventureGlTestSupport.runOnGl(() -> {
@@ -815,7 +820,7 @@ public class SetPlaneGeneratorTest {
             World guest = new World();
             try {
                 String guestHash = CoopWorldSync.rebuildFromSeed(
-                        guest, worldSeed, worldPath, PlaneMeta.HOME_ID, "", gates);
+                        guest, worldSeed, worldPath, "", gates);
                 Assert.assertEquals(guestHash, hostLiveHash,
                         "guest home gate replay must match host live hash");
             } finally {
@@ -841,7 +846,7 @@ public class SetPlaneGeneratorTest {
             World noReplay = new World();
             try {
                 String skipped = CoopWorldSync.rebuildFromSeed(
-                        noReplay, worldSeed, worldPath, PlaneMeta.HOME_ID, "", null);
+                        noReplay, worldSeed, worldPath, "", null);
                 Assert.assertNotEquals(skipped, hostLiveHash,
                         "skipping applyHostGates must not match live host");
             } finally {
@@ -871,7 +876,8 @@ public class SetPlaneGeneratorTest {
         Assert.assertEquals(offer.getGates().length, 0);
     }
 
-    @Test(timeOut = 300_000)
+    /** @see #hostLiveSetPlaneHashMatchesGuestGateReplay */
+    @Test(groups = "gl", timeOut = 300_000)
     public void materializeShowsLoadingScreenViaPortalActor() {
         // Real PortalActor(WorldSave, planeId) overload → materializeSetPlane inside loading wrapper.
         AdventureGlTestSupport.runOnGl(() -> {

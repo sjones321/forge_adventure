@@ -832,8 +832,43 @@ public final class CoopSession {
      * Run World.generateNew / World.load (or restore) on the GL thread behind a
      * TransitionScreen, matching New Game / Continue. Never schedules on the
      * session worker or Netty threads.
+     *
+     * @param kickHostToMenuOnError when false (host building a guest world offer),
+     *        errors refuse the guest and leave the host in-adventure; when true,
+     *        guest-side failures may {@link Forge#delayedSwitchBack} to the menu.
      */
     private void runWorldOpOnGl(final String loadingMessage, final Runnable work) {
+        runWorldOpOnGl(loadingMessage, work, true);
+    }
+
+    /**
+     * Host-side: reject the current guest connection and remain {@link State#HOSTING}.
+     * Used when {@link #buildWorldOffer()} fails so the host is not sent to the main menu.
+     */
+    private void refuseGuestKeepHosting(final String reason) {
+        lastError = reason != null ? reason : "world offer failed";
+        final CoopOverworldServer s = server;
+        if (s != null) {
+            try {
+                s.rejectAndClose(lastError);
+            } catch (final Exception ignored) {
+            }
+        } else {
+            try {
+                send(new CoopHelloRejectEvent(lastError));
+            } catch (final Exception ignored) {
+            }
+        }
+        peerName = "";
+        if (state != State.IDLE && state != State.DISCONNECTED) {
+            state = State.HOSTING;
+        }
+        status("Rejected guest (kept hosting): " + lastError
+                + (sessionCode != null && !sessionCode.isEmpty() ? " code " + sessionCode : ""));
+    }
+
+    private void runWorldOpOnGl(final String loadingMessage, final Runnable work,
+                                final boolean kickHostToMenuOnError) {
         final Runnable wrapped = () -> {
             try {
                 work.run();
@@ -843,6 +878,11 @@ public final class CoopSession {
                 try {
                     Forge.clearTransitionScreen();
                 } catch (final Exception ignored) {
+                }
+                if (!kickHostToMenuOnError && role == CoopSessionRole.HOST) {
+                    // Guest join / offer failed — stay HOSTING; do not dump the host to the menu.
+                    refuseGuestKeepHosting(lastError);
+                    return;
                 }
                 try {
                     Forge.delayedSwitchBack("",
@@ -936,6 +976,7 @@ public final class CoopSession {
             }
             peerName = hello.getCharacterName() != null ? hello.getCharacterName() : hello.getPlayerName();
             // H1: live-world hash + gate collect must run on the GL thread (no regenerate).
+            // On failure: refuse the guest and keep hosting — never delayedSwitchBack to menu.
             final String loadingMsg = Forge.getLocalizer() != null
                     ? Forge.getLocalizer().getMessage("lblLoadingWorld")
                     : "Preparing world…";
@@ -947,7 +988,7 @@ public final class CoopSession {
                             + " seed " + offer.getWorldSeed()
                             + " hash " + worldHash.substring(0, Math.min(8, worldHash.length())) + "…");
                 });
-            });
+            }, false);
         }
 
         /**
@@ -1055,7 +1096,7 @@ public final class CoopSession {
                             ? offer.getWorldPlaneId() : PlaneMeta.HOME_ID;
                     final String mv2SetCode = offer.getMv2SetCode();
                     final String localHash = CoopWorldSync.rebuildFromSeed(
-                            staging, offer.getWorldSeed(), worldPath, offerPlaneId, mv2SetCode,
+                            staging, offer.getWorldSeed(), worldPath, mv2SetCode,
                             offer.getGates());
                     if (CoopWorldHash.matches(localHash, offer.getWorldHash())) {
                         final World previous = sessionWorld;
@@ -1114,7 +1155,7 @@ public final class CoopSession {
                             ? event.getWorldPlaneId() : PlaneMeta.HOME_ID;
                     final String mv2SetCode = event.getMv2SetCode();
                     final String localHash = CoopWorldSync.rebuildFromSeed(
-                            staging, event.getWorldSeed(), worldPath, switchPlaneId, mv2SetCode,
+                            staging, event.getWorldSeed(), worldPath, mv2SetCode,
                             event.getGates());
                     if (!CoopWorldHash.matches(localHash, event.getWorldHash())) {
                         try {

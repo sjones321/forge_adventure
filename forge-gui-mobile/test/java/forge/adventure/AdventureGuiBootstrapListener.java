@@ -23,10 +23,23 @@ import java.nio.file.Paths;
  * Without this, early {@code SetPlaneRules.generateEnemyDeck} poisons
  * {@code CardUtil} via {@code FModel.getFormats()} before editions load, and
  * {@code WorldSave} clinit NPEs on an uninitialized Localizer.
+ *
+ * <p>Must run <em>after</em> {@link AdventureTestUserDirIsolationListener} so
+ * Ascendant {@code settings.json} is written only under the isolated temp
+ * {@link ForgeConstants#USER_ADVENTURE_DIR}, never the developer's real profile.
  */
 public final class AdventureGuiBootstrapListener implements ISuiteListener {
     @Override
     public void onStart(final ISuite suite) {
+        final String testUser = System.getProperty(
+                forge.localinstance.properties.ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
+        if (testUser == null || testUser.isBlank()) {
+            throw new IllegalStateException(
+                    "AdventureGuiBootstrapListener requires forge.test.userDir "
+                            + "(AdventureTestUserDirIsolationListener). Refusing to write settings "
+                            + "to the real USER_DIR=" + ForgeConstants.USER_DIR);
+        }
+        AdventureTestUserDir.assertConstantsUse(java.nio.file.Paths.get(testUser));
         final String assets = Files.exists(Paths.get("./forge-gui")) ? "./forge-gui/"
                 : Files.exists(Paths.get("./res")) ? "./" : "../forge-gui/";
         if (!(GuiBase.getInterface() instanceof GuiMobile)) {
@@ -38,7 +51,7 @@ public final class AdventureGuiBootstrapListener implements ISuiteListener {
         } catch (Throwable t) {
             System.err.println("AdventureGuiBootstrapListener: Localizer init failed: " + t.getMessage());
         }
-        // Write Ascendant settings before the first Config.instance() in the suite.
+        // Ascendant settings → isolated USER_ADVENTURE_DIR only.
         final File dir = new File(ForgeConstants.USER_ADVENTURE_DIR);
         //noinspection ResultOfMethodCallIgnored
         dir.mkdirs();

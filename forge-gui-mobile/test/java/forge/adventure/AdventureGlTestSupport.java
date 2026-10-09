@@ -4,14 +4,10 @@ import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3Application;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3ApplicationConfiguration;
-import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.Texture;
-import com.badlogic.gdx.utils.Json;
-import com.badlogic.gdx.utils.JsonWriter;
 import forge.Forge;
 import forge.Graphics;
 import forge.GuiMobile;
-import forge.adventure.data.SettingData;
 import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 import forge.assets.Assets;
@@ -21,7 +17,6 @@ import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.model.FModel;
 import forge.util.Localizer;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.concurrent.Callable;
@@ -34,6 +29,13 @@ import java.util.concurrent.atomic.AtomicReference;
  * Boots {@link GuiMobile} + LWJGL3 (same stack as {@code forge.WorldGenBench}) once
  * per JVM so adventure world-gen / materialize / co-op hash tests can run the real
  * {@link forge.adventure.world.World#generateNew} path under Xvfb/DISPLAY.
+ *
+ * <p>Opt-in only: tests that call this belong to TestNG group {@code gl}
+ * (excluded from default surefire; enable with {@code -Pgl-tests} /
+ * {@code xvfb-run -a mvn -Pgl-tests test}). Ascendant settings must already live
+ * under the isolated {@link ForgeConstants#USER_ADVENTURE_DIR} from
+ * {@link AdventureTestUserDirIsolationListener} — this class never writes the
+ * real user profile.
  */
 public final class AdventureGlTestSupport {
     private static final LinkedBlockingQueue<Runnable> GL_QUEUE = new LinkedBlockingQueue<>();
@@ -121,7 +123,14 @@ public final class AdventureGlTestSupport {
             } catch (Throwable ignored) {
                 // Suite listener should already have initialized; ignore races.
             }
-            writeAscendantSettings();
+            // Settings were written to the isolated USER_ADVENTURE_DIR by the suite listeners.
+            // Reset Config so instance() re-reads that Ascendant settings.json.
+            try {
+                java.lang.reflect.Field f = Config.class.getDeclaredField("currentConfig");
+                f.setAccessible(true);
+                f.set(null, null);
+            } catch (ReflectiveOperationException ignored) {
+            }
 
             Lwjgl3ApplicationConfiguration cfg = new Lwjgl3ApplicationConfiguration();
             cfg.setWindowedMode(64, 64);
@@ -173,28 +182,6 @@ public final class AdventureGlTestSupport {
         } catch (Throwable t) {
             startError = t;
             READY.countDown();
-        }
-    }
-
-    private static void writeAscendantSettings() {
-        File dir = new File(ForgeConstants.USER_ADVENTURE_DIR);
-        //noinspection ResultOfMethodCallIgnored
-        dir.mkdirs();
-        SettingData settings = new SettingData();
-        settings.plane = "Shandalar Ascendant";
-        settings.width = 1280;
-        settings.height = 720;
-        settings.videomode = "720p";
-        FileHandle out = new FileHandle(ForgeConstants.USER_ADVENTURE_DIR + "settings.json");
-        Json json = new Json(JsonWriter.OutputType.json);
-        out.writeString(json.prettyPrint(settings), false, "UTF-8");
-        // Reset Config singleton so the next instance() picks up Ascendant settings.
-        try {
-            java.lang.reflect.Field f = Config.class.getDeclaredField("currentConfig");
-            f.setAccessible(true);
-            f.set(null, null);
-        } catch (ReflectiveOperationException ignored) {
-            // Config may already be Ascendant
         }
     }
 

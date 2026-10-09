@@ -26,7 +26,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <!-- GL world-gen tests (materialize / home generateNew) need headroom. -->
+                    <!-- GL world-gen tests need headroom when the gl profile is enabled. -->
                     <argLine>
                         -Xmx3g
                         --add-opens java.base/java.lang=ALL-UNNAMED
@@ -38,16 +38,44 @@
                         --add-opens java.base/java.lang.reflect=ALL-UNNAMED
                         --add-opens java.desktop/javax.imageio.spi=ALL-UNNAMED
                     </argLine>
+                    <!-- Isolate USER_DIR before ForgeConstants loads (see AdventureTestUserDirIsolationListener). -->
+                    <systemPropertyVariables>
+                        <forge.test.userDir>${project.build.directory}/adventure-test-user/</forge.test.userDir>
+                    </systemPropertyVariables>
+                    <!-- Default: skip LWJGL3 "gl" tests (hang on Windows/AMD without a driven GL loop). -->
+                    <excludedGroups>gl</excludedGroups>
                     <properties>
                         <property>
                             <name>listener</name>
-                            <value>forge.adventure.AdventureGuiBootstrapListener</value>
+                            <value>forge.adventure.AdventureTestUserDirIsolationListener,forge.adventure.AdventureGuiBootstrapListener</value>
                         </property>
                     </properties>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <!--
+          Opt-in GL world-gen / materialize / live-hash tests (LWJGL3).
+          CI / Linux: xvfb-run -a mvn -B -o -pl forge-gui-mobile -am -Pgl-tests test
+          Requires a GL context; default `mvn test` must stay fast on Windows without one.
+        -->
+        <profile>
+            <id>gl-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludedGroups combine.self="override"/>
+                            <groups>gl</groups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
     <repositories>
         <repository>
             <id>jitpack.io</id>

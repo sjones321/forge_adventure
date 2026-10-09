@@ -110,7 +110,9 @@ public final class CoopWorldSync {
 
     /**
      * Collect planar gates / legacy return portals from the live world for the wire.
-     * Each entry is destination set code (empty = home) plus world position. Capped.
+     * Each entry is destination set code (empty = home) plus world position.
+     * Sorted first, then capped at {@link #MAX_PLANAR_GATES_ON_WIRE} so the kept
+     * set is deterministic (not "first N in map iteration order").
      */
     public static CoopPlanarGateEntry[] collectPlanarGates(final World world) {
         if (world == null) {
@@ -142,14 +144,15 @@ public final class CoopWorldSync {
                 continue;
             }
             list.add(new CoopPlanarGateEntry(setCode, pos.x, pos.y));
-            if (list.size() >= MAX_PLANAR_GATES_ON_WIRE) {
-                break;
-            }
         }
         list.sort(Comparator
                 .comparing(CoopPlanarGateEntry::getSetCode)
                 .thenComparingDouble(CoopPlanarGateEntry::getX)
                 .thenComparingDouble(CoopPlanarGateEntry::getY));
+        if (list.size() > MAX_PLANAR_GATES_ON_WIRE) {
+            return list.subList(0, MAX_PLANAR_GATES_ON_WIRE)
+                    .toArray(new CoopPlanarGateEntry[0]);
+        }
         return list.toArray(new CoopPlanarGateEntry[0]);
     }
 
@@ -181,22 +184,16 @@ public final class CoopWorldSync {
      * customisation), replay host gates, return the live-equivalent hash.
      */
     public static String rebuildFromSeed(final World target, final long seed) {
-        return rebuildFromSeed(target, seed, Paths.WORLD, null, "", null);
+        return rebuildFromSeed(target, seed, Paths.WORLD, "", null);
     }
 
     public static String rebuildFromSeed(final World target, final long seed, final String worldConfigPath) {
-        return rebuildFromSeed(target, seed, worldConfigPath, null, "", null);
+        return rebuildFromSeed(target, seed, worldConfigPath, "", null);
     }
 
     public static String rebuildFromSeed(final World target, final long seed,
-                                         final String worldConfigPath, final String worldPlaneId,
-                                         final String mv2SetCode) {
-        return rebuildFromSeed(target, seed, worldConfigPath, worldPlaneId, mv2SetCode, null);
-    }
-
-    public static String rebuildFromSeed(final World target, final long seed,
-                                         final String worldConfigPath, final String worldPlaneId,
-                                         final String mv2SetCode, final CoopPlanarGateEntry[] gates) {
+                                         final String worldConfigPath, final String mv2SetCode,
+                                         final CoopPlanarGateEntry[] gates) {
         if (target == null) {
             throw new IllegalArgumentException("target world required");
         }
