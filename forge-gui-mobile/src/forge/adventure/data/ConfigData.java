@@ -395,6 +395,7 @@ public class ConfigData {
      * {@code llm_opponent.properties}. The settings screen and properties file are authoritative.
      */
     public int llmOpponentDefaultTimeoutSeconds = 30;
+
     // ---- Ascendant fortresses (Package FT1): claim site + instance build mode. ----
 
     /**
@@ -413,5 +414,10 @@ public class ConfigData {
     public int fortressBuildableWidth = 16;
     /** Buildable zone height in tiles. */
     public int fortressBuildableHeight = 12;
+    /**
+     * Station interaction pad in tiles beyond the solid collision box on each side
+     * (so stations stay solid but remain openable from adjacent tiles).
+     */
+    public float fortressStationInteractPadTiles = 0.5f;
 
 }

@@ -1,0 +1,17 @@
+resource_nodes_tall.png
+size: 64,32
+format: RGBA8888
+filter: Nearest,Nearest
+repeat: none
+tree_oak
+  xy: 0, 0
+  size: 16, 32
+tree_willow
+  xy: 16, 0
+  size: 16, 32
+tree_yew
+  xy: 32, 0
+  size: 16, 32
+tree_ironwood
+  xy: 48, 0
+  size: 16, 32

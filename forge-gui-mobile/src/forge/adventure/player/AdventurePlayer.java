@@ -129,6 +129,11 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
      * Double so the timer does not stall after ~146 hours of float precision loss.
      */
     private double adventurePlaySeconds = 0d;
+    /**
+     * materialSchema value read on the last {@link #load(SaveFileData)} (0 when missing).
+     * Used by {@link forge.adventure.world.WorldSave} to gate inactive-plane ore-line migration.
+     */
+    private int loadedMaterialSchema = 0;
     /** T1 tools granted free at New Game and on old Ascendant saves. Package E crafts higher tiers. */
     public static final String[] STARTER_GATHERING_TOOLS = {
             "Iron Hatchet", "Iron Pickaxe", "Iron Chisel",
@@ -249,6 +254,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         Arrays.fill(dust, 0);
         autoSalvage = false;
         materials.clear();
+        loadedMaterialSchema = 0;
         starterToolsGranted = false;
         bags.resetToDefaults(safeConfigData());
         contestCurrencies.clear();
@@ -729,6 +735,14 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             return 0;
         Integer n = materials.get(id);
         return n != null ? Math.max(0, n) : 0;
+    }
+
+    /**
+     * {@code materialSchema} value from the last load (0 when the key was missing).
+     * After a successful save the on-disk value is {@link MaterialListData#MATERIAL_SCHEMA_ORE_LINE}.
+     */
+    public int getLoadedMaterialSchema() {
+        return loadedMaterialSchema;
     }
 
     /** Unmodifiable view of material id → count (zeros omitted). */
@@ -1294,6 +1308,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         // Only once: some old ids (marble) are also new ids, so re-running would shift tiers every load.
         // Schema 3: ore line copper/iron/mithril/adamant → ore_iron/ore_mithral/ore_adamant/ore_rune (single-pass).
         int materialSchema = data.containsKey("materialSchema") ? data.readInt("materialSchema") : 0;
+        loadedMaterialSchema = materialSchema;
         if (materialSchema < 2)
             MaterialListData.migrateMaterialCounts(materials);
         if (materialSchema < MaterialListData.MATERIAL_SCHEMA_ORE_LINE)
@@ -1439,20 +1454,8 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 for (int i = 0; i < inv.length; i++) {
                     ItemData itemData = inv[i];
                     if (itemData != null) {
-                        if (materialSchema < MaterialListData.MATERIAL_SCHEMA_ORE_LINE
-                                && itemData.name != null) {
-                            String migratedName = MaterialListData.migrateOreLineItemName(itemData.name);
-                            if (!migratedName.equals(itemData.name)) {
-                                ItemData canonical = ItemListData.getItem(migratedName);
-                                if (canonical != null) {
-                                    long keepId = itemData.longID;
-                                    itemData = new ItemData(canonical);
-                                    itemData.longID = keepId;
-                                } else {
-                                    itemData.name = migratedName;
-                                }
-                            }
-                        }
+                        if (materialSchema < MaterialListData.MATERIAL_SCHEMA_ORE_LINE)
+                            MaterialListData.migrateOreLineItemInstance(itemData);
                         inventoryItems.add(itemData);
                     }
                 }
@@ -1843,19 +1846,9 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                         if (e.kind == OverflowEntry.Kind.MATERIAL && e.key != null)
                             e.key = MaterialListData.migrateOreLineMaterialId(e.key);
                         else if (e.kind == OverflowEntry.Kind.ITEM) {
-                            if (e.item != null && e.item.name != null) {
-                                String migratedName = MaterialListData.migrateOreLineItemName(e.item.name);
-                                if (!migratedName.equals(e.item.name)) {
-                                    ItemData canonical = ItemListData.getItem(migratedName);
-                                    if (canonical != null) {
-                                        long keepId = e.item.longID;
-                                        e.item = new ItemData(canonical);
-                                        e.item.longID = keepId;
-                                    } else {
-                                        e.item.name = migratedName;
-                                    }
-                                    e.key = migratedName;
-                                }
+                            if (e.item != null) {
+                                MaterialListData.migrateOreLineItemInstance(e.item);
+                                e.key = e.item.name;
                             } else if (e.key != null) {
                                 e.key = MaterialListData.migrateOreLineItemName(e.key);
                             }

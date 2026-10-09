@@ -38,6 +38,12 @@ public final class MultiverseState {
      */
     private final LinkedHashSet<String> pendingHomeGatePlaneIds = new LinkedHashSet<>();
     private boolean multiPlaneFormat;
+    /**
+     * When true, inactive plane blobs still need schema-3 ore-line node id migration.
+     * Set from the player's {@code materialSchema} after load; schema ≥ 3 leaves blobs untouched
+     * so we never decompress/recompress every plane on every load.
+     */
+    private boolean oreLineInactiveMigrationNeeded;
 
     public String getCurrentPlaneId() {
         if (currentPlaneId != null && !currentPlaneId.isEmpty()) {
@@ -107,6 +113,8 @@ public final class MultiverseState {
 
     /**
      * Decompress an inactive plane on demand. Does not retain the inflated form.
+     * Ore-line node migration runs only when {@link #oreLineInactiveMigrationNeeded} is set
+     * (player {@code materialSchema} &lt; 3).
      */
     public SaveFileData readInactiveBlob(String planeId) throws IOException {
         if (planeId == null) {
@@ -117,23 +125,71 @@ public final class MultiverseState {
             return null;
         }
         SaveFileData blob = CompressedPlaneBlob.decompress(compressed);
-        migrateInactivePlaneBlob(blob);
+        if (oreLineInactiveMigrationNeeded) {
+            migrateInactivePlaneBlob(blob);
+            // Persist the migrated form so later reads / saves do not redo the work.
+            compressedBlobs.put(planeId, CompressedPlaneBlob.compress(blob));
+        }
         return blob;
+    }
+
+    /**
+     * Enable or clear schema-3 inactive-plane migration for this registry.
+     * Call after the player load so the gate matches {@code materialSchema}.
+     */
+    public void setOreLineInactiveMigrationNeeded(boolean needed) {
+        oreLineInactiveMigrationNeeded = needed;
+    }
+
+    public boolean isOreLineInactiveMigrationNeeded() {
+        return oreLineInactiveMigrationNeeded;
+    }
+
+    /**
+     * When migration is needed, decompress each inactive plane once, rewrite node material ids,
+     * and store the recompressed payload. No-op when schema ≥ 3 (flag clear).
+     *
+     * @return number of inactive blobs recompressed
+     */
+    public int migrateInactivePlanesForOreLineIfNeeded() throws IOException {
+        if (!oreLineInactiveMigrationNeeded) {
+            return 0;
+        }
+        int migrated = 0;
+        for (String planeId : new ArrayList<>(inactivePlaneIds)) {
+            byte[] compressed = compressedBlobs.get(planeId);
+            if (!CompressedPlaneBlob.isCompressedPayload(compressed)) {
+                continue;
+            }
+            SaveFileData blob = CompressedPlaneBlob.decompress(compressed);
+            if (migrateInactivePlaneBlob(blob)) {
+                compressedBlobs.put(planeId, CompressedPlaneBlob.compress(blob));
+                migrated++;
+            }
+        }
+        oreLineInactiveMigrationNeeded = false;
+        return migrated;
     }
 
     /**
      * Schema 3: rewrite ore material ids inside an inactive plane's world-stage payload.
      * Idempotent for already-migrated ids.
+     *
+     * @return true when the stage list changed
      */
-    static void migrateInactivePlaneBlob(SaveFileData blob) {
+    static boolean migrateInactivePlaneBlob(SaveFileData blob) {
         if (blob == null) {
-            return;
+            return false;
         }
         SaveFileData stage = PlaneBlob.worldStage(blob);
-        if (stage != null) {
-            forge.adventure.data.MaterialListData.migrateWorldStageNodeMaterialIds(stage);
+        if (stage == null) {
+            return false;
+        }
+        boolean changed = forge.adventure.data.MaterialListData.migrateWorldStageNodeMaterialIds(stage);
+        if (changed) {
             blob.store("worldStage", stage);
         }
+        return changed;
     }
 
     /** @deprecated use {@link #readInactiveBlob(String)} */
@@ -350,13 +406,9 @@ public final class MultiverseState {
                 }
                 Object raw = data.readObject("cz_" + planeId);
                 if (raw instanceof byte[] compressed && CompressedPlaneBlob.isCompressedPayload(compressed)) {
-                    try {
-                        SaveFileData blob = CompressedPlaneBlob.decompress(compressed);
-                        migrateInactivePlaneBlob(blob);
-                        compressedBlobs.put(planeId, CompressedPlaneBlob.compress(blob));
-                    } catch (IOException e) {
-                        compressedBlobs.put(planeId, compressed);
-                    }
+                    // Keep the compressed payload as stored. Ore-line migration runs later only when
+                    // the player's materialSchema is below 3 (see migrateInactivePlanesForOreLineIfNeeded).
+                    compressedBlobs.put(planeId, compressed);
                     inactivePlaneIds.add(planeId);
                 }
             }

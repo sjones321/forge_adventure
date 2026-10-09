@@ -328,10 +328,12 @@ public final class LlmOpponent {
         if (e instanceof HttpStatusException http) {
             String body = http.getResponseBody();
             String detail = body == null || body.isBlank() ? "(no body)" : body.trim();
+            // Redact before truncating so a key that straddles the cut point cannot leak.
+            detail = s.redact(detail);
             if (detail.length() > 300) {
                 detail = detail.substring(0, 300) + "…";
             }
-            return s.redact("HTTP " + http.getStatusCode() + ": " + detail);
+            return "HTTP " + http.getStatusCode() + ": " + detail;
         }
         return s.redact(safeMessage(e));
     }

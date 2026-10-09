@@ -69,8 +69,8 @@ public final class LlmSettingsPersistence {
                 pending.cancel(false);
                 pending = null;
             }
+            saveLocked();
         }
-        saveNow();
     }
 
     /** Like {@link #flush()} but swallows IO errors (UI blur / leave paths). */
@@ -94,7 +94,15 @@ public final class LlmSettingsPersistence {
         }
     }
 
+    /** Serialize all disk writes so debounce and flush cannot interleave or tear the file. */
     private void saveNow() throws IOException {
+        synchronized (lock) {
+            saveLocked();
+        }
+    }
+
+    /** Caller must hold {@link #lock}. */
+    private void saveLocked() throws IOException {
         settings.save(file);
         saveCount.incrementAndGet();
     }

@@ -76,6 +76,34 @@ public class MapStage extends GameStage {
     private com.badlogic.gdx.math.Rectangle fortressBuildableBounds; // world pixels
     private float fortressTileW = 16f;
     private float fortressTileH = 16f;
+
+    /** Loaded map tile width in pixels (from TMX {@code tilewidth}). */
+    public float getMapTileWidth() {
+        return fortressTileW > 0f ? fortressTileW : 16f;
+    }
+
+    /** Loaded map tile height in pixels (from TMX {@code tileheight}). */
+    public float getMapTileHeight() {
+        return fortressTileH > 0f ? fortressTileH : 16f;
+    }
+
+    /**
+     * Rasterize this map's collision rectangles into fortress grid cells for path-to-entry BFS.
+     * Includes TMX collision objects/layers and placed solid structures currently on the map.
+     */
+    public java.util.Set<Long> fortressPathBlockedCells() {
+        java.util.Set<Long> cells = new java.util.HashSet<>();
+        float tw = getMapTileWidth();
+        float th = getMapTileHeight();
+        for (int i = 0; i < collisionRect.size; i++) {
+            Rectangle r = collisionRect.get(i);
+            if (r == null)
+                continue;
+            forge.adventure.fortress.FortressBuildGrid.addCellsCoveredByRect(
+                    cells, tw, th, r.x, r.y, r.width, r.height);
+        }
+        return cells;
+    }
     private com.badlogic.gdx.graphics.glutils.ShapeRenderer fortressShapeRenderer;
     /** Collision rects owned by placed fortress structures (for immediate demolish). */
     private final Array<Rectangle> fortressCollisionRects = new Array<>();
@@ -172,7 +200,7 @@ public class MapStage extends GameStage {
             fortressShapeRenderer = new com.badlogic.gdx.graphics.glutils.ShapeRenderer();
         fortressShapeRenderer.setProjectionMatrix(getCamera().combined);
         boolean ok = mode.previewValid(pt[0], pt[1], fi.getEntryGridX(), fi.getEntryGridY(),
-                fi.getMapWidthTiles(), fi.getMapHeightTiles());
+                fi.getMapWidthTiles(), fi.getMapHeightTiles(), fortressPathBlockedCells());
         com.badlogic.gdx.graphics.Color c = ok
                 ? new com.badlogic.gdx.graphics.Color(0.2f, 0.85f, 0.25f, 0.45f)
                 : new com.badlogic.gdx.graphics.Color(0.9f, 0.2f, 0.2f, 0.45f);
@@ -1574,6 +1602,7 @@ public class MapStage extends GameStage {
             } catch (Exception ignored) {
             }
         }
+        syncFortressEntryFromTmx(fi);
         if (fortressBuildableBounds != null) {
             int ox = (int) (fortressBuildableBounds.x / fortressTileW);
             int oy = (int) (fortressBuildableBounds.y / fortressTileH);
@@ -1589,6 +1618,41 @@ public class MapStage extends GameStage {
                 this::rebuildFortressStructureVisuals);
     }
 
+    /**
+     * Read the fortress entry tile from the TMX {@code entry} object (spawn=true),
+     * never hardcode (11,1). Falls back to existing instance values when absent.
+     */
+    private void syncFortressEntryFromTmx(forge.adventure.fortress.FortressInstance fi) {
+        if (tiledMap == null || fi == null)
+            return;
+        float tw = getMapTileWidth();
+        float th = getMapTileHeight();
+        for (MapLayer layer : tiledMap.getLayers()) {
+            if (layer == null)
+                continue;
+            for (MapObject obj : layer.getObjects()) {
+                if (obj == null || obj.getProperties() == null)
+                    continue;
+                MapProperties prop = obj.getProperties();
+                String type = prop.get("type", String.class);
+                if (type == null || !"entry".equals(type))
+                    continue;
+                boolean spawn = prop.containsKey("spawn")
+                        && "true".equalsIgnoreCase(String.valueOf(prop.get("spawn")));
+                if (!spawn)
+                    continue;
+                try {
+                    float x = Float.parseFloat(prop.get("x").toString());
+                    float y = Float.parseFloat(prop.get("y").toString());
+                    int[] tile = forge.adventure.fortress.FortressWorldHelper.entryTileFromPixels(x, y, tw, th);
+                    fi.setEntryTile(tile[0], tile[1]);
+                    return;
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
     private void spawnOneFortressStructure(forge.adventure.fortress.PlacedStructure p) {
         forge.adventure.data.FortressStructureData def =
                 forge.adventure.data.FortressStructureListData.get(p.structureId);
@@ -1598,13 +1662,36 @@ public class MapStage extends GameStage {
         float py = p.gridY * fortressTileH;
         int w = def.rotatedW(p.rotationDeg);
         int h = def.rotatedH(p.rotationDeg);
-        // Stations are solid interactables; gates never add collision.
+        // Solid footprint collision (stations included). Gates never add collision.
         if (def.blocksMovement) {
             Rectangle rect = new Rectangle(px, py, w * fortressTileW, h * fortressTileH);
             collisionRect.add(rect);
             fortressCollisionRects.add(rect);
         }
+        // Every structure gets a sprite (stations included — previously OnCollide-only).
+        try {
+            String spriteName = def.sprite != null && !def.sprite.isEmpty() ? def.sprite : "ItemShop";
+            TextureSprite sprite = new TextureSprite(Config.instance().getAtlasSprite(
+                    "maps/tileset/buildings.atlas", spriteName));
+            sprite.setX(px);
+            sprite.setY(py);
+            sprite.setWidth(w * fortressTileW);
+            sprite.setHeight(h * fortressTileH);
+            addMapActor(sprite);
+            fortressStructureActors.add(sprite);
+        } catch (Exception e) {
+            // Missing placeholder art — collision still applies when blocksMovement.
+        }
         if (def.isStation()) {
+            // Interaction zone slightly larger than the solid box so the player can open
+            // the station without walking into the collision rectangle.
+            float padTiles = 0.5f;
+            try {
+                padTiles = Config.instance().getConfigData().fortressStationInteractPadTiles;
+            } catch (Throwable ignored) {
+            }
+            float[] bounds = forge.adventure.fortress.FortressBuildGrid.stationInteractBounds(
+                    px, py, w, h, fortressTileW, fortressTileH, padTiles);
             final String station = def.stationKey();
             MapActor stationActor;
             if ("spellsmith".equals(station)) {
@@ -1613,25 +1700,11 @@ public class MapStage extends GameStage {
                 stationActor = new OnCollide(() ->
                         Forge.switchScene(RecipeScene.instance().open(station)));
             }
-            stationActor.setPosition(px, py);
-            stationActor.setWidth(w * fortressTileW);
-            stationActor.setHeight(h * fortressTileH);
+            stationActor.setPosition(bounds[0], bounds[1]);
+            stationActor.setWidth(bounds[2]);
+            stationActor.setHeight(bounds[3]);
             addMapActor(stationActor);
             fortressStructureActors.add(stationActor);
-        } else {
-            try {
-                TextureSprite sprite = new TextureSprite(Config.instance().getAtlasSprite(
-                        "maps/tileset/buildings.atlas",
-                        def.sprite != null && !def.sprite.isEmpty() ? def.sprite : "Block"));
-                sprite.setX(px);
-                sprite.setY(py);
-                sprite.setWidth(w * fortressTileW);
-                sprite.setHeight(h * fortressTileH);
-                addMapActor(sprite);
-                fortressStructureActors.add(sprite);
-            } catch (Exception e) {
-                // Missing placeholder art — collision still applies when blocksMovement.
-            }
         }
     }
 
