@@ -205,13 +205,13 @@ public class FightRewardsRw1Test {
         Assert.assertTrue(guestCards.stream().anyMatch(c -> core.contains(c.getName())),
                 "guest signature");
 
-        // Independent seedless rolls — not required to differ, but both must be complete RW1 packages.
-        Assert.assertTrue(hostCards.stream().anyMatch(c -> FightRewards.isEdition(c, "ZEN"))
-                        || hostCards.size() == 1,
-                "host should include current-set cards when the row rolls any");
-        Assert.assertTrue(guestCards.stream().anyMatch(c -> FightRewards.isEdition(c, "ZEN"))
-                        || guestCards.size() == 1,
-                "guest should include current-set cards when the row rolls any");
+        // Independent seedless rolls — each peer gets a full RW1 package (signature + set cards).
+        Assert.assertTrue(hostCards.size() >= 3, "host RW1 package; " + names(hostCards));
+        Assert.assertTrue(guestCards.size() >= 3, "guest RW1 package; " + names(guestCards));
+        Assert.assertTrue(hostCards.stream().anyMatch(c -> FightRewards.isEdition(c, "ZEN")),
+                "host current-set cards; " + editions(hostCards));
+        Assert.assertTrue(guestCards.stream().anyMatch(c -> FightRewards.isEdition(c, "ZEN")),
+                "guest current-set cards; " + editions(guestCards));
     }
 
     @Test

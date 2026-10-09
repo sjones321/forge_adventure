@@ -282,30 +282,61 @@ public final class FightRewards {
     /**
      * Draw {@code count} cards from the current set using the row's rarity/color
      * filters, then pin printings via {@link #resolvePrinting}.
+     * <p>
+     * Pool is every printing of {@code setCode} (not unique preferred arts):
+     * {@link CardUtil.CardPredicate} treats {@code editions} as "has a printing in
+     * this set", so a unique-card pool would accept off-set preferred printings.
      */
     static List<PaperCard> generateFromCurrentSet(RewardData filter, String setCode, int count, Random rng) {
         List<PaperCard> out = new ArrayList<>();
         if (filter == null || setCode == null || setCode.isEmpty() || count <= 0) {
             return out;
         }
-        RewardData pinned = new RewardData(filter);
-        pinned.type = "card";
-        pinned.editions = new String[]{setCode};
-        pinned.cardName = null;
-        pinned.sourceDeck = null;
-
-        Iterable<PaperCard> pool = CardUtil.getFullCardPool(false);
-        List<PaperCard> setPool = SetPlaneRules.cardsFromSet(pool, setCode);
+        List<PaperCard> setPool = printingsInSet(setCode);
         if (setPool.isEmpty()) {
             return out;
         }
+        // Pool is already set-scoped; leave editions null so CardPredicate does not
+        // soft-accept other printings of the same name.
+        RewardData pinned = new RewardData(filter);
+        pinned.type = "card";
+        pinned.editions = null;
+        pinned.cardName = null;
+        pinned.sourceDeck = null;
+
         List<PaperCard> picks = CardUtil.generateCards(setPool, pinned, count, rng);
         for (PaperCard pc : picks) {
             if (pc == null) {
                 continue;
             }
             PaperCard resolved = resolvePrinting(pc.getName(), setCode);
-            out.add(resolved != null ? resolved : pc);
+            if (resolved != null && setCode.equalsIgnoreCase(resolved.getEdition())) {
+                out.add(resolved);
+            } else {
+                // Keep the set-pool printing when the interim hook cannot pin a match.
+                out.add(pc);
+            }
+        }
+        return out;
+    }
+
+    /** Every common-card printing from {@code setCode} (basics included). */
+    static List<PaperCard> printingsInSet(String setCode) {
+        List<PaperCard> out = new ArrayList<>();
+        if (setCode == null || setCode.isEmpty()) {
+            return out;
+        }
+        try {
+            if (FModel.getMagicDb() == null || FModel.getMagicDb().getCommonCards() == null) {
+                return out;
+            }
+            for (PaperCard pc : FModel.getMagicDb().getCommonCards().getAllCards()) {
+                if (pc != null && setCode.equalsIgnoreCase(pc.getEdition())) {
+                    out.add(pc);
+                }
+            }
+        } catch (Throwable ignored) {
+            // empty pool
         }
         return out;
     }
@@ -437,18 +468,48 @@ public final class FightRewards {
         }
         // --- CS0-HOOK begin (interim until #48 merges) ---
         if (preferredEdition != null && !preferredEdition.isEmpty()) {
-            PaperCard pinned = CardUtil.getCardByNameAndEdition(cardName, preferredEdition);
+            PaperCard pinned = printingInEdition(cardName, preferredEdition);
             if (pinned != null) {
                 return pinned;
             }
-        } else {
-            PaperCard fromRotation = printingFromRotationInterim(cardName);
-            if (fromRotation != null) {
-                return fromRotation;
-            }
+            return null;
+        }
+        PaperCard fromRotation = printingFromRotationInterim(cardName);
+        if (fromRotation != null) {
+            return fromRotation;
         }
         return CardUtil.getCardByName(cardName);
         // --- CS0-HOOK end ---
+    }
+
+    /**
+     * Exact edition match from the card DB. Does not use
+     * {@link CardUtil#getCardByNameAndEdition} (that falls back to a random
+     * printing when the set has no copy — CS0 will own the real pin).
+     */
+    private static PaperCard printingInEdition(String cardName, String edition) {
+        if (cardName == null || edition == null || edition.isEmpty()) {
+            return null;
+        }
+        try {
+            List<PaperCard> all = null;
+            if (FModel.getMagicDb() != null && FModel.getMagicDb().getCommonCards() != null) {
+                all = FModel.getMagicDb().getCommonCards().getAllCards(cardName);
+            } else if (StaticData.instance() != null) {
+                all = StaticData.instance().getCommonCards().getAllCards(cardName);
+            }
+            if (all == null) {
+                return null;
+            }
+            for (PaperCard pc : all) {
+                if (pc != null && edition.equalsIgnoreCase(pc.getEdition())) {
+                    return pc;
+                }
+            }
+        } catch (Throwable ignored) {
+            return null;
+        }
+        return null;
     }
 
     /**
@@ -465,15 +526,10 @@ public final class FightRewards {
                     rotation.addAll(sets);
                 }
             }
-            if (!rotation.isEmpty() && FModel.getMagicDb() != null) {
-                for (String code : rotation) {
-                    if (code == null || code.isEmpty()) {
-                        continue;
-                    }
-                    PaperCard pc = CardUtil.getCardByNameAndEdition(cardName, code);
-                    if (pc != null) {
-                        return pc;
-                    }
+            for (String code : rotation) {
+                PaperCard pc = printingInEdition(cardName, code);
+                if (pc != null) {
+                    return pc;
                 }
             }
             if (StaticData.instance() != null) {
