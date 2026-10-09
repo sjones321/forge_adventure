@@ -1424,11 +1424,12 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
     /**
      * Rebuild overworld chunk sprites/textures from the live world after an
-     * in-place co-op sessionWorld swap (resync / same-plane).
+     * in-place co-op sessionWorld swap (resync / same-plane). Does not clear
+     * the foreground group (player / enemies / mirrors stay).
      */
     public void rebuildBackgroundChunks() {
         if (background != null) {
-            background.clear();
+            background.rebuildChunkCaches();
         }
     }
 
@@ -1474,10 +1475,14 @@ public class WorldStage extends GameStage implements SaveFileContent {
         setBounds(Current.world().getWidthInPixels(), Current.world().getHeightInPixels());
         GridPoint2 pos = background.translateFromWorldToChunk(player.getX(), player.getY());
         background.loadChunk(pos.x, pos.y);
-        super.enter();
         try {
-            forge.adventure.coop.CoopSession.get().tryApplyDeferredPlaneSwitch();
-        } catch (final Exception ignored) {
+            super.enter();
+        } finally {
+            // Next frame — after enter finishes (never inside the enter body synchronously).
+            try {
+                forge.adventure.coop.CoopSession.get().scheduleTryApplyDeferredPlaneSwitch();
+            } catch (final Exception ignored) {
+            }
         }
     }
 

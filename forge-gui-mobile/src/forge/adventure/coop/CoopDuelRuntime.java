@@ -197,9 +197,22 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         return disconnectPolicy;
     }
 
-    /** True while a co-op HostedMatch is running (guest must not plane-switch-render). */
+    /**
+     * True while a co-op duel is in flight. Host: {@link #activeHostedMatch}.
+     * Guest: {@link #activeDuelId} / {@link #guestClient} (guest never has a HostedMatch).
+     */
     public boolean isDuelActive() {
-        return activeHostedMatch != null;
+        return activeHostedMatch != null || activeDuelId != 0L || guestClient != null;
+    }
+
+    /** Test hook: mark guest duel active/inactive without a real game client. */
+    public void testSetGuestDuelActive(final boolean active) {
+        if (active) {
+            activeDuelId = Math.max(1L, activeDuelId);
+        } else {
+            activeDuelId = 0L;
+            guestClient = null;
+        }
     }
 
     public CoopFightRequestValidator getFightRequestValidator() {
@@ -1002,10 +1015,16 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         disconnectPolicy.endDuel();
         disconnectGuestClient();
         activeDuelId = 0L;
+        // Next frame — never apply a deferred plane switch inside the reward/defeat flow.
         try {
-            CoopSession.get().tryApplyDeferredPlaneSwitch();
+            CoopSession.get().scheduleTryApplyDeferredPlaneSwitch();
         } catch (final Exception ignored) {
         }
+    }
+
+    /** Test hook: guest local duel-result path (clears duel + schedules deferred apply). */
+    public void testApplyGuestLocalResult(final CoopDuelResultEvent event) {
+        applyGuestLocalResult(event);
     }
 
     private void concedeGuestSeat() {

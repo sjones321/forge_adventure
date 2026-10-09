@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.g2d.Batch;
 import com.badlogic.gdx.math.GridPoint2;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.scenes.scene2d.Actor;
+import com.badlogic.gdx.scenes.scene2d.Group;
 import com.badlogic.gdx.utils.Array;
 import forge.adventure.pointofintrest.PointOfInterest;
 import forge.adventure.world.World;
@@ -184,14 +185,14 @@ public class WorldBackground extends Actor {
             chunksSprites[x][y] = MapSprite.getMapSprites(x, y, MapSprite.SpriteLayer);
         Array<Actor> sprites = chunksSprites[x][y];
         for (int i = 0; i < sprites.size; i++) {
-            stage.getSpriteGroup().addActor(sprites.get(i));
+            spriteGroup().addActor(sprites.get(i));
         }
 
         if (chunksSpritesBackground[x][y] == null)
             chunksSpritesBackground[x][y] = MapSprite.getMapSprites(x, y, MapSprite.BackgroundLayer);
         sprites = chunksSpritesBackground[x][y];
         for (int i = 0; i < sprites.size; i++) {
-            stage.getBackgroundSprites().addActor(sprites.get(i));
+            backgroundGroup().addActor(sprites.get(i));
         }
     }
 
@@ -224,24 +225,28 @@ public class WorldBackground extends Actor {
         final PointOfInterestMapSprite sprite = new PointOfInterestMapSprite(poi);
         chunksSprites[cx][cy].add(sprite);
         if (chunkLoaded != null && chunkLoaded[cx][cy]) {
-            stage.getSpriteGroup().addActor(sprite);
+            spriteGroup().addActor(sprite);
         }
     }
 
     private void unLoadChunk(int x, int y) {
+        if (chunks == null || chunkLoaded == null
+                || x < 0 || y < 0 || x >= chunks.length || y >= chunks[0].length) {
+            return;
+        }
         if (chunkLoaded[x][y]) {
             chunkLoaded[x][y] = false;
 
             Array<Actor> sprites = chunksSprites[x][y];
             if (sprites != null) {
                 for (int i = 0; i < sprites.size; i++) {
-                    stage.getSpriteGroup().removeActor(sprites.get(i));
+                    spriteGroup().removeActor(sprites.get(i));
                 }
             }
             sprites = chunksSpritesBackground[x][y];
             if (sprites != null) {
                 for (int i = 0; i < sprites.size; i++) {
-                    stage.getBackgroundSprites().removeActor(sprites.get(i));
+                    backgroundGroup().removeActor(sprites.get(i));
                 }
             }
         }
@@ -300,10 +305,44 @@ public class WorldBackground extends Actor {
         tileSize = world.getTileSize();
         chunkSize = world.getChunkSize();
         if (chunks != null) {
-            stage.getSpriteGroup().clear();
-            stage.getBackgroundSprites().clear();
+            spriteGroup().clear();
+            backgroundGroup().clear();
             disposeChunkTextures();
         }
+        allocateChunkArraysAndLoadRing(world);
+    }
+
+    /**
+     * Rebuild chunk textures and POI/chunk sprite caches from the live world
+     * without clearing the stage foreground/background groups. Player, enemies,
+     * nodes, and co-op mirrors stay on stage. Used after an in-place co-op world swap.
+     */
+    @SuppressWarnings("unchecked")
+    public void rebuildChunkCaches() {
+        final World world = Current.world();
+        if (world == null || world.getData() == null) {
+            return;
+        }
+        tileSize = world.getTileSize();
+        chunkSize = world.getChunkSize();
+        if (chunkSize <= 0 || tileSize <= 0) {
+            return;
+        }
+        // Unload chunk actors one-by-one (never spriteGroup.clear()).
+        if (chunks != null && chunkLoaded != null) {
+            for (int x = 0; x < chunks.length; x++) {
+                for (int y = 0; y < chunks[x].length; y++) {
+                    unLoadChunk(x, y);
+                }
+            }
+        } else {
+            disposeChunkTextures();
+        }
+        allocateChunkArraysAndLoadRing(world);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void allocateChunkArraysAndLoadRing(final World world) {
         // Determine array sizes based on Total Chunks instead of Total Tiles to match rendering coordinates
         final int widthInChunks = (int) Math.ceil((double) world.getWidthInTiles() / chunkSize);
         final int heightInChunks = (int) Math.ceil((double) world.getHeightInTiles() / chunkSize);
@@ -326,11 +365,38 @@ public class WorldBackground extends Actor {
                 int targetX = currentChunkX + x;
                 int targetY = currentChunkY + y;
                 if (targetX >= 0 && targetX < widthInChunks && targetY >= 0 && targetY < heightInChunks) {
-                    loadChunk(targetX, targetY);
+                    try {
+                        loadChunk(targetX, targetY);
+                    } catch (final Exception ignored) {
+                        // Headless / missing atlas: textures can fill in on draw.
+                    }
                 }
             }
         }
     }
+
+    /**
+     * Test factory: WorldBackground bound to explicit stage groups (no GameStage).
+     * Used to prove {@link #rebuildChunkCaches()} does not clear the foreground.
+     */
+    static WorldBackground createForTest(final SpriteGroup foreground, final Group background) {
+        final WorldBackground bg = new WorldBackground(null);
+        bg.testForeground = foreground;
+        bg.testBackground = background;
+        return bg;
+    }
+
+    private SpriteGroup testForeground;
+    private Group testBackground;
+
+    private SpriteGroup spriteGroup() {
+        return testForeground != null ? testForeground : stage.getSpriteGroup();
+    }
+
+    private Group backgroundGroup() {
+        return testBackground != null ? testBackground : stage.getBackgroundSprites();
+    }
+
     @Override
     public void clear() {
         super.clear();

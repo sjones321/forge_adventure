@@ -15,6 +15,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.serialization.ClassResolvers;
+import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.Future;
 
 import java.util.concurrent.CountDownLatch;
@@ -83,8 +84,8 @@ public final class CoopOverworldClient implements IHasForgeLog {
         if (g == null) {
             return;
         }
-        // Prefer the group: channel may already be null while we are still on its loop.
-        final boolean inLoop = g.next().inEventLoop();
+        // Iterate executors: g.next() is unreliable on multi-thread groups.
+        final boolean inLoop = isCallerInEventLoop(g);
         final Runnable shutdown = () -> {
             try {
                 final Future<?> f = g.shutdownGracefully(0, 2, TimeUnit.SECONDS);
@@ -107,6 +108,19 @@ public final class CoopOverworldClient implements IHasForgeLog {
     public boolean isConnected() {
         final Channel ch = channel;
         return connected && ch != null && ch.isActive();
+    }
+
+    /** True when the calling thread owns any event loop in {@code g}. */
+    static boolean isCallerInEventLoop(final EventLoopGroup g) {
+        if (g == null) {
+            return false;
+        }
+        for (final EventExecutor executor : g) {
+            if (executor != null && executor.inEventLoop()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private final class ClientHandler extends SimpleChannelInboundHandler<NetEvent> {

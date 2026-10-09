@@ -1031,10 +1031,6 @@ public class MapStage extends GameStage {
 
         AdventureQuestController.instance().updateQuestsLeave();
         clearIsInMap();
-        try {
-            forge.adventure.coop.CoopSession.get().tryApplyDeferredPlaneSwitch();
-        } catch (final Exception ignored) {
-        }
         AdventureQuestController.instance().showQuestDialogs(this);
         isLoadingMatch = false;
         effect = null; //Reset dungeon effects.
@@ -1043,7 +1039,15 @@ public class MapStage extends GameStage {
         else if (defeatedByBoss)
             WorldStage.getInstance().defeatedFromBoss();
         forge.adventure.coop.CoopOverworldRuntime.get().onExitPoi();
-        Forge.switchScene(GameScene.instance());
+        try {
+            Forge.switchScene(GameScene.instance());
+        } finally {
+            // Next frame after this scene switch — never apply deferred plane mid-exitDungeon.
+            try {
+                forge.adventure.coop.CoopSession.get().scheduleTryApplyDeferredPlaneSwitch();
+            } catch (final Exception ignored) {
+            }
+        }
         isPlayerLeavingDungeon = false;
         dialogOnlyInput = false;
         return true;

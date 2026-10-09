@@ -169,9 +169,9 @@ public final class CoopOverworldServer implements IHasForgeLog {
         final EventLoopGroup worker = workerGroup;
         bossGroup = null;
         workerGroup = null;
-        // Prefer the group: channels may already be null while we are still on a loop.
-        final boolean inLoop = (worker != null && worker.next().inEventLoop())
-                || (boss != null && boss.next().inEventLoop());
+        // Iterate executors: g.next() is unreliable on multi-thread groups.
+        final boolean inLoop = CoopOverworldClient.isCallerInEventLoop(worker)
+                || CoopOverworldClient.isCallerInEventLoop(boss);
         final Runnable shutdown = () -> {
             try {
                 if (boss != null) {
