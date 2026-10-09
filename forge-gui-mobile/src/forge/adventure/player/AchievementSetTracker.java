@@ -36,6 +36,8 @@ public final class AchievementSetTracker {
     private final Map<String, Integer> nameCounts = new HashMap<>();
     private List<String> reachableCache;
     private boolean nameCountsReady;
+    /** When true, {@link #setReachableForTest} survives {@link #invalidateReachable()}. */
+    private boolean reachablePinnedForTest;
     /** Test override when {@link StaticData#instance()} is unstable across threads. */
     private static volatile StaticData magicDbOverride;
 
@@ -51,11 +53,14 @@ public final class AchievementSetTracker {
         nameCounts.clear();
         nameCountsReady = false;
         reachableCache = null;
+        reachablePinnedForTest = false;
     }
 
     /** Invalidate reachable-set list and per-set name caches (player / filter change). */
     public void invalidateReachable() {
-        reachableCache = null;
+        if (!reachablePinnedForTest) {
+            reachableCache = null;
+        }
         setNamesCache.clear();
     }
 
@@ -346,6 +351,7 @@ public final class AchievementSetTracker {
 
     public void setReachableForTest(List<String> codes) {
         reachableCache = codes == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(codes));
+        reachablePinnedForTest = true;
     }
 
     public void setNameCountForTest(String name, int count) {

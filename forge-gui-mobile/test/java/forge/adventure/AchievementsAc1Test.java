@@ -12,7 +12,6 @@ import forge.adventure.player.HallOfFame;
 import forge.adventure.player.PendingCardStyleGrant;
 import forge.adventure.util.AtomicJsonFiles;
 import forge.adventure.util.Paths;
-import forge.deck.CardPool;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -276,31 +275,8 @@ public class AchievementsAc1Test {
         Assert.assertEquals(svc.incrementCounter("coopSessions", 1), 2);
     }
 
-    @Test
-    public void nameCountsRebuildOnPlayerReadyDropsPriorSave() {
-        AchievementSetTracker tracker = svc.getSetTracker();
-        tracker.setNameCountForTest("Lightning Bolt", 4);
-        tracker.setNameCountForTest("Shock", 1);
-        Assert.assertEquals(tracker.ownedCount("Lightning Bolt"), 4);
-
-        // Load save B (empty collection): A's cards must not count.
-        svc.onPlayerCollectionReady(new CardPool());
-        Assert.assertEquals(tracker.ownedCount("Lightning Bolt"), 0);
-        Assert.assertEquals(tracker.ownedCount("Shock"), 0);
-        Assert.assertTrue(tracker.getNameCounts().isEmpty());
-        Assert.assertTrue(tracker.isNameCountsReady());
-    }
-
-    @Test
-    public void sellingLastCopyUnOwnsCard() {
-        AchievementSetTracker tracker = svc.getSetTracker();
-        tracker.setNameCountForTest("Shock", 2);
-        tracker.applyRemoveNames(Collections.singletonList("Shock"));
-        Assert.assertEquals(tracker.ownedCount("Shock"), 1);
-        tracker.applyRemoveNames(Collections.singletonList("Shock"));
-        Assert.assertEquals(tracker.ownedCount("Shock"), 0, "selling the last copy must un-own the card");
-        Assert.assertFalse(tracker.getNameCounts().containsKey("Shock"));
-    }
+    // nameCounts rebuild / last-copy un-own: see AchievementsAc1PlayerHooksTest
+    // (production create / sell / salvage / auto-salvage / removeLostCardFromPools paths).
 
     @Test
     public void accountPathIsUserAdventureDirAccountNotPerPlane() {
