@@ -107,6 +107,42 @@ public class WorldSave {
         return changes;
     }
 
+    /**
+     * Package K / NG+: lightly read {@code adventure_mode} from a save slot without
+     * loading the world. Returns null when the file is missing or unreadable.
+     */
+    public static String peekAdventureMode(int currentSlot) {
+        String fileName = WorldSave.getSaveFile(currentSlot);
+        if (!new File(fileName).exists()) {
+            return null;
+        }
+        try (FileInputStream fos = new FileInputStream(fileName);
+             InflaterInputStream inf = new InflaterInputStream(fos);
+             ObjectInputStream oos = new ObjectInputStream(inf)) {
+            oos.readObject(); // header
+            SaveFileData mainData = (SaveFileData) oos.readObject();
+            SaveFileData player = mainData != null ? mainData.readSubData("player") : null;
+            if (player != null && player.containsKey("adventure_mode")) {
+                return player.readString("adventure_mode");
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /** True when {@link #peekAdventureMode} reports a Commander-like adventure mode. */
+    public static boolean peekIsCommanderLike(int currentSlot) {
+        String mode = peekAdventureMode(currentSlot);
+        if (mode == null || mode.isEmpty()) {
+            return false;
+        }
+        try {
+            return forge.adventure.util.AdventureModes.valueOf(mode).isCommanderLike();
+        } catch (Exception e) {
+            return "Commander".equalsIgnoreCase(mode) || "CommanderPrecon".equalsIgnoreCase(mode);
+        }
+    }
+
     static public boolean load(int currentSlot) {
         JSONStringLoader.clearCache();
         CardUtil.clearPriceCache();
@@ -286,6 +322,8 @@ public class WorldSave {
                 PlaneFormat.setPlaneFormat(home, fmt);
             }
             currentSave.player.setLegacyRunFormat(fmt);
+            // Package K: pool cache must reflect the chosen home format.
+            RewardData.invalidateCardPool();
         }
         currentSave.onLoadList.emit();
         return currentSave;

@@ -113,8 +113,8 @@ public final class PlaneFormat {
      * The format that EN1, gyms, League and status should use right now.
      *
      * <ol>
-     *   <li>Commander-mode run → always {@link #COMMANDER}</li>
-     *   <li>Co-op guest: host-synced plane format (unknown → host default)</li>
+     *   <li>Co-op guest: host-synced plane format (wins over local Commander mode)</li>
+     *   <li>Commander-mode solo/host → always {@link #COMMANDER}</li>
      *   <li>Current plane meta when set</li>
      *   <li>Legacy player {@code runFormat} (pre-K saves / home migration)</li>
      *   <li>{@link #defaultFormat()}</li>
@@ -122,20 +122,20 @@ public final class PlaneFormat {
      */
     public static String resolveCurrent() {
         try {
-            AdventurePlayer p = Current.player();
-            if (p != null && p.isCommanderMode()) {
-                return COMMANDER;
-            }
-        } catch (Throwable ignored) {
-        }
-
-        try {
             CoopSession session = CoopSession.get();
             if (session != null && session.getRole() == CoopSessionRole.GUEST) {
                 String guest = session.getGuestPlaneFormat();
                 if (guest != null && !guest.isEmpty()) {
                     return normalize(guest);
                 }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        try {
+            AdventurePlayer p = Current.player();
+            if (p != null && p.isCommanderMode()) {
+                return COMMANDER;
             }
         } catch (Throwable ignored) {
         }
@@ -186,6 +186,30 @@ public final class PlaneFormat {
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    /**
+     * Package K: stamp a plane's format only after travel succeeds and only when still unset.
+     * Callers must not invoke this when {@code switchPlane} / portal travel failed.
+     *
+     * @return true when a format was written
+     */
+    public static boolean stampFormatAfterSuccessfulTravel(PlaneMeta meta, String format) {
+        if (meta == null || format == null || format.isEmpty()) {
+            return false;
+        }
+        if (!raw(meta).isEmpty()) {
+            return false;
+        }
+        setPlaneFormat(meta, format);
+        return true;
+    }
+
+    /**
+     * Package K contract helper for tests: format is stamped only when travel ok and unset.
+     */
+    public static boolean shouldStampFormatOnTravel(boolean travelSucceeded, boolean formatAlreadySet) {
+        return travelSucceeded && !formatAlreadySet;
     }
 
     /**
