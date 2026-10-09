@@ -1,0 +1,276 @@
+{
+  "themes": [
+    {
+      "id": "merfolk_tribal",
+      "tags": ["Merfolk"],
+      "colors": ["blue"],
+      "creatureTypes": ["Merfolk"],
+      "preferredCommanders": ["Svyelun of Sea and Sky", "Kopala, Warden of Waves", "Emperor Mihail II"],
+      "keyCards": ["Lord of Atlantis", "Master of the Pearl Trident", "Merfolk Mistbinder"],
+      "mechanics": ["islandwalk", "+1/+1"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Blue"],
+        "tribe": "Merfolk",
+        "rares": 0.15,
+        "keyCards": ["Merfolk of the Pearl Trident"],
+        "mechanics": ["islandwalk", "merfolk"]
+      }
+    },
+    {
+      "id": "kraken_leviathan",
+      "tags": ["Kraken", "Leviathan", "Octopus", "Serpent", "Sea Monster"],
+      "colors": ["blue"],
+      "creatureTypes": ["Kraken", "Leviathan", "Octopus", "Serpent"],
+      "preferredCommanders": ["Arixmethes, Slumbering Isle", "Wrexial, the Risen Deep", "Runo Stromkirk"],
+      "keyCards": ["Spawning Kraken", "Crush of Tentacles", "Whelming Wave"],
+      "mechanics": ["kraken", "leviathan"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Blue"],
+        "tribe": "Kraken",
+        "rares": 0.2,
+        "keyCards": [],
+        "mechanics": ["kraken", "leviathan", "octopus"]
+      }
+    },
+    {
+      "id": "goblin_tribal",
+      "tags": ["Goblin"],
+      "colors": ["red"],
+      "creatureTypes": ["Goblin"],
+      "preferredCommanders": ["Krenko, Mob Boss", "Muxus, Goblin Grandee", "Goblin Sharpshooter"],
+      "keyCards": ["Goblin Chieftain", "Goblin Warchief", "Legion Loyalist"],
+      "mechanics": ["haste", "token"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Red"],
+        "tribe": "Goblin",
+        "rares": 0.15,
+        "keyCards": [],
+        "mechanics": ["goblin", "haste"]
+      }
+    },
+    {
+      "id": "goblin_burn",
+      "tags": ["Goblin"],
+      "colors": ["red"],
+      "creatureTypes": ["Goblin"],
+      "preferredCommanders": ["Purphoros, God of the Forge", "Torbran, Thane of Red Fell", "Zada, Hedron Grinder"],
+      "keyCards": ["Goblin Guide", "Lightning Bolt", "Foundry Street Denizen"],
+      "mechanics": ["damage", "burn"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Red"],
+        "tribe": "Goblin",
+        "rares": 0.15,
+        "keyCards": [],
+        "mechanics": ["damage", "haste"]
+      }
+    },
+    {
+      "id": "zombie_tribal",
+      "tags": ["Zombie"],
+      "colors": ["black"],
+      "creatureTypes": ["Zombie"],
+      "preferredCommanders": ["Wilhelt, the Rotcleaver", "The Scarab God", "Gisa and Geralf"],
+      "keyCards": ["Lord of the Undead", "Death Baron", "Undead Warchief"],
+      "mechanics": ["zombie", "graveyard"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Black"],
+        "tribe": "Zombie",
+        "rares": 0.15,
+        "keyCards": [],
+        "mechanics": ["zombie"]
+      }
+    },
+    {
+      "id": "zombie_aristocrats",
+      "tags": ["Zombie"],
+      "colors": ["black"],
+      "creatureTypes": ["Zombie"],
+      "preferredCommanders": ["Yawgmoth, Thran Physician", "Teysa Karlov", "Endrek Sahr, Master Breeder"],
+      "keyCards": ["Blood Artist", "Zulaport Cutthroat", "Viscera Seer"],
+      "mechanics": ["dies", "sacrifice"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Black"],
+        "tribe": "Zombie",
+        "rares": 0.15,
+        "keyCards": [],
+        "mechanics": ["dies", "sacrifice"]
+      }
+    },
+    {
+      "id": "elf_tribal",
+      "tags": ["Elf"],
+      "colors": ["green"],
+      "creatureTypes": ["Elf"],
+      "preferredCommanders": ["Ezuri, Renegade Leader", "Freyalise, Llanowar's Fury", "Lathril, Blade of the Elves"],
+      "keyCards": ["Elvish Archdruid", "Priest of Titania", "Imperious Perfect"],
+      "mechanics": ["elf", "+1/+1"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Green"],
+        "tribe": "Elf",
+        "rares": 0.15,
+        "keyCards": [],
+        "mechanics": ["elf"]
+      }
+    },
+    {
+      "id": "elf_ramp",
+      "tags": ["Elf"],
+      "colors": ["green"],
+      "creatureTypes": ["Elf"],
+      "preferredCommanders": ["Multani, Yavimaya's Avatar", "Goreclaw, Terror of Qal Sisma", "Ghalta, Primal Hunger"],
+      "keyCards": ["Llanowar Elves", "Elvish Mystic", "Cultivate"],
+      "mechanics": ["mana", "ramp"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Green"],
+        "tribe": "Elf",
+        "rares": 0.2,
+        "keyCards": [],
+        "mechanics": ["add", "mana", "forest"]
+      }
+    },
+    {
+      "id": "vampire_tribal",
+      "tags": ["Vampire"],
+      "colors": ["black"],
+      "creatureTypes": ["Vampire"],
+      "preferredCommanders": ["Edgar Markov", "Olivia, Mobilized for War", "Drana, Liberator of Malakir"],
+      "keyCards": ["Captivating Vampire", "Bloodline Keeper", "Vampire Nocturnus"],
+      "mechanics": ["vampire", "lifelink"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Black"],
+        "tribe": "Vampire",
+        "rares": 0.15,
+        "keyCards": [],
+        "mechanics": ["vampire"]
+      }
+    },
+    {
+      "id": "vampire_drain",
+      "tags": ["Vampire"],
+      "colors": ["black"],
+      "creatureTypes": ["Vampire"],
+      "preferredCommanders": ["Vito, Thorn of the Dusk Rose", "Sorin, Imperious Bloodlord", "Clavileño, First of the Blessed"],
+      "keyCards": ["Bloodthirsty Aerialist", "Epicure of Blood", "Exquisite Blood"],
+      "mechanics": ["lifelink", "life"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Black"],
+        "tribe": "Vampire",
+        "rares": 0.15,
+        "keyCards": [],
+        "mechanics": ["lifelink", "life"]
+      }
+    },
+    {
+      "id": "dragon_tribal",
+      "tags": ["Dragon"],
+      "colors": ["red"],
+      "creatureTypes": ["Dragon"],
+      "preferredCommanders": ["The Ur-Dragon", "Atarka, World Render", "Lathliss, Dragon Queen"],
+      "keyCards": ["Dragon Tempest", "Terror of the Peaks", "Dragonlord's Servant"],
+      "mechanics": ["flying", "dragon"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Red"],
+        "tribe": "Dragon",
+        "rares": 0.25,
+        "keyCards": [],
+        "mechanics": ["dragon", "flying"]
+      }
+    },
+    {
+      "id": "dragon_ramp",
+      "tags": ["Dragon"],
+      "colors": ["red", "green"],
+      "creatureTypes": ["Dragon"],
+      "preferredCommanders": ["Miirym, Sentinel Wyrm", "Tiamat", "Rith, Liberated Primeval"],
+      "keyCards": ["Dragonstorm", "Sarkhan's Triumph", "Utopia Sprawl"],
+      "mechanics": ["dragon", "mana"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["Red", "Green"],
+        "tribe": "Dragon",
+        "rares": 0.25,
+        "keyCards": [],
+        "mechanics": ["dragon"]
+      }
+    },
+    {
+      "id": "soldier_tribal",
+      "tags": ["Soldier", "Knight"],
+      "colors": ["white"],
+      "creatureTypes": ["Soldier"],
+      "preferredCommanders": ["Myrel, Shield of Argive", "Darien, King of Kjeldor", "Brimaz, King of Oreskos"],
+      "keyCards": ["Preeminent Captain", "Mobilization", "Ballyrush Banneret"],
+      "mechanics": ["soldier", "token"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["White"],
+        "tribe": "Soldier",
+        "rares": 0.15,
+        "keyCards": [],
+        "mechanics": ["soldier"]
+      }
+    },
+    {
+      "id": "knight_tribal",
+      "tags": ["Soldier", "Knight"],
+      "colors": ["white", "black"],
+      "creatureTypes": ["Knight"],
+      "preferredCommanders": ["Syr Gwyn, Hero of Ashvale", "Knights of Dol Amroth", "Adeline, Resplendent Cathar"],
+      "keyCards": ["History of Benalia", "Knight Exemplar", "Valiant Knight"],
+      "mechanics": ["knight", "first strike"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["White"],
+        "tribe": "Knight",
+        "rares": 0.15,
+        "keyCards": [],
+        "mechanics": ["knight"]
+      }
+    },
+    {
+      "id": "spirit_tribal",
+      "tags": ["Spirit"],
+      "colors": ["white"],
+      "creatureTypes": ["Spirit"],
+      "preferredCommanders": ["Millicent, Restless Revenant", "Katilda, Dawnhart Prime", "Kykar, Wind's Fury"],
+      "keyCards": ["Drogskol Captain", "Supreme Phantom", "Selfless Spirit"],
+      "mechanics": ["spirit", "flying"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["White"],
+        "tribe": "Spirit",
+        "rares": 0.15,
+        "keyCards": [],
+        "mechanics": ["spirit"]
+      }
+    },
+    {
+      "id": "spirit_tempo",
+      "tags": ["Spirit"],
+      "colors": ["white", "blue"],
+      "creatureTypes": ["Spirit"],
+      "preferredCommanders": ["Kykar, Wind's Fury", "Ranar the Ever-Watchful", "Hinata, Dawn-Crowned"],
+      "keyCards": ["Spell Queller", "Mausoleum Wanderer", "Rattlechains"],
+      "mechanics": ["spirit", "flash", "flying"],
+      "standardRecipe": {
+        "count": 60,
+        "colors": ["White", "Blue"],
+        "tribe": "Spirit",
+        "rares": 0.15,
+        "keyCards": [],
+        "mechanics": ["spirit", "flash"]
+      }
+    }
+  ]
+}
