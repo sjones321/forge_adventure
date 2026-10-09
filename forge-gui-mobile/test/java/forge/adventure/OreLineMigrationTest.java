@@ -1,5 +1,8 @@
 package forge.adventure;
 
+import forge.adventure.character.ResourceNodeSprite;
+import forge.adventure.data.EffectData;
+import forge.adventure.data.ItemData;
 import forge.adventure.data.MaterialListData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.player.OverflowEntry;
@@ -8,6 +11,7 @@ import forge.adventure.world.CompressedPlaneBlob;
 import forge.adventure.world.MultiverseState;
 import forge.adventure.world.PlaneBlob;
 import forge.adventure.world.PlaneMeta;
+import forge.gamemodes.net.event.coop.CoopNodeStateEvent;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -16,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -169,7 +174,7 @@ public class OreLineMigrationTest {
     }
 
     @Test
-    public void inactivePlaneBlobNodesMigrateOnLoadAndRead() throws Exception {
+    public void inactivePlaneBlobNodesMigrateWhenSchemaBelow3() throws Exception {
         MultiverseState multi = new MultiverseState();
         multi.initHomeFromLive(1L, 0f, 0f);
         PlaneMeta set = multi.registerSetPlane("set_ore", 2L, "world/set_plane_world.json", "Ore");
@@ -192,6 +197,18 @@ public class OreLineMigrationTest {
 
         MultiverseState loaded = new MultiverseState();
         Assert.assertTrue(loaded.loadRegistry(registry));
+        // loadRegistry must NOT recompress — migration is gated on materialSchema < 3.
+        Assert.assertFalse(loaded.isOreLineInactiveMigrationNeeded());
+        byte[] before = Arrays.copyOf(
+                (byte[]) registry.readObject("cz_set_ore"),
+                ((byte[]) registry.readObject("cz_set_ore")).length);
+        // Mirror WorldSave: only migrate when the player save is still below schema 3.
+        loaded.setOreLineInactiveMigrationNeeded(true);
+        Assert.assertEquals(loaded.migrateInactivePlanesForOreLineIfNeeded(), 1);
+        Assert.assertFalse(loaded.isOreLineInactiveMigrationNeeded());
+        // Second call (schema-3 path) must be a no-op — no recompress every load.
+        Assert.assertEquals(loaded.migrateInactivePlanesForOreLineIfNeeded(), 0);
+
         SaveFileData inflated = loaded.readInactiveBlob("set_ore");
         Assert.assertNotNull(inflated);
         SaveFileData migratedStage = PlaneBlob.worldStage(inflated);
@@ -199,6 +216,34 @@ public class OreLineMigrationTest {
         List<String> out = (List<String>) migratedStage.readObject("nodeMaterialIds");
         Assert.assertEquals(out.get(0), "ore_iron");
         Assert.assertEquals(out.get(1), "ore_mithral");
+        Assert.assertTrue(before.length > 0);
+    }
+
+    @Test
+    public void schema3LoadDoesNotRecompressInactivePlanes() throws Exception {
+        MultiverseState multi = new MultiverseState();
+        multi.initHomeFromLive(1L, 0f, 0f);
+        PlaneMeta set = multi.registerSetPlane("set_ore", 2L, "world/set_plane_world.json", "Ore");
+        SaveFileData stage = new SaveFileData();
+        stage.storeObject("nodeMaterialIds", new ArrayList<>(List.of("ore_iron", "ore_mithral")));
+        stage.storeObject("nodeTimeouts", new ArrayList<>(List.of(10f, 10f)));
+        stage.storeObject("nodeX", new ArrayList<>(List.of(1f, 2f)));
+        stage.storeObject("nodeY", new ArrayList<>(List.of(3f, 4f)));
+        byte[] compressed = CompressedPlaneBlob.compress(
+                PlaneBlob.pack(new SaveFileData(), stage, new SaveFileData(), set));
+
+        SaveFileData registry = multi.saveRegistry();
+        registry.storeObject("inactivePlaneIds", new ArrayList<>(List.of("set_ore")));
+        registry.storeObject("cz_set_ore", compressed);
+
+        MultiverseState loaded = new MultiverseState();
+        Assert.assertTrue(loaded.loadRegistry(registry));
+        // Schema ≥ 3: WorldSave leaves the flag clear — migrate is a no-op.
+        loaded.setOreLineInactiveMigrationNeeded(false);
+        Assert.assertEquals(loaded.migrateInactivePlanesForOreLineIfNeeded(), 0);
+        SaveFileData after = loaded.saveRegistry();
+        byte[] stored = (byte[]) after.readObject("cz_set_ore");
+        Assert.assertEquals(stored, compressed);
     }
 
     @Test
@@ -290,6 +335,110 @@ public class OreLineMigrationTest {
         }
         Assert.assertTrue(text.contains("xy: 0, 16")); // row 2 iron
         Assert.assertTrue(text.contains("xy: 48, 16")); // row 2 rune
+    }
+
+    @Test
+    public void itemInstanceMigrationKeepsEffectChargesAndFlags() {
+        ItemData item = new ItemData();
+        item.name = "Copper Pickaxe";
+        item.longID = 424242L;
+        item.isCracked = true;
+        item.isEquipped = true;
+        item.shardsNeeded = 3;
+        item.usableOnWorldMap = true;
+        item.commandOnUse = "keep-me";
+        EffectData effect = new EffectData();
+        effect.name = "tempered";
+        effect.lifeModifier = 7;
+        effect.moveSpeed = 1.25f;
+        effect.extraManaShards = 2; // "charges"-like per-item state
+        item.effect = effect;
+
+        MaterialListData.migrateOreLineItemInstance(item);
+
+        Assert.assertEquals(item.name, "Iron Pickaxe");
+        Assert.assertEquals(item.longID, Long.valueOf(424242L));
+        Assert.assertTrue(item.isCracked);
+        Assert.assertTrue(item.isEquipped);
+        Assert.assertEquals(item.shardsNeeded, 3);
+        Assert.assertTrue(item.usableOnWorldMap);
+        Assert.assertEquals(item.commandOnUse, "keep-me");
+        Assert.assertNotNull(item.effect);
+        Assert.assertEquals(item.effect.name, "tempered");
+        Assert.assertEquals(item.effect.lifeModifier, 7);
+        Assert.assertEquals(item.effect.moveSpeed, 1.25f, 0.0001f);
+        Assert.assertEquals(item.effect.extraManaShards, 2);
+        // Idempotent: second pass must not chain Iron → Mithral.
+        MaterialListData.migrateOreLineItemInstance(item);
+        Assert.assertEquals(item.name, "Iron Pickaxe");
+        Assert.assertEquals(item.effect.extraManaShards, 2);
+    }
+
+    @Test
+    public void savesDoNotPersistRecipeIds() throws Exception {
+        // AdventurePlayer stores gatherMethodRanks (skill→rank) and crafts from recipes.json
+        // at runtime. No known-recipes / queued-craft / recipe-id lists are written to saves.
+        Path playerSrc = resolveRes("forge-gui-mobile/src/forge/adventure/player/AdventurePlayer.java");
+        String src = Files.readString(playerSrc, StandardCharsets.UTF_8);
+        Assert.assertFalse(src.contains("storeObject(\"knownRecipes\""));
+        Assert.assertFalse(src.contains("storeObject(\"unlockedRecipes\""));
+        Assert.assertFalse(src.contains("storeObject(\"queuedCrafts\""));
+        Assert.assertFalse(src.contains("storeObject(\"recipeIds\""));
+        Assert.assertTrue(src.contains("storeObject(\"gatherMethodSkills\""));
+        Assert.assertTrue(src.contains("storeObject(\"gatherMethodRanks\""));
+        // Recipe JSON still uses tool_adamant_* ids; nothing in the save path remaps them.
+        Path recipes = resolveRes("forge-gui/res/adventure/common/world/recipes.json");
+        String recipesText = Files.readString(recipes, StandardCharsets.UTF_8);
+        Assert.assertTrue(recipesText.contains("\"tool_adamant_pickaxe\""));
+    }
+
+    @Test
+    public void guestCoopWireMapsOldOreIdsOnReceipt() {
+        // Plain-data wire: CoopNodeStateEvent carries String materialId only.
+        CoopNodeStateEvent spawn = new CoopNodeStateEvent(
+                9L, CoopNodeStateEvent.Action.SPAWN, "copper", 12f, 34f, "");
+        Assert.assertEquals(spawn.getMaterialId(), "copper");
+        String mapped = MaterialListData.migrateOreLineMaterialId(spawn.getMaterialId());
+        Assert.assertEquals(mapped, "ore_iron");
+        Assert.assertEquals(MaterialListData.migrateOreLineMaterialId("iron"), "ore_mithral");
+        Assert.assertEquals(MaterialListData.migrateOreLineMaterialId("mithril"), "ore_adamant");
+        Assert.assertEquals(MaterialListData.migrateOreLineMaterialId("adamant"), "ore_rune");
+        // Already-new ids pass through; unknown ids stay so the guest can refuse clearly.
+        Assert.assertEquals(MaterialListData.migrateOreLineMaterialId("ore_iron"), "ore_iron");
+        Assert.assertEquals(MaterialListData.migrateOreLineMaterialId("not_a_real_ore"), "not_a_real_ore");
+    }
+
+    @Test
+    public void tallTreeAtlasAndBottomTileCollision() throws Exception {
+        Path atlas = resolveRes("forge-gui/res/adventure/common/maps/tileset/resource_nodes_tall.atlas");
+        String text = Files.readString(atlas, StandardCharsets.UTF_8);
+        Assert.assertTrue(text.startsWith("resource_nodes_tall.png"));
+        for (String region : new String[]{"tree_oak", "tree_willow", "tree_yew", "tree_ironwood"}) {
+            Assert.assertTrue(text.lines().anyMatch(l -> l.equals(region)), "missing tall region " + region);
+        }
+        Assert.assertTrue(text.contains("size: 16, 32"));
+        Assert.assertEquals(ResourceNodeSprite.collisionHeightForRegion(32f), 0.5f, 0.0001f);
+        Assert.assertEquals(ResourceNodeSprite.collisionHeightForRegion(16f), 1f, 0.0001f);
+
+        String materials = Files.readString(
+                resolveRes("forge-gui/res/adventure/common/world/materials.json"), StandardCharsets.UTF_8);
+        Assert.assertTrue(materials.contains("\"nodeAtlas\": \"maps/tileset/resource_nodes_tall.atlas\""));
+        Assert.assertTrue(materials.contains("\"nodeRegion\": \"tree_oak\""));
+        Assert.assertTrue(materials.contains("\"nodeRegion\": \"tree_ironwood\""));
+    }
+
+    @Test
+    public void particleGateOnlyOverlapsOnScreenNodes() {
+        // Camera at (100,100), 80×60 view, zoom 1, margin 32 → frustum roughly [28..172]×[38..162]
+        Assert.assertTrue(ResourceNodeSprite.overlapsCamera(
+                100f, 100f, 16f, 16f, 100f, 100f, 80f, 60f, 1f, 32f));
+        Assert.assertFalse(ResourceNodeSprite.overlapsCamera(
+                400f, 400f, 16f, 16f, 100f, 100f, 80f, 60f, 1f, 32f));
+        // Just outside without margin would fail; margin 32 pulls a near-edge node in.
+        Assert.assertTrue(ResourceNodeSprite.overlapsCamera(
+                155f, 100f, 16f, 16f, 100f, 100f, 80f, 60f, 1f, 32f));
+        Assert.assertFalse(ResourceNodeSprite.overlapsCamera(
+                200f, 100f, 16f, 16f, 100f, 100f, 80f, 60f, 1f, 0f));
     }
 
     private static Path resolveRes(String relative) {
