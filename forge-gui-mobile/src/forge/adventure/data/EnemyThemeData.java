@@ -18,6 +18,12 @@ public class EnemyThemeData {
     public String[] preferredCommanders = new String[0];
     /** Signature cards for the theme (documentation + Standard recipe seed). */
     public String[] keyCards = new String[0];
+    /**
+     * Hand-picked on-theme core (≥24 names) loaded from
+     * {@code world/enemy_cores/<id>.json}. Fixed decks must include ≥24 copies
+     * from this list and ≤8 non-core non-land fillers.
+     */
+    public String[] core = new String[0];
     /** Mechanic notes for the theme (documentation + Standard recipe bias). */
     public String[] mechanics = new String[0];
     /** Bellwarden Standard recipe filled from the current window at runtime. */

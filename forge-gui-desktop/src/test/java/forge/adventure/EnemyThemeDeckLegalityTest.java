@@ -47,6 +47,8 @@ public class EnemyThemeDeckLegalityTest {
 
         enemyDeckRoot = resolveEnemyDeckRoot();
         themes = loadThemesFromJson();
+        for (EnemyThemeData t : themes)
+            EnemyThemeDecks.ensureCoreLoaded(t);
         Assert.assertFalse(themes.isEmpty(), "no themes loaded from enemy_themes.json");
     }
 
@@ -151,6 +153,36 @@ public class EnemyThemeDeckLegalityTest {
                 "inactive Standard window must not fill a deck");
 
         EnemyThemeDecks.clearCache();
+    }
+
+    @Test
+    public void everyFixedDeckUsesThemeCoreWithLimitedFiller() {
+        List<String> problems = new ArrayList<>();
+        int checked = 0;
+        for (EnemyThemeData theme : themes) {
+            Assert.assertTrue(theme.core != null && theme.core.length >= EnemyThemeDecks.MIN_CORE_CARDS_IN_DECK,
+                    theme.id + " core too small: "
+                            + (theme.core == null ? 0 : theme.core.length));
+            for (String format : new String[]{"Historic", "Pauper", "Commander"}) {
+                for (Path deckPath : listFixedDecks(theme.id, format)) {
+                    checked++;
+                    Deck deck = DeckSerializer.fromFile(deckPath.toFile());
+                    if (deck == null) {
+                        problems.add(deckPath + ": failed to parse");
+                        continue;
+                    }
+                    deck.getMain();
+                    if (deck.has(DeckSection.Commander))
+                        deck.get(DeckSection.Commander);
+                    String core = EnemyThemeDecks.coreMembershipProblem(deck, theme);
+                    if (core != null)
+                        problems.add(deckPath.getFileName() + " [" + format + "]: " + core);
+                }
+            }
+        }
+        Assert.assertTrue(checked >= themes.size() * 3, "expected fixed decks, checked " + checked);
+        Assert.assertTrue(problems.isEmpty(),
+                checked + " decks checked; core/filler problems:\n" + String.join("\n", problems));
     }
 
     @Test

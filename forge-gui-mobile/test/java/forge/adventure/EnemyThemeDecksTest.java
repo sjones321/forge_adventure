@@ -154,6 +154,31 @@ public class EnemyThemeDecksTest {
     }
 
     @Test
+    public void everyThemeHasHandPickedCoreOfAtLeast24Cards() throws Exception {
+        Path coresDir = resolveEnemyCoresDir();
+        Assert.assertTrue(Files.isDirectory(coresDir), "missing " + coresDir);
+        String[] ids = {
+                "merfolk_tribal", "kraken_leviathan", "goblin_tribal", "goblin_burn",
+                "zombie_tribal", "zombie_aristocrats", "elf_tribal", "elf_ramp",
+                "vampire_tribal", "vampire_drain", "dragon_tribal", "dragon_ramp",
+                "soldier_tribal", "knight_tribal", "spirit_tribal", "spirit_tempo"
+        };
+        for (String id : ids) {
+            Path file = coresDir.resolve(id + ".json");
+            Assert.assertTrue(Files.isRegularFile(file), "missing core " + file);
+            String text = Files.readString(file, StandardCharsets.UTF_8);
+            Assert.assertFalse(text.startsWith("\uFEFF"), "BOM in " + id);
+            int count = 0;
+            for (String line : text.split("\n")) {
+                String t = line.trim();
+                if (t.startsWith("\"") && t.contains("\"") && !t.startsWith("\"cards\""))
+                    count++;
+            }
+            Assert.assertTrue(count >= 24, id + " core has only " + count + " cards");
+        }
+    }
+
+    @Test
     public void standardRecipeFillNeverCrashesWithoutCardDb() {
         // Full window legality is covered by EnemyThemeDeckLegalityTest (desktop + FModel).
         // Here: recipe fill must not throw when StaticData / Config are unavailable.
@@ -211,6 +236,19 @@ public class EnemyThemeDecksTest {
         };
         for (Path p : candidates) {
             if (Files.isRegularFile(p))
+                return p;
+        }
+        return candidates[0];
+    }
+
+    private static Path resolveEnemyCoresDir() {
+        Path[] candidates = {
+                Paths.get("forge-gui/res/adventure/common/world/enemy_cores"),
+                Paths.get("../forge-gui/res/adventure/common/world/enemy_cores"),
+                Paths.get("res/adventure/common/world/enemy_cores")
+        };
+        for (Path p : candidates) {
+            if (Files.isDirectory(p))
                 return p;
         }
         return candidates[0];

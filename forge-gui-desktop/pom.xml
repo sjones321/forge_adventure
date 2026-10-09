@@ -24,6 +24,16 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Match forge-gui-mobile: isolate Forge USER_DIR before ForgeConstants init. -->
+                    <systemPropertyVariables>
+                        <forge.test.userDir>${project.build.directory}/test-user-home</forge.test.userDir>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
                 <version>3.6.0</version>

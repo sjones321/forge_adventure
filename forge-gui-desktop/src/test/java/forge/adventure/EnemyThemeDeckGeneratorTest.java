@@ -41,7 +41,13 @@ public class EnemyThemeDeckGeneratorTest {
         enemyDeckRoot = resolveEnemyDeckRoot();
         Files.createDirectories(enemyDeckRoot);
         themes = loadThemes();
+        for (EnemyThemeData t : themes)
+            EnemyThemeDecks.ensureCoreLoaded(t);
         Assert.assertEquals(themes.size(), 16, "expected 16 themes");
+        for (EnemyThemeData t : themes) {
+            Assert.assertTrue(t.core != null && t.core.length >= EnemyThemeDecks.MIN_CORE_CARDS_IN_DECK,
+                    t.id + " core too small");
+        }
     }
 
     @Test(timeOut = 600000)
@@ -55,17 +61,16 @@ public class EnemyThemeDeckGeneratorTest {
         EnemyThemeDecks.setEnabledForTests(true);
         int wrote = 0;
         for (EnemyThemeData theme : themes) {
+            EnemyThemeDecks.ensureCoreLoaded(theme);
             for (String format : new String[]{"Historic", "Pauper", "Commander"}) {
                 Path out = enemyDeckRoot.resolve(theme.id)
                         .resolve(format.toLowerCase(Locale.ROOT) + "_1.dck");
-                if (Files.isRegularFile(out) && isAcceptable(out, format, theme))
-                    continue;
-
+                // Always rebuild when generating: cores define the content.
                 Files.createDirectories(out.getParent());
                 long seed = theme.id.hashCode() * 31L + format.hashCode();
                 Deck best = null;
                 String bestProblem = "not generated";
-                for (int attempt = 0; attempt < 24; attempt++) {
+                for (int attempt = 0; attempt < 32; attempt++) {
                     Deck deck = EnemyThemeDecks.buildFixedDeck(theme, format, seed + attempt * 17L);
                     if (deck == null)
                         continue;

@@ -6,6 +6,7 @@ import forge.StaticData;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.EnemyData;
 import forge.adventure.data.EnemyThemeCatalogData;
+import forge.adventure.data.EnemyThemeCoreData;
 import forge.adventure.data.EnemyThemeData;
 import forge.adventure.data.EnemyThemeRecipeData;
 import forge.adventure.player.AdventurePlayer;
@@ -19,7 +20,6 @@ import forge.deck.CardPool;
 import forge.deck.Deck;
 import forge.deck.DeckFormat;
 import forge.deck.DeckSection;
-import forge.deck.DeckgenUtil;
 import forge.deck.io.DeckSerializer;
 import forge.game.GameFormat;
 import forge.item.PaperCard;
@@ -27,6 +27,7 @@ import forge.model.FModel;
 import forge.util.MyRandom;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -38,7 +39,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -68,6 +68,10 @@ public final class EnemyThemeDecks {
     public static final int MIN_ON_THEME_NONLAND_STANDARD = 18;
     /** Minimum on-theme non-land cards for a committed fixed deck. */
     public static final int MIN_ON_THEME_NONLAND_FIXED = 14;
+    /** Minimum copies from the hand-picked theme core in a fixed deck. */
+    public static final int MIN_CORE_CARDS_IN_DECK = 24;
+    /** Maximum generated non-core non-land filler slots in a fixed deck. */
+    public static final int MAX_FILLER_NONLAND = 8;
     public static final int MIN_LANDS_60 = 16;
     public static final int MAX_LANDS_60 = 18;
     public static final int TARGET_LANDS_60 = 17;
@@ -135,6 +139,8 @@ public final class EnemyThemeDecks {
             for (EnemyThemeData t : catalog.themes) {
                 if (t == null || t.id == null || t.id.isEmpty())
                     continue;
+                if (t.core == null || t.core.length == 0)
+                    attachCore(t);
                 byId.put(t.id, t);
                 if (t.tags == null)
                     continue;
@@ -150,6 +156,42 @@ public final class EnemyThemeDecks {
     /** Test hook: force EN1 on/off without a live Ascendant Config. Pass null to clear. */
     public static void setEnabledForTests(Boolean enabled) {
         forceEnabledForTests = enabled;
+    }
+
+    /** Ensure {@link EnemyThemeData#core} is populated from {@code world/enemy_cores/<id>.json}. */
+    public static void ensureCoreLoaded(EnemyThemeData theme) {
+        attachCore(theme);
+    }
+
+    /** Load {@code world/enemy_cores/<id>.json} into {@link EnemyThemeData#core} when present. */
+    private static void attachCore(EnemyThemeData theme) {
+        if (theme == null || theme.id == null || theme.id.isEmpty())
+            return;
+        if (theme.core != null && theme.core.length > 0)
+            return;
+        try {
+            FileHandle handle = Config.instance().getFile(Paths.ENEMY_CORES_DIR + theme.id + ".json");
+            if (handle == null || !handle.exists()) {
+                // Desktop / test working directories: resolve beside enemy_themes.json.
+                java.nio.file.Path alt = java.nio.file.Paths.get(
+                        "forge-gui/res/adventure/common/world/enemy_cores/" + theme.id + ".json");
+                if (!Files.isRegularFile(alt))
+                    alt = java.nio.file.Paths.get(
+                            "../forge-gui/res/adventure/common/world/enemy_cores/" + theme.id + ".json");
+                if (Files.isRegularFile(alt))
+                    handle = new FileHandle(alt.toFile());
+            }
+            if (handle == null || !handle.exists()) {
+                LOG.warning("EN1: missing core for " + theme.id);
+                theme.core = new String[0];
+                return;
+            }
+            EnemyThemeCoreData parsed = new Json().fromJson(EnemyThemeCoreData.class, handle);
+            theme.core = parsed != null && parsed.cards != null ? parsed.cards : new String[0];
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "EN1: failed to load core for " + theme.id, e);
+            theme.core = new String[0];
+        }
     }
 
     public static boolean isEnabled() {
@@ -582,6 +624,8 @@ public final class EnemyThemeDecks {
             return false;
         if (pc.getRules().getType().isBasicLand())
             return false;
+        if (isInCore(pc.getName(), theme))
+            return true;
         if (theme.keyCards != null) {
             for (String k : theme.keyCards) {
                 if (k != null && k.equals(pc.getName()))
@@ -721,6 +765,9 @@ public final class EnemyThemeDecks {
         String alchemy = alchemyOrRestrictedProblem(deck);
         if (alchemy != null)
             return alchemy;
+        String coreProblem = coreMembershipProblem(deck, theme);
+        if (coreProblem != null)
+            return coreProblem;
         int onTheme = countOnThemeNonLand(deck, theme);
         if (onTheme < MIN_ON_THEME_NONLAND_FIXED)
             return "only " + onTheme + " on-theme non-lands (need ~"
@@ -747,6 +794,79 @@ public final class EnemyThemeDecks {
                             + " too high for non-ramp theme (max " + MAX_AVG_CMC_NON_RAMP + ")";
             }
         }
+        return null;
+    }
+
+    /** True when {@code name} is listed in the theme's hand-picked core (or preferred commanders). */
+    public static boolean isInCore(String name, EnemyThemeData theme) {
+        if (name == null || theme == null)
+            return false;
+        if (theme.core != null) {
+            for (String c : theme.core) {
+                if (name.equals(c))
+                    return true;
+            }
+        }
+        // Preferred commanders count as core staples for Commander lists.
+        if (theme.preferredCommanders != null) {
+            for (String c : theme.preferredCommanders) {
+                if (name.equals(c))
+                    return true;
+            }
+        }
+        if (theme.keyCards != null) {
+            for (String c : theme.keyCards) {
+                if (name.equals(c))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /** Count non-land copies (main + commander) whose names are in the theme core. */
+    public static int countCoreCards(Deck deck, EnemyThemeData theme) {
+        if (deck == null || theme == null)
+            return 0;
+        int n = 0;
+        for (var e : deck.getAllCardsInASinglePool(true, false)) {
+            PaperCard pc = e.getKey();
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (pc.getRules().getType().isLand())
+                continue;
+            if (isInCore(pc.getName(), theme))
+                n += e.getValue();
+        }
+        return n;
+    }
+
+    /** Non-land cards that are not in the theme core (generated filler). */
+    public static int countFillerNonLand(Deck deck, EnemyThemeData theme) {
+        if (deck == null || theme == null)
+            return 0;
+        int n = 0;
+        for (var e : deck.getAllCardsInASinglePool(true, false)) {
+            PaperCard pc = e.getKey();
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (pc.getRules().getType().isLand())
+                continue;
+            if (!isInCore(pc.getName(), theme))
+                n += e.getValue();
+        }
+        return n;
+    }
+
+    /** Core size / filler gates for fixed decks. Returns null if OK. */
+    public static String coreMembershipProblem(Deck deck, EnemyThemeData theme) {
+        if (theme == null || theme.core == null || theme.core.length < MIN_CORE_CARDS_IN_DECK)
+            return "theme core has fewer than " + MIN_CORE_CARDS_IN_DECK + " named cards";
+        int core = countCoreCards(deck, theme);
+        if (core < MIN_CORE_CARDS_IN_DECK)
+            return "only " + core + " core cards (need " + MIN_CORE_CARDS_IN_DECK + ")";
+        int filler = countFillerNonLand(deck, theme);
+        if (filler > MAX_FILLER_NONLAND)
+            return "filler non-lands=" + filler + " (max " + MAX_FILLER_NONLAND + ")";
         return null;
     }
 
@@ -874,6 +994,7 @@ public final class EnemyThemeDecks {
                 for (EnemyThemeData t : parsed.themes) {
                     if (t == null || t.id == null || t.id.isEmpty())
                         continue;
+                    attachCore(t);
                     byId.put(t.id, t);
                     if (t.tags == null)
                         continue;
@@ -1423,13 +1544,28 @@ public final class EnemyThemeDecks {
             main.add(land);
             added++;
         }
-        int guard = 0;
-        while (main.countAll() < totalTarget && guard++ < totalTarget * 2) {
-            String b = basics.get(main.countAll() % basics.size());
-            PaperCard land = cardByName(b);
-            if (land == null)
-                break;
-            main.add(land);
+        // For 60-card decks never exceed MAX_LANDS_60 — thin spell counts fail quality
+        // instead of silently growing the mana base. Commander may pad to exact total.
+        if (totalTarget != 60) {
+            int guard = 0;
+            while (main.countAll() < totalTarget && guard++ < totalTarget * 2) {
+                String b = basics.get(main.countAll() % basics.size());
+                PaperCard land = cardByName(b);
+                if (land == null)
+                    break;
+                main.add(land);
+            }
+        } else {
+            // Top up to 60 only while staying within the land band.
+            int guard = 0;
+            while (main.countAll() < totalTarget && countLandsInPool(main) < MAX_LANDS_60
+                    && guard++ < totalTarget) {
+                String b = basics.get(main.countAll() % basics.size());
+                PaperCard land = cardByName(b);
+                if (land == null)
+                    break;
+                main.add(land);
+            }
         }
         while (main.countAll() > totalTarget) {
             List<PaperCard> flat = new ArrayList<>(main.toFlatList());
@@ -1444,6 +1580,15 @@ public final class EnemyThemeDecks {
                 break;
             main.remove(remove);
         }
+    }
+
+    private static int countLandsInPool(CardPool main) {
+        int n = 0;
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc != null && pc.getRules() != null && pc.getRules().getType().isLand())
+                n++;
+        }
+        return n;
     }
 
     private static Deck padWithBasics(Deck deck, int target, String[] colors) {
@@ -1507,14 +1652,15 @@ public final class EnemyThemeDecks {
 
     /**
      * Builds a fixed-format deck for a theme (Historic, Pauper, or Commander).
-     * Prefers Forge {@link DeckgenUtil} color / Commander generators (real curves,
-     * spells, mana bases), then injects on-theme creatures and archetype spells.
+     * Hand-picked {@link EnemyThemeData#core} first (≥24 copies), then ≤8 generated
+     * filler non-lands, then lands (16–18 for 60-card; CI-matched + fixing for Commander).
      */
     public static Deck buildFixedDeck(EnemyThemeData theme, String format, long seed) {
         String fmt = normalizeFormat(format);
         Random previous = MyRandom.getRandom();
         try {
             MyRandom.setRandom(new Random(seed));
+            attachCore(theme);
             if (FORMAT_COMMANDER.equals(fmt))
                 return buildCommanderDeck(theme, seed);
             if (FORMAT_PAUPER.equals(fmt))
@@ -1529,34 +1675,166 @@ public final class EnemyThemeDecks {
 
     private static Deck buildCommanderDeck(EnemyThemeData theme, long seed) {
         PaperCard commander = pickCommander(theme, seed);
+        Deck deck = new Deck(theme.id + " Commander");
+        deck.setName(theme.id + " Commander");
         if (commander == null) {
             LOG.warning("EN1: no commander for " + theme.id);
-            return new Deck(theme.id + " Commander");
+            return deck;
         }
-        Deck deck;
-        try {
-            deck = DeckgenUtil.generateRandomCommanderDeck(commander, DeckFormat.Commander, true, false);
-        } catch (Throwable e) {
-            LOG.log(Level.WARNING, "EN1: DeckgenUtil commander failed for " + theme.id, e);
-            deck = new Deck(theme.id + " Commander");
-            deck.getOrCreate(DeckSection.Commander).add(commander);
-        }
-        if (deck == null)
-            deck = new Deck(theme.id + " Commander");
-        deck.setName(theme.id + " Commander");
-        if (deck.getCommanders().isEmpty())
-            deck.getOrCreate(DeckSection.Commander).add(commander);
-
+        deck.getOrCreate(DeckSection.Commander).add(preferPaperPrinting(commander));
         byte ci = commander.getRules().getColorIdentity().getColor();
-        stripExcludedAndOffIdentity(deck, ci);
-        injectThemeCreatures(deck, theme, FORMAT_COMMANDER, null, ci, 30, true);
-        injectThemeSpells(deck, theme, FORMAT_COMMANDER, null, ci, 16, true);
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+
+        List<PaperCard> coreLegal = resolveCoreCards(theme, FORMAT_COMMANDER, null, ci, true);
+        // Never put the commander into the main deck (singleton / command zone).
+        coreLegal.removeIf(pc -> pc != null && pc.getName().equals(commander.getName()));
+        // Singleton: take as many distinct core cards as fit before lands/filler.
+        int cmdN = deck.getCommanders().size();
+        int landBudget = commanderLandBudget(ci);
+        int nonLandSlots = 100 - cmdN - landBudget;
+        int wantCore = Math.max(MIN_CORE_CARDS_IN_DECK, nonLandSlots - MAX_FILLER_NONLAND);
+        addCoreToPool(main, coreLegal, FORMAT_COMMANDER, wantCore, true);
+        stripCommanderDuplicates(deck);
+        int haveCore = countCoreCards(deck, theme);
+        if (haveCore < MIN_CORE_CARDS_IN_DECK) {
+            // Retry with looser color filter (still CI-legal).
+            addCoreToPool(main, coreLegal, FORMAT_COMMANDER, MIN_CORE_CARDS_IN_DECK, true);
+            stripCommanderDuplicates(deck);
+        }
+        int fillerRoom = Math.min(MAX_FILLER_NONLAND,
+                Math.max(0, nonLandSlots - countNonLands(main)));
+        addFillerNonLand(main, theme, FORMAT_COMMANDER, null, ci, fillerRoom, true);
+        stripCommanderDuplicates(deck);
+        trimToBudgets(main, theme, nonLandSlots);
+
         String[] pad = colorsFromMask(ci);
         if (pad.length == 0)
             pad = colorsFromMask(spellColorMask(deck));
-        int cmdN = deck.getCommanders().size();
         rebuildBasicLands(deck, pad, 100 - cmdN);
+        addCommanderFixing(deck, ci);
+        stripCommanderDuplicates(deck);
+        trimToBudgets(deck.getOrCreate(DeckSection.Main), theme, 100 - cmdN);
+        enforceFillerCap(deck, theme);
+        // Re-trim to exact 99 main after fixing inserts.
+        while (deck.getMain().countAll() > 100 - cmdN) {
+            PaperCard remove = null;
+            for (PaperCard pc : deck.getMain().toFlatList()) {
+                if (pc.getRules().getType().isBasicLand()) {
+                    remove = pc;
+                    break;
+                }
+            }
+            if (remove == null)
+                break;
+            deck.getMain().remove(remove);
+        }
+        enforceFillerCap(deck, theme);
         return deck;
+    }
+
+    /** Remove non-core non-lands until ≤ {@link #MAX_FILLER_NONLAND} (main + commander). */
+    private static void enforceFillerCap(Deck deck, EnemyThemeData theme) {
+        if (deck == null || theme == null)
+            return;
+        int guard = 0;
+        while (countFillerNonLand(deck, theme) > MAX_FILLER_NONLAND && guard++ < 64) {
+            PaperCard victim = null;
+            for (var e : deck.getMain()) {
+                PaperCard pc = e.getKey();
+                if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
+                    continue;
+                if (!isInCore(pc.getName(), theme)) {
+                    victim = pc;
+                    break;
+                }
+            }
+            if (victim == null)
+                break;
+            deck.getMain().remove(victim);
+        }
+    }
+
+    private static int commanderLandBudget(byte ci) {
+        int colors = Integer.bitCount(ci & 0xFF);
+        if (colors <= 1)
+            return 36;
+        if (colors == 2)
+            return 37;
+        return 38;
+    }
+
+    private static int countNonLands(CardPool main) {
+        int n = 0;
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc != null && pc.getRules() != null && !pc.getRules().getType().isLand())
+                n++;
+        }
+        return n;
+    }
+
+    /** Swap some basics for CI-legal fixing in multicolor Commander decks. */
+    private static void addCommanderFixing(Deck deck, byte ci) {
+        int colors = Integer.bitCount(ci & 0xFF);
+        if (colors < 2)
+            return;
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        List<String> fixers = new ArrayList<>();
+        Collections.addAll(fixers, "Command Tower", "Path of Ancestry", "Exotic Orchard",
+                "Evolving Wilds", "Terramorphic Expanse", "Myriad Landscape", "Ash Barrens");
+        // Allied/enemy taps and common duals that stay within CI.
+        if ((ci & MagicColor.WHITE) != 0 && (ci & MagicColor.BLUE) != 0)
+            Collections.addAll(fixers, "Azorius Chancery", "Glacial Fortress", "Hallowed Fountain");
+        if ((ci & MagicColor.BLUE) != 0 && (ci & MagicColor.BLACK) != 0)
+            Collections.addAll(fixers, "Dimir Aqueduct", "Drowned Catacomb", "Watery Grave");
+        if ((ci & MagicColor.BLACK) != 0 && (ci & MagicColor.RED) != 0)
+            Collections.addAll(fixers, "Rakdos Carnarium", "Dragonskull Summit", "Blood Crypt");
+        if ((ci & MagicColor.RED) != 0 && (ci & MagicColor.GREEN) != 0)
+            Collections.addAll(fixers, "Gruul Turf", "Rootbound Crag", "Stomping Ground");
+        if ((ci & MagicColor.GREEN) != 0 && (ci & MagicColor.WHITE) != 0)
+            Collections.addAll(fixers, "Selesnya Sanctuary", "Sunpetal Grove", "Temple Garden");
+        if ((ci & MagicColor.WHITE) != 0 && (ci & MagicColor.BLACK) != 0)
+            Collections.addAll(fixers, "Orzhov Basilica", "Isolated Chapel", "Godless Shrine");
+        if ((ci & MagicColor.BLUE) != 0 && (ci & MagicColor.RED) != 0)
+            Collections.addAll(fixers, "Izzet Boilerworks", "Sulfur Falls", "Steam Vents");
+        if ((ci & MagicColor.BLACK) != 0 && (ci & MagicColor.GREEN) != 0)
+            Collections.addAll(fixers, "Golgari Rot Farm", "Woodland Cemetery", "Overgrown Tomb");
+        if ((ci & MagicColor.RED) != 0 && (ci & MagicColor.WHITE) != 0)
+            Collections.addAll(fixers, "Boros Garrison", "Clifftop Retreat", "Sacred Foundry");
+        if ((ci & MagicColor.GREEN) != 0 && (ci & MagicColor.BLUE) != 0)
+            Collections.addAll(fixers, "Simic Growth Chamber", "Hinterland Harbor", "Breeding Pool");
+        if (colors >= 3)
+            Collections.addAll(fixers, "Cascading Cataracts", "Reliquary Tower", "Rogue's Passage");
+
+        int want = Math.min(12, 4 + colors * 2);
+        int added = 0;
+        Set<String> used = new HashSet<>();
+        for (String name : fixers) {
+            if (added >= want)
+                break;
+            if (!used.add(name))
+                continue;
+            PaperCard pc = cardByName(name);
+            if (pc == null || isExcludedFromAdventureDecks(pc) || isRestrictedCardName(name))
+                continue;
+            if (!pc.getRules().getType().isLand())
+                continue;
+            if (!pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            // Replace a basic.
+            PaperCard basic = null;
+            for (PaperCard c : main.toFlatList()) {
+                if (c.getRules().getType().isBasicLand()) {
+                    basic = c;
+                    break;
+                }
+            }
+            if (basic == null)
+                break;
+            main.remove(basic);
+            main.add(preferPaperPrinting(pc));
+            added++;
+        }
     }
 
     private static String[] colorsFromMask(byte ci) {
@@ -1611,37 +1889,299 @@ public final class EnemyThemeDecks {
 
     private static Deck buildConstructedDeck(EnemyThemeData theme, String format, int target, long seed) {
         GameFormat forgeFormat = forgeFormatFor(format);
-        Predicate<PaperCard> formatFilter = pc -> cardLegalInFixedFormat(pc, format, forgeFormat);
-        List<String> selection = colorSelection(theme.colors);
-        Deck deck = null;
-        try {
-            deck = DeckgenUtil.buildColorDeck(selection, formatFilter, true);
-        } catch (Throwable e) {
-            LOG.log(Level.WARNING, "EN1: DeckgenUtil.buildColorDeck failed for " + theme.id, e);
-        }
-        if (deck == null)
-            deck = new Deck(theme.id + " " + format);
+        Deck deck = new Deck(theme.id + " " + format);
         deck.setName(theme.id + " " + format);
-
         byte allowed = colorMask(theme.colors);
-        stripExcludedFromMain(deck, format, forgeFormat);
-        // Inject key cards / tribal / archetype spells on top of Forge's curve.
-        injectKeyCards(deck, theme, format, forgeFormat, allowed, false);
-        injectThemeCreatures(deck, theme, format, forgeFormat, allowed, 28, false);
-        injectThemeSpells(deck, theme, format, forgeFormat, allowed, 16, false);
-        ensureMinNonCreatureSpells(deck, theme, format, forgeFormat, allowed);
-        // Top up tribal until the on-theme floor is met (scarce tribes like Dragon commons).
-        int guard = 0;
-        while (countOnThemeNonLand(deck, theme) < MIN_ON_THEME_NONLAND_FIXED && guard++ < 3) {
-            injectThemeCreatures(deck, theme, format, forgeFormat, allowed, 36, false);
-            injectThemeSpells(deck, theme, format, forgeFormat, allowed, 20, false);
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+
+        List<PaperCard> coreLegal = resolveCoreCards(theme, format, forgeFormat, allowed, false);
+        int landTarget = TARGET_LANDS_60;
+        int nonLandSlots = target - landTarget;
+        int wantCore = Math.max(MIN_CORE_CARDS_IN_DECK, nonLandSlots - MAX_FILLER_NONLAND);
+        addCoreToPool(main, coreLegal, format, wantCore, false);
+
+        // Prefer keyCards / archetype staples among remaining core names first.
+        // Key cards are already ordered first in resolveCoreCards; do not inject
+        // extras that would spend the filler budget.
+
+        int haveCore = 0;
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc != null && !pc.getRules().getType().isLand() && isInCore(pc.getName(), theme))
+                haveCore++;
         }
+        if (haveCore < MIN_CORE_CARDS_IN_DECK)
+            addCoreToPool(main, coreLegal, format, MIN_CORE_CARDS_IN_DECK, false);
+
+        // Prefer core spells to meet the non-creature floor before spending filler.
+        ensureMinNonCreatureSpellsFromCore(deck, theme, format, forgeFormat, allowed, nonLandSlots);
+        int fillerRoom = Math.min(MAX_FILLER_NONLAND,
+                Math.max(0, nonLandSlots - countNonLands(main)));
+        addFillerNonLand(main, theme, format, forgeFormat, allowed, fillerRoom, false);
+        trimToBudgets(main, theme, nonLandSlots);
+        // If still thin (scarce Pauper tribe), spend remaining filler then stop — lands cap at 18.
+        fillerRoom = Math.min(MAX_FILLER_NONLAND - countFillerInPool(main, theme),
+                Math.max(0, nonLandSlots - countNonLands(main)));
+        if (fillerRoom > 0)
+            addFillerNonLand(main, theme, format, forgeFormat, allowed, fillerRoom, false);
+        trimToBudgets(main, theme, nonLandSlots);
+        // Top up core copies so lands can fill to 60 within the 16–18 band.
+        topUpCoreForSize(main, coreLegal, format, nonLandSlots);
 
         String[] pad = colorsFromMask(spellColorMask(deck));
         if (pad.length == 0)
             pad = theme.colors != null ? theme.colors : new String[]{"blue"};
         rebuildBasicLands(deck, pad, target);
-        return finalizeConstructed(deck, theme, format, target);
+        enforceFillerCap(deck, theme);
+        // If still under 60 after land cap, spend remaining core 4-ofs then filler.
+        if (deck.getMain().countAll() < target) {
+            topUpCoreForSize(main, coreLegal, format, target - MIN_LANDS_60);
+            fillerRoom = Math.min(MAX_FILLER_NONLAND - countFillerInPool(main, theme),
+                    Math.max(0, (target - MIN_LANDS_60) - countNonLands(main)));
+            if (fillerRoom > 0)
+                addFillerNonLand(main, theme, format, forgeFormat, allowed, fillerRoom, false);
+            trimToBudgets(main, theme, target - MIN_LANDS_60);
+            rebuildBasicLands(deck, pad, target);
+            enforceFillerCap(deck, theme);
+        }
+        Deck done = finalizeConstructed(deck, theme, format, target);
+        enforceFillerCap(done, theme);
+        return done;
+    }
+
+    /** Raise non-land count toward {@code wantNonLand} using remaining core copy slots (max 4). */
+    private static void topUpCoreForSize(CardPool main, List<PaperCard> coreLegal, String format,
+                                         int wantNonLand) {
+        if (coreLegal == null || coreLegal.isEmpty())
+            return;
+        int guard = 0;
+        while (countNonLands(main) < wantNonLand && guard++ < 200) {
+            boolean added = false;
+            for (PaperCard pc : coreLegal) {
+                if (countNonLands(main) >= wantNonLand)
+                    break;
+                int cur = main.countByName(pc.getName());
+                int max = FORMAT_COMMANDER.equals(format) ? 1 : 4;
+                if (cur >= max)
+                    continue;
+                main.add(preferPaperPrinting(pc));
+                added = true;
+            }
+            if (!added)
+                break;
+        }
+    }
+
+    private static void stripCommanderDuplicates(Deck deck) {
+        if (deck == null || !deck.has(DeckSection.Commander))
+            return;
+        Set<String> cmds = new HashSet<>();
+        for (PaperCard pc : deck.getCommanders()) {
+            if (pc != null)
+                cmds.add(pc.getName());
+        }
+        if (cmds.isEmpty())
+            return;
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        List<PaperCard> keep = new ArrayList<>();
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc != null && cmds.contains(pc.getName()))
+                continue;
+            keep.add(pc);
+        }
+        main.clear();
+        for (PaperCard pc : keep)
+            main.add(pc);
+    }
+
+    private static int countFillerInPool(CardPool main, EnemyThemeData theme) {
+        int n = 0;
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
+                continue;
+            if (!isInCore(pc.getName(), theme))
+                n++;
+        }
+        return n;
+    }
+
+    /** Add non-creature spells from the theme core only (does not spend filler budget). */
+    private static void ensureMinNonCreatureSpellsFromCore(Deck deck, EnemyThemeData theme,
+                                                          String format, GameFormat forgeFormat,
+                                                          byte allowed, int maxNonLand) {
+        int have = countNonCreatureSpells(deck);
+        if (have >= MIN_NON_CREATURE_SPELLS_60)
+            return;
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        List<PaperCard> coreLegal = resolveCoreCards(theme, format, forgeFormat, allowed, false);
+        int perName = FORMAT_PAUPER.equals(format) ? 4 : 3;
+        for (PaperCard pc : coreLegal) {
+            if (have >= MIN_NON_CREATURE_SPELLS_60)
+                break;
+            if (pc.getRules().getType().isCreature() || pc.getRules().getType().isLand())
+                continue;
+            if (countNonLands(main) >= maxNonLand)
+                break;
+            int cur = main.countByName(pc.getName());
+            PaperCard print = preferPaperPrinting(pc);
+            for (int i = cur; i < perName && have < MIN_NON_CREATURE_SPELLS_60
+                    && countNonLands(main) < maxNonLand; i++) {
+                main.add(print);
+                have++;
+            }
+        }
+    }
+
+    private static List<PaperCard> resolveCoreCards(EnemyThemeData theme, String format,
+                                                    GameFormat forgeFormat, byte allowed,
+                                                    boolean singleton) {
+        List<PaperCard> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        if (theme == null || theme.core == null)
+            return out;
+        // Prefer keyCards order first when they appear in the core.
+        List<String> ordered = new ArrayList<>();
+        if (theme.keyCards != null) {
+            for (String k : theme.keyCards) {
+                if (k != null && isInCore(k, theme))
+                    ordered.add(k);
+            }
+        }
+        for (String name : theme.core) {
+            if (name != null && !ordered.contains(name))
+                ordered.add(name);
+        }
+        for (String name : ordered) {
+            if (name == null || !seen.add(name) || isRestrictedCardName(name))
+                continue;
+            PaperCard pc = cardByName(name);
+            if (pc == null || isExcludedFromAdventureDecks(pc))
+                continue;
+            if (pc.getRules().getType().isLand())
+                continue;
+            if (forgeFormat != null && !cardLegalInFixedFormat(pc, format, forgeFormat))
+                continue;
+            if (FORMAT_COMMANDER.equals(format) && allowed != 0
+                    && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            if (!FORMAT_COMMANDER.equals(format) && allowed != 0
+                    && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            out.add(preferPaperPrinting(pc));
+        }
+        return out;
+    }
+
+    private static void addCoreToPool(CardPool main, List<PaperCard> coreLegal, String format,
+                                      int wantCopies, boolean singleton) {
+        if (coreLegal == null || coreLegal.isEmpty() || wantCopies <= 0)
+            return;
+        int have = 0;
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc != null && !pc.getRules().getType().isLand())
+                have++;
+        }
+        int perName = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 3);
+        for (PaperCard pc : coreLegal) {
+            if (have >= wantCopies)
+                break;
+            int cur = main.countByName(pc.getName());
+            int max = singleton ? 1 : Math.min(4, perName);
+            PaperCard print = preferPaperPrinting(pc);
+            for (int i = cur; i < max && have < wantCopies; i++) {
+                main.add(print);
+                have++;
+            }
+        }
+    }
+
+    private static void addFillerNonLand(CardPool main, EnemyThemeData theme, String format,
+                                         GameFormat forgeFormat, byte allowed, int want,
+                                         boolean singleton) {
+        if (want <= 0)
+            return;
+        List<PaperCard> pool = new ArrayList<>();
+        try {
+            for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
+                if (pc == null || pc.getRules() == null)
+                    continue;
+                if (pc.getRules().getType().isLand())
+                    continue;
+                if (isInCore(pc.getName(), theme))
+                    continue;
+                if (!isOnTheme(pc, theme))
+                    continue;
+                if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(pc.getName()))
+                    continue;
+                if (forgeFormat != null && !cardLegalInFixedFormat(pc, format, forgeFormat))
+                    continue;
+                if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
+                        && !pc.getRules().getColorIdentity().isColorless())
+                    continue;
+                pool.add(preferPaperPrinting(pc));
+            }
+        } catch (Throwable ignored) {
+        }
+        Collections.shuffle(pool, MyRandom.getRandom());
+        int added = 0;
+        for (PaperCard pc : pool) {
+            if (added >= want)
+                break;
+            // Re-check live filler count so batched 4-ofs cannot blow the cap.
+            if (countFillerInPool(main, theme) >= MAX_FILLER_NONLAND)
+                break;
+            int max = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 2);
+            int cur = main.countByName(pc.getName());
+            int room = Math.min(max - cur,
+                    Math.min(want - added, MAX_FILLER_NONLAND - countFillerInPool(main, theme)));
+            for (int i = 0; i < room; i++) {
+                main.add(pc);
+                added++;
+            }
+        }
+    }
+
+    /** Drop excess non-lands (prefer dropping filler, then extras) to fit budget. */
+    private static void trimToBudgets(CardPool main, EnemyThemeData theme, int maxNonLand) {
+        // Hard-cap filler first.
+        while (countFillerInPool(main, theme) > MAX_FILLER_NONLAND) {
+            PaperCard victim = null;
+            for (PaperCard pc : main.toFlatList()) {
+                if (pc.getRules().getType().isLand())
+                    continue;
+                if (!isInCore(pc.getName(), theme)) {
+                    victim = pc;
+                    break;
+                }
+            }
+            if (victim == null)
+                break;
+            main.remove(victim);
+        }
+        while (countNonLands(main) > maxNonLand) {
+            PaperCard victim = null;
+            // Prefer removing filler.
+            for (PaperCard pc : main.toFlatList()) {
+                if (pc.getRules().getType().isLand())
+                    continue;
+                if (!isInCore(pc.getName(), theme)) {
+                    victim = pc;
+                    break;
+                }
+            }
+            if (victim == null) {
+                for (PaperCard pc : main.toFlatList()) {
+                    if (!pc.getRules().getType().isLand()) {
+                        victim = pc;
+                        break;
+                    }
+                }
+            }
+            if (victim == null)
+                break;
+            main.remove(victim);
+        }
     }
 
     private static List<String> colorSelection(String[] colors) {
