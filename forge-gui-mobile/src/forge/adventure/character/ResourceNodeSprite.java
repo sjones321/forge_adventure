@@ -37,6 +37,8 @@ public class ResourceNodeSprite extends CharacterSprite {
     private boolean useNodeArt;
     private ParticleEffect ambientA;
     private ParticleEffect ambientB;
+    private Array<ParticleEffect> poolA;
+    private Array<ParticleEffect> poolB;
     private boolean ambientActive;
     private float sparkleTimer;
     private boolean wasVisible;
@@ -146,10 +148,8 @@ public class ResourceNodeSprite extends CharacterSprite {
         if (ambientActive && ambientA != null && ambientB != null)
             return;
         releaseAmbient();
-        ambientA = borrow(SMOKE_POOL, Paths.EFFECT_ASH_VENT_SMOKE);
-        ambientB = borrow(EMBER_POOL, Paths.EFFECT_ASH_VENT_EMBERS);
-        scaleEmitters(ambientA, 0.35f);
-        scaleEmitters(ambientB, 0.28f);
+        ambientA = borrow(poolA = SMOKE_POOL, Paths.EFFECT_ASH_VENT_SMOKE, 0.35f);
+        ambientB = borrow(poolB = EMBER_POOL, Paths.EFFECT_ASH_VENT_EMBERS, 0.28f);
         if (ambientA != null)
             ambientA.start();
         if (ambientB != null)
@@ -161,8 +161,7 @@ public class ResourceNodeSprite extends CharacterSprite {
         if (ambientActive && ambientA != null)
             return;
         releaseAmbient();
-        ambientA = borrow(SPARKLE_POOL, Paths.EFFECT_WATER_SPARKLE);
-        scaleEmitters(ambientA, 0.4f);
+        ambientA = borrow(poolA = SPARKLE_POOL, Paths.EFFECT_WATER_SPARKLE, 0.4f);
         sparkleTimer = MathUtils.random(0.2f, 1.2f);
         ambientActive = true;
     }
@@ -176,35 +175,24 @@ public class ResourceNodeSprite extends CharacterSprite {
 
     private void releaseAmbient() {
         if (ambientA != null) {
-            recycle(ambientA, poolFor(ambientA));
+            recycle(ambientA, poolA);
             ambientA = null;
         }
         if (ambientB != null) {
-            recycle(ambientB, poolFor(ambientB));
+            recycle(ambientB, poolB);
             ambientB = null;
         }
         ambientActive = false;
         sparkleTimer = 0f;
     }
 
-    private static Array<ParticleEffect> poolFor(ParticleEffect effect) {
-        // Heuristic: smoke pool first path, etc. — tag via emitter name.
-        if (effect.getEmitters().size > 0) {
-            String name = effect.getEmitters().first().getName();
-            if (name != null) {
-                if (name.toLowerCase().contains("smoke"))
-                    return SMOKE_POOL;
-                if (name.toLowerCase().contains("flame"))
-                    return EMBER_POOL;
-            }
-        }
-        return SPARKLE_POOL;
-    }
-
-    private static ParticleEffect borrow(Array<ParticleEffect> pool, String path) {
+    // Each pool holds one effect at one scale, so only freshly loaded effects are scaled.
+    private static ParticleEffect borrow(Array<ParticleEffect> pool, String path, float scale) {
         if (pool.size > 0)
             return pool.pop();
-        return loadPooledEffect(path);
+        ParticleEffect effect = loadPooledEffect(path);
+        scaleEmitters(effect, scale);
+        return effect;
     }
 
     private static void recycle(ParticleEffect effect, Array<ParticleEffect> pool) {
@@ -318,6 +306,14 @@ public class ResourceNodeSprite extends CharacterSprite {
         batch.setColor(0.35f, 0.85f, 0.4f, parentAlpha);
         batch.draw(px, x, y, w * Math.max(0f, Math.min(1f, channelProgress)), h);
         batch.setColor(prev);
+    }
+
+    // WorldStage detaches nodes with Group.removeActor, which skips remove() but clears the stage.
+    @Override
+    public void setStage(com.badlogic.gdx.scenes.scene2d.Stage stage) {
+        if (stage == null)
+            releaseAmbient();
+        super.setStage(stage);
     }
 
     @Override
