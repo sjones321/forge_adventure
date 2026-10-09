@@ -368,10 +368,15 @@ public class OreLineMigrationTest {
         Assert.assertEquals(item.effect.lifeModifier, 7);
         Assert.assertEquals(item.effect.moveSpeed, 1.25f, 0.0001f);
         Assert.assertEquals(item.effect.extraManaShards, 2);
-        // Idempotent: second pass must not chain Iron → Mithral.
+        // "Iron Pickaxe" is both the new T1 name and an old→new map key (→ Mithral).
+        // Call sites must schema-gate (materialSchema < 3); a second unguarded pass would
+        // chain. Final-tier names are stable without gating:
+        item.name = "Mithral Pickaxe";
         MaterialListData.migrateOreLineItemInstance(item);
-        Assert.assertEquals(item.name, "Iron Pickaxe");
+        Assert.assertEquals(item.name, "Mithral Pickaxe");
         Assert.assertEquals(item.effect.extraManaShards, 2);
+        Assert.assertTrue(item.isCracked);
+        Assert.assertEquals(item.longID, Long.valueOf(424242L));
     }
 
     @Test

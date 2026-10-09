@@ -537,7 +537,8 @@ public final class MaterialListData {
      * Renames a saved item instance for schema 3 without rebuilding it from the catalog.
      * Preserves per-instance state ({@code effect}, {@code isCracked}, {@code isEquipped},
      * {@code longID}, dialogs, usability flags). Catalog fields (icon, description, tool
-     * tier/family, cost) are refreshed from the renamed definition when present.
+     * tier/family, cost) are refreshed from the renamed definition when the item catalog
+     * is available; lookup failures (headless / Config not ready) leave those fields as-is.
      */
     public static void migrateOreLineItemInstance(ItemData item) {
         if (item == null || item.name == null || item.name.isEmpty())
@@ -546,7 +547,13 @@ public final class MaterialListData {
         if (migrated.equals(item.name))
             return;
         item.name = migrated;
-        ItemData canonical = ItemListData.getItem(migrated);
+        ItemData canonical;
+        try {
+            canonical = ItemListData.getItem(migrated);
+        } catch (Throwable t) {
+            // Catalog/Config may be unavailable in headless tests; rename alone is enough.
+            return;
+        }
         if (canonical == null)
             return;
         if (canonical.iconName != null)

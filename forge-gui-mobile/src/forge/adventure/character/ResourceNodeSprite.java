@@ -183,11 +183,11 @@ public class ResourceNodeSprite extends CharacterSprite {
 
     /**
      * Axis-aligned overlap of a node rect against a camera frustum (world units).
-     * Package-visible for headless tests of the on-screen particle gate.
+     * Public for headless tests of the on-screen particle gate.
      */
-    static boolean overlapsCamera(float ax, float ay, float aw, float ah,
-                                  float camX, float camY, float viewportW, float viewportH,
-                                  float zoom, float margin) {
+    public static boolean overlapsCamera(float ax, float ay, float aw, float ah,
+                                         float camX, float camY, float viewportW, float viewportH,
+                                         float zoom, float margin) {
         float z = zoom <= 0f ? 1f : zoom;
         float halfW = viewportW * z * 0.5f;
         float halfH = viewportH * z * 0.5f;
@@ -202,9 +202,9 @@ public class ResourceNodeSprite extends CharacterSprite {
 
     /**
      * Collision height fraction for a sprite region: tall (&gt;16px) nodes use the bottom tile only.
-     * Package-visible for headless tests.
+     * Public for headless tests.
      */
-    static float collisionHeightForRegion(float regionHeightPx) {
+    public static float collisionHeightForRegion(float regionHeightPx) {
         if (regionHeightPx > TALL_COLLISION_TILE_PX)
             return TALL_COLLISION_TILE_PX / regionHeightPx;
         return 1f;
