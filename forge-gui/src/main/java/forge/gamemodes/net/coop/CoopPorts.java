@@ -16,10 +16,13 @@ public final class CoopPorts {
      * CO2 (merged #18) is protocol 5; CO3 is 6.
      * MV1 {@code CoopPlaneSwitchEvent} = 7.
      * MV2 = 8: live world hash + host gate list + {@code mv2SetCode} on offer/switch.
-     * #40 mid-session gate sync = 9; #45 CO5 world-bound partners = 10.
-     * EN2 (#44): {@code CoopDuelResultEvent} carries host-authoritative lootRolls = 11.
+     * <p>
+     * Do not pre-assign numbers for in-flight PRs. At review time, merge current
+     * {@code feature/set-start} and set this to that branch's value + 1. EN2 (#44)
+     * adds host-authoritative {@code lootRolls} on {@code CoopDuelResultEvent}.
+     * Merge order after EN1 follow-up #46: #44 (this), then #40, #45, #42.
      */
-    public static final int PROTOCOL_VERSION = 11;
+    public static final int PROTOCOL_VERSION = 9;
 
     /** Length of the short session code shown by the host. */
     public static final int SESSION_CODE_LENGTH = 8;

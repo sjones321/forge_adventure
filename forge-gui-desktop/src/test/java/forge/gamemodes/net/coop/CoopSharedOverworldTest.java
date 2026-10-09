@@ -766,10 +766,9 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsExactlyElevenForEn2() {
-        // MV2=8; #40=9; #45 CO5=10; EN2 lootRolls on CoopDuelResultEvent=11.
-        // Exact equality only — soft lower-bounds hide collisions.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
+    public void protocolVersionIsExactlyNineForEn2() {
+        // EN2: feature/set-start (8) + 1 at review merge. Exact equality only.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
     }
 
     private static long[][] sampleBiome(final int n) {
