@@ -19,7 +19,7 @@ Magic, played by Forge's rules engine.
 | Network duels | Co-op overworld, controller-first UI |
 
 Stay on **libGDX / Java**: same language as the engine (no bridge), and one codebase for Windows, Mac, Linux and
-**Android**. Everything built in the Shandalar Ascendant packages carries over.
+**Android**. Everything built in the Bellwarden: Planes of Nothing packages carries over.
 
 ## Design pillars
 
@@ -117,7 +117,7 @@ against the enemy, using Forge's existing network duel code. Connection is direc
 ## Milestones
 
 1. **Co-op foundation**: session and connection (CO1), shared overworld (CO2), co-op duels (CO3).
-2. **Own identity**: name, launcher, app, separate from stock Forge. **Working title: Bellwarden: Planes of
+2. **Own identity**: name, launcher, app, separate from stock Forge. **Official name: Bellwarden: Planes of
    Nothing** (chosen 2026-10-08). Avoid "NeoForge" (Minecraft mod loader), "___ of Eternity" (Pillars of
    Eternity), and "Death Watch"/"Deathwatch" in the title (Star Wars / Warhammer 40K); the canon name is fine
    inside the game.
