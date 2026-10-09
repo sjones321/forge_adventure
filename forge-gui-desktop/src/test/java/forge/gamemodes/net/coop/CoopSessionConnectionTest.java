@@ -214,6 +214,18 @@ public class CoopSessionConnectionTest {
         Assert.assertTrue(reason.get().toLowerCase().contains("card"), reason.get());
     }
 
+    /**
+     * Protocol pin for the desktop coop suite. Old peers are refused by the real
+     * {@code CoopSession} host hello handler (see mobile
+     * {@code PlaneFormatTest.oldProtocolPeerIsRefusedViaRealOnHello}).
+     */
+    @Test
+    public void oldProtocolNumberIsBelowCurrent() {
+        // Package K=10 on tip; CO5 world-bound partners = 11.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
+        Assert.assertTrue(CoopPorts.PROTOCOL_VERSION - 1 >= 1);
+    }
+
     @Test
     public void wrongSessionCodeIsRejected() throws Exception {
         final CountDownLatch rejected = new CountDownLatch(1);

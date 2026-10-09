@@ -772,10 +772,10 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsExactlyTenForCo5() {
-        // feature/set-start tip after EN2 (#44) is 9; CO5 takes tip + 1.
+    public void protocolVersionIsExactlyElevenForCo5() {
+        // Package K planeFormat=10 on tip; CO5 world-bound partners = tip + 1.
         // Exact equality only — never >=.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
     }
 
     private static long[][] sampleBiome(final int n) {

@@ -1283,14 +1283,21 @@ public final class EnemyThemeDecks {
         return f.toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * Package K: EN1 reads the current plane's format through {@link forge.adventure.world.PlaneFormat}.
+     * Commander-mode runs resolve to Commander. Falls back to Bellwarden Standard when unset.
+     */
     private static String resolveFormat() {
         try {
-            AdventurePlayer p = Current.player();
-            if (p != null)
-                return normalizeFormat(p.getRunFormat());
+            return normalizeFormat(forge.adventure.world.PlaneFormat.resolveCurrent());
         } catch (Throwable ignored) {
         }
         return FORMAT_STANDARD;
+    }
+
+    /** Package K / tests: EN1 format resolver. */
+    public static String resolveFormatForTest() {
+        return resolveFormat();
     }
 
     private static Deck loadFixedOrRecipe(EnemyThemeData theme, String format) {

@@ -236,6 +236,8 @@ public class DeckSelectScene extends UIScene {
         Deck d = Current.player().getDeck(slot);
         if (Current.player().isCommanderDeck(d))
             return "[GOLD]Cmdr";
+        if (Current.player().isPauperDeck(d))
+            return "[GREEN]Paup";
         return Current.player().isHistoricDeck(d) ? "[CYAN]Hist" : "Std";
     }
 

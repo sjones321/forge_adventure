@@ -432,7 +432,7 @@ public final class GymUtil {
             return p.historicDeckProblem(d) == null;
         if (FORMAT_PAUPER.equals(format))
             return p.pauperDeckProblem(d) == null;
-        if (p.isCommanderDeck(d) || p.isHistoricDeck(d))
+        if (p.isCommanderDeck(d) || p.isHistoricDeck(d) || p.isPauperDeck(d))
             return false;
         return p.standardDeckProblem(d) == null;
     }
@@ -459,10 +459,11 @@ public final class GymUtil {
         final AdventurePlayer p = Current.player();
         final String format = p.getRunFormat();
         if (FORMAT_STANDARD.equals(format)
-                && (p.isCommanderDeckSelected() || p.isHistoricDeckSelected())) {
-            return "Select a Standard deck for this run (not Commander or Historic).";
+                && (p.isCommanderDeckSelected() || p.isHistoricDeckSelected() || p.isPauperDeckSelected())) {
+            return "Select a Standard deck for this plane (not Commander, Historic or Pauper).";
         }
-        return "Your selected deck must be legal for this run's format (" + format + ").";
+        return "Your selected deck must be legal for this plane's format ("
+                + forge.adventure.world.PlaneFormat.displayName(format) + ").";
     }
 
     /**

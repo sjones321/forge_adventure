@@ -12,6 +12,11 @@ public final class CoopWireLimits {
     public static final int MAX_PLAYER_NAME_LEN = 32;
     /** Reasons, details, display labels, material ids, etc. */
     public static final int MAX_TEXT_LEN = 200;
+    /**
+     * Package K: plane format tokens on offer / plane-switch
+     * ({@code Standard}/{@code Historic}/{@code Pauper}/{@code Commander}).
+     */
+    public static final int MAX_PLANE_FORMAT_LEN = 32;
     public static final int MAX_AVATAR_ID_LEN = 128;
     public static final int MAX_MATERIAL_ID_LEN = 64;
     public static final int MAX_ENEMY_DATA_ID_LEN = 64;
@@ -106,5 +111,21 @@ public final class CoopWireLimits {
             return null;
         }
         return text;
+    }
+
+    /**
+     * Package K: accept a plane-format token from the wire.
+     * Empty is allowed (guest applies default). Over-long → {@code null}
+     * (caller rejects gracefully). Does not validate known tokens — that is
+     * host/guest application logic.
+     */
+    public static String acceptPlaneFormat(final String format) {
+        if (format == null) {
+            return "";
+        }
+        if (format.length() > MAX_PLANE_FORMAT_LEN) {
+            return null;
+        }
+        return format.trim();
     }
 }

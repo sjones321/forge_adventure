@@ -483,4 +483,17 @@ public class ConfigData {
      */
     public int coopDuelPartnerLootRollsPerPlayer = 1;
 
+    // ---- Ascendant K: formats per plane ----
+
+    /**
+     * Default format for planes (and old saves) with none set. Canonical tokens:
+     * {@code Standard} (Bellwarden), {@code Historic}, {@code Pauper}, {@code Commander}.
+     */
+    public String kDefaultPlaneFormat = "Standard";
+    /**
+     * When true, ordinary overworld fights also require a deck legal in the plane's
+     * format. Default false — only gyms, League and tournaments enforce legality.
+     */
+    public boolean kStrictOverworldLegalDecks = false;
+
 }

@@ -3,6 +3,7 @@ package forge.adventure.character;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.*;
 import com.badlogic.gdx.utils.Array;
+import com.google.common.collect.ImmutableList;
 import forge.Forge;
 import forge.adventure.data.ConfigData;
 import forge.adventure.scene.TileMapScene;
@@ -11,10 +12,13 @@ import forge.adventure.stage.MapStage;
 import forge.adventure.util.Config;
 import forge.adventure.util.Current;
 import forge.adventure.util.Paths;
+import forge.adventure.world.PlaneFormat;
 import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.WorldSave;
+import forge.toolbox.FOptionPane;
 
 import java.util.HashMap;
+import java.util.List;
 
 /**
  * PortalActor
@@ -62,9 +66,9 @@ public class PortalActor extends EntryActor {
                 return;
             }
             if (Config.ascendant() && targetPlane != null && !targetPlane.isEmpty()) {
+                // Format dialog defers travel — no teleport FX until the dialog resolves.
                 if (travelToPlane(targetPlane)) {
-                    stage.getPlayerSprite().playEffect(Paths.EFFECT_TELEPORT, 0.5f);
-                    stage.startPause(1.5f);
+                    playPortalTravelEffect();
                 }
                 return;
             }
@@ -131,9 +135,25 @@ public class PortalActor extends EntryActor {
                 notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
                 return false;
             }
-            // Deferred MV2 gen: loading screen; World/GL work stays on the GL thread.
-            if (!save.getMultiverse().hasCompressedBlob(id)
-                    && !id.equals(save.getMultiverse().getCurrentPlaneId())) {
+            PlaneMeta targetMeta = save.getMultiverse().getMeta(id);
+            boolean firstOpen = !save.getMultiverse().hasCompressedBlob(id)
+                    && !id.equals(save.getMultiverse().getCurrentPlaneId());
+            // Package K: first open of a set plane asks for format (default = current plane).
+            // Return false so the collide path does not play the teleport FX yet.
+            if (firstOpen && targetMeta != null && PlaneFormat.raw(targetMeta).isEmpty()
+                    && !PlaneMeta.HOME_ID.equals(id)) {
+                final String planeIdFinal = id;
+                promptPlaneFormat(targetMeta, () -> {
+                    continueTravelAfterFormat(save, planeIdFinal, true);
+                    playPortalTravelEffect();
+                });
+                return false;
+            }
+            // Legacy / home: planes without a format get a sensible default (no dialog).
+            if (targetMeta != null && PlaneFormat.raw(targetMeta).isEmpty()) {
+                PlaneFormat.setPlaneFormat(targetMeta, PlaneFormat.resolveCurrent());
+            }
+            if (firstOpen) {
                 final String planeIdFinal = id;
                 try {
                     materializePlaneWithLoadingScreen(save, planeIdFinal,
@@ -149,6 +169,52 @@ public class PortalActor extends EntryActor {
             notifyPortal("Portal failed: " + (e.getMessage() != null ? e.getMessage() : "unknown error"));
             return false;
         }
+    }
+
+    private void continueTravelAfterFormat(WorldSave save, String planeId, boolean materialize) {
+        try {
+            if (materialize) {
+                materializePlaneWithLoadingScreen(save, planeId, () -> finishPortalTravel(planeId));
+            } else {
+                finishPortalTravel(planeId);
+            }
+        } catch (Exception e) {
+            notifyPortal("Could not create plane: "
+                    + (e.getMessage() != null ? e.getMessage() : "unknown error"));
+        }
+    }
+
+    /**
+     * Package K portal dialog: pick this plane's format (fixed once chosen).
+     * Default selection matches the plane you came from.
+     */
+    private void promptPlaneFormat(PlaneMeta targetMeta, Runnable onChosen) {
+        String from = PlaneFormat.resolveCurrent();
+        List<String> options = ImmutableList.copyOf(PlaneFormat.CHOICES);
+        int defaultIdx = 0;
+        for (int i = 0; i < PlaneFormat.CHOICES.length; i++) {
+            if (PlaneFormat.fromChoiceLabel(PlaneFormat.CHOICES[i]).equals(from)) {
+                defaultIdx = i;
+                break;
+            }
+        }
+        String dest = targetMeta.getDisplayName() != null ? targetMeta.getDisplayName() : targetMeta.getId();
+        String msg = "Choose the format for " + dest + ".\n"
+                + "Enemies, gyms and events on this plane will use it.\n"
+                + "Default: " + PlaneFormat.displayName(from) + " (this plane).";
+        FOptionPane.showOptionDialog(msg, "Plane format", FOptionPane.QUESTION_ICON,
+                options, defaultIdx, result -> {
+                    if (result == null || result < 0 || result >= PlaneFormat.CHOICES.length) {
+                        notifyPortal("Portal cancelled.");
+                        return;
+                    }
+                    String chosen = PlaneFormat.fromChoiceLabel(PlaneFormat.CHOICES[result]);
+                    PlaneFormat.setPlaneFormat(targetMeta, chosen);
+                    notifyPortal("Format: " + PlaneFormat.displayName(chosen));
+                    if (onChosen != null) {
+                        onChosen.run();
+                    }
+                });
     }
 
     /**
@@ -231,8 +297,25 @@ public class PortalActor extends EntryActor {
             return false;
         }
         // GameScene.enter() happens exactly once inside switchPlane.
-        notifyPortal("Planeswalked to " + arrivalDisplayName(save, id));
+        String fmt = "";
+        try {
+            PlaneMeta meta = save.getMultiverse() != null ? save.getMultiverse().getMeta(id) : null;
+            if (meta != null) {
+                fmt = " (" + PlaneFormat.displayName(PlaneFormat.resolve(meta)) + ")";
+            }
+        } catch (Exception ignored) {
+        }
+        notifyPortal("Planeswalked to " + arrivalDisplayName(save, id) + fmt);
         return true;
+    }
+
+    /** Teleport FX + pause used after a portal travel actually starts (not during format dialog). */
+    private void playPortalTravelEffect() {
+        if (stage == null || stage.getPlayerSprite() == null) {
+            return;
+        }
+        stage.getPlayerSprite().playEffect(Paths.EFFECT_TELEPORT, 0.5f);
+        stage.startPause(1.5f);
     }
 
     /** Prefer set display name (MV2) over raw plane id / meta label. */
