@@ -78,7 +78,7 @@ public class CoopSharedOverworldTest {
                 if (event instanceof CoopHelloEvent) {
                     server.markGuestAuthenticated();
                     server.send(new CoopWorldOfferEvent("Host", "Shandalar Ascendant", "plane",
-                            7L, worldHash, CoopPorts.GAME_PORT, port));
+                            7L, worldHash, CoopPorts.GAME_PORT, server.getLocalPort()));
                 } else if (event instanceof CoopSessionReadyEvent) {
                     ready.countDown();
                 } else if (event instanceof CoopPlayerMoveEvent) {
@@ -95,7 +95,7 @@ public class CoopSharedOverworldTest {
 
         final CountDownLatch guestReady = new CountDownLatch(1);
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
-            @Override public void onConnected() { client.send(hello(sessionCode)); }
+            @Override public void onConnected() { }
             @Override public void onMessage(final NetEvent event) {
                 if (event instanceof CoopWorldOfferEvent) {
                     final CoopWorldOfferEvent offer = (CoopWorldOfferEvent) event;
@@ -112,6 +112,7 @@ public class CoopSharedOverworldTest {
         });
         client.connect();
         Assert.assertTrue(client.awaitConnected(5000), "client connect");
+        client.send(hello(sessionCode));
         Assert.assertTrue(guestReady.await(10, TimeUnit.SECONDS), "guest did not get world offer");
         Assert.assertTrue(ready.await(10, TimeUnit.SECONDS), "host did not get session ready");
         Assert.assertTrue(gotMove.await(10, TimeUnit.SECONDS), "host did not get player move");

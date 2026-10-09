@@ -118,7 +118,6 @@ public class CoopSessionConnectionTest {
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
             public void onConnected() {
-                client.send(hello(sessionCode));
             }
 
             @Override
@@ -147,6 +146,7 @@ public class CoopSessionConnectionTest {
         });
         client.connect();
         Assert.assertTrue(client.awaitConnected(5000));
+        client.send(hello(sessionCode));
         Assert.assertTrue(guestReady.await(10, TimeUnit.SECONDS), "guest handshake timed out");
         Assert.assertTrue(ready.await(10, TimeUnit.SECONDS), "host ready timed out");
         Assert.assertNull(reject.get(), "unexpected reject: " + reject.get());
