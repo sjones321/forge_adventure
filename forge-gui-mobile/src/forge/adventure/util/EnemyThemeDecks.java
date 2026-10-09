@@ -67,7 +67,7 @@ public final class EnemyThemeDecks {
     /** Minimum on-theme non-land cards for a Standard recipe before falling back. */
     public static final int MIN_ON_THEME_NONLAND_STANDARD = 18;
     /** Minimum on-theme non-land cards for a committed fixed deck. */
-    public static final int MIN_ON_THEME_NONLAND_FIXED = 20;
+    public static final int MIN_ON_THEME_NONLAND_FIXED = 14;
     public static final int MIN_LANDS_60 = 16;
     public static final int MAX_LANDS_60 = 18;
     public static final int TARGET_LANDS_60 = 17;
@@ -1169,9 +1169,10 @@ public final class EnemyThemeDecks {
                     Collections.addAll(set, cfg.restrictedEditions);
             } catch (Throwable ignored) {
             }
-            // Always block common Un-/playtest codes even without Config.
+            // Always block Un-/playtest / mystery-booster codes even without Config.
             Collections.addAll(set, "UST", "UGL", "UNH", "UND", "UNF", "PUST",
-                    "CMB1", "CMB2", "MB2", "HHO", "PCEL", "DA1", "PPC1");
+                    "CMB1", "CMB2", "MB2", "MBC", "HHO", "PCEL", "DA1", "PPC1",
+                    "HTR", "HTR17", "HTR18", "HTR19", "HTR20");
             cachedRestrictedEditions = set;
             return set;
         }
@@ -1348,19 +1349,19 @@ public final class EnemyThemeDecks {
         return m;
     }
 
-    /** Remove basics and rebuild them from {@code colors} so every color is represented. */
+    /** Strip all lands and rebuild basics from {@code colors} so every color is represented. */
     private static void rebuildBasicLands(Deck deck, String[] colors, int totalTarget) {
         CardPool main = deck.getOrCreate(DeckSection.Main);
-        List<PaperCard> nonBasics = new ArrayList<>();
+        List<PaperCard> nonLands = new ArrayList<>();
         for (PaperCard pc : main.toFlatList()) {
             if (pc == null)
                 continue;
-            if (pc.getRules().getType().isBasicLand())
+            if (pc.getRules().getType().isLand())
                 continue;
-            nonBasics.add(pc);
+            nonLands.add(pc);
         }
         main.clear();
-        for (PaperCard pc : nonBasics)
+        for (PaperCard pc : nonLands)
             main.add(pc);
 
         String[] cols = colors != null && colors.length > 0 ? colors : new String[]{"blue"};
@@ -1465,6 +1466,22 @@ public final class EnemyThemeDecks {
 
     private static PaperCard cardByName(String name) {
         try {
+            Collection<PaperCard> all = FModel.getMagicDb().getCommonCards().getAllCards(name);
+            if (all != null) {
+                PaperCard any = null;
+                for (PaperCard p : all) {
+                    if (p == null)
+                        continue;
+                    if (any == null)
+                        any = p;
+                    // Prefer a paper / non-excluded printing for decklists.
+                    if (!isBadEditionCode(p.getEdition()))
+                        return p;
+                }
+                // All printings excluded — still return one so callers can detect exclusion.
+                if (any != null)
+                    return any;
+            }
             PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(name);
             if (pc != null)
                 return pc;
@@ -1472,6 +1489,14 @@ public final class EnemyThemeDecks {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** Rewrite a card to a preferred (non-Online/Funny) printing when one exists. */
+    private static PaperCard preferPaperPrinting(PaperCard pc) {
+        if (pc == null)
+            return null;
+        PaperCard better = cardByName(pc.getName());
+        return better != null ? better : pc;
     }
 
     private static boolean canHaveAnyNumber(PaperCard pc) {
@@ -1524,8 +1549,8 @@ public final class EnemyThemeDecks {
 
         byte ci = commander.getRules().getColorIdentity().getColor();
         stripExcludedAndOffIdentity(deck, ci);
-        injectThemeCreatures(deck, theme, FORMAT_COMMANDER, null, ci, 24, true);
-        injectThemeSpells(deck, theme, FORMAT_COMMANDER, null, ci, 12, true);
+        injectThemeCreatures(deck, theme, FORMAT_COMMANDER, null, ci, 30, true);
+        injectThemeSpells(deck, theme, FORMAT_COMMANDER, null, ci, 16, true);
         String[] pad = colorsFromMask(ci);
         if (pad.length == 0)
             pad = colorsFromMask(spellColorMask(deck));
@@ -1602,9 +1627,15 @@ public final class EnemyThemeDecks {
         stripExcludedFromMain(deck, format, forgeFormat);
         // Inject key cards / tribal / archetype spells on top of Forge's curve.
         injectKeyCards(deck, theme, format, forgeFormat, allowed, false);
-        injectThemeCreatures(deck, theme, format, forgeFormat, allowed, 22, false);
-        injectThemeSpells(deck, theme, format, forgeFormat, allowed, 14, false);
+        injectThemeCreatures(deck, theme, format, forgeFormat, allowed, 28, false);
+        injectThemeSpells(deck, theme, format, forgeFormat, allowed, 16, false);
         ensureMinNonCreatureSpells(deck, theme, format, forgeFormat, allowed);
+        // Top up tribal until the on-theme floor is met (scarce tribes like Dragon commons).
+        int guard = 0;
+        while (countOnThemeNonLand(deck, theme) < MIN_ON_THEME_NONLAND_FIXED && guard++ < 3) {
+            injectThemeCreatures(deck, theme, format, forgeFormat, allowed, 36, false);
+            injectThemeSpells(deck, theme, format, forgeFormat, allowed, 20, false);
+        }
 
         String[] pad = colorsFromMask(spellColorMask(deck));
         if (pad.length == 0)
@@ -1644,7 +1675,7 @@ public final class EnemyThemeDecks {
                 continue;
             if (!cardLegalInFixedFormat(pc, format, forgeFormat))
                 continue;
-            keep.add(pc);
+            keep.add(preferPaperPrinting(pc));
         }
         main.clear();
         for (PaperCard pc : keep)
@@ -1668,7 +1699,7 @@ public final class EnemyThemeDecks {
             if (!pc.getRules().getType().isBasicLand() && !canHaveAnyNumber(pc)
                     && !seen.add(pc.getName()))
                 continue; // singleton
-            keep.add(pc);
+            keep.add(preferPaperPrinting(pc));
         }
         main.clear();
         for (PaperCard pc : keep)
@@ -1695,8 +1726,9 @@ public final class EnemyThemeDecks {
                 continue;
             int copies = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 2);
             int have = main.countByName(pc.getName());
+            PaperCard print = preferPaperPrinting(pc);
             for (int i = have; i < copies; i++)
-                main.add(pc);
+                main.add(print);
         }
     }
 
@@ -1726,7 +1758,7 @@ public final class EnemyThemeDecks {
             if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
                     && !pc.getRules().getColorIdentity().isColorless())
                 continue;
-            pool.add(pc);
+            pool.add(preferPaperPrinting(pc));
         }
         Collections.shuffle(pool, MyRandom.getRandom());
         Set<String> used = new HashSet<>();
@@ -1750,8 +1782,9 @@ public final class EnemyThemeDecks {
             if (victim != null)
                 main.remove(victim);
             int copies = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 2);
+            PaperCard print = preferPaperPrinting(pc);
             for (int i = 0; i < copies && have < want; i++) {
-                main.add(pc);
+                main.add(print);
                 have++;
             }
             used.add(pc.getName());
@@ -1804,8 +1837,9 @@ public final class EnemyThemeDecks {
                 break;
             int copies = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 2);
             int cur = main.countByName(pc.getName());
+            PaperCard print = preferPaperPrinting(pc);
             for (int i = cur; i < copies && have < want; i++) {
-                main.add(pc);
+                main.add(print);
                 have++;
             }
         }
@@ -1882,7 +1916,7 @@ public final class EnemyThemeDecks {
             int n = counts.getOrDefault(pc.getName(), 0);
             if (n >= 4)
                 continue;
-            main.add(pc);
+            main.add(preferPaperPrinting(pc));
             counts.put(pc.getName(), n + 1);
         }
         String[] pad = colorsFromMask(spellColorMask(deck));

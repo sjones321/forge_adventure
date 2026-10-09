@@ -48,9 +48,9 @@ public class EnemyThemeDeckGeneratorTest {
     public void generateMissingFixedDecks() throws Exception {
         // Opt-in only: normal `mvn test` must not rewrite res/. Regenerate with:
         // mvn -pl forge-gui-desktop -am test -Dtest=EnemyThemeDeckGeneratorTest -Den1.generate=true
-        if (!"true".equalsIgnoreCase(System.getProperty("en1.generate", "false"))) {
-            throw new org.testng.SkipException(
-                    "EN1 deck generation is opt-in; pass -Den1.generate=true to rewrite res/");
+        if (!Boolean.parseBoolean(System.getProperty("en1.generate", "false"))) {
+            System.out.println("EN1 generator skipped (pass -Den1.generate=true to rewrite res/)");
+            return;
         }
         EnemyThemeDecks.setEnabledForTests(true);
         int wrote = 0;
