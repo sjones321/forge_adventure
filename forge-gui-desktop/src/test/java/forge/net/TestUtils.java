@@ -5,9 +5,14 @@ import forge.util.IHasForgeLog;
 import forge.gamemodes.net.NetworkChecksumUtil;
 import forge.gamemodes.net.server.RemoteClientGuiGame;
 import forge.gui.GuiBase;
+import forge.localinstance.properties.ForgeConstants;
 import forge.localinstance.properties.ForgeNetPreferences;
 import forge.localinstance.properties.ForgePreferences.FPref;
+import forge.localinstance.properties.ForgeProfileProperties;
 import forge.model.FModel;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * Bootstrap and shared utilities for network test infrastructure.
@@ -34,6 +39,31 @@ public final class TestUtils {
     }
 
     /**
+     * Surefire must set {@code forge.test.userDir} before this runs — otherwise
+     * {@link FModel#initialize} → {@code ExceptionHandler.pruneForgeLogs} can delete
+     * archives under the real user profile.
+     */
+    private static void requireTestUserDirBound() {
+        final String prop = System.getProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
+        if (prop == null || prop.isBlank()) {
+            throw new IllegalStateException(
+                    ForgeProfileProperties.TEST_USER_DIR_PROPERTY
+                            + " must be set by Surefire before TestUtils.ensureFModelInitialized() "
+                            + "(expected ${project.build.directory}/test-user-home)");
+        }
+        final Path expected = Paths.get(prop).toAbsolutePath().normalize();
+        // Touching ForgeConstants here binds USER_DIR under the property (GuiBase is set).
+        final Path user = Paths.get(ForgeConstants.USER_DIR).toAbsolutePath().normalize();
+        final Path logFile = Paths.get(ForgeConstants.LOG_FILE).toAbsolutePath().normalize();
+        if (!user.startsWith(expected) || !logFile.startsWith(expected)) {
+            throw new IllegalStateException(
+                    "ForgeConstants bound outside test user dir: USER_DIR=" + user
+                            + " LOG_FILE=" + logFile + " expected under " + expected
+                            + " (ForgeConstants likely loaded before Surefire set the property)");
+        }
+    }
+
+    /**
      * Ensure FModel is initialized with HeadlessGuiDesktop for testing.
      * Thread-safe. Always ensures HeadlessGuiDesktop is active, even if another
      * test class set a different GuiBase interface (e.g. GuiDesktop).
@@ -42,6 +72,8 @@ public final class TestUtils {
         if (!(GuiBase.getInterface() instanceof HeadlessGuiDesktop)) {
             GuiBase.setInterface(new HeadlessGuiDesktop());
         }
+        // Bind / verify isolation BEFORE FModel.initialize → pruneForgeLogs.
+        requireTestUserDirBound();
         if (StaticData.instance() == null) {
             FModel.initialize(null, preferences -> {
                 preferences.setPref(FPref.LOAD_CARD_SCRIPTS_LAZILY, false);
