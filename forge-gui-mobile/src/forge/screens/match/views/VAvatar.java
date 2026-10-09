@@ -113,10 +113,20 @@ public class VAvatar extends FDisplayObject {
     }
 
     public Vector2 getTargetingArrowOrigin() {
-        Vector2 origin = new Vector2(this.screenPos.x, this.screenPos.y);
-        origin.x += getWidth()-getWidth()/8f;
-        origin.y += getWidth()-getWidth()/8f;
+        final Vector2 origin = new Vector2();
+        copyTargetingArrowOrigin(origin);
         return origin;
+    }
+
+    /** Fill {@code out} without allocating — used by modern duel overlay each frame. */
+    public boolean copyTargetingArrowOrigin(final Vector2 out) {
+        if (out == null) {
+            return false;
+        }
+        out.set(this.screenPos.x, this.screenPos.y);
+        out.x += getWidth() - getWidth() / 8f;
+        out.y += getWidth() - getWidth() / 8f;
+        return true;
     }
 
     @Override

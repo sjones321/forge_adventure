@@ -16,6 +16,8 @@ public class Paths {
     public static final String RECIPES = "world/recipes.json";
     public static final String GATHERING_METHODS = "world/gathering_methods.json";
     public static final String SKILL_TREES = "world/skill_trees.json";
+    /** FT1 fortress structure catalog. */
+    public static final String STRUCTURES_FORTRESS = "world/structures_fortress.json";
     public static final String GYMS = "world/gyms.json";
     public static final String QUESTS = "world/quests.json";
     public static final String SKIN = "skin/ui_skin.json";
@@ -43,6 +45,16 @@ public class Paths {
     public static final String EFFECT_TELEPORT = "particle_effects/teleport.p";
     public static final String EFFECT_BLOOD = "particle_effects/blood.p";
     public static final String EFFECT_SPARKS = "particle_effects/sparks.p";
+    /** Ascendant ash-vent ambient (Particle Park Smoke, relative images, low emission). */
+    public static final String EFFECT_ASH_VENT_SMOKE = "particle_effects/ash_vent_smoke.p";
+    /** Ascendant ash-vent embers (Particle Park Flame Pixel, scaled small). */
+    public static final String EFFECT_ASH_VENT_EMBERS = "particle_effects/ash_vent_embers.p";
+    /** Ascendant water-node sparkle (Particle Park Starlight, occasional). */
+    public static final String EFFECT_WATER_SPARKLE = "particle_effects/water_sparkle.p";
+    /** Gathering node art sheet (Steve's ore row = atlas regions ore_iron…ore_rune). */
+    public static final String RESOURCE_NODES_ATLAS = "maps/tileset/resource_nodes.atlas";
+    /** Two-tile-tall tree nodes (tiers 1–4); collision uses the bottom tile only. */
+    public static final String RESOURCE_NODES_TALL_ATLAS = "maps/tileset/resource_nodes_tall.atlas";
     public static final String CARD_PRICES = "world/cardprices.txt";
     public static final String CUSTOM_CARDS = "custom_cards";
     public static final String CUSTOM_CARDS_PICS = "custom_card_pics";

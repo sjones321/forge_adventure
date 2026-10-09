@@ -46,6 +46,13 @@ public class MaterialData implements Serializable {
     public int sellPrice = 5;
     /** Spellsmithing refine-to-dust mapping; null if not refinable. */
     public DustRefine dustRefine;
+    /**
+     * Optional Ascendant overworld node art (TextureAtlas path relative to adventure root).
+     * When set with {@link #nodeRegion}, {@code ResourceNodeSprite} draws that region instead of the tinted treasure sprite.
+     */
+    public String nodeAtlas = "";
+    /** Region name inside {@link #nodeAtlas}. */
+    public String nodeRegion = "";
 
     public static class DustRefine implements Serializable {
         @Serial

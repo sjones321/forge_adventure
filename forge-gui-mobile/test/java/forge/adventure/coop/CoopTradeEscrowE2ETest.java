@@ -12,6 +12,7 @@ import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.AdventureModes;
 import forge.adventure.util.Config;
 import forge.adventure.util.SaveFileData;
+import forge.adventure.world.WorldSave;
 import forge.gui.GuiBase;
 import forge.gui.interfaces.IGuiBase;
 import forge.gamemodes.net.WireClassFilter;
@@ -44,14 +45,12 @@ import forge.gamemodes.match.HostedMatch;
 import forge.gui.download.GuiDownloadService;
 import forge.item.PaperCard;
 import forge.localinstance.properties.ForgeConstants;
-import forge.localinstance.properties.ForgeProfileProperties;
 import forge.localinstance.skin.FSkinProp;
 import forge.localinstance.skin.ISkinImage;
 import forge.sound.IAudioClip;
 import forge.sound.IAudioMusic;
 import forge.util.FSerializableFunction;
 import forge.util.ImageFetcher;
-import org.apache.commons.lang3.StringUtils;
 import org.jupnp.UpnpServiceConfiguration;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
@@ -70,7 +69,6 @@ import java.lang.reflect.Field;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayDeque;
 import java.util.Collection;
@@ -80,6 +78,7 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.zip.DeflaterOutputStream;
@@ -92,70 +91,51 @@ import java.util.zip.InflaterInputStream;
  * {@code restoreFromLog} — only {@code recoverPendingFromLog} after loading the
  * durable blob.
  *
- * <p>User-dir isolation matches CO1 (#38): {@code forge.test.userDir} (surefire
- * {@code systemPropertyVariables} and/or {@link AdventureTestUserDir}) so
- * {@link ForgeProfileProperties#load} never points {@code USER_ADVENTURE_DIR}
- * at the real profile. After the class, assert the real OS user dir snapshot
- * (existence / size / mtime) is unchanged.
+ * <p>User-dir isolation matches CO1 (#38): Surefire {@code forge.test.userDir}
+ * ({@code test-user-home}) + {@link AdventureTestBootstrapListener} /
+ * {@link AdventureTestUserDir} so {@code USER_ADVENTURE_DIR} never points at the
+ * real profile. Guest rejoin uses production
+ * {@link CoopSession#applyGuestJoinSaveModel()} /
+ * {@link CoopSession#applyGuestLeaveSaveModel(boolean)}.
  */
 public class CoopTradeEscrowE2ETest {
 
     private static final String ITEM_A = "Chandra's Stone";
     private static final String ITEM_B = "Liliana's Stone";
 
-    private static Path tempUserDir;
     private static Path realUserDir;
     private static Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
-    private static boolean installedOwnTempUserDir;
 
     private File tempChars;
     private DualNet dual;
 
     @BeforeClass
     public void installHeadlessGui() throws Exception {
-        // Snapshot the real OS user dir BEFORE ForgeConstants / profile load can touch it.
+        // Surefire sets forge.test.userDir before any class loads ForgeConstants.
+        AdventureTestUserDir.configuredTestUserDir();
         realUserDir = AdventureTestUserDir.defaultRealUserDir();
         realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
-
-        // Surefire sets forge.test.userDir suite-wide; IDE runs install a temp here.
-        final String existing = System.getProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
-        if (StringUtils.isBlank(existing)) {
-            tempUserDir = AdventureTestUserDir.installTempUserDir();
-            installedOwnTempUserDir = true;
-        } else {
-            tempUserDir = Paths.get(existing).toAbsolutePath().normalize();
-            Files.createDirectories(tempUserDir);
-            installedOwnTempUserDir = false;
-        }
 
         if (GuiBase.getInterface() == null) {
             GuiBase.setInterface(new HeadlessAssetsGui());
         }
         SoundSystem.instance.setIgnorePlayRequests(true);
-        // First ForgeConstants touch resolves USER_* from forge.test.userDir.
         final String langDir = GuiBase.getInterface().getAssetsDir() + "res/languages";
         forge.util.Localizer.getInstance().initialize("en-US", langDir);
-        AdventureTestUserDir.assertConstantsUse(tempUserDir);
+        AdventureTestUserDir.requireIsolatedUserDir();
         writeAscendantSettingsUnderIsolatedUserDir();
         CoopVersion.setCardDataHashSupplier(() -> CoopVersion.sha256Hex("tr1-test-cards"));
     }
 
     @AfterClass(alwaysRun = true)
     public void assertRealUserDirUntouchedAndCleanup() throws Exception {
-        try {
-            AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
-                    "CoopTradeEscrowE2ETest");
-        } finally {
-            if (installedOwnTempUserDir) {
-                AdventureTestUserDir.clearTempUserDirProperty();
-                deleteTree(tempUserDir != null ? tempUserDir.toFile() : null);
-            }
-        }
+        AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
+                "CoopTradeEscrowE2ETest");
     }
 
     @BeforeMethod
     public void setUp() throws Exception {
-        AdventureTestUserDir.assertConstantsUse(tempUserDir);
+        AdventureTestUserDir.requireIsolatedUserDir();
         SoundSystem.instance.setIgnorePlayRequests(true);
         final ConfigData cfg = Config.instance().getConfigData();
         cfg.ascendantRules = true;
@@ -164,19 +144,20 @@ public class CoopTradeEscrowE2ETest {
         Assert.assertNotNull(ItemListData.getItem(ITEM_B), "items.json must resolve " + ITEM_B);
 
         tempChars = Files.createTempDirectory("tr1-chars").toFile();
-        CoopCharacterStore.setCharactersDirOverride(tempChars);
+        CoopCharacterStore.setCharactersDirOverrideForTests(tempChars);
         dual = DualNet.start(tempChars);
     }
 
     @AfterMethod(alwaysRun = true)
-    public void tearDown() {
+    public void tearDown() throws Exception {
         if (dual != null) {
             dual.close();
             dual = null;
         }
-        CoopCharacterStore.setCharactersDirOverride(null);
+        CoopCharacterStore.setCharactersDirOverrideForTests(null);
         CoopTradeRuntime.setGlPoster(null);
         CoopTradeGlOps.setSaveOverride(null);
+        resetGuestSessionFields();
         if (tempChars != null) {
             deleteTree(tempChars);
         }
@@ -695,13 +676,35 @@ public class CoopTradeEscrowE2ETest {
             hostRt.getState().recoverPendingFromLog();
         }
 
+        /**
+         * Guest crash/rejoin via CO1 production join/leave: leave persists the
+         * co-op {@code .chr}, restore solo, rejoin loads {@code .chr} (not a
+         * solo re-export). Then recoverPendingFromLog — never restoreFromLog.
+         */
         void crashReloadGuest() throws Exception {
             final String name = guestPlayer.get().getName();
+            final CoopSession session = CoopSession.get();
+            final AdventurePlayer worldPlayer = WorldSave.getCurrentSave().getPlayer();
+            final SaveFileData escrowed = guestPlayer.get().save();
+            // Solo identity for leave restore + rejoin seed name (same character).
+            final SaveFileData soloBaseline = player(name, 80).save();
+
+            worldPlayer.load(escrowed);
+            setSessionField(session, "guestCharacterName", name);
+            setSessionField(session, "guestPlayerBackup", soloBaseline);
+            setSessionField(session, "guestWorldBackup", null);
+            setSessionField(session, "guestMultiverseBackup", null);
+            ((AtomicBoolean) getSessionField(session, "guestRestoreDone")).set(false);
+
+            session.applyGuestLeaveSaveModel(true);
             final File chr = CoopCharacterStore.characterFile(name);
-            Assert.assertTrue(chr.isFile(), "guest .chr missing at " + chr.getAbsolutePath());
+            Assert.assertTrue(chr.isFile(), "guest .chr missing after leave at " + chr.getAbsolutePath());
+
+            // Rejoin loads durable .chr into WorldSave player (CO1 loadOrSeedForJoin).
+            session.applyGuestJoinSaveModel();
+
             final AdventurePlayer fresh = new AdventurePlayer();
-            Assert.assertTrue(CoopCharacterStore.loadPlayer(fresh, name),
-                    "loadPlayer failed for " + name);
+            fresh.load(worldPlayer.save());
             guestPlayer.set(fresh);
             guestRt.getTradeLog().clear();
             CoopTradeGlOps.loadLogFromPlayer(fresh, guestRt.getTradeLog());
@@ -1180,10 +1183,8 @@ public class CoopTradeEscrowE2ETest {
     }
 
     /**
-     * Guest crash/rejoin loads the co-op {@code .chr} (trade log + bags).
-     * CO1 C2 (restoreGuestSave wipe) is not merged — this test assumes {@code .chr}
-     * persists via {@link CoopCharacterStore} without that wipe; full rejoin waits
-     * for the CO1 fix PR.
+     * Guest leave/rejoin through CO1 {@link CoopSession} save-model: escrowed bags
+     * and trade log survive in the co-op {@code .chr}; host bags stay exact too.
      */
     @Test
     public void guestRejoinLoadsChr() throws Exception {
@@ -1193,15 +1194,43 @@ public class CoopTradeEscrowE2ETest {
         dual.drainAll();
         dual.confirmEscrowBothFreeze();
         final long id = dual.guestRt.getState().getTradeId();
+        Assert.assertTrue(dual.hostRt.getTradeLog().hasEscrowed(id));
         Assert.assertTrue(dual.guestRt.getTradeLog().hasEscrowed(id));
+        // After both escrow, each side holds own goods in escrow (oak/iron removed).
+        assertBag(dual.hostPlayer.get(), 100, 4, 0, 2, 0);
         assertBag(dual.guestPlayer.get(), 80, 0, 3, 0, 1);
 
         dual.crashReloadGuest();
         Assert.assertEquals(dual.guestRt.getState().getLocalRole(), CoopTradeRole.GUEST);
         Assert.assertEquals(dual.guestRt.getState().getTradeId(), id);
         Assert.assertEquals(dual.guestRt.getState().getStatus(), CoopTradeState.Status.NEEDS_RECONCILE);
-        assertBag(dual.guestPlayer.get(), 80, 0, 3, 0, 1);
         Assert.assertEquals(dual.guestRt.getTradeLog().get(id).phase, CoopTradeLog.Phase.ESCROWED);
+        assertBag(dual.hostPlayer.get(), 100, 4, 0, 2, 0);
+        assertBag(dual.guestPlayer.get(), 80, 0, 3, 0, 1);
+    }
+
+    private static void resetGuestSessionFields() throws Exception {
+        final CoopSession session = CoopSession.get();
+        setSessionField(session, "role", CoopSessionRole.NONE);
+        setSessionField(session, "state", CoopSession.State.IDLE);
+        setSessionField(session, "guestWorldBackup", null);
+        setSessionField(session, "guestPlayerBackup", null);
+        setSessionField(session, "guestMultiverseBackup", null);
+        setSessionField(session, "guestCharacterName", null);
+        ((AtomicBoolean) getSessionField(session, "guestRestoreDone")).set(false);
+    }
+
+    private static void setSessionField(final CoopSession session, final String name, final Object value)
+            throws Exception {
+        final Field f = CoopSession.class.getDeclaredField(name);
+        f.setAccessible(true);
+        f.set(session, value);
+    }
+
+    private static Object getSessionField(final CoopSession session, final String name) throws Exception {
+        final Field f = CoopSession.class.getDeclaredField(name);
+        f.setAccessible(true);
+        return f.get(session);
     }
 
     /** Minimal GuiBase so ForgeConstants can resolve ASSETS_DIR in headless tests. */

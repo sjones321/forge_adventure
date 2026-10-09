@@ -707,6 +707,35 @@ public class ConsoleCommandInterpreter {
             
             return "Exit the map to reset it.";
         });
+        // FT1 fortresses — plant banner / build mode (Ascendant only).
+        registerCommand(new String[]{"fortress", "plant"}, s -> {
+            if (!Config.ascendant())
+                return "Fortresses are Ascendant-only";
+            if (MapStage.getInstance().isInMap())
+                return "Plant the banner on the overworld, not inside a map.";
+            return forge.adventure.fortress.FortressService.get().plantBanner();
+        });
+        registerCommand(new String[]{"fortress", "build"}, s -> {
+            if (!Config.ascendant())
+                return "Fortresses are Ascendant-only";
+            if (!forge.adventure.fortress.FortressService.isInsideFortressMap())
+                return "Build mode only works inside your fortress.";
+            MapStage.getInstance().setFortressBuildMode(true);
+            if (!MapStage.getInstance().isFortressBuildMode())
+                return forge.adventure.fortress.FortressService.get().openBuildMode();
+            return "Build mode — arrows move, R rotate, Enter place, Del demolish, Esc exit.";
+        });
+        registerCommand(new String[]{"fortress", "status"}, s -> {
+            if (!Config.ascendant())
+                return "Fortresses are Ascendant-only";
+            forge.adventure.fortress.FortressInstance inst =
+                    forge.adventure.fortress.FortressService.get().getCurrent();
+            if (inst == null || !inst.isClaimed())
+                return "No fortress on this plane.";
+            return "Fortress on plane " + inst.getPlaneId()
+                    + " at (" + (int) inst.getWorldX() + "," + (int) inst.getWorldY() + ")"
+                    + " structures=" + inst.getStructures().size();
+        });
         // MV1 multi-plane — list / create / switch (Ascendant only).
         registerCommand(new String[]{"plane", "list"}, s -> {
             if (!Config.ascendant())

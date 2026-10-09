@@ -26,25 +26,16 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>
-                        -Xmx2g
-                        --add-opens java.base/java.lang=ALL-UNNAMED
-                        --add-opens java.base/java.time=ALL-UNNAMED
-                        --add-opens java.base/java.text=ALL-UNNAMED
-                        --add-opens java.base/java.util=ALL-UNNAMED
-                        --add-opens java.base/java.util.regex=ALL-UNNAMED
-                        --add-opens java.base/java.util.stream=ALL-UNNAMED
-                        --add-opens java.base/java.lang.reflect=ALL-UNNAMED
-                        --add-opens java.desktop/javax.imageio.spi=ALL-UNNAMED
-                    </argLine>
-                    <!-- CO1 (#38) shared isolation: forge.test.userDir is read in
-                         ForgeProfileProperties.load() before USER_* resolve, so the
-                         suite never writes Steve's real settings.json / saves /
-                         characters. Same property + AdventureTestUserDir as #38. -->
+                    <!-- Suite-wide: set before any test class loads ForgeConstants. -->
                     <systemPropertyVariables>
-                        <forge.test.userDir>${project.build.directory}/forge-test-user</forge.test.userDir>
-                        <forge.test.cacheDir>${project.build.directory}/forge-test-user/cache</forge.test.cacheDir>
+                        <forge.test.userDir>${project.build.directory}/test-user-home</forge.test.userDir>
                     </systemPropertyVariables>
+                    <properties>
+                        <property>
+                            <name>listener</name>
+                            <value>forge.adventure.AdventureTestBootstrapListener</value>
+                        </property>
+                    </properties>
                 </configuration>
             </plugin>
         </plugins>

@@ -15,7 +15,7 @@ import java.io.Serializable;
  *   "station": "forge",
  *   "result": "Bronze Sword",
  *   "resultType": "item",
- *   "materials": { "copper": 3, "rough_stone": 1 },
+ *   "materials": { "ore_iron": 3, "limestone": 1 },
  *   "gold": 25,
  *   "skill": "Smithing",
  *   "levelRequired": 1,

@@ -7,6 +7,7 @@ import forge.game.zone.ZoneType;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.trackable.Tracker;
 import org.testng.Assert;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 /**
@@ -14,6 +15,11 @@ import org.testng.annotations.Test;
  * pickup rules, combat drag guards, gesture policy, and pad helpers.
  */
 public class ModernDuelScreenTest {
+
+    @BeforeMethod
+    public void resetModernController() {
+        ModernDuelController.get().reset();
+    }
 
     @Test
     public void autoOnOnlyForAdventureAscendantDuel() {
@@ -134,13 +140,136 @@ public class ModernDuelScreenTest {
     public void touchIgnoresStalePadFocus() {
         ModernDuelController.get().reset();
         Assert.assertFalse(ModernDuelController.get().isTouchInputActive());
+        Assert.assertFalse(ModernDuelController.get().isPadInputSeen());
+        // No amber arrow at match start before any pad input.
+        Assert.assertFalse(ModernDuelController.get().shouldDrawPadFocusArrow());
+        Assert.assertFalse(ModernDuelGestures.shouldDrawPadFocusArrow(false, false));
+        ModernDuelController.get().markPadInput();
+        Assert.assertTrue(ModernDuelController.get().isPadInputSeen());
         Assert.assertTrue(ModernDuelController.get().shouldDrawPadFocusArrow());
         ModernDuelController.get().markTouchInput();
         Assert.assertTrue(ModernDuelController.get().isTouchInputActive());
         Assert.assertFalse(ModernDuelController.get().shouldDrawPadFocusArrow());
-        Assert.assertFalse(ModernDuelGestures.shouldDrawPadFocusArrow(true));
+        Assert.assertFalse(ModernDuelGestures.shouldDrawPadFocusArrow(true, true));
         ModernDuelController.get().reset();
-        Assert.assertTrue(ModernDuelController.get().shouldDrawPadFocusArrow());
+        Assert.assertFalse(ModernDuelController.get().isPadInputSeen());
+        Assert.assertFalse(ModernDuelController.get().shouldDrawPadFocusArrow());
+    }
+
+    @Test
+    public void noAmberArrowAtMatchStartBeforeInput() {
+        ModernDuelController.get().reset();
+        Assert.assertFalse(ModernDuelGestures.shouldDrawPadFocusArrow(false, false));
+        Assert.assertFalse(ModernDuelController.get().shouldDrawPadFocusArrow());
+        Assert.assertNull(ModernDuelController.get().getHeldCard());
+    }
+
+    @Test
+    public void handZoomOnDoubleTap() {
+        Assert.assertTrue(ModernDuelGestures.shouldZoomOnDoubleTap(true, 2));
+        Assert.assertTrue(ModernDuelGestures.shouldZoomOnDoubleTap(true, 3));
+        Assert.assertFalse(ModernDuelGestures.shouldZoomOnDoubleTap(true, 1));
+        Assert.assertFalse(ModernDuelGestures.shouldZoomOnDoubleTap(false, 2));
+    }
+
+    @Test
+    public void firstTapOfDoubleTapIsDeferredNotActed() {
+        // Modern first tap is deferred; second tap cancels it and zooms instead.
+        Assert.assertTrue(ModernDuelGestures.shouldDeferSingleTap(true, 1));
+        Assert.assertFalse(ModernDuelGestures.shouldDeferSingleTap(true, 2));
+        Assert.assertFalse(ModernDuelGestures.shouldDeferSingleTap(false, 1),
+                "stock must act on first tap immediately");
+        Assert.assertTrue(ModernDuelGestures.shouldCancelDeferredSingleTap(true, 2));
+        Assert.assertTrue(ModernDuelGestures.shouldCancelDeferredSingleTap(true, 3));
+        Assert.assertFalse(ModernDuelGestures.shouldCancelDeferredSingleTap(true, 1));
+        Assert.assertFalse(ModernDuelGestures.shouldCancelDeferredSingleTap(false, 2));
+        Assert.assertEquals(ModernDuelGestures.DOUBLE_TAP_WINDOW_SEC, 0.25f, 0.0001f);
+    }
+
+    @Test
+    public void handHeldSecondARestoresControllerReorder() {
+        // Different hand card → reorder (restores controller path broken by one-press cast).
+        Assert.assertEquals(
+                ModernDuelActions.handHeldSecondA(true, true, false, false),
+                ModernDuelActions.HandHeldSecondA.REORDER);
+        // Same hand card again → confirm cast.
+        Assert.assertEquals(
+                ModernDuelActions.handHeldSecondA(true, true, true, false),
+                ModernDuelActions.HandHeldSecondA.CAST);
+        // Aim at board / non-hand → cast.
+        Assert.assertEquals(
+                ModernDuelActions.handHeldSecondA(true, false, false, false),
+                ModernDuelActions.HandHeldSecondA.CAST);
+        // Missing focus → cancel.
+        Assert.assertEquals(
+                ModernDuelActions.handHeldSecondA(true, false, false, true),
+                ModernDuelActions.HandHeldSecondA.CANCEL);
+        // Battlefield hold still aims/casts on second A (not reorder).
+        Assert.assertEquals(
+                ModernDuelActions.handHeldSecondA(false, false, false, false),
+                ModernDuelActions.HandHeldSecondA.CAST);
+    }
+
+    @Test
+    public void isHandCastableFromViewsNeverNeedsGameController() {
+        // Wrong zone / null → false without touching IGameController.
+        Assert.assertFalse(ModernDuelActions.isHandCastableFromViews(null, null));
+        Assert.assertFalse(ModernDuelActions.isHandCastableFromViews(
+                zoneCard(ZoneType.Battlefield, 9), null));
+        // Fresh hand CardView has no land type / mana cost → not castable (still no network).
+        Assert.assertFalse(ModernDuelActions.isHandCastableFromViews(
+                zoneCard(ZoneType.Hand, 10), null));
+        // Heuristic pieces used by the view path.
+        Assert.assertTrue(ModernDuelActions.estimateSpellCastable(0, 0));
+        Assert.assertTrue(ModernDuelActions.estimateSpellCastable(2, 3));
+        Assert.assertFalse(ModernDuelActions.estimateSpellCastable(3, 2));
+        Assert.assertFalse(ModernDuelActions.canPlayLandFromViews(null));
+        // Fresh PlayerView defaults MaxLandPlay=0 until the engine updates the view.
+        final PlayerView p = new PlayerView(50, new Tracker());
+        Assert.assertFalse(ModernDuelActions.canPlayLandFromViews(p));
+    }
+
+    @Test
+    public void castabilityCountsUntappedLandsAsManaSources() {
+        // Pool alone is not enough for CMC 3 when pool=1; +2 untapped lands → castable.
+        Assert.assertEquals(ModernDuelActions.availableManaEstimate(1, 2), 3);
+        Assert.assertTrue(ModernDuelActions.estimateSpellCastable(
+                3, ModernDuelActions.availableManaEstimate(1, 2)));
+        Assert.assertFalse(ModernDuelActions.estimateSpellCastable(
+                3, ModernDuelActions.availableManaEstimate(1, 0)),
+                "pool-only must not overstate castability");
+        Assert.assertEquals(ModernDuelActions.availableManaEstimate(0, 0), 0);
+        Assert.assertEquals(ModernDuelActions.availableManaEstimate(-1, 2), 2,
+                "negative pool clamped");
+
+        final Tracker tracker = new Tracker();
+        final PlayerView controller = new PlayerView(60, tracker);
+        final CardView untappedLand = battlefieldLand(tracker, 61, false);
+        final CardView tappedLand = battlefieldLand(tracker, 62, true);
+        final CardView creature = zoneCard(ZoneType.Battlefield, 63);
+        final forge.trackable.TrackableCollection<CardView> bf =
+                new forge.trackable.TrackableCollection<>();
+        bf.add(untappedLand);
+        bf.add(tappedLand);
+        bf.add(creature);
+        controller.set(forge.trackable.TrackableProperty.Battlefield, bf);
+        Assert.assertEquals(ModernDuelActions.countUntappedLands(controller), 1,
+                "only untapped lands count as available mana sources");
+        Assert.assertEquals(ModernDuelActions.countUntappedLands(null), 0);
+        Assert.assertEquals(ModernDuelActions.availableManaEstimate(controller), 1);
+    }
+
+    @Test
+    public void resetClearsCombatDeclareFlags() {
+        MatchController.instance.setCombatDeclareInput(true, false);
+        Assert.assertTrue(MatchController.instance.isCombatDeclareAttackersInput());
+        ModernDuelController.get().reset();
+        Assert.assertFalse(MatchController.instance.isCombatDeclareAttackersInput());
+        Assert.assertFalse(MatchController.instance.isCombatDeclareBlockersInput());
+        MatchController.instance.setCombatDeclareInput(false, true);
+        Assert.assertTrue(MatchController.instance.isCombatDeclareBlockersInput());
+        ModernDuelController.get().reset();
+        Assert.assertFalse(MatchController.instance.isCombatDeclareBlockersInput());
     }
 
     @Test
@@ -261,5 +390,18 @@ public class ModernDuelScreenTest {
                 return zone;
             }
         };
+    }
+
+    private static CardView battlefieldLand(final Tracker tracker, final int id, final boolean tapped) {
+        final CardView land = new CardView(id, tracker) {
+            @Override
+            public ZoneType getZone() {
+                return ZoneType.Battlefield;
+            }
+        };
+        land.set(forge.trackable.TrackableProperty.Tapped, tapped);
+        land.getCurrentState().set(forge.trackable.TrackableProperty.Type,
+                forge.card.CardType.parse("Basic Land — Forest", true));
+        return land;
     }
 }

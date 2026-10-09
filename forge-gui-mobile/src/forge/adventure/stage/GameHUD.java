@@ -985,6 +985,15 @@ public class GameHUD extends Stage {
         if (dialogOnlyInput) {
             return dialogInput(keycode);
         }
+        // FT1: while fortress build mode is active, suppress HUD button bindings
+        // (inventory / map / deck / etc.) so keys drive the grid cursor only.
+        if (MapStage.getInstance() != null && MapStage.getInstance().isFortressBuildMode()) {
+            if (keycode == Input.Keys.F9 || keycode == Input.Keys.F10) {
+                toggleConsole();
+                return true;
+            }
+            return MapStage.getInstance().keyDown(keycode);
+        }
         ui.pressDown(keycode);
         if (keycode == Input.Keys.F9 || keycode == Input.Keys.F10) {
             toggleConsole();

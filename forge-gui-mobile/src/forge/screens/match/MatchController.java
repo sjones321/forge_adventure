@@ -593,6 +593,8 @@ public class MatchController extends NetworkGuiGame {
 
     @Override
     public void afterGameEnd() {
+        // DS1: drop modern duel state (held card, peek, pad focus, combat-declare flag).
+        ModernDuelController.get().reset();
         super.afterGameEnd();
         Forge.back(true);
         if (Forge.disposeTextures)

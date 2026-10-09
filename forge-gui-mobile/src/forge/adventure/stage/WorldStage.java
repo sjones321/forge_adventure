@@ -141,7 +141,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
         if (channeling) {
             if (moving) {
-                walkedOffNode = channelNode;
+                // Moving cancels; stopping on the node again restarts it.
                 cancelGatherChannel(null);
             } else {
                 tickGatherChannel(delta);
@@ -226,7 +226,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
             }
         }
 
-        if (moving && channelNode == null && !Forge.advFreezePlayerControls)
+        // Gather starts once the player stands still on a node, so walking onto it with the key held works.
+        if (!moving && channelNode == null && !Forge.advFreezePlayerControls)
             tryStartGatherFromCollision();
 
         if (CoopHooks.isOverworldReady())
@@ -334,8 +335,13 @@ public class WorldStage extends GameStage implements SaveFileContent {
         if (materialId == null || materialId.isEmpty()) {
             return;
         }
+        // Mixed-build hosts may still send pre-schema-3 ore ids on the wire.
+        final String wireId = materialId;
+        materialId = MaterialListData.migrateOreLineMaterialId(wireId);
         MaterialData mat = MaterialListData.get(materialId);
         if (mat == null) {
+            GameHUD.getInstance().addNotification("Unknown node material \"" + wireId
+                    + "\" — update Adventure so ore ids match");
             return;
         }
         AdventurePlayer ap = Current.player();
@@ -546,6 +552,14 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
     /** @return true if the POI map loaded and became the active scene. */
     public boolean loadPOI(PointOfInterest poi) {
+        // FT1 co-op: guests are kept out of the host's fortress (no structure sync /
+        // protocol bump). Simpler correct option until CO4.
+        if (forge.adventure.fortress.FortressService.isFortressPoi(poi)
+                && !forge.adventure.fortress.FortressService.get().guestMayEnterFortress()) {
+            GameHUD.getInstance().addNotification(
+                    forge.adventure.fortress.FortressService.get().guestFortressDeniedMessage());
+            return false;
+        }
         try {
             stop();
             TileMapScene.instance().load(poi);
@@ -736,6 +750,9 @@ public class WorldStage extends GameStage implements SaveFileContent {
             ResourceNodeSprite node = nodes.get(i).getValue();
             if (node != walkedOffNode && player.collideWith(node)) {
                 beginGatherChannel(node);
+                // A failed start (tool, level) is not retried until the player steps off, so the message shows once.
+                if (channelNode == null)
+                    walkedOffNode = node;
                 return;
             }
         }
@@ -876,6 +893,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
         // Still touching the node?
         if (!player.collideWith(channelNode) && !almostTouching(channelNode)) {
             cancelGatherChannel(null);
+            // Walking over a node starts and silently cancels the channel; say how gathering works.
+            notifyGatherFail("Stop on the node and stand still to gather.");
             return;
         }
         channelElapsed += delta;
@@ -1397,7 +1416,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 if (nTimeouts != null && nMats != null && nX != null && nY != null) {
                     int n = Math.min(Math.min(nTimeouts.size(), nMats.size()), Math.min(nX.size(), nY.size()));
                     for (int i = 0; i < n; i++) {
-                        String matId = nMats.get(i); // nodes only exist in saves made after the color-line rename
+                        // Schema 3 ore-line ids (idempotent for already-migrated saves).
+                        String matId = MaterialListData.migrateOreLineMaterialId(nMats.get(i));
                         MaterialData mat = MaterialListData.get(matId);
                         if (mat == null)
                             continue;

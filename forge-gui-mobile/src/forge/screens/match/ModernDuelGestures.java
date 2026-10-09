@@ -49,8 +49,36 @@ public final class ModernDuelGestures {
         return Math.abs(dy) > Math.abs(dx);
     }
 
-    /** Touch input must not draw the gamepad focus arrow. */
-    public static boolean shouldDrawPadFocusArrow(final boolean touchInputActive) {
-        return !touchInputActive;
+    /**
+     * Pad amber targeting arrow: only after real pad input, and never while touch is driving.
+     * Prevents a stray amber arrow at match start before any input.
+     */
+    public static boolean shouldDrawPadFocusArrow(final boolean touchInputActive,
+                                                  final boolean padInputSeen) {
+        return !touchInputActive && padInputSeen;
+    }
+
+    /**
+     * Matches {@link forge.toolbox.FGestureAdapter}'s default tap-count interval
+     * so a deferred single-tap does not fire before a double-tap can cancel it.
+     */
+    public static final float DOUBLE_TAP_WINDOW_SEC = 0.25f;
+
+    /** Double-tap zooms (long-press peeks instead of stock zoom). */
+    public static boolean shouldZoomOnDoubleTap(final boolean modernEnabled, final int tapCount) {
+        return modernEnabled && tapCount > 1;
+    }
+
+    /**
+     * Modern single-taps are deferred until {@link #DOUBLE_TAP_WINDOW_SEC} so the
+     * first tap of a double-tap does not select/activate the card.
+     */
+    public static boolean shouldDeferSingleTap(final boolean modernEnabled, final int tapCount) {
+        return modernEnabled && tapCount == 1;
+    }
+
+    /** Second tap in the window cancels any deferred single-tap action. */
+    public static boolean shouldCancelDeferredSingleTap(final boolean modernEnabled, final int tapCount) {
+        return modernEnabled && tapCount > 1;
     }
 }

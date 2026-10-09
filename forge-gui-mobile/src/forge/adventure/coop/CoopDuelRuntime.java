@@ -3,6 +3,7 @@ package forge.adventure.coop;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.utils.Array;
 import forge.Forge;
+import forge.ai.llm.LlmOpponent;
 import forge.adventure.character.EnemySprite;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.EffectData;
@@ -50,6 +51,7 @@ import forge.gamemodes.net.server.ServerGameLobby;
 import forge.gui.FThreads;
 import forge.gui.interfaces.IGuiGame;
 import forge.item.PaperCard;
+import forge.localinstance.properties.ForgeConstants;
 import forge.model.FModel;
 import forge.player.GamePlayerUtil;
 import forge.player.PlayerControllerHuman;
@@ -826,6 +828,11 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 CoopOverworldRuntime.get().onHostDuelStarted(encounterLabel);
             } catch (final Exception ignored) {
             }
+            // AI1: host runs the match and enemy AI; LLM (if enabled) runs on the host only.
+            if (Config.ascendant()) {
+                System.setProperty("forge.llm.dir", ForgeConstants.USER_DIR);
+                LlmOpponent.setActive(true);
+            }
             hostedMatch.startMatch(rules, variants, players, guiMap,
                     mob.getData() != null && mob.getData().boss ? MusicPlaylist.BOSS : MusicPlaylist.MATCH);
             MatchController.instance.setGameView(hostedMatch.getGameView());
@@ -833,6 +840,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             notifyHud("Co-op duel started");
         } catch (final Exception e) {
             notifyHud("Co-op match failed — fighting solo");
+            LlmOpponent.setActive(false);
             stopGameServerIfOurs();
             disconnectPolicy.endDuel();
             activeHostedMatch = null;
@@ -921,6 +929,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         applyHostLocalResult(teamWon, mob);
 
         disconnectPolicy.endDuel();
+        LlmOpponent.setActive(false);
         stopGameServerIfOurs();
         disconnectGuestClient();
         clearPendingEncounter();

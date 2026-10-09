@@ -5,6 +5,7 @@ import forge.LobbyPlayer;
 import forge.StaticData;
 import forge.ai.ability.ProtectAi;
 import forge.ai.ability.PutStickerAi;
+import forge.ai.llm.LlmOpponent;
 import forge.card.CardStateName;
 import forge.card.ColorSet;
 import forge.card.ICardFace;
@@ -788,6 +789,12 @@ public class PlayerControllerAi extends PlayerController {
 
     @Override
     public boolean mulliganKeepHand(Player firstPlayer, int cardsToReturn)  {
+        if (LlmOpponent.isActive()) {
+            Boolean keep = LlmOpponent.chooseKeepHand(player, cardsToReturn);
+            if (keep != null) {
+                return keep;
+            }
+        }
         return !ComputerUtil.wantMulligan(player, cardsToReturn);
     }
 

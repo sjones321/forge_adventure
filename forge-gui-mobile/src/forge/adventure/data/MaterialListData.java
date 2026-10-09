@@ -6,8 +6,12 @@ import com.badlogic.gdx.utils.Json;
 import com.badlogic.gdx.utils.ObjectMap;
 import forge.adventure.util.Config;
 import forge.adventure.util.Paths;
+import forge.adventure.util.SaveFileData;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -47,38 +51,83 @@ public final class MaterialListData {
             {"crystal", "waters"},
     };
 
+    /**
+     * materialSchema 3: ore line rename by tier (single-pass lookup, never chained).
+     * copper→ore_iron, iron→ore_mithral, mithril→ore_adamant, adamant→ore_rune.
+     */
+    public static final int MATERIAL_SCHEMA_ORE_LINE = 3;
+
+    private static final Map<String, String> ORE_LINE_ID_MAP;
     static {
-        reload();
+        LinkedHashMap<String, String> m = new LinkedHashMap<>();
+        m.put("copper", "ore_iron");
+        m.put("iron", "ore_mithral");
+        m.put("mithril", "ore_adamant");
+        m.put("adamant", "ore_rune");
+        ORE_LINE_ID_MAP = Collections.unmodifiableMap(m);
+    }
+
+    /**
+     * Tool / gear display-name renames for schema 3 (single-pass).
+     * Old T1 Copper→Iron, T2 Iron→Mithral, T3 Mithril→Adamant, T4 Adamant→Rune;
+     * classic "Mithril" armor spelling → "Mithral".
+     */
+    private static final Map<String, String> ORE_LINE_ITEM_NAME_MAP;
+    static {
+        LinkedHashMap<String, String> m = new LinkedHashMap<>();
+        String[] tools = {"Hatchet", "Pickaxe", "Chisel", "Sickle", "Probe", "Spanner"};
+        for (String t : tools) {
+            m.put("Copper " + t, "Iron " + t);
+            m.put("Iron " + t, "Mithral " + t);
+            m.put("Mithril " + t, "Adamant " + t);
+            m.put("Adamant " + t, "Rune " + t);
+        }
+        m.put("Mithril Boots", "Mithral Boots");
+        m.put("Mithril Shield", "Mithral Shield");
+        m.put("Mithril Armor", "Mithral Armor");
+        ORE_LINE_ITEM_NAME_MAP = Collections.unmodifiableMap(m);
     }
 
     private MaterialListData() {
     }
 
-    /** Reload from disk (tests / hot-swap / world switch). Safe if the file is missing. */
+    /** Reload from disk (tests / hot-swap / world switch). Safe if the file or Config is missing. */
     public static void reload() {
         byId.clear();
         materialList = new Array<>();
-        loadedPlane = Config.instance().getPlane();
-        FileHandle handle = Config.instance().getFile(Paths.MATERIALS);
-        if (handle == null || !handle.exists())
-            return;
-        Json json = new Json();
-        Array<MaterialData> loaded = json.fromJson(Array.class, MaterialData.class, handle);
-        if (loaded == null)
-            return;
-        materialList = loaded;
-        for (MaterialData m : new Array.ArrayIterator<>(materialList)) {
-            if (m != null && m.id != null && !m.id.isEmpty())
-                byId.put(m.id, m);
+        try {
+            loadedPlane = Config.instance().getPlane();
+            FileHandle handle = Config.instance().getFile(Paths.MATERIALS);
+            if (handle == null || !handle.exists())
+                return;
+            Json json = new Json();
+            Array<MaterialData> loaded = json.fromJson(Array.class, MaterialData.class, handle);
+            if (loaded == null)
+                return;
+            materialList = loaded;
+            for (MaterialData m : new Array.ArrayIterator<>(materialList)) {
+                if (m != null && m.id != null && !m.id.isEmpty())
+                    byId.put(m.id, m);
+            }
+        } catch (Throwable ignored) {
+            // Headless tests / early boot: leave the cache empty until Config is ready.
+            // Catch Throwable — Config.<clinit> can throw ExceptionInInitializerError.
+            loadedPlane = null;
+            materialList = new Array<>();
         }
     }
 
     /** Reloads when the adventure plane no longer matches the cached data. */
     private static void ensureCurrentWorld() {
-        String plane = Config.instance().getPlane();
-        if (loadedPlane == null || !loadedPlane.equals(plane)) {
-            forge.adventure.player.BanLists.clear();
-            reload();
+        try {
+            String plane = Config.instance().getPlane();
+            if (loadedPlane == null || !loadedPlane.equals(plane)) {
+                forge.adventure.player.BanLists.clear();
+                reload();
+            }
+        } catch (Throwable ignored) {
+            if (materialList == null)
+                materialList = new Array<>();
         }
     }
 
@@ -372,5 +421,169 @@ public final class MaterialListData {
         }
         toolbelt.clear();
         toolbelt.putAll(next);
+    }
+
+    /**
+     * Single-pass ore-line id rewrite (schema 3). Looks up {@code id} once in the old→new
+     * table (exact match, or {@code old_} / {@code _old} derived forms). Never applies the
+     * table repeatedly, so old {@code iron} becomes {@code ore_mithral} and stops.
+     */
+    public static String migrateOreLineMaterialId(String id) {
+        if (id == null || id.isEmpty())
+            return id;
+        String exact = ORE_LINE_ID_MAP.get(id);
+        if (exact != null)
+            return exact;
+        // Already on the new ore_* line (exact or derived) — do not treat "_iron" as old iron.
+        if (id.startsWith("ore_"))
+            return id;
+        for (Map.Entry<String, String> e : ORE_LINE_ID_MAP.entrySet()) {
+            String old = e.getKey();
+            String neu = e.getValue();
+            if (id.startsWith(old + "_"))
+                return neu + id.substring(old.length());
+            if (id.endsWith("_" + old))
+                return id.substring(0, id.length() - old.length()) + neu;
+        }
+        return id;
+    }
+
+    /**
+     * Rewrites a material id→count map for schema 3 ore renames in one pass.
+     * Builds a next map from migrated keys so old {@code iron} cannot chain into {@code ore_adamant}.
+     */
+    public static void migrateOreLineMaterialCounts(Map<String, Integer> materials) {
+        if (materials == null || materials.isEmpty())
+            return;
+        LinkedHashMap<String, Integer> next = new LinkedHashMap<>();
+        for (Map.Entry<String, Integer> e : materials.entrySet()) {
+            String id = e.getKey();
+            Integer count = e.getValue();
+            if (id == null || id.isEmpty() || count == null || count <= 0)
+                continue;
+            String migrated = migrateOreLineMaterialId(id);
+            next.merge(migrated, count, Integer::sum);
+        }
+        materials.clear();
+        materials.putAll(next);
+    }
+
+    /** Float-valued stock maps (outpost / camp storage). Single-pass, same tier rules. */
+    public static void migrateOreLineMaterialFloatCounts(Map<String, Float> materials) {
+        if (materials == null || materials.isEmpty())
+            return;
+        LinkedHashMap<String, Float> next = new LinkedHashMap<>();
+        for (Map.Entry<String, Float> e : materials.entrySet()) {
+            String id = e.getKey();
+            Float amount = e.getValue();
+            if (id == null || id.isEmpty() || amount == null || amount <= 0f)
+                continue;
+            String migrated = migrateOreLineMaterialId(id);
+            next.merge(migrated, amount, Float::sum);
+        }
+        materials.clear();
+        materials.putAll(next);
+    }
+
+    /** Single-pass item display-name migration for schema 3 tool/gear tiers. */
+    public static String migrateOreLineItemName(String name) {
+        if (name == null || name.isEmpty())
+            return name;
+        String mapped = ORE_LINE_ITEM_NAME_MAP.get(name);
+        return mapped != null ? mapped : name;
+    }
+
+    /** Rewrites toolbelt equipped tool names for schema 3. */
+    public static void migrateOreLineToolbeltItems(Map<String, String> toolbelt) {
+        if (toolbelt == null || toolbelt.isEmpty())
+            return;
+        for (Map.Entry<String, String> e : new ArrayList<>(toolbelt.entrySet())) {
+            String tool = e.getValue();
+            String migrated = migrateOreLineItemName(tool);
+            if (migrated != null && !migrated.equals(tool))
+                toolbelt.put(e.getKey(), migrated);
+        }
+    }
+
+    /**
+     * Migrates {@code nodeMaterialIds} inside a world-stage {@link SaveFileData} (live or
+     * inactive plane blob). Safe to call repeatedly: already-new ids are unchanged.
+     *
+     * @return true when any id changed
+     */
+    @SuppressWarnings("unchecked")
+    public static boolean migrateWorldStageNodeMaterialIds(SaveFileData stage) {
+        if (stage == null || !stage.containsKey("nodeMaterialIds"))
+            return false;
+        Object raw = stage.readObject("nodeMaterialIds");
+        if (!(raw instanceof List))
+            return false;
+        List<String> mats = (List<String>) raw;
+        boolean changed = false;
+        for (int i = 0; i < mats.size(); i++) {
+            String id = mats.get(i);
+            String migrated = migrateOreLineMaterialId(id);
+            if (migrated != null && !migrated.equals(id)) {
+                mats.set(i, migrated);
+                changed = true;
+            }
+        }
+        if (changed)
+            stage.storeObject("nodeMaterialIds", mats);
+        return changed;
+    }
+
+    /**
+     * Renames a saved item instance for schema 3 without rebuilding it from the catalog.
+     * Preserves per-instance state ({@code effect}, {@code isCracked}, {@code isEquipped},
+     * {@code longID}, dialogs, usability flags). Catalog fields (icon, description, tool
+     * tier/family, cost) are refreshed from the renamed definition when the item catalog
+     * is available; lookup failures (headless / Config not ready) leave those fields as-is.
+     */
+    public static void migrateOreLineItemInstance(ItemData item) {
+        if (item == null || item.name == null || item.name.isEmpty())
+            return;
+        String migrated = migrateOreLineItemName(item.name);
+        if (migrated.equals(item.name))
+            return;
+        item.name = migrated;
+        ItemData canonical;
+        try {
+            canonical = ItemListData.getItem(migrated);
+        } catch (Throwable t) {
+            // Catalog/Config may be unavailable in headless tests; rename alone is enough.
+            return;
+        }
+        if (canonical == null)
+            return;
+        if (canonical.iconName != null)
+            item.iconName = canonical.iconName;
+        if (canonical.description != null)
+            item.description = canonical.description;
+        if (canonical.toolFamily != null)
+            item.toolFamily = canonical.toolFamily;
+        if (canonical.toolTier > 0)
+            item.toolTier = canonical.toolTier;
+        if (canonical.equipmentSlot != null)
+            item.equipmentSlot = canonical.equipmentSlot;
+        item.cost = canonical.cost;
+        item.questItem = canonical.questItem;
+        item.stackable = canonical.stackable;
+        if (canonical.currencyId != null)
+            item.currencyId = canonical.currencyId;
+        if (canonical.bagUpgrade != null)
+            item.bagUpgrade = canonical.bagUpgrade;
+        item.bagBonusSlots = canonical.bagBonusSlots;
+        item.bagBonusStack = canonical.bagBonusStack;
+    }
+
+    /** Unmodifiable view of the schema-3 ore id table (tests / docs). */
+    public static Map<String, String> oreLineIdMap() {
+        return ORE_LINE_ID_MAP;
+    }
+
+    /** Unmodifiable view of the schema-3 item name table (tests). */
+    public static Map<String, String> oreLineItemNameMap() {
+        return ORE_LINE_ITEM_NAME_MAP;
     }
 }
