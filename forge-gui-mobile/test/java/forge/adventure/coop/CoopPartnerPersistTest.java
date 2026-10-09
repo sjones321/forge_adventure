@@ -362,17 +362,24 @@ public class CoopPartnerPersistTest {
     /**
      * H2: New Game (and guest unload) must reset {@code loadedSlot} so a later
      * partner flush cannot overwrite the slot the host loaded earlier.
-     * Exercises {@link WorldSave#load(int)} and {@link WorldSave#generateNewWorld}.
+     * Goes through {@link WorldSave#generateNewWorld}, {@link WorldSave#save},
+     * and {@link WorldSave#load(int)} (same path as SetPlaneGeneratorTest).
      */
     @Test
     public void newGameAndGuestUnloadResetLoadedSlotSoPartnerFlushMissesOldSlot() throws Exception {
         final int hostSlot = 8;
-        ensureMinimalWorldForDiskSave();
+        final forge.adventure.data.DifficultyData diff =
+                forge.adventure.util.Config.instance().getConfigData().difficulties[0];
+        WorldSave.generateNewWorld("PreJoinWorld", true, 0, 0,
+                forge.card.ColorSet.W, diff,
+                AdventureModes.Chaos, 0, null, 4242L);
         final WorldSave save = WorldSave.getCurrentSave();
-        save.header.name = "PreJoinWorld";
-        preparePlayer(save.getPlayer(), "HostHero", SOLO_GOLD);
-        save.setLoadedSlot(hostSlot);
-        Assert.assertTrue(save.savePreservingHeader(hostSlot), "seed host slot");
+        Assert.assertNotNull(save.getWorld().getData());
+        // New Game itself clears loadedSlot.
+        Assert.assertEquals(save.getLoadedSlot(), WorldSave.INVALID_SAVE_SLOT);
+
+        Assert.assertTrue(save.save("PreJoinWorld", hostSlot), "seed host slot");
+        Assert.assertEquals(save.getLoadedSlot(), hostSlot);
         Assert.assertTrue(WorldSave.load(hostSlot), "WorldSave.load must bind loadedSlot");
         Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), hostSlot);
 
@@ -386,8 +393,6 @@ public class CoopPartnerPersistTest {
         // Reload, then New Game — also clears loadedSlot.
         Assert.assertTrue(WorldSave.load(hostSlot));
         Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), hostSlot);
-        final forge.adventure.data.DifficultyData diff =
-                forge.adventure.util.Config.instance().getConfigData().difficulties[0];
         WorldSave.generateNewWorld("NewGameHero", true, 0, 0,
                 forge.card.ColorSet.W, diff,
                 AdventureModes.Chaos, 0, null, 99L);
@@ -447,12 +452,13 @@ public class CoopPartnerPersistTest {
     @Test
     public void hostJoinAndLoadCreatesPartnerThenLeaveClearsSlot() throws Exception {
         final int slot = 9;
-        ensureMinimalWorldForDiskSave();
-        final WorldSave save = WorldSave.getCurrentSave();
-        save.header.name = "HostJoinWorld";
-        preparePlayer(save.getPlayer(), "HostJoin", SOLO_GOLD);
-        Assert.assertTrue(save.savePreservingHeader(slot));
-        Assert.assertTrue(WorldSave.load(slot));
+        final forge.adventure.data.DifficultyData diff =
+                forge.adventure.util.Config.instance().getConfigData().difficulties[0];
+        WorldSave.generateNewWorld("HostJoinWorld", true, 0, 0,
+                forge.card.ColorSet.W, diff,
+                AdventureModes.Chaos, 0, null, 5151L);
+        Assert.assertTrue(WorldSave.getCurrentSave().save("HostJoinWorld", slot));
+        Assert.assertTrue(WorldSave.load(slot), "WorldSave.load after generateNewWorld");
         Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), slot);
 
         final CoopSession session = CoopSession.get();
@@ -486,7 +492,6 @@ public class CoopPartnerPersistTest {
             stub.start();
             Assert.assertTrue(stub.awaitBound(5000));
             Assert.assertTrue(WorldSave.load(slot));
-            preparePlayer(WorldSave.getCurrentSave().getPlayer(), "GuestSolo", SOLO_GOLD);
             session.join("127.0.0.1:" + stub.getLocalPort(), code);
             Assert.assertEquals(session.getRole(), CoopSessionRole.GUEST);
             Assert.assertTrue(

@@ -176,8 +176,13 @@ public class WorldSave {
 
                 } catch (Exception e) {
                     System.err.println("Generating New World");
-                    if (!currentSave.world.generateNew(0))
+                    try {
+                        if (!currentSave.world.generateNew(0))
+                            return false;
+                    } catch (final Exception genEx) {
+                        System.err.println("World regenerate failed: " + genEx);
                         return false;
+                    }
                 }
 
                 // MV1: multi-plane registry, or wrap legacy single-world saves as home.
