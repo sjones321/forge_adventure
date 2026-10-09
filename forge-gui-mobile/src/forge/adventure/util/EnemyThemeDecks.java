@@ -3663,7 +3663,7 @@ public final class EnemyThemeDecks {
             if (isEnemyBanned(pc.getName()))
                 return pc.getName() + " is EN1 enemy-banned";
             if (isRestrictedCardName(pc.getName()))
-                return pc.getName() + " is Ascendant-restricted";
+                return pc.getName() + " is restricted in Bellwarden: Planes of Nothing";
             if (isExcludedFromAdventureDecks(pc))
                 return pc.getName() + " is Alchemy/Online/Funny/restricted-edition only";
         }

@@ -852,7 +852,7 @@ public final class CoopSession {
 
     private void ensureAscendant() {
         if (!Config.ascendant()) {
-            throw new IllegalStateException("Co-op is Ascendant-only");
+            throw new IllegalStateException("Co-op is only available in Bellwarden: Planes of Nothing");
         }
     }
 

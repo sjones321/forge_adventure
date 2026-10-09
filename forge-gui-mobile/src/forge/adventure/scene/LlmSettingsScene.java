@@ -48,7 +48,7 @@ public class LlmSettingsScene extends UIScene {
         persistence = new LlmSettingsPersistence(draft);
 
         settingGroup = new Table();
-        addHeader("LLM opponent (Ascendant)");
+        addHeader("LLM opponent (Bellwarden: Planes of Nothing)");
         addHint("Optional. Key decisions only; Forge AI handles the rest and is always the fallback.");
 
         enableBox = Controls.newCheckBox("");
