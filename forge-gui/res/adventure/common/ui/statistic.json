@@ -125,7 +125,7 @@
       "width": 50,
       "height": 30,
       "x": 425,
-      "y": 190
+      "y": 224
     },
     {
       "type": "TextButton",
@@ -182,27 +182,18 @@
       "name": "quests",
       "text": "Quests",
       "binding": "Status",
-      "width": 50,
+      "width": 53,
       "height": 30,
-      "x": 418,
+      "x": 370,
       "y": 224
     },
     {
       "type": "TextButton",
       "name": "skills",
       "text": "Skills",
-      "width": 50,
+      "width": 53,
       "height": 30,
-      "x": 318,
-      "y": 224
-    },
-    {
-      "type": "TextButton",
-      "name": "achievements",
-      "text": "Awards",
-      "width": 50,
-      "height": 30,
-      "x": 368,
+      "x": 315,
       "y": 224
     }
   ]

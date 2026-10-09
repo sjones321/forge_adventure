@@ -104,15 +104,20 @@ public class RewardData implements Serializable {
     private static Iterable<PaperCard> allCards;
     private static Iterable<PaperCard> allEnemyCards;
 
-    static private void initializeAllCards() {
+    /**
+     * Base Ascendant reward filters (restricted cards, obtainability / editions,
+     * no-script / unsupported, alchemy, ante, custom adventure art). Does
+     * <em>not</em> apply the rotating Standard window — use for set-completion
+     * reachability (AC1) and the shared card pool.
+     */
+    public static List<Predicate<PaperCard>> baseAdventureRewardFilters() {
         ConfigData configData = Config.instance().getConfigData();
-        RewardData legals = configData.legalCards;
-
         List<Predicate<PaperCard>> filters = new ArrayList<>();
 
+        RewardData legals = configData.legalCards;
         if (legals != null)
             filters.add(new CardUtil.CardPredicate(legals, true));
-        
+
         // Filter out by editions and obtainability
         if (configData.allowedEditions != null && configData.allowedEditions.length > 0)
             filters.add(PaperCardPredicates.printedInAnyEditions(configData.allowedEditions));
@@ -127,13 +132,67 @@ public class RewardData implements Serializable {
         if (!FModel.getPreferences().getPrefBoolean(FPref.UI_ANTE))
             filters.add(pc -> !pc.getRules().hasKeyword("Remove CARDNAME from your deck before playing if you're not playing for ante."));
 
-        if (!AdventurePlayer.current().hasCommanderDeck())
-            filters.add(pc -> !pc.getRules().getAiHints().getRemNonCommanderDecks());
+        try {
+            if (AdventurePlayer.current() != null && !AdventurePlayer.current().hasCommanderDeck())
+                filters.add(pc -> !pc.getRules().getAiHints().getRemNonCommanderDecks());
+        } catch (Throwable ignored) {
+            // Headless / early boot: skip commander-deck filter.
+        }
 
         filters.add(pc -> !(pc.getRules().isCustom() && pc.getImageKey(false).startsWith(ImageKeys.ADVENTURECARD_PREFIX)));
 
-        Set<String> restrictedCards = new HashSet<>(Arrays.asList(configData.restrictedCards));
-        filters.add(pc -> !restrictedCards.contains(pc.getName()));
+        // Ascendant restrictedCards + cards with no script (unsupported).
+        Set<String> restrictedCards = configData.restrictedCards == null
+                ? Collections.emptySet()
+                : new HashSet<>(Arrays.asList(configData.restrictedCards));
+        filters.add(pc -> pc != null && pc.getName() != null && !restrictedCards.contains(pc.getName()));
+        filters.add(pc -> pc != null && pc.getRules() != null && !pc.getRules().isUnsupported());
+
+        return filters;
+    }
+
+    /**
+     * True when a printing can appear in Ascendant player rewards (shops / loot /
+     * Spell Smith base pool). Reuses {@link #baseAdventureRewardFilters()}.
+     */
+    public static boolean isAdventureRewardReachable(PaperCard pc) {
+        if (pc == null) {
+            return false;
+        }
+        try {
+            return IterableUtil.and(baseAdventureRewardFilters()).test(pc);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * True when any common-card printing of {@code cardName} passes the adventure
+     * reward filter (AC1 set-completion reachability).
+     */
+    public static boolean isAdventureRewardReachableName(String cardName) {
+        if (cardName == null || cardName.isEmpty()) {
+            return false;
+        }
+        try {
+            List<PaperCard> printings = StaticData.instance().getCommonCards().getAllCards(cardName);
+            if (printings == null || printings.isEmpty()) {
+                return false;
+            }
+            Predicate<PaperCard> filter = IterableUtil.and(baseAdventureRewardFilters());
+            for (PaperCard pc : printings) {
+                if (filter.test(pc)) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    static private void initializeAllCards() {
+        List<Predicate<PaperCard>> filters = baseAdventureRewardFilters();
 
         // Filter out specific cards.
         List<PaperCard> basePool = CardUtil.getFullCardPool(false).stream()

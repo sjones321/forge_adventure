@@ -6,6 +6,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.Window;
 import com.badlogic.gdx.utils.Align;
+import com.github.tommyettinger.textra.TextraButton;
 import com.github.tommyettinger.textra.TypingLabel;
 import forge.Adventure;
 import forge.Forge;
@@ -16,6 +17,7 @@ import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 import forge.adventure.util.Current;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,7 +28,9 @@ import java.util.Map;
  */
 public class AchievementsScene extends UIScene {
     private final Table list;
+    private ScrollPane scroller;
     private Scene lastGameScene;
+    private final List<TextraButton> rowButtons = new ArrayList<>();
 
     private AchievementsScene() {
         super(Forge.isLandscapeMode() ? "ui/achievements.json" : "ui/achievements_portrait.json");
@@ -40,7 +44,7 @@ public class AchievementsScene extends UIScene {
         ui.onButtonPress("skills", () -> Forge.switchScene(SkillsScene.instance(lastGameScene), true));
         ui.onButtonPress("quests", () -> Forge.switchScene(QuestLogScene.instance(lastGameScene), true));
         list = new Table(Controls.getSkin());
-        ScrollPane scroller = new ScrollPane(list);
+        scroller = new ScrollPane(list);
         scroller.setScrollingDisabled(true, false);
         if (root != null) {
             root.add(scroller).fill().expand();
@@ -82,14 +86,32 @@ public class AchievementsScene extends UIScene {
     @Override
     public void enter() {
         super.enter();
-        if (Config.ascendant() && Current.player() != null) {
-            AchievementService.get().evaluateAll(Current.player());
-        }
+        // Do not full-evaluate on every open — counters / collection update at event sites.
         build();
     }
 
     private void build() {
         list.clear();
+        // Rebuild selectables cleanly: nav first, then controller-navigable rows.
+        clearSelectable();
+        Actor backBtn = ui.findActor("return");
+        Actor statusBtn = ui.findActor("status");
+        Actor skillsBtn = ui.findActor("skills");
+        Actor questsBtn = ui.findActor("quests");
+        if (backBtn != null) {
+            addToSelectable(backBtn);
+        }
+        if (statusBtn != null) {
+            addToSelectable(statusBtn);
+        }
+        if (skillsBtn != null) {
+            addToSelectable(skillsBtn);
+        }
+        if (questsBtn != null) {
+            addToSelectable(questsBtn);
+        }
+        rowButtons.clear();
+
         if (!Config.ascendant()) {
             note("Achievements are part of Shandalar Ascendant.");
             return;
@@ -109,7 +131,7 @@ public class AchievementsScene extends UIScene {
                 continue;
             }
             String cat = a.category == null || a.category.isEmpty() ? "general" : a.category;
-            byCategory.computeIfAbsent(cat, k -> new java.util.ArrayList<>()).add(a);
+            byCategory.computeIfAbsent(cat, k -> new ArrayList<>()).add(a);
         }
 
         if (byCategory.isEmpty()) {
@@ -126,14 +148,25 @@ public class AchievementsScene extends UIScene {
                 String title = a.hidden && !unlocked ? "???" : (a.name == null ? a.id : a.name);
                 String desc = a.hidden && !unlocked ? "Hidden achievement."
                         : (a.description == null ? "" : a.description);
-                String progress = pv.label == null || pv.label.isEmpty() ? "" : "  [%80](" + pv.label + ")";
-                line(unlocked, title + progress);
+                String progress = pv.label == null || pv.label.isEmpty() ? "" : " (" + pv.label + ")";
+                String mark = unlocked ? "[FOREST]☑ " : "[DARK_GRAY]☐ ";
+                String rowText = mark + title + progress;
                 if (desc != null && !desc.isEmpty()) {
-                    note("  " + desc);
+                    rowText = rowText + "\n[%80]" + desc;
                 }
+                addRow(rowText);
             }
         }
         performTouch(scrollPaneOfActor(list));
+    }
+
+    private void addRow(String text) {
+        TextraButton row = Controls.newTextButton(text);
+        row.getColor().a = 1f;
+        rowButtons.add(row);
+        addToSelectable(row);
+        list.add(row).align(Align.left).growX().padLeft(12).padRight(8).padTop(2);
+        list.row();
     }
 
     private static String prettyCategory(String cat) {
@@ -155,14 +188,6 @@ public class AchievementsScene extends UIScene {
             }
         }
         return sb.toString();
-    }
-
-    private void line(boolean unlocked, String text) {
-        TypingLabel l = Controls.newTypingLabel((unlocked ? "[FOREST]☑ " : "[DARK_GRAY]☐ ") + text);
-        l.skipToTheEnd();
-        l.setWrap(true);
-        list.add(l).align(Align.left).growX().padLeft(18).padRight(8);
-        list.row().padTop(1);
     }
 
     private void header(String text) {

@@ -71,11 +71,12 @@ public class PlayerStatisticScene extends UIScene {
         ui.onButtonPress("return", PlayerStatisticScene.this::back);
         ui.onButtonPress("quests", PlayerStatisticScene.this::quests);
         ui.onButtonPress("skills", () -> Forge.switchScene(SkillsScene.instance(lastGameScene), true));
-        ui.onButtonPress("achievements", () -> Forge.switchScene(AchievementsScene.instance(lastGameScene), true));
         if (!Config.ascendant() && ui.findActor("skills") != null)
             ui.findActor("skills").setVisible(false); // skills are a Shandalar Ascendant feature
-        if (ui.findActor("achievements") != null)
-            ui.findActor("achievements").setVisible(Config.ascendant());
+        // AC1: Awards is Ascendant-only and added in code so stock statistic.json stays unchanged.
+        if (Config.ascendant()) {
+            addAscendantAwardsButton();
+        }
         avatar = ui.findActor("avatar");
         avatarBorder = ui.findActor("avatarBorder");
         playerName = ui.findActor("playerName");
@@ -322,6 +323,33 @@ public class PlayerStatisticScene extends UIScene {
     public boolean quests() {
         Forge.switchScene(QuestLogScene.instance(lastGameScene),true);
         return true;
+    }
+
+    /**
+     * Ascendant-only Awards entry. Stock {@code statistic.json} is unchanged;
+     * the button sits left of the Forge awards toggle so Back stays at its
+     * stock position (no overlap with {@code blessingInfo}).
+     */
+    private void addAscendantAwardsButton() {
+        if (ui.findActor("achievements") != null) {
+            ui.onButtonPress("achievements",
+                    () -> Forge.switchScene(AchievementsScene.instance(lastGameScene), true));
+            ui.findActor("achievements").setVisible(true);
+            return;
+        }
+        TextraButton awards = Controls.newTextButton("Awards",
+                () -> Forge.switchScene(AchievementsScene.instance(lastGameScene), true));
+        awards.setName("achievements");
+        if (Forge.isLandscapeMode()) {
+            // Left of toggleAward (x=285); clear of blessingInfo (x=308..452, y=143..215).
+            awards.setBounds(228, 224, 54, 30);
+        } else {
+            // Portrait: tuck between skills (112) and return (190).
+            awards.setBounds(160, 440, 28, 30);
+            awards.setText("Awd");
+        }
+        ui.addActor(awards);
+        addToSelectable(awards);
     }
 
     @Override

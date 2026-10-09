@@ -310,14 +310,22 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
 
     /** After cards enter the collection: check set mastery (may unlock and rotate in a new set). */
     private void afterCardsCollected() {
+        afterCardsCollected(null);
+    }
+
+    private void afterCardsCollected(Iterable<PaperCard> justAdded) {
         List<String> before = new ArrayList<>(standardWindow.getSets());
         standardWindow.checkMastery(cards);
         if (!before.equals(standardWindow.getSets()))
             RewardData.invalidateCardPool();
-        // AC1: account-wide set completion (outside the save; Ascendant only).
+        // AC1: incremental set-completion check (account-wide; Ascendant only).
         if (Config.ascendant()) {
             try {
-                AchievementService.get().evaluateCollection(cards);
+                if (justAdded != null) {
+                    AchievementService.get().onCardsAdded(cards, justAdded);
+                } else {
+                    AchievementService.get().evaluateCollection(cards);
+                }
             } catch (Throwable ignored) {
                 // Achievements must never break collection rewards.
             }
@@ -2191,7 +2199,10 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
         awardCollectingXp(card, amount);
         cards.add(card, amount);
         newCards.add(card, amount);
-        afterCardsCollected();
+        List<PaperCard> added = new ArrayList<>(Math.max(1, amount));
+        for (int i = 0; i < amount; i++)
+            added.add(card);
+        afterCardsCollected(added);
         if (autoSalvage)
             maybeAutoSalvage(card);
     }
@@ -2201,7 +2212,13 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
             awardCollectingXp(entry.getKey(), entry.getValue());
         cards.addAll(cardPool);
         newCards.addAll(cardPool);
-        afterCardsCollected();
+        List<PaperCard> added = new ArrayList<>();
+        for (Map.Entry<PaperCard, Integer> entry : cardPool) {
+            int n = entry.getValue() == null ? 0 : entry.getValue();
+            for (int i = 0; i < n; i++)
+                added.add(entry.getKey());
+        }
+        afterCardsCollected(added);
         for (Map.Entry<PaperCard, Integer> entry : cardPool)
             maybeAutoSalvage(entry.getKey());
     }
@@ -2222,7 +2239,7 @@ public class AdventurePlayer implements Serializable, SaveFileContent {
                 awardCollectingXp(reward.getCard(), 1);
                 cards.add(reward.getCard());
                 newCards.add(reward.getCard());
-                afterCardsCollected();
+                afterCardsCollected(java.util.Collections.singletonList(reward.getCard()));
                 if (reward.isAutoSell()) {
                     autoSellCards.add(reward.getCard());
                     refreshEditor();

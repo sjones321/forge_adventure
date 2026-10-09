@@ -27,6 +27,11 @@ public final class AchievementProgress {
      * type {@code cardStyle} persist; CS1 applies them later.
      */
     private final Set<String> cardStyles = new LinkedHashSet<>();
+    /**
+     * Pending CS1 grants from set / all-sets completion (style id + set code).
+     * Distinct from {@link #cardStyles} so CS1 can apply them when ready.
+     */
+    private final List<PendingCardStyleGrant> pendingCardStyleGrants = new ArrayList<>();
     private final Map<String, Integer> counters = new LinkedHashMap<>();
 
     public int getVersion() {
@@ -107,6 +112,25 @@ public final class AchievementProgress {
         return cardStyles.add(styleId);
     }
 
+    public List<PendingCardStyleGrant> getPendingCardStyleGrants() {
+        return Collections.unmodifiableList(pendingCardStyleGrants);
+    }
+
+    /** @return true if newly recorded (deduped by styleId + setCode) */
+    public boolean addPendingCardStyleGrant(PendingCardStyleGrant grant) {
+        if (grant == null || grant.styleId.isEmpty()) {
+            return false;
+        }
+        for (PendingCardStyleGrant existing : pendingCardStyleGrants) {
+            if (existing.styleId.equals(grant.styleId) && existing.setCode.equals(grant.setCode)) {
+                return false;
+            }
+        }
+        pendingCardStyleGrants.add(grant);
+        cardStyles.add(grant.styleId);
+        return true;
+    }
+
     public int getCounter(String key) {
         if (key == null) {
             return 0;
@@ -120,6 +144,16 @@ public final class AchievementProgress {
             return;
         }
         counters.put(key, Math.max(0, value));
+    }
+
+    /** @return new counter value */
+    public int incrementCounter(String key, int by) {
+        if (key == null || key.isEmpty()) {
+            return 0;
+        }
+        int next = Math.max(0, getCounter(key) + by);
+        counters.put(key, next);
+        return next;
     }
 
     public Map<String, Integer> getCounters() {
@@ -136,6 +170,16 @@ public final class AchievementProgress {
         root.put("titles", new ArrayList<>(titles));
         root.put("trophies", new ArrayList<>(trophies));
         root.put("cardStyles", new ArrayList<>(cardStyles));
+        List<Map<String, Object>> pending = new ArrayList<>();
+        for (PendingCardStyleGrant g : pendingCardStyleGrants) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("styleId", g.styleId);
+            m.put("setCode", g.setCode);
+            m.put("achievementId", g.achievementId);
+            m.put("at", g.atMillis);
+            pending.add(m);
+        }
+        root.put("pendingCardStyles", pending);
         root.put("counters", new LinkedHashMap<>(counters));
         return root;
     }
@@ -168,6 +212,20 @@ public final class AchievementProgress {
         addStrings(p.titles, root.get("titles"));
         addStrings(p.trophies, root.get("trophies"));
         addStrings(p.cardStyles, root.get("cardStyles"));
+        Object pendingObj = root.get("pendingCardStyles");
+        if (pendingObj instanceof List) {
+            for (Object o : (List<?>) pendingObj) {
+                if (!(o instanceof Map)) {
+                    continue;
+                }
+                Map<?, ?> m = (Map<?, ?>) o;
+                String styleId = m.get("styleId") == null ? "" : String.valueOf(m.get("styleId"));
+                String setCode = m.get("setCode") == null ? "" : String.valueOf(m.get("setCode"));
+                String achId = m.get("achievementId") == null ? "" : String.valueOf(m.get("achievementId"));
+                long at = m.get("at") instanceof Number ? ((Number) m.get("at")).longValue() : 0L;
+                p.pendingCardStyleGrants.add(new PendingCardStyleGrant(styleId, setCode, achId, at));
+            }
+        }
         Object countersObj = root.get("counters");
         if (countersObj instanceof Map) {
             for (Map.Entry<?, ?> e : ((Map<?, ?>) countersObj).entrySet()) {

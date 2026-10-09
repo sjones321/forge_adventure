@@ -11,6 +11,7 @@ import forge.adventure.util.AtomicJsonFiles;
 import forge.adventure.util.Config;
 import forge.card.CardEdition;
 import forge.deck.CardPool;
+import forge.item.PaperCard;
 import forge.model.FModel;
 
 import java.io.File;
@@ -36,12 +37,14 @@ public final class AchievementService {
 
     private final Path file;
     private AchievementProgress progress = new AchievementProgress();
+    private final AchievementSetTracker setTracker = new AchievementSetTracker();
     private Consumer<String> toastSink;
     private boolean toastEnabled = true;
     private int toastMaxPerPass = 5;
     /** Achievement ids toasted this JVM session (toast fires once per unlock). */
     private final Set<String> toastedIds = new LinkedHashSet<>();
     private boolean loaded;
+    private HallOfFame hallOfFame;
 
     public AchievementService() {
         this(AccountStore.achievementsFile().toPath());
@@ -50,6 +53,14 @@ public final class AchievementService {
     public AchievementService(Path file) {
         this.file = file;
         applyConfigTunables();
+    }
+
+    public AchievementSetTracker getSetTracker() {
+        return setTracker;
+    }
+
+    public void setHallOfFame(HallOfFame hallOfFame) {
+        this.hallOfFame = hallOfFame;
     }
 
     public static synchronized AchievementService get() {
@@ -204,6 +215,16 @@ public final class AchievementService {
                     p.addCardStyle(child.asString());
                 }
             }
+            JsonValue pending = root.get("pendingCardStyles");
+            if (pending != null && pending.isArray()) {
+                for (JsonValue child = pending.child; child != null; child = child.next) {
+                    p.addPendingCardStyleGrant(new PendingCardStyleGrant(
+                            child.getString("styleId", ""),
+                            child.getString("setCode", ""),
+                            child.getString("achievementId", ""),
+                            child.getLong("at", 0L)));
+                }
+            }
             JsonValue counters = root.get("counters");
             if (counters != null && counters.isObject()) {
                 for (JsonValue child = counters.child; child != null; child = child.next) {
@@ -246,10 +267,28 @@ public final class AchievementService {
         appendStringArray(sb, p.getTrophies());
         sb.append(",\n  \"cardStyles\": ");
         appendStringArray(sb, p.getCardStyles());
+        sb.append(",\n  \"pendingCardStyles\": ");
+        appendPending(sb, p.getPendingCardStyleGrants());
         sb.append(",\n  \"counters\": ");
         appendIntMap(sb, p.getCounters());
         sb.append("\n}\n");
         return sb.toString();
+    }
+
+    private static void appendPending(StringBuilder sb, List<PendingCardStyleGrant> grants) {
+        sb.append('[');
+        boolean first = true;
+        for (PendingCardStyleGrant g : grants) {
+            if (!first) {
+                sb.append(", ");
+            }
+            first = false;
+            sb.append("{\"styleId\": \"").append(escapeJson(g.styleId))
+                    .append("\", \"setCode\": \"").append(escapeJson(g.setCode))
+                    .append("\", \"achievementId\": \"").append(escapeJson(g.achievementId))
+                    .append("\", \"at\": ").append(g.atMillis).append('}');
+        }
+        sb.append(']');
     }
 
     private static void appendStringArray(StringBuilder sb, Collection<String> values) {
@@ -301,31 +340,56 @@ public final class AchievementService {
     // ---- evaluation ----
 
     /**
-     * Evaluate collection-driven achievements (set completion / all-sets).
-     * Call after cards enter the collection. Ascendant-only at the call site.
-     *
-     * @return newly unlocked achievement ids (may include per-set synthetic keys)
+     * Incremental collection check after cards are added. Rebuilds nothing if
+     * {@code added} is empty; re-checks only affected reachable sets.
      */
-    public List<String> evaluateCollection(CardPool collection) {
-        return evaluateCollection(collection, bellwardenSetCodes());
-    }
-
-    public synchronized List<String> evaluateCollection(CardPool collection, Collection<String> setCodes) {
+    public synchronized List<String> onCardsAdded(CardPool collection, Iterable<PaperCard> added) {
         ensureLoaded();
         if (collection == null) {
             return Collections.emptyList();
         }
-        Collection<String> codes = setCodes == null ? Collections.emptyList() : setCodes;
+        if (setTracker.getNameCounts().isEmpty()) {
+            setTracker.rebuildNameCounts(collection);
+        } else {
+            setTracker.applyAdds(added);
+        }
+        Set<String> affected = setTracker.affectedSets(added);
+        if (affected.isEmpty() && added != null) {
+            // Still allow a no-op when nothing maps to a reachable set.
+            return Collections.emptyList();
+        }
         List<String> justCompleted = new ArrayList<>();
-        for (String code : codes) {
-            if (code == null || code.isEmpty() || progress.getCompletedSets().contains(code)) {
+        for (String code : affected) {
+            if (progress.getCompletedSets().contains(code)) {
                 continue;
             }
-            if (ownsEveryDistinctMainCard(collection, code)) {
+            if (setTracker.ownsEveryFilteredCard(code)) {
                 justCompleted.add(code);
             }
         }
-        return applySetCompletions(justCompleted, codes);
+        return applySetCompletions(justCompleted, setTracker.reachableBellwardenSetCodes());
+    }
+
+    /**
+     * Full collection rebuild + set evaluation (rare; not for every screen open).
+     */
+    public synchronized List<String> evaluateCollection(CardPool collection) {
+        ensureLoaded();
+        if (collection == null) {
+            return Collections.emptyList();
+        }
+        setTracker.rebuildNameCounts(collection);
+        List<String> reachable = setTracker.reachableBellwardenSetCodes();
+        List<String> justCompleted = new ArrayList<>();
+        for (String code : reachable) {
+            if (progress.getCompletedSets().contains(code)) {
+                continue;
+            }
+            if (setTracker.ownsEveryFilteredCard(code)) {
+                justCompleted.add(code);
+            }
+        }
+        return applySetCompletions(justCompleted, reachable);
     }
 
     /**
@@ -333,15 +397,15 @@ public final class AchievementService {
      * collection path and by tests that stub ownership without a card database.
      *
      * @param justCompleted set codes newly completed this pass
-     * @param allBellwardenCodes full Bellwarden pool (for all-sets)
+     * @param allReachableCodes Bellwarden sets that can host a set plane
      */
     public synchronized List<String> applySetCompletions(Collection<String> justCompleted,
-                                                         Collection<String> allBellwardenCodes) {
+                                                         Collection<String> allReachableCodes) {
         ensureLoaded();
         List<String> newly = new ArrayList<>();
         int toastsLeft = toastMaxPerPass;
         boolean dirty = false;
-        Collection<String> codes = allBellwardenCodes == null ? Collections.emptyList() : allBellwardenCodes;
+        Collection<String> codes = allReachableCodes == null ? Collections.emptyList() : allReachableCodes;
 
         if (justCompleted != null) {
             for (String code : justCompleted) {
@@ -367,6 +431,7 @@ public final class AchievementService {
                         toastsLeft--;
                         dirty = true;
                     }
+                    recordSetCompleteExtras(def, code);
                 }
             }
         }
@@ -388,6 +453,9 @@ public final class AchievementService {
                 toastsLeft--;
                 dirty = true;
             }
+            if (progress.isUnlocked(def.id)) {
+                recordAllSetsCompleteExtras(def);
+            }
         }
 
         if (dirty) {
@@ -396,9 +464,55 @@ public final class AchievementService {
         return newly;
     }
 
+    private void recordSetCompleteExtras(AchievementData def, String setCode) {
+        long now = System.currentTimeMillis();
+        String styleId = "set_style:" + setCode;
+        if (def != null && def.reward != null && "cardstyle".equalsIgnoreCase(def.reward.type)
+                && def.reward.id != null && !def.reward.id.isEmpty()) {
+            styleId = def.reward.id + ":" + setCode;
+        }
+        String achId = def == null ? "set_collector" : def.id;
+        if (progress.addPendingCardStyleGrant(new PendingCardStyleGrant(styleId, setCode, achId, now))) {
+            hof().record("set_complete", "Set complete: " + setName(setCode),
+                    "Pending CS1 style " + styleId);
+        }
+    }
+
+    private void recordAllSetsCompleteExtras(AchievementData def) {
+        long now = System.currentTimeMillis();
+        String styleId = "all_sets_style";
+        if (def != null && def.reward != null && def.reward.id != null
+                && "cardstyle".equalsIgnoreCase(def.reward.type)) {
+            styleId = def.reward.id;
+        }
+        String achId = def == null ? "bellwarden_completionist" : def.id;
+        if (progress.addPendingCardStyleGrant(new PendingCardStyleGrant(styleId, "", achId, now))) {
+            hof().record("all_sets_complete", "Bellwarden Completionist",
+                    "Pending CS1 style " + styleId);
+        }
+    }
+
+    private HallOfFame hof() {
+        if (hallOfFame != null) {
+            return hallOfFame;
+        }
+        return HallOfFame.get();
+    }
+
     /**
-     * Evaluate counter-only achievements against {@link AchievementProgress} counters.
-     * Used by tests and by callers that bump counters without a full player snapshot.
+     * Increment an account-wide counter and evaluate counter / duelWins achievements.
+     * Used for {@code duelsWon} and {@code coopSessions}.
+     */
+    public synchronized int incrementCounter(String key, int by) {
+        ensureLoaded();
+        int next = progress.incrementCounter(key, by);
+        evaluateCounters();
+        saveQuietly();
+        return next;
+    }
+
+    /**
+     * Evaluate counter-only and duelWins achievements against account counters.
      */
     public synchronized List<String> evaluateCounters() {
         ensureLoaded();
@@ -408,16 +522,21 @@ public final class AchievementService {
             if (def == null || def.condition == null || def.condition.type == null) {
                 continue;
             }
-            if (!"counter".equalsIgnoreCase(def.condition.type)) {
+            String type = def.condition.type.toLowerCase(Locale.ROOT);
+            if (!"counter".equals(type) && !"duelwins".equals(type)) {
                 continue;
             }
             if (progress.isUnlocked(def.id)) {
                 continue;
             }
-            if (progress.getCounter(def.condition.key) >= Math.max(1, def.condition.count)) {
-                if (tryUnlock(def, null, newly, toastsLeft)) {
-                    toastsLeft--;
-                }
+            boolean met;
+            if ("duelwins".equals(type)) {
+                met = progress.getCounter("duelsWon") >= Math.max(1, def.condition.count);
+            } else {
+                met = progress.getCounter(def.condition.key) >= Math.max(1, def.condition.count);
+            }
+            if (met && tryUnlock(def, null, newly, toastsLeft)) {
+                toastsLeft--;
             }
         }
         if (!newly.isEmpty()) {
@@ -427,16 +546,14 @@ public final class AchievementService {
     }
 
     /**
-     * Evaluate player-state achievements (badges, league, skills, duel wins, counters).
+     * Evaluate player-state achievements (badges, league, skills). Does
+     * <em>not</em> copy save-local duel wins into the account counter.
      */
     public synchronized List<String> evaluatePlayer(AdventurePlayer player) {
         ensureLoaded();
         if (player == null) {
             return Collections.emptyList();
         }
-        // Derive durable counters from live stats so they survive without separate hooks.
-        progress.setCounter("duelsWon", player.getStatistic().totalWins());
-
         List<String> newly = new ArrayList<>();
         int toastsLeft = toastMaxPerPass;
         for (AchievementData def : AchievementListData.getAll()) {
@@ -458,16 +575,6 @@ public final class AchievementService {
         return newly;
     }
 
-    /** Full pass: collection then player. */
-    public List<String> evaluateAll(AdventurePlayer player) {
-        List<String> out = new ArrayList<>();
-        if (player != null) {
-            out.addAll(evaluateCollection(player.getCards()));
-            out.addAll(evaluatePlayer(player));
-        }
-        return out;
-    }
-
     private boolean tryUnlock(AchievementData def, String setQualifier, List<String> newly, int toastsLeft) {
         if (def == null || def.id == null) {
             return false;
@@ -478,7 +585,7 @@ public final class AchievementService {
             AchievementRewards.grant(progress, def.reward, def, setQualifier);
             newly.add(def.id);
             if (toastsLeft > 0) {
-                maybeToast(def);
+                maybeToast(def, setQualifier);
             }
             return true;
         }
@@ -490,6 +597,7 @@ public final class AchievementService {
                 maybeToast(def, setQualifier);
                 return true;
             }
+            return granted;
         }
         return false;
     }
@@ -545,15 +653,20 @@ public final class AchievementService {
         switch (type) {
             case "setcomplete": {
                 int have = progress.getCompletedSets().size();
-                int need = bellwardenSetCodes().size();
+                int need = setTracker.reachableBellwardenSetCodes().size();
                 return new ProgressView(progress.isUnlocked(def.id), have, need,
                         have + "/" + need + " sets");
             }
             case "allsetscomplete": {
-                int have = progress.getCompletedSets().size();
-                int need = bellwardenSetCodes().size();
-                boolean done = need > 0 && have >= need
-                        && progress.getCompletedSets().containsAll(bellwardenSetCodes());
+                List<String> reachable = setTracker.reachableBellwardenSetCodes();
+                int have = 0;
+                for (String code : reachable) {
+                    if (progress.getCompletedSets().contains(code)) {
+                        have++;
+                    }
+                }
+                int need = reachable.size();
+                boolean done = need > 0 && have >= need;
                 return new ProgressView(done || progress.isUnlocked(def.id), have, need,
                         have + "/" + need + " sets");
             }
@@ -605,7 +718,7 @@ public final class AchievementService {
             case "counter":
                 return progress.getCounter(c.key) >= Math.max(1, c.count);
             case "duelwins":
-                return player.getStatistic().totalWins() >= Math.max(1, c.count);
+                return progress.getCounter("duelsWon") >= Math.max(1, c.count);
             case "badgecount":
                 return player.getBadgeCount() >= Math.max(1, c.count);
             case "leaguechampion":
@@ -631,64 +744,9 @@ public final class AchievementService {
         }
     }
 
-    /**
-     * Own at least one copy of every distinct card name in the set's main card list
-     * ({@link CardEdition#getCards()}, not bonus sheets).
-     */
-    public static boolean ownsEveryDistinctMainCard(CardPool collection, String setCode) {
-        Set<String> names = distinctMainCardNames(setCode);
-        if (names.isEmpty() || collection == null) {
-            return false;
-        }
-        for (String name : names) {
-            if (collection.countByName(name) < 1) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public static Set<String> distinctMainCardNames(String setCode) {
-        LinkedHashSet<String> names = new LinkedHashSet<>();
-        if (setCode == null || setCode.isEmpty()) {
-            return names;
-        }
-        try {
-            if (FModel.getMagicDb() == null) {
-                return names;
-            }
-            CardEdition ed = FModel.getMagicDb().getEditions().get(setCode);
-            if (ed == null) {
-                return names;
-            }
-            List<CardEdition.EditionEntry> cards = ed.getCards();
-            if (cards == null) {
-                return names;
-            }
-            for (CardEdition.EditionEntry e : cards) {
-                if (e != null && e.name() != null && !e.name().isEmpty()) {
-                    names.add(e.name());
-                }
-            }
-        } catch (Throwable ignored) {
-            // Card DB unavailable in some headless tests.
-        }
-        return names;
-    }
-
-    /** Bellwarden sets = CORE / EXPANSION / DRAFT booster sets (same pool as StandardWindow). */
-    public static List<String> bellwardenSetCodes() {
-        try {
-            List<String> out = new ArrayList<>();
-            for (CardEdition ed : StandardWindow.boosterSets()) {
-                if (ed != null && ed.getCode() != null) {
-                    out.add(ed.getCode());
-                }
-            }
-            return out;
-        } catch (Throwable t) {
-            return Collections.emptyList();
-        }
+    /** Reachable Bellwarden set codes (generatable set planes). */
+    public List<String> reachableBellwardenSetCodes() {
+        return setTracker.reachableBellwardenSetCodes();
     }
 
     private static String setName(String code) {

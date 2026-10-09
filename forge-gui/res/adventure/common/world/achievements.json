@@ -11,7 +11,7 @@
   {
     "id": "bellwarden_completionist",
     "name": "Bellwarden Completionist",
-    "description": "Own every card in every Bellwarden set.",
+    "description": "Own every card in every Bellwarden set that can host a set plane.",
     "category": "collection",
     "condition": { "type": "allSetsComplete" },
     "hidden": false,

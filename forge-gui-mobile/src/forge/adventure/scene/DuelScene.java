@@ -312,7 +312,13 @@ public class DuelScene extends ForgeScene {
             Forge.advFreezePlayerControls = false;
             Scene last = Forge.switchToLast();
             Current.player().getStatistic().setResult(enemyName, winner);
-            // AC1: account-wide duel-win achievements (local only; guests keep their own file).
+            // AC1: account-wide duel-win counter (not copied from the save; guests stay local).
+            if (winner && Config.ascendant()) {
+                try {
+                    forge.adventure.player.AchievementService.get().incrementCounter("duelsWon", 1);
+                } catch (Throwable ignored) {
+                }
+            }
             if (Config.ascendant()) {
                 try {
                     forge.adventure.player.AchievementService.get().evaluatePlayer(Current.player());

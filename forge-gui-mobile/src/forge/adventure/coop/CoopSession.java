@@ -126,6 +126,20 @@ public final class CoopSession {
         return INSTANCE;
     }
 
+    /**
+     * AC1: bump the account-wide {@code coopSessions} counter when a co-op
+     * session becomes ready (host or guest). Local only — never sent on the wire.
+     */
+    static void noteCoopSessionStarted() {
+        try {
+            if (!forge.adventure.util.Config.ascendant()) {
+                return;
+            }
+            forge.adventure.player.AchievementService.get().incrementCounter("coopSessions", 1);
+        } catch (final Exception ignored) {
+        }
+    }
+
     public CoopSessionRole getRole() {
         return role;
     }
@@ -845,6 +859,7 @@ public final class CoopSession {
                 peerName = ((CoopSessionReadyEvent) event).getPeerName();
                 attachDuelRuntime();
                 status("Session ready with " + peerName);
+                noteCoopSessionStarted();
                 try {
                     CoopOverworldRuntime.get().onSessionReady();
                 } catch (final Exception ignored) {
@@ -1092,6 +1107,7 @@ public final class CoopSession {
             attachDuelRuntime();
             send(new CoopSessionReadyEvent(false, WorldSave.getCurrentSave().getPlayer().getName(), worldHash));
             status("Session ready with host " + hostName);
+            noteCoopSessionStarted();
             try {
                 CoopOverworldRuntime.get().onSessionReady();
             } catch (final Exception ignored) {

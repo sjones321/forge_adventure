@@ -3,10 +3,15 @@ package forge.adventure;
 import forge.adventure.data.AchievementData;
 import forge.adventure.data.AchievementListData;
 import forge.adventure.data.AchievementRewardData;
+import forge.adventure.player.AccountStore;
 import forge.adventure.player.AchievementProgress;
 import forge.adventure.player.AchievementRewards;
 import forge.adventure.player.AchievementService;
+import forge.adventure.player.AchievementSetTracker;
+import forge.adventure.player.HallOfFame;
+import forge.adventure.player.PendingCardStyleGrant;
 import forge.adventure.util.AtomicJsonFiles;
+import forge.adventure.util.Paths;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -18,17 +23,21 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
- * Headless AC1 coverage: JSON load, unlock/persist, prestige survival,
- * set / all-sets conditions, toast-once, corrupt-file recovery, UTF-8 no BOM.
+ * Headless AC1 coverage: reachability filters, incremental re-check, account-wide
+ * counters, USER_ADVENTURE_DIR/account path + migration, stock statistic.json,
+ * pending CS1 grants, plus unlock/persist/toast/corrupt recovery.
  */
 public class AchievementsAc1Test {
 
     private Path tempDir;
     private Path achievementsFile;
     private AchievementService svc;
+    private HallOfFame hof;
     private final List<String> toasts = new ArrayList<>();
 
     private static final String DEFS = "[\n"
@@ -38,7 +47,10 @@ public class AchievementsAc1Test {
             + "  {\"id\":\"bellwarden_completionist\",\"name\":\"Bellwarden Completionist\","
             + "\"description\":\"Own every set.\",\"category\":\"collection\","
             + "\"condition\":{\"type\":\"allSetsComplete\"},\"hidden\":false,"
-            + "\"reward\":{\"type\":\"title\",\"id\":\"Bellwarden Completionist\"}},\n"
+            + "\"reward\":{\"type\":\"cardStyle\",\"id\":\"all_sets_style\"}},\n"
+            + "  {\"id\":\"first_duel_win\",\"name\":\"First Blood\",\"description\":\"Win once.\","
+            + "\"category\":\"collection\",\"condition\":{\"type\":\"duelWins\",\"count\":1},"
+            + "\"hidden\":false,\"reward\":{\"type\":\"trophy\",\"id\":\"first_win\"}},\n"
             + "  {\"id\":\"coop_first_session\",\"name\":\"Together\",\"description\":\"Co-op once.\","
             + "\"category\":\"coop\",\"condition\":{\"type\":\"counter\",\"key\":\"coopSessions\",\"count\":1},"
             + "\"hidden\":false,\"reward\":{\"type\":\"trophy\",\"id\":\"coop_together\"}},\n"
@@ -50,11 +62,16 @@ public class AchievementsAc1Test {
     @BeforeMethod
     public void setUp() throws Exception {
         AchievementService.resetInstance();
+        HallOfFame.resetInstance();
         AchievementListData.clear();
         tempDir = Files.createTempDirectory("ac1-achievements");
-        achievementsFile = tempDir.resolve("achievements.json");
+        achievementsFile = tempDir.resolve("account").resolve("achievements.json");
+        Files.createDirectories(achievementsFile.getParent());
         AchievementListData.loadFromJsonText(DEFS);
         svc = AchievementService.forTest(achievementsFile.toFile());
+        hof = new HallOfFame(tempDir.resolve("account").resolve("hall_of_fame.json"));
+        svc.setHallOfFame(hof);
+        HallOfFame.setInstance(hof);
         toasts.clear();
         svc.setToastSink(toasts::add);
         svc.setToastEnabled(true);
@@ -65,6 +82,7 @@ public class AchievementsAc1Test {
     @AfterMethod
     public void tearDown() throws Exception {
         AchievementService.resetInstance();
+        HallOfFame.resetInstance();
         AchievementListData.clear();
         if (tempDir != null && Files.isDirectory(tempDir)) {
             try (var walk = Files.walk(tempDir)) {
@@ -81,7 +99,7 @@ public class AchievementsAc1Test {
     @Test
     public void achievementsJsonLoads() {
         Assert.assertNotNull(AchievementListData.get("set_collector"));
-        Assert.assertEquals(AchievementListData.getAll().size(), 4);
+        Assert.assertEquals(AchievementListData.getAll().size(), 5);
         AchievementData set = AchievementListData.get("set_collector");
         Assert.assertEquals(set.name, "Set Collector");
         Assert.assertEquals(set.condition.type, "setComplete");
@@ -101,6 +119,14 @@ public class AchievementsAc1Test {
         Assert.assertTrue(AchievementListData.getAll().size() >= 5);
         Assert.assertNotNull(AchievementListData.get("set_collector"));
         Assert.assertNotNull(AchievementListData.get("bellwarden_completionist"));
+        Assert.assertTrue(AchievementListData.get("bellwarden_completionist").description
+                .contains("set plane"));
+    }
+
+    @Test
+    public void pathsAchievementsConstantAfterGyms() {
+        Assert.assertEquals(Paths.ACHIEVEMENTS, "world/achievements.json");
+        Assert.assertEquals(Paths.GYMS, "world/gyms.json");
     }
 
     @Test
@@ -136,6 +162,199 @@ public class AchievementsAc1Test {
         Assert.assertEquals(Files.readString(achievementsFile, StandardCharsets.UTF_8), before);
     }
 
+    /**
+     * Reachability: filtered name lists exclude restricted / no-script / never-rewardable
+     * cards. Completing a set only requires the filtered names; "every set" is the
+     * Bellwarden reachable list (generatable set planes), not every booster.
+     */
+    @Test
+    public void setCompletionUsesFilteredReachableNamesOnly() {
+        AchievementSetTracker tracker = svc.getSetTracker();
+        // SET_A "edition" has ExtraRestricted and NoScript in the full list, but filters
+        // leave only A1/A2 — matching RewardData reachability exclusions.
+        tracker.putFilteredNamesForTest("SET_A", Arrays.asList("A1", "A2"));
+        tracker.putFilteredNamesForTest("SET_B", Arrays.asList("B1", "B2"));
+        // Unreachable booster (too few reward-reachable cards / not Bellwarden plane).
+        tracker.putFilteredNamesForTest("PROMO", Collections.singletonList("PromoOnly"));
+        tracker.setReachableForTest(Arrays.asList("SET_A", "SET_B"));
+
+        tracker.setNameCountForTest("A1", 1);
+        tracker.setNameCountForTest("A2", 1);
+        // Owning ExtraRestricted / NoScript must not be required.
+        Assert.assertTrue(tracker.ownsEveryFilteredCard("SET_A"));
+        Assert.assertFalse(tracker.ownsEveryFilteredCard("SET_B"));
+        Assert.assertFalse(tracker.ownsEveryFilteredCard("PROMO"),
+                "empty-of-ownership promo set must not count as complete");
+
+        List<String> reachable = tracker.reachableBellwardenSetCodes();
+        Assert.assertEquals(reachable, Arrays.asList("SET_A", "SET_B"));
+        Assert.assertFalse(reachable.contains("PROMO"),
+                "every set = Bellwarden generatable set planes only");
+
+        List<String> newly = svc.applySetCompletions(Collections.singletonList("SET_A"), reachable);
+        Assert.assertTrue(newly.contains("set_collector"));
+        Assert.assertFalse(svc.getProgress().isUnlocked("bellwarden_completionist"));
+
+        tracker.setNameCountForTest("B1", 1);
+        tracker.setNameCountForTest("B2", 1);
+        newly = svc.applySetCompletions(Collections.singletonList("SET_B"), reachable);
+        Assert.assertTrue(newly.contains("bellwarden_completionist")
+                || svc.getProgress().isUnlocked("bellwarden_completionist"));
+        Assert.assertTrue(svc.getProgress().getCompletedSets().containsAll(reachable));
+        Assert.assertFalse(svc.getProgress().getCompletedSets().contains("PROMO"));
+    }
+
+    /**
+     * Incremental re-check: only editions / sets touched by the added card names
+     * are re-evaluated; unrelated sets are left alone.
+     */
+    @Test
+    public void incrementalRecheckOnlyAffectedSets() {
+        AchievementSetTracker tracker = svc.getSetTracker();
+        tracker.putFilteredNamesForTest("SET_A", Arrays.asList("A1", "A2"));
+        tracker.putFilteredNamesForTest("SET_B", Arrays.asList("B1", "B2"));
+        tracker.setReachableForTest(Arrays.asList("SET_A", "SET_B"));
+        tracker.setNameCountForTest("A1", 1);
+        tracker.setNameCountForTest("B1", 1);
+
+        Set<String> affected = tracker.affectedSets(
+                Collections.singletonList("A2"), Collections.singletonList("SET_A"));
+        Assert.assertEquals(affected, new HashSet<>(Collections.singletonList("SET_A")));
+        Assert.assertFalse(affected.contains("SET_B"));
+
+        // Unrelated name in an unreachable edition → no Bellwarden re-check.
+        Set<String> none = tracker.affectedSets(
+                Collections.singletonList("Zzz"), Collections.singletonList("XYZ"));
+        Assert.assertTrue(none.isEmpty());
+
+        // Adding the last card of SET_A completes only SET_A.
+        tracker.applyAdds(Collections.emptyList()); // name map already seeded
+        tracker.setNameCountForTest("A2", 1);
+        Assert.assertTrue(tracker.ownsEveryFilteredCard("SET_A"));
+        Assert.assertFalse(tracker.ownsEveryFilteredCard("SET_B"));
+        List<String> newly = svc.applySetCompletions(
+                Collections.singletonList("SET_A"), tracker.reachableBellwardenSetCodes());
+        Assert.assertTrue(newly.contains("set_collector"));
+        Assert.assertFalse(svc.getProgress().getCompletedSets().contains("SET_B"));
+    }
+
+    @Test
+    public void accountWideDuelWinsAndCoopSessionsCounters() {
+        Assert.assertEquals(svc.getProgress().getCounter("duelsWon"), 0);
+        Assert.assertEquals(svc.getProgress().getCounter("coopSessions"), 0);
+
+        // evaluatePlayer / evaluateCounters must NOT invent wins from a save.
+        Assert.assertTrue(svc.evaluateCounters().isEmpty());
+        Assert.assertFalse(svc.getProgress().isUnlocked("first_duel_win"));
+
+        Assert.assertEquals(svc.incrementCounter("duelsWon", 1), 1);
+        Assert.assertTrue(svc.getProgress().isUnlocked("first_duel_win"));
+        Assert.assertEquals(svc.incrementCounter("duelsWon", 1), 2);
+        Assert.assertEquals(svc.getProgress().getCounter("duelsWon"), 2);
+
+        Assert.assertEquals(svc.incrementCounter("coopSessions", 1), 1);
+        Assert.assertTrue(svc.getProgress().isUnlocked("coop_first_session"));
+        Assert.assertEquals(svc.incrementCounter("coopSessions", 1), 2);
+    }
+
+    @Test
+    public void accountPathIsUserAdventureDirAccountNotPerPlane() {
+        java.io.File account = AccountStore.accountDir(tempDir.toFile());
+        Assert.assertEquals(account.getName(), "account");
+        Assert.assertEquals(account.getParentFile().getAbsolutePath(), tempDir.toFile().getAbsolutePath());
+        java.io.File file = AccountStore.achievementsFile(tempDir.toFile());
+        Assert.assertEquals(file.getParentFile().getName(), "account");
+        Assert.assertFalse(file.getAbsolutePath().contains("Shandalar Ascendant"
+                + java.io.File.separator + "account"));
+        Assert.assertTrue(file.getAbsolutePath().endsWith(
+                "account" + java.io.File.separator + AccountStore.ACHIEVEMENTS_FILE));
+    }
+
+    @Test
+    public void migratesLegacyPerPlaneAchievementsFile() throws Exception {
+        Path adventureRoot = tempDir.resolve("adventure-root");
+        Path legacy = adventureRoot.resolve("Shandalar Ascendant").resolve("account")
+                .resolve(AccountStore.ACHIEVEMENTS_FILE);
+        Files.createDirectories(legacy.getParent());
+        AchievementProgress legacyProgress = new AchievementProgress();
+        legacyProgress.unlock("coop_first_session", 42L);
+        legacyProgress.setCounter("coopSessions", 3);
+        Files.writeString(legacy, AchievementService.toJson(legacyProgress), StandardCharsets.UTF_8);
+
+        java.io.File dest = AccountStore.achievementsFile(adventureRoot.toFile());
+        Assert.assertTrue(dest.isFile(), "migration must create account-wide file");
+        Assert.assertTrue(Files.isRegularFile(legacy.resolveSibling(
+                AccountStore.ACHIEVEMENTS_FILE + ".migrated")));
+        Assert.assertFalse(Files.isRegularFile(legacy), "legacy file renamed after migrate");
+
+        AchievementService migrated = AchievementService.forTest(dest);
+        migrated.load();
+        Assert.assertTrue(migrated.getProgress().isUnlocked("coop_first_session"));
+        Assert.assertEquals(migrated.getProgress().getCounter("coopSessions"), 3);
+    }
+
+    @Test
+    public void stockStatisticJsonUnchangedNoAwardsButton() throws Exception {
+        List<Path> found = new ArrayList<>();
+        for (String rel : new String[] {
+                "forge-gui/res/adventure/common/ui/statistic.json",
+                "forge-gui/res/adventure/common/ui/statistic_portrait.json",
+                "../forge-gui/res/adventure/common/ui/statistic.json",
+                "../forge-gui/res/adventure/common/ui/statistic_portrait.json"
+        }) {
+            Path p = Path.of(rel);
+            if (Files.isRegularFile(p)) {
+                found.add(p);
+            }
+        }
+        Assert.assertFalse(found.isEmpty(), "statistic.json not found relative to test cwd");
+        for (Path p : found) {
+            String text = Files.readString(p, StandardCharsets.UTF_8);
+            Assert.assertFalse(text.contains("\"name\": \"achievements\""),
+                    "stock UI must not embed Awards button: " + p);
+            Assert.assertFalse(text.contains("\"text\": \"Awards\""),
+                    "stock UI must not embed Awards label: " + p);
+            // Back must stay at stock y (landscape 224) — not shifted onto blessingInfo.
+            if (p.getFileName().toString().equals("statistic.json")) {
+                Assert.assertTrue(text.contains("\"y\": 224"),
+                        "Back / nav row should keep stock y=224: " + p);
+            }
+        }
+    }
+
+    @Test
+    public void setCompletionRecordsPendingCs1GrantAndHof() {
+        List<String> bellwarden = Arrays.asList("SET_A", "SET_B");
+        svc.applySetCompletions(Collections.singletonList("SET_A"), bellwarden);
+
+        List<PendingCardStyleGrant> pending = svc.getProgress().getPendingCardStyleGrants();
+        Assert.assertFalse(pending.isEmpty(), "set complete must queue pending CS1 grant");
+        boolean found = false;
+        for (PendingCardStyleGrant g : pending) {
+            if ("SET_A".equals(g.setCode) && g.styleId.contains("SET_A")) {
+                found = true;
+                Assert.assertEquals(g.achievementId, "set_collector");
+            }
+        }
+        Assert.assertTrue(found, "pending grant should carry set code + style id");
+        Assert.assertTrue(svc.getProgress().getCardStyles().stream()
+                .anyMatch(s -> s.contains("SET_A")));
+
+        List<?> hofEntries = hof.getEntries();
+        Assert.assertFalse(hofEntries.isEmpty(), "HoF stub entry for set complete");
+        Assert.assertTrue(hofEntries.toString().contains("set_complete")
+                || hofEntries.toString().contains("Set complete"));
+
+        svc.applySetCompletions(Collections.singletonList("SET_B"), bellwarden);
+        Assert.assertTrue(svc.getProgress().isUnlocked("bellwarden_completionist"));
+        Assert.assertTrue(svc.getProgress().getPendingCardStyleGrants().stream()
+                .anyMatch(g -> "all_sets_style".equals(g.styleId)
+                        || "all_sets_style".equals(g.styleId) && g.achievementId.equals("bellwarden_completionist")));
+        Assert.assertTrue(svc.getProgress().getCardStyles().contains("all_sets_style"));
+        Assert.assertTrue(hof.getEntries().toString().contains("all_sets")
+                || hof.getEntries().toString().contains("Completionist"));
+    }
+
     @Test
     public void setCompletionAndAllSets() {
         List<String> bellwarden = Arrays.asList("SET_A", "SET_B");
@@ -149,7 +368,6 @@ public class AchievementsAc1Test {
         Assert.assertTrue(svc.getProgress().getCompletedSets().containsAll(bellwarden));
         Assert.assertTrue(second.contains("bellwarden_completionist")
                 || svc.getProgress().isUnlocked("bellwarden_completionist"));
-        Assert.assertTrue(svc.getProgress().getTitles().contains("Bellwarden Completionist"));
         Assert.assertTrue(svc.getProgress().getTrophies().contains("set_complete:SET_B"));
     }
 
@@ -233,6 +451,7 @@ public class AchievementsAc1Test {
         p.addTitle("Champion");
         p.addTrophy("t1");
         p.addCardStyle("style1");
+        p.addPendingCardStyleGrant(new PendingCardStyleGrant("set_style:MH3", "MH3", "set_collector", 99L));
         p.setCounter("duelsWon", 7);
         String json = AchievementService.toJson(p);
         AchievementProgress back = AchievementService.parseProgress(json);
@@ -242,6 +461,8 @@ public class AchievementsAc1Test {
         Assert.assertTrue(back.getTitles().contains("Champion"));
         Assert.assertTrue(back.getTrophies().contains("t1"));
         Assert.assertTrue(back.getCardStyles().contains("style1"));
+        Assert.assertEquals(back.getPendingCardStyleGrants().size(), 1);
+        Assert.assertEquals(back.getPendingCardStyleGrants().get(0).setCode, "MH3");
         Assert.assertEquals(back.getCounter("duelsWon"), 7);
     }
 }
