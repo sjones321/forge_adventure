@@ -17,7 +17,6 @@ import forge.adventure.util.Config;
 import forge.adventure.util.Paths;
 import forge.item.PaperCard;
 import forge.localinstance.properties.ForgeConstants;
-import forge.util.IterableUtil;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -389,17 +388,10 @@ public class AchievementsAc1Test {
         PaperCard unsupported = PaperCard.FAKE_CARD;
         Assert.assertTrue(unsupported.getRules().isUnsupported());
 
+        // Ascendant's extra filter is the isUnsupported gate (does not need StaticData).
         Predicate<PaperCard> unsupportedGate = ascFilters.get(ascFilters.size() - 1);
         Assert.assertFalse(unsupportedGate.test(unsupported),
                 "Ascendant isUnsupported filter must reject unsupported cards");
-
-        // Stock filter list must not include an isUnsupported clause: none of its
-        // predicates may be the Ascendant-only gate (same size already proves this;
-        // also confirm AND(stock)+gate rejects FAKE_CARD while the gate alone does).
-        Predicate<PaperCard> stockAnd = stockFilters.isEmpty()
-                ? pc -> true
-                : IterableUtil.and(stockFilters);
-        Assert.assertFalse(IterableUtil.and(Arrays.asList(stockAnd, unsupportedGate)).test(unsupported));
     }
 
     @Test
