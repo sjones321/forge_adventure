@@ -912,12 +912,21 @@ public final class EnemyThemeDecks {
                 return tribal;
         }
         if (FORMAT_COMMANDER.equals(fmt)) {
+            int main = deck.getMain().countAll();
+            int cmdN = deck.getCommanders() != null ? deck.getCommanders().size() : 0;
+            if (main != 100 - Math.max(cmdN, 1) || cmdN < 1)
+                return "Commander main has " + main + " cards with " + cmdN
+                        + " commanders (need exactly 99+1)";
             int nonLand = countNonLandsAll(deck);
             if (nonLand < MIN_NONLAND_COMMANDER)
                 return "only " + nonLand + " nonland cards (need " + MIN_NONLAND_COMMANDER + ")";
             String tribal = tribalCreatureCountProblem(deck, theme, fmt);
             if (tribal != null)
                 return tribal;
+            int interaction = countCommanderInteractionSpells(deck);
+            if (interaction < MIN_COMMANDER_INTERACTION_SPELLS)
+                return "only " + interaction + " interaction spells (need "
+                        + MIN_COMMANDER_INTERACTION_SPELLS + ")";
         }
         return null;
     }
@@ -2130,7 +2139,161 @@ public final class EnemyThemeDecks {
             main.add(land);
         }
         enforceFillerCap(deck, theme, maxFiller);
+        // Authoritative size: prior loops can leave ≠99 (filler cap, land-band pad).
+        normalizeCommanderMainSize(deck, theme);
         return deck;
+    }
+
+    /**
+     * Final Commander main-deck size lock: exactly {@code 100 - |commanders|} cards.
+     * Trims basics then filler first; never removes core cards or interaction spells
+     * that would drop below {@link #MIN_COMMANDER_INTERACTION_SPELLS}. Fills with CI
+     * basics (within the land band) then missing core singletons. Fails loudly if
+     * the target cannot be reached without breaking those invariants.
+     */
+    public static void normalizeCommanderMainSize(Deck deck, EnemyThemeData theme) {
+        if (deck == null)
+            throw new IllegalArgumentException("normalizeCommanderMainSize: deck is null");
+        List<PaperCard> commanders = deck.getCommanders();
+        if (commanders == null || commanders.isEmpty())
+            throw new IllegalStateException("normalizeCommanderMainSize: missing commander");
+        final int needMain = 100 - commanders.size();
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        byte ci = 0;
+        for (PaperCard cmd : commanders) {
+            if (cmd != null && cmd.getRules() != null)
+                ci |= cmd.getRules().getColorIdentity().getColor();
+        }
+        String[] pad = colorsFromMask(ci);
+        if (pad.length == 0)
+            pad = theme != null && theme.colors != null && theme.colors.length > 0
+                    ? theme.colors : new String[]{"blue"};
+
+        int guard = 0;
+        while (main.countAll() > needMain && guard++ < 200) {
+            PaperCard remove = pickCommanderNormalizeTrimVictim(deck, theme);
+            if (remove == null) {
+                throw new IllegalStateException(
+                        "normalizeCommanderMainSize: cannot trim main from "
+                                + main.countAll() + " to " + needMain
+                                + " without removing core cards or the interaction spell floor"
+                                + (theme != null ? " (theme=" + theme.id + ")" : ""));
+            }
+            main.remove(remove);
+        }
+        guard = 0;
+        while (main.countAll() < needMain && guard++ < 200) {
+            PaperCard add = pickCommanderNormalizeFillCard(deck, theme, ci, pad);
+            if (add == null) {
+                throw new IllegalStateException(
+                        "normalizeCommanderMainSize: cannot fill main from "
+                                + main.countAll() + " to " + needMain
+                                + (theme != null ? " (theme=" + theme.id + ")" : ""));
+            }
+            main.add(preferPaperPrinting(add));
+        }
+        if (main.countAll() != needMain) {
+            throw new IllegalStateException(
+                    "normalizeCommanderMainSize: main has " + main.countAll()
+                            + " cards after normalize (need " + needMain + ")"
+                            + (theme != null ? " theme=" + theme.id : ""));
+        }
+    }
+
+    /** Test hook for {@link #normalizeCommanderMainSize}. */
+    public static void normalizeCommanderMainSizeForTests(Deck deck, EnemyThemeData theme) {
+        normalizeCommanderMainSize(deck, theme);
+    }
+
+    private static int countCommanderInteractionSpells(Deck deck) {
+        int n = 0;
+        for (var e : deck.getMain()) {
+            PaperCard pc = e.getKey();
+            if (pc == null || !isNonCreatureSpell(pc))
+                continue;
+            if (isCommanderInteractionName(pc.getName()))
+                n += e.getValue();
+        }
+        return n;
+    }
+
+    /**
+     * Trim victim for Commander size normalize: basics first (while lands stay at or
+     * above {@link #MIN_LANDS_COMMANDER} when possible), then non-core filler. Never
+     * core cards; never an interaction spell that would breach the floor.
+     */
+    private static PaperCard pickCommanderNormalizeTrimVictim(Deck deck, EnemyThemeData theme) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        int lands = countLands(deck);
+        if (lands > MIN_LANDS_COMMANDER) {
+            for (PaperCard pc : main.toFlatList()) {
+                if (pc != null && pc.getRules() != null && pc.getRules().getType().isBasicLand())
+                    return pc;
+            }
+            for (PaperCard pc : main.toFlatList()) {
+                if (pc != null && pc.getRules() != null && pc.getRules().getType().isLand())
+                    return pc;
+            }
+        }
+        // Non-core filler creatures / non-interaction spells first.
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
+                continue;
+            if (theme != null && isInCore(pc.getName(), theme))
+                continue;
+            if (isCommanderInteractionName(pc.getName())
+                    && countCommanderInteractionSpells(deck) <= MIN_COMMANDER_INTERACTION_SPELLS)
+                continue;
+            return pc;
+        }
+        // Excess basics even at/under the land band — last resort before failing.
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc != null && pc.getRules() != null && pc.getRules().getType().isBasicLand())
+                return pc;
+        }
+        return null;
+    }
+
+    private static PaperCard pickCommanderNormalizeFillCard(Deck deck, EnemyThemeData theme,
+                                                            byte ci, String[] pad) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        // 1) Basics within the Commander land band.
+        if (countLands(deck) < MAX_LANDS_COMMANDER) {
+            PaperCard land = cardByName(basicForColor(pad[main.countAll() % pad.length]));
+            if (land != null)
+                return land;
+        }
+        // 2) Missing core singletons (CI-legal, not the commander).
+        if (theme != null && theme.core != null) {
+            Set<String> cmdNames = new HashSet<>();
+            if (deck.getCommanders() != null) {
+                for (PaperCard cmd : deck.getCommanders()) {
+                    if (cmd != null)
+                        cmdNames.add(cmd.getName());
+                }
+            }
+            for (String name : theme.core) {
+                if (name == null || cmdNames.contains(name) || main.countByName(name) > 0)
+                    continue;
+                if (!isInCore(name, theme))
+                    continue;
+                PaperCard pc = cardByName(name);
+                if (pc == null || pc.getRules() == null)
+                    continue;
+                if (pc.getRules().getType().isLand())
+                    continue;
+                if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(name)
+                        || isEnemyBanned(name))
+                    continue;
+                if (ci != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
+                        && !pc.getRules().getColorIdentity().isColorless())
+                    continue;
+                return pc;
+            }
+        }
+        // 3) One more basic even if at MAX lands — better than failing when short by 1–2.
+        PaperCard land = cardByName(basicForColor(pad[main.countAll() % pad.length]));
+        return land;
     }
 
     /** Strip lands and rebuild exactly {@code landBudget} CI-matched basics + fixing. */
