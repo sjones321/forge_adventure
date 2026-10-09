@@ -95,20 +95,24 @@ installer and confirm the GPU appears in the server’s device list.
 
 ### AMD on Windows (RX 9070-class and similar)
 
-Two practical routes:
+On Windows these are **different stacks** — pick the one that matches your tool:
 
-1. **Vulkan** — LM Studio and llama.cpp can use a Vulkan backend on Windows. This is often
-   the simplest way to get GPU acceleration without a full ROCm stack. In LM Studio, pick the
-   Vulkan runtime/hardware provider if ROCm is unavailable or fails to detect the card.
-2. **ROCm** — AMD’s ROCm line (including **ROCm 7.2** for RDNA 4 / RX 9070-class support in
-   current AMD material) plus HIP/PyTorch-based stacks is the compute path used by some
-   local servers. Support and Windows packaging change over time; follow AMD’s current ROCm
-   docs and your server’s AMD/GPU notes rather than pinning an old installer from memory.
-   If the server only sees the CPU, fall back to Vulkan or check that the HIP/ROCm libraries
-   match your GPU.
+| Path | What it is | Use with |
+|---|---|---|
+| **Vulkan** | Portable GPU compute via the Adrenalin Vulkan driver | **llama.cpp**, **LM Studio**, and **Ollama** (their usual / recommended Windows GPU path for local chat servers) |
+| **ROCm 7.2 + HIP / PyTorch** | AMD’s HIP SDK / ROCm Windows stack ([system requirements](https://rocm.docs.amd.com/projects/install-on-windows/en/docs-7.2/reference/system-requirements.html) list RX 9070 / 9070 XT as supported) | **PyTorch**-based training and inference (and other HIP apps). This is *not* the default path Ascendant expects for llama.cpp / LM Studio / Ollama |
+
+For Ascendant’s local OpenAI-compatible servers on an RX 9070-class card:
+
+1. Prefer **Vulkan** in LM Studio (Vulkan runtime), llama.cpp (Vulkan build), and Ollama
+   (Vulkan is enabled by default on Windows when the backend is present; see
+   [Ollama Windows](https://docs.ollama.com/windows) / [GPU](https://docs.ollama.com/gpu) docs).
+2. Use **ROCm 7.2 / HIP** when you specifically need the PyTorch ecosystem on that GPU —
+   follow AMD’s current Windows HIP SDK install docs, not a copied ROCm Linux recipe.
 
 Always confirm with the server log that the Radeon is listed as a compute device before a
-duel.
+duel. If a llama.cpp / LM Studio / Ollama install only shows the CPU, switch that app to its
+Vulkan backend rather than assuming a PyTorch ROCm install will fix it.
 
 ## Privacy
 

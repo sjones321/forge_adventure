@@ -6,8 +6,19 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.AclEntry;
+import java.nio.file.attribute.AclEntryPermission;
+import java.nio.file.attribute.AclEntryType;
+import java.nio.file.attribute.AclFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.UserPrincipal;
+import java.util.EnumSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Set;
 
 /**
  * Local-only LLM opponent settings for Ascendant. Stored in {@code llm_opponent.properties}
@@ -56,8 +67,9 @@ public final class LlmSettings {
         return apiKey;
     }
 
+    /** Trims leading/trailing whitespace. Never log or display the raw value. */
     public void setApiKey(String apiKey) {
-        this.apiKey = apiKey == null ? "" : apiKey;
+        this.apiKey = apiKey == null ? "" : apiKey.trim();
     }
 
     public boolean hasApiKey() {
@@ -106,6 +118,22 @@ public final class LlmSettings {
         return enabled && !baseUrl.isBlank() && !model.isBlank();
     }
 
+    /** URL + model are enough for the settings Test button (Enable may be off). */
+    public boolean canTest() {
+        return !baseUrl.isBlank() && !model.isBlank();
+    }
+
+    /** Independent copy for Test snapshots; mutations do not affect the source. */
+    public LlmSettings copy() {
+        LlmSettings s = new LlmSettings();
+        s.enabled = enabled;
+        s.baseUrl = baseUrl;
+        s.apiKey = apiKey;
+        s.model = model;
+        s.timeoutSeconds = timeoutSeconds;
+        return s;
+    }
+
     /** Directory from {@code forge.llm.dir}, or the user home as a last resort. */
     public static File settingsDir() {
         String d = System.getProperty("forge.llm.dir");
@@ -132,9 +160,9 @@ public final class LlmSettings {
             return s;
         }
         s.enabled = "true".equalsIgnoreCase(p.getProperty(PROP_ENABLED, "false").trim());
-        s.baseUrl = p.getProperty(PROP_BASE_URL, DEFAULT_BASE_URL).trim();
-        s.apiKey = p.getProperty(PROP_API_KEY, "");
-        s.model = p.getProperty(PROP_MODEL, DEFAULT_MODEL).trim();
+        s.setBaseUrl(p.getProperty(PROP_BASE_URL, DEFAULT_BASE_URL));
+        s.setApiKey(p.getProperty(PROP_API_KEY, ""));
+        s.setModel(p.getProperty(PROP_MODEL, DEFAULT_MODEL));
         try {
             s.setTimeoutSeconds(Integer.parseInt(p.getProperty(PROP_TIMEOUT, String.valueOf(DEFAULT_TIMEOUT_SECONDS)).trim()));
         } catch (NumberFormatException ignored) {
@@ -161,6 +189,60 @@ public final class LlmSettings {
         p.setProperty(PROP_TIMEOUT, Integer.toString(timeoutSeconds));
         try (OutputStream out = new FileOutputStream(file)) {
             p.store(out, "Forge Adventure LLM opponent (local only; not part of the save)");
+        }
+        restrictOwnerOnly(file);
+    }
+
+    /**
+     * Best-effort owner-only access: POSIX {@code 600} when supported; otherwise
+     * {@link File#setReadable}/{@link File#setWritable} owner-only and, on Windows,
+     * an ACL that allows only the file owner. Failures are ignored.
+     */
+    public static void restrictOwnerOnly(File file) {
+        if (file == null || !file.isFile()) {
+            return;
+        }
+        Path path = file.toPath();
+        try {
+            Set<PosixFilePermission> perms = EnumSet.of(
+                    PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
+            Files.setPosixFilePermissions(path, perms);
+            return;
+        } catch (UnsupportedOperationException ignored) {
+            // non-POSIX (e.g. Windows default FS)
+        } catch (IOException ignored) {
+        }
+        try {
+            // Clear broader access, then grant owner read/write only.
+            file.setReadable(false, false);
+            file.setWritable(false, false);
+            file.setExecutable(false, false);
+            file.setReadable(true, true);
+            file.setWritable(true, true);
+        } catch (SecurityException ignored) {
+        }
+        try {
+            AclFileAttributeView view = Files.getFileAttributeView(path, AclFileAttributeView.class);
+            if (view == null) {
+                return;
+            }
+            UserPrincipal owner = Files.getOwner(path);
+            AclEntry entry = AclEntry.newBuilder()
+                    .setType(AclEntryType.ALLOW)
+                    .setPrincipal(owner)
+                    .setPermissions(
+                            AclEntryPermission.READ_DATA,
+                            AclEntryPermission.WRITE_DATA,
+                            AclEntryPermission.APPEND_DATA,
+                            AclEntryPermission.READ_ATTRIBUTES,
+                            AclEntryPermission.WRITE_ATTRIBUTES,
+                            AclEntryPermission.READ_NAMED_ATTRS,
+                            AclEntryPermission.WRITE_NAMED_ATTRS,
+                            AclEntryPermission.READ_ACL,
+                            AclEntryPermission.SYNCHRONIZE)
+                    .build();
+            view.setAcl(List.of(entry));
+        } catch (UnsupportedOperationException | IOException | SecurityException ignored) {
         }
     }
 

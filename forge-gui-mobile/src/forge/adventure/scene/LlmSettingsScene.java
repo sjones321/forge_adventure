@@ -7,12 +7,14 @@ import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.TextField;
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
+import com.badlogic.gdx.scenes.scene2d.utils.FocusListener;
 import com.badlogic.gdx.utils.Align;
 import com.github.tommyettinger.textra.TextraButton;
 import com.github.tommyettinger.textra.TextraLabel;
 import forge.Forge;
 import forge.ai.llm.LlmOpponent;
 import forge.ai.llm.LlmSettings;
+import forge.ai.llm.LlmSettingsPersistence;
 import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 import forge.localinstance.properties.ForgeConstants;
@@ -21,53 +23,58 @@ import forge.localinstance.properties.ForgeConstants;
  * Ascendant AI1: in-game settings for the optional LLM opponent. Controller-first
  * (same selectable table pattern as {@link SettingsScene}). The API key is stored
  * only in {@code llm_opponent.properties} under the Forge user folder — never in
- * the world save — and is masked in the UI.
+ * the world save — and is masked in the UI. Saves are debounced (idle / blur /
+ * leave), not written on every keystroke.
  */
 public class LlmSettingsScene extends UIScene {
     private static LlmSettingsScene object;
 
     private final Table settingGroup;
     private final LlmSettings draft;
+    private LlmSettingsPersistence persistence;
+    private CheckBox enableBox;
     private TextField urlField;
     private TextField modelField;
     private TextField keyField;
     private TextField timeoutField;
     private TextraLabel statusLabel;
     private boolean testing;
+    private boolean syncingFields;
 
     private LlmSettingsScene() {
         super(Forge.isLandscapeMode() ? "ui/settings.json" : "ui/settings_portrait.json");
         System.setProperty("forge.llm.dir", ForgeConstants.USER_DIR);
         draft = LlmSettings.load();
+        persistence = new LlmSettingsPersistence(draft);
 
         settingGroup = new Table();
         addHeader("LLM opponent (Ascendant)");
         addHint("Optional. Key decisions only; Forge AI handles the rest and is always the fallback.");
 
-        addSettingField("Enable LLM opponent", draft.isEnabled(), new ChangeListener() {
+        enableBox = Controls.newCheckBox("");
+        enableBox.setChecked(draft.isEnabled());
+        enableBox.addListener(new ChangeListener() {
             @Override
             public void changed(ChangeEvent event, Actor actor) {
+                if (syncingFields) {
+                    return;
+                }
                 draft.setEnabled(((CheckBox) actor).isChecked());
-                persist();
+                persistence.scheduleSave();
             }
         });
+        addLabel("Enable LLM opponent");
+        settingGroup.add(enableBox).align(Align.right);
 
-        urlField = addTextRow("Endpoint URL", draft.getBaseUrl(), false, text -> {
-            draft.setBaseUrl(text);
-            persist();
-        });
-        modelField = addTextRow("Model name", draft.getModel(), false, text -> {
-            draft.setModel(text);
-            persist();
-        });
-        keyField = addTextRow("API key (local only, masked)", draft.getApiKey(), true, text -> {
-            draft.setApiKey(text);
-            persist();
-        });
+        urlField = addTextRow("Endpoint URL", draft.getBaseUrl(), false,
+                text -> draft.setBaseUrl(text));
+        modelField = addTextRow("Model name", draft.getModel(), false,
+                text -> draft.setModel(text));
+        keyField = addTextRow("API key (local only, masked)", draft.getApiKey(), true,
+                text -> draft.setApiKey(text));
         timeoutField = addTextRow("Timeout (seconds)", String.valueOf(draft.getTimeoutSeconds()), false, text -> {
             try {
                 draft.setTimeoutSeconds(Integer.parseInt(text.trim()));
-                persist();
             } catch (NumberFormatException ignored) {
             }
         });
@@ -83,7 +90,7 @@ public class LlmSettingsScene extends UIScene {
         settingGroup.add(statusLabel).colspan(2).align(Align.left).pad(4).width(Forge.isLandscapeMode() ? 340 : 200).expand();
 
         addHint("Hosted: OpenAI-compatible /v1 URL + key. Local: Ollama :11434/v1, LM Studio :1234/v1,"
-                + " llama.cpp :8080/v1 (key optional). See docs/Adventure/AI-Opponent.md.");
+                + " llama.cpp :8080/v1 (key optional). Test works with Enable off. See docs/Adventure/AI-Opponent.md.");
 
         settingGroup.row();
         ui.onButtonPress("return", LlmSettingsScene.this::back);
@@ -104,58 +111,69 @@ public class LlmSettingsScene extends UIScene {
     @Override
     public void enter() {
         System.setProperty("forge.llm.dir", ForgeConstants.USER_DIR);
+        if (persistence != null) {
+            persistence.close();
+        }
         LlmSettings disk = LlmSettings.load();
         draft.setEnabled(disk.isEnabled());
         draft.setBaseUrl(disk.getBaseUrl());
         draft.setApiKey(disk.getApiKey());
         draft.setModel(disk.getModel());
         draft.setTimeoutSeconds(disk.getTimeoutSeconds());
-        if (urlField != null) {
-            urlField.setText(draft.getBaseUrl());
-        }
-        if (modelField != null) {
-            modelField.setText(draft.getModel());
-        }
-        if (keyField != null) {
-            keyField.setText(draft.getApiKey() == null ? "" : draft.getApiKey());
-        }
-        if (timeoutField != null) {
-            timeoutField.setText(String.valueOf(draft.getTimeoutSeconds()));
-        }
-        if (statusLabel != null) {
-            statusLabel.setText("");
+        persistence = new LlmSettingsPersistence(draft);
+        syncingFields = true;
+        try {
+            if (enableBox != null) {
+                enableBox.setChecked(draft.isEnabled());
+            }
+            if (urlField != null) {
+                urlField.setText(draft.getBaseUrl());
+            }
+            if (modelField != null) {
+                modelField.setText(draft.getModel());
+            }
+            if (keyField != null) {
+                keyField.setText(draft.getApiKey() == null ? "" : draft.getApiKey());
+            }
+            if (timeoutField != null) {
+                timeoutField.setText(String.valueOf(draft.getTimeoutSeconds()));
+            }
+            if (statusLabel != null) {
+                statusLabel.setText("");
+            }
+        } finally {
+            syncingFields = false;
         }
         super.enter();
     }
 
     public boolean back() {
-        persist();
+        applyFieldsToDraft();
+        try {
+            persistence.flush();
+        } catch (Exception e) {
+            if (statusLabel != null) {
+                statusLabel.setText("Could not save settings: " + draft.redact(String.valueOf(e.getMessage())));
+            }
+        }
         Forge.switchToLast();
         return true;
     }
 
+    /**
+     * Builds a snapshot from the on-screen fields without mutating the live draft used for
+     * saves / duel activation, then tests that snapshot (Enable may be off).
+     */
     private void runTest() {
         if (testing) {
             return;
         }
-        // Pull latest field values before testing (password field may still show mask).
-        draft.setBaseUrl(urlField.getText());
-        draft.setModel(modelField.getText());
-        draft.setApiKey(keyField.getText());
-        try {
-            draft.setTimeoutSeconds(Integer.parseInt(timeoutField.getText().trim()));
-        } catch (NumberFormatException ignored) {
-        }
-        persist();
+        final LlmSettings snapshot = snapshotFromFields();
         testing = true;
         statusLabel.setText("Testing…");
-        final LlmSettings snapshot = copyOf(draft);
         new Thread(() -> {
             LlmOpponent.TestResult result = LlmOpponent.testConnection(snapshot);
             String msg = snapshot.redact(result.getMessage());
-            if (msg != null && snapshot.hasApiKey() && msg.contains(snapshot.getApiKey())) {
-                msg = snapshot.redact(msg);
-            }
             final String safe = (result.isSuccess() ? "Success: " : "Failed: ") + msg;
             Gdx.app.postRunnable(() -> {
                 testing = false;
@@ -166,25 +184,40 @@ public class LlmSettingsScene extends UIScene {
         }, "llm-settings-test").start();
     }
 
-    private void persist() {
+    /** On-screen values only; does not write into {@link #draft}. */
+    private LlmSettings snapshotFromFields() {
+        LlmSettings s = new LlmSettings();
+        s.setEnabled(enableBox != null && enableBox.isChecked());
+        s.setBaseUrl(urlField != null ? urlField.getText() : "");
+        s.setModel(modelField != null ? modelField.getText() : "");
+        s.setApiKey(keyField != null ? keyField.getText() : "");
         try {
-            System.setProperty("forge.llm.dir", ForgeConstants.USER_DIR);
-            draft.save();
+            s.setTimeoutSeconds(Integer.parseInt(timeoutField.getText().trim()));
         } catch (Exception e) {
-            if (statusLabel != null) {
-                statusLabel.setText("Could not save settings: " + draft.redact(String.valueOf(e.getMessage())));
-            }
+            s.setTimeoutSeconds(draft.getTimeoutSeconds());
         }
+        return s;
     }
 
-    private static LlmSettings copyOf(LlmSettings src) {
-        LlmSettings s = new LlmSettings();
-        s.setEnabled(src.isEnabled());
-        s.setBaseUrl(src.getBaseUrl());
-        s.setApiKey(src.getApiKey());
-        s.setModel(src.getModel());
-        s.setTimeoutSeconds(src.getTimeoutSeconds());
-        return s;
+    private void applyFieldsToDraft() {
+        if (enableBox != null) {
+            draft.setEnabled(enableBox.isChecked());
+        }
+        if (urlField != null) {
+            draft.setBaseUrl(urlField.getText());
+        }
+        if (modelField != null) {
+            draft.setModel(modelField.getText());
+        }
+        if (keyField != null) {
+            draft.setApiKey(keyField.getText());
+        }
+        if (timeoutField != null) {
+            try {
+                draft.setTimeoutSeconds(Integer.parseInt(timeoutField.getText().trim()));
+            } catch (NumberFormatException ignored) {
+            }
+        }
     }
 
     private void addHeader(String name) {
@@ -202,14 +235,6 @@ public class LlmSettingsScene extends UIScene {
         settingGroup.add(label).colspan(2).align(Align.left).pad(2).width(w).expand();
     }
 
-    private void addSettingField(String name, boolean value, ChangeListener change) {
-        CheckBox box = Controls.newCheckBox("");
-        box.setChecked(value);
-        box.addListener(change);
-        addLabel(name);
-        settingGroup.add(box).align(Align.right);
-    }
-
     private TextField addTextRow(String name, String value, boolean password, java.util.function.Consumer<String> onChange) {
         TextField field = Controls.newTextField(value == null ? "" : value);
         if (password) {
@@ -219,7 +244,21 @@ public class LlmSettingsScene extends UIScene {
         field.addListener(new ChangeListener() {
             @Override
             public void changed(ChangeEvent event, Actor actor) {
+                if (syncingFields) {
+                    return;
+                }
                 onChange.accept(((TextField) actor).getText());
+                persistence.scheduleSave();
+            }
+        });
+        field.addListener(new FocusListener() {
+            @Override
+            public void keyboardFocusChanged(FocusEvent event, Actor actor, boolean focused) {
+                if (focused || syncingFields) {
+                    return;
+                }
+                onChange.accept(((TextField) actor).getText());
+                persistence.flushQuietly();
             }
         });
         addLabel(name);
@@ -237,6 +276,9 @@ public class LlmSettingsScene extends UIScene {
 
     @Override
     public void dispose() {
+        if (persistence != null) {
+            persistence.close();
+        }
         if (stage != null) {
             stage.dispose();
         }

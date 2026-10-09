@@ -281,8 +281,9 @@ public final class LlmOpponent {
     // ---------------------------------------------------------------- connection test
 
     /**
-     * Small chat-completions request used by the settings Test button. Never includes the API
-     * key in the returned message. Runs off the caller thread via the HTTP executor.
+     * Small chat-completions request used by the settings Test button. Works even when
+     * {@link LlmSettings#isEnabled()} is false. Uses only the supplied snapshot — never
+     * mutates the live duel settings. Never includes the API key in the returned message.
      */
     public static TestResult testConnection(LlmSettings s) {
         if (s == null) {
@@ -294,19 +295,64 @@ public final class LlmOpponent {
         if (s.getModel() == null || s.getModel().isBlank()) {
             return TestResult.fail("Model name is empty.");
         }
-        LlmSettings previous = settings;
-        settings = s;
+        final LlmSettings snap = s; // caller should pass a copy; we still never write to global settings
+        int timeout = snap.getTimeoutSeconds();
+        Callable<String> call = () -> sendChat(snap, "Reply with exactly the word ok.", true);
         try {
-            String answer = ask("Reply with exactly the word ok.");
-            if (answer == null) {
-                return TestResult.fail("No usable reply (timeout, HTTP error, or empty response). Forge AI will be used in duels.");
+            String content;
+            if (Thread.currentThread().getName().startsWith("llm-opponent-http")) {
+                content = call.call();
+            } else {
+                Future<String> future = HTTP_EXEC.submit(call);
+                try {
+                    content = future.get(timeout + 2L, TimeUnit.SECONDS);
+                } catch (TimeoutException te) {
+                    future.cancel(true);
+                    return TestResult.fail("TimeoutException: timed out after " + timeout + "s");
+                }
             }
-            return TestResult.ok("Connected. Model replied (" + Math.min(answer.length(), 80)
+            if (content == null) {
+                return TestResult.fail("Empty response body (no message content).");
+            }
+            return TestResult.ok("Connected. Model replied (" + Math.min(content.length(), 80)
                     + " chars). Ready for key decisions.");
-        } catch (RuntimeException e) {
-            return TestResult.fail(s.redact(safeMessage(e)));
-        } finally {
-            settings = previous;
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            return TestResult.fail(formatTestError(snap, cause));
+        } catch (Exception e) {
+            return TestResult.fail(formatTestError(snap, e));
+        }
+    }
+
+    private static String formatTestError(LlmSettings s, Throwable e) {
+        if (e instanceof HttpStatusException http) {
+            String body = http.getResponseBody();
+            String detail = body == null || body.isBlank() ? "(no body)" : body.trim();
+            if (detail.length() > 300) {
+                detail = detail.substring(0, 300) + "…";
+            }
+            return s.redact("HTTP " + http.getStatusCode() + ": " + detail);
+        }
+        return s.redact(safeMessage(e));
+    }
+
+    /** Non-200 chat-completions response; message for Test UI only (always redacted before show). */
+    static final class HttpStatusException extends IOException {
+        private final int statusCode;
+        private final String responseBody;
+
+        HttpStatusException(int statusCode, String responseBody) {
+            super("HTTP " + statusCode);
+            this.statusCode = statusCode;
+            this.responseBody = responseBody == null ? "" : responseBody;
+        }
+
+        int getStatusCode() {
+            return statusCode;
+        }
+
+        String getResponseBody() {
+            return responseBody;
         }
     }
 
@@ -510,7 +556,7 @@ public final class LlmOpponent {
         long start = System.currentTimeMillis();
         log("\n----- PROMPT " + LocalTime.now().format(TIME) + " -----\n" + prompt);
         int timeout = s.getTimeoutSeconds();
-        Callable<String> call = () -> sendChat(s, prompt);
+        Callable<String> call = () -> sendChat(s, prompt, false);
         try {
             String content;
             if (Thread.currentThread().getName().startsWith("llm-opponent-http")) {
@@ -539,7 +585,12 @@ public final class LlmOpponent {
         }
     }
 
-    private static String sendChat(LlmSettings s, String prompt) throws IOException, InterruptedException {
+    /**
+     * @param throwHttpErrors when true (Test button), non-200 responses raise
+     *                        {@link HttpStatusException}; when false (duel path), return null.
+     */
+    private static String sendChat(LlmSettings s, String prompt, boolean throwHttpErrors)
+            throws IOException, InterruptedException {
         String base = s.getBaseUrl().trim();
         while (base.endsWith("/")) {
             base = base.substring(0, base.length() - 1);
@@ -559,6 +610,9 @@ public final class LlmOpponent {
         HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() != 200) {
             log("----- HTTP " + resp.statusCode() + ": " + s.redact(resp.body()));
+            if (throwHttpErrors) {
+                throw new HttpStatusException(resp.statusCode(), resp.body());
+            }
             return null;
         }
         return extractContent(resp.body());
