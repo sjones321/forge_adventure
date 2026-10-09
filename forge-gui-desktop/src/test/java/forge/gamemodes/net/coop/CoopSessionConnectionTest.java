@@ -187,9 +187,6 @@ public class CoopSessionConnectionTest {
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
             public void onConnected() {
-                client.send(new CoopHelloEvent(CoopPorts.PROTOCOL_VERSION,
-                        CoopVersion.buildHash(), CoopVersion.sha256Hex("other-cards"),
-                        "Guest", "Guest", sessionCode));
             }
 
             @Override
@@ -209,6 +206,10 @@ public class CoopSessionConnectionTest {
             }
         });
         client.connect();
+        Assert.assertTrue(client.awaitConnected(5000));
+        client.send(new CoopHelloEvent(CoopPorts.PROTOCOL_VERSION,
+                CoopVersion.buildHash(), CoopVersion.sha256Hex("other-cards"),
+                "Guest", "Guest", sessionCode));
         Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "reject not received");
         Assert.assertTrue(reason.get().toLowerCase().contains("card"), reason.get());
     }
@@ -254,7 +255,6 @@ public class CoopSessionConnectionTest {
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
             public void onConnected() {
-                client.send(hello("BADCODE1"));
             }
 
             @Override
@@ -274,7 +274,9 @@ public class CoopSessionConnectionTest {
             }
         });
         client.connect();
-        Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS));
+        Assert.assertTrue(client.awaitConnected(5000));
+        client.send(hello("BADCODE1"));
+        Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "reject not received");
         Assert.assertTrue(reason.get().toLowerCase().contains("session"), reason.get());
         Assert.assertEquals(hostState.get(), "HOSTING");
     }
@@ -445,7 +447,6 @@ public class CoopSessionConnectionTest {
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
             public void onConnected() {
-                client.send(hello(sessionCode));
             }
 
             @Override
@@ -477,6 +478,8 @@ public class CoopSessionConnectionTest {
             }
         });
         client.connect();
+        Assert.assertTrue(client.awaitConnected(5000));
+        client.send(hello(sessionCode));
         Assert.assertTrue(gotOffer.await(10, TimeUnit.SECONDS), "no world offer");
         Assert.assertEquals(refuseMsg.get(), CoopPorts.WORLD_HASH_MISMATCH_MESSAGE);
         Assert.assertTrue(guestDisconnected.await(10, TimeUnit.SECONDS), "guest did not disconnect");
