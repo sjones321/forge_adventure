@@ -6,20 +6,6 @@ import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.AdventureModes;
 import forge.adventure.util.SaveFileData;
 import forge.adventure.world.WorldSave;
-import forge.gamemodes.match.HostedMatch;
-import forge.gui.GuiBase;
-import forge.gui.download.GuiDownloadService;
-import forge.gui.interfaces.IGuiBase;
-import forge.gui.interfaces.IGuiGame;
-import forge.item.PaperCard;
-import forge.localinstance.skin.FSkinProp;
-import forge.localinstance.skin.ISkinImage;
-import forge.sound.IAudioClip;
-import forge.sound.IAudioMusic;
-import forge.util.FSerializableFunction;
-import forge.util.ImageFetcher;
-import forge.util.Localizer;
-import org.jupnp.UpnpServiceConfiguration;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -28,19 +14,11 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.io.File;
-import java.io.IOException;
 import java.lang.reflect.Field;
-import java.net.URISyntaxException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Consumer;
-import java.util.stream.Stream;
 
 /**
  * CO1 guest save-model: co-op {@code .chr} persists across sessions; solo WorldSave
@@ -59,7 +37,7 @@ public class CoopGuestCharacterPersistTest {
     /** Card-list line stored in the .chr payload (card DB not loaded in this headless suite). */
     private static final String LOOT_CARD_LINE = "1 Coop Loot Bolt";
 
-    private static Path tempUserDir;
+    private static Path testUserDir;
     private static Path realUserDir;
     private static Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
 
@@ -69,56 +47,30 @@ public class CoopGuestCharacterPersistTest {
 
     @BeforeClass
     public static void initIsolatedUserDirAndGui() throws Exception {
-        // Snapshot the real OS user dir BEFORE ForgeConstants / profile load can touch it.
+        // Surefire sets forge.test.userDir before any class loads; fail fast if missing.
+        testUserDir = AdventureTestUserDir.configuredTestUserDir();
+
+        // Snapshot the real OS user dir (not the Surefire test home).
         realUserDir = AdventureTestUserDir.defaultRealUserDir();
         realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
 
-        // Point USER_DIR / USER_ADVENTURE_DIR at a temp folder before class-init reads them.
-        tempUserDir = AdventureTestUserDir.installTempUserDir();
+        // Suite listener installs GuiBase + Localizer; re-check isolation here.
+        AdventureTestUserDir.requireIsolatedUserDir();
 
-        final String assets = Files.exists(Paths.get("./forge-gui"))
-                ? "./forge-gui/"
-                : Files.exists(Paths.get("../forge-gui"))
-                ? "../forge-gui/"
-                : "./";
-        if (GuiBase.getInterface() == null) {
-            GuiBase.setInterface(new HeadlessAssetsGui(assets));
-        }
-        // First ForgeConstants touch resolves USER_* from forge.test.userDir.
-        Localizer.getInstance().initialize("en-US", assets + "res/languages");
-        AdventureTestUserDir.assertConstantsUse(tempUserDir);
-
-        // Characters live under the isolated USER_ADVENTURE_DIR — no separate override needed,
-        // but keep the production path (charactersDir → USER_ADVENTURE_DIR/…/characters).
         Assert.assertTrue(CoopCharacterStore.charactersDir().getAbsolutePath()
-                        .startsWith(tempUserDir.toAbsolutePath().toString()),
-                "co-op characters dir must be under the temp user dir");
+                        .startsWith(testUserDir.toString()),
+                "co-op characters dir must be under forge.test.userDir");
     }
 
     @AfterClass
-    public static void assertRealUserDirUntouchedAndCleanup() throws Exception {
-        try {
-            AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
-                    "CoopGuestCharacterPersistTest");
-        } finally {
-            AdventureTestUserDir.clearTempUserDirProperty();
-            if (tempUserDir != null && Files.exists(tempUserDir)) {
-                try (Stream<Path> walk = Files.walk(tempUserDir)) {
-                    walk.sorted(Comparator.reverseOrder()).forEach(p -> {
-                        try {
-                            Files.deleteIfExists(p);
-                        } catch (final IOException ignored) {
-                        }
-                    });
-                }
-            }
-        }
+    public static void assertRealUserDirUntouched() throws Exception {
+        AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
+                "CoopGuestCharacterPersistTest");
     }
 
     @BeforeMethod
     public void setUp() throws Exception {
-        // Guard: constants must still point at the temp user dir for every method.
-        AdventureTestUserDir.assertConstantsUse(tempUserDir);
+        AdventureTestUserDir.requireIsolatedUserDir();
 
         player = WorldSave.getCurrentSave().getPlayer();
         prepareSoloPlayer(player, SOLO_GOLD);
@@ -429,78 +381,5 @@ public class CoopGuestCharacterPersistTest {
         }
         f.setAccessible(true);
         return f.get(target);
-    }
-
-    /** Minimal IGuiBase so ForgeConstants can resolve ASSETS_DIR in headless tests. */
-    private static final class HeadlessAssetsGui implements IGuiBase {
-        private final String assetsDir;
-
-        private HeadlessAssetsGui(final String assetsDir) {
-            this.assetsDir = assetsDir.endsWith("/") || assetsDir.endsWith(File.separator)
-                    ? assetsDir : assetsDir + File.separator;
-        }
-
-        @Override public boolean isRunningOnDesktop() { return true; }
-        @Override public boolean isLibgdxPort() { return false; }
-        @Override public String getCurrentVersion() { return "test"; }
-        @Override public void invokeInEdtNow(final Runnable runnable) { runnable.run(); }
-        @Override public void invokeInEdtLater(final Runnable runnable) { runnable.run(); }
-        @Override public void invokeInEdtAndWait(final Runnable proc) { proc.run(); }
-        @Override public void runBackgroundTask(final String message, final Runnable task) { task.run(); }
-        @Override public boolean isGuiThread() { return true; }
-        @Override public String getAssetsDir() { return assetsDir; }
-        @Override public ImageFetcher getImageFetcher() { return null; }
-        @Override public ISkinImage getSkinIcon(final FSkinProp skinProp) { return null; }
-        @Override public ISkinImage getUnskinnedIcon(final String path) { return null; }
-        @Override public ISkinImage getCardArt(final PaperCard card, final boolean backFace) { return null; }
-        @Override public ISkinImage createLayeredImage(final PaperCard card, final FSkinProp background,
-                final String overlayFilename, final float opacity) { return null; }
-        @Override public void clearImageCache() { }
-        @Override public String encodeSymbols(final String str, final boolean formatReminderText) { return str; }
-        @Override public int getAvatarCount() { return 0; }
-        @Override public int getSleevesCount() { return 0; }
-        @Override public float getScreenScale() { return 1f; }
-        @Override public void preventSystemSleep(final boolean preventSleep) { }
-        @Override public void download(final GuiDownloadService service, final Consumer<Boolean> callback) {
-            callback.accept(false);
-        }
-        @Override public void copyToClipboard(final String text) { }
-        @Override public void browseToUrl(final String url) throws IOException, URISyntaxException { }
-        @Override public void showCardList(final String title, final String message, final List<PaperCard> list) { }
-        @Override public boolean showBoxedProduct(final String title, final String message, final List<PaperCard> list) {
-            return false;
-        }
-        @Override public void showBugReportDialog(final String title, final String text, final boolean showExitAppBtn) { }
-        @Override public void showImageDialog(final ISkinImage image, final String message, final String title) { }
-        @Override public int showOptionDialog(final String message, final String title, final FSkinProp icon,
-                final List<String> options, final int defaultOption) { return defaultOption; }
-        @Override public String showInputDialog(final String message, final String title, final FSkinProp icon,
-                final String initialInput, final List<String> inputOptions, final boolean isNumeric) {
-            return initialInput;
-        }
-        @Override public String showFileDialog(final String title, final String defaultDir) { return defaultDir; }
-        @Override public File getSaveFile(final File defaultFile) { return defaultFile; }
-        @Override public <T> List<T> order(final String title, final String top, final int remainingObjectsMin,
-                final int remainingObjectsMax, final List<T> sourceChoices, final List<T> destChoices) {
-            return destChoices;
-        }
-        @Override public <T> List<T> getChoices(final String message, final int min, final int max,
-                final Collection<T> choices, final Collection<T> selected,
-                final FSerializableFunction<T, String> display) {
-            return new ArrayList<>(selected);
-        }
-        @Override public PaperCard chooseCard(final String title, final String message, final List<PaperCard> list) {
-            return list.isEmpty() ? null : list.get(0);
-        }
-        @Override public boolean isSupportedAudioFormat(final File file) { return false; }
-        @Override public IAudioClip createAudioClip(final String filename) { return null; }
-        @Override public IAudioMusic createAudioMusic(final String filename) { return null; }
-        @Override public void startAltSoundSystem(final String filename, final boolean isSynchronized) { }
-        @Override public void showSpellShop() { }
-        @Override public void showBazaar() { }
-        @Override public IGuiGame getNewGuiGame() { return null; }
-        @Override public HostedMatch hostMatch() { return null; }
-        @Override public UpnpServiceConfiguration getUpnpPlatformService() { return null; }
-        @Override public boolean hasNetGame() { return false; }
     }
 }

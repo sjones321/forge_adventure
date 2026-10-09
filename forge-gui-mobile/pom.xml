@@ -22,6 +22,22 @@
                     <target>17</target>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Suite-wide: set before any test class loads ForgeConstants. -->
+                    <systemPropertyVariables>
+                        <forge.test.userDir>${project.build.directory}/test-user-home</forge.test.userDir>
+                    </systemPropertyVariables>
+                    <properties>
+                        <property>
+                            <name>listener</name>
+                            <value>forge.adventure.AdventureTestBootstrapListener</value>
+                        </property>
+                    </properties>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
     <repositories>

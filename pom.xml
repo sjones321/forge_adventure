@@ -144,6 +144,10 @@
                             --add-opens java.base/java.lang.reflect=ALL-UNNAMED
                             --add-opens java.desktop/javax.imageio.spi=ALL-UNNAMED
                         </argLine>
+                        <!-- Before any test class loads ForgeConstants: isolate USER_DIR. -->
+                        <systemPropertyVariables>
+                            <forge.test.userDir>${project.build.directory}/test-user-home</forge.test.userDir>
+                        </systemPropertyVariables>
                     </configuration>
                 </plugin>
 
