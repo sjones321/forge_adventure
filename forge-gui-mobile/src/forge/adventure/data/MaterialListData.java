@@ -88,14 +88,10 @@ public final class MaterialListData {
         ORE_LINE_ITEM_NAME_MAP = Collections.unmodifiableMap(m);
     }
 
-    static {
-        reload();
-    }
-
     private MaterialListData() {
     }
 
-    /** Reload from disk (tests / hot-swap / world switch). Safe if the file is missing. */
+    /** Reload from disk (tests / hot-swap / world switch). Safe if the file or Config is missing. */
     public static void reload() {
         byId.clear();
         materialList = new Array<>();
@@ -113,18 +109,25 @@ public final class MaterialListData {
                 if (m != null && m.id != null && !m.id.isEmpty())
                     byId.put(m.id, m);
             }
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
             // Headless tests / early boot: leave the cache empty until Config is ready.
+            // Catch Throwable — Config.<clinit> can throw ExceptionInInitializerError.
             loadedPlane = null;
+            materialList = new Array<>();
         }
     }
 
     /** Reloads when the adventure plane no longer matches the cached data. */
     private static void ensureCurrentWorld() {
-        String plane = Config.instance().getPlane();
-        if (loadedPlane == null || !loadedPlane.equals(plane)) {
-            forge.adventure.player.BanLists.clear();
-            reload();
+        try {
+            String plane = Config.instance().getPlane();
+            if (loadedPlane == null || !loadedPlane.equals(plane)) {
+                forge.adventure.player.BanLists.clear();
+                reload();
+            }
+        } catch (Throwable ignored) {
+            if (materialList == null)
+                materialList = new Array<>();
         }
     }
 
@@ -431,6 +434,9 @@ public final class MaterialListData {
         String exact = ORE_LINE_ID_MAP.get(id);
         if (exact != null)
             return exact;
+        // Already on the new ore_* line (exact or derived) — do not treat "_iron" as old iron.
+        if (id.startsWith("ore_"))
+            return id;
         for (Map.Entry<String, String> e : ORE_LINE_ID_MAP.entrySet()) {
             String old = e.getKey();
             String neu = e.getValue();
