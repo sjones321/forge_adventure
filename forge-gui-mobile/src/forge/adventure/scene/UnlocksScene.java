@@ -42,6 +42,9 @@ public class UnlocksScene extends UIScene {
         ui.onButtonPress("status", () -> Forge.switchScene(PlayerStatisticScene.instance(lastGameScene), true));
         ui.onButtonPress("quests", () -> Forge.switchScene(QuestLogScene.instance(lastGameScene), true));
         ui.onButtonPress("unlocks", () -> Forge.switchScene(SkillsScene.instance(lastGameScene), true));
+        ui.onButtonPress("achievements", () -> Forge.switchScene(AchievementsScene.instance(lastGameScene), true));
+        if (ui.findActor("achievements") != null)
+            ui.findActor("achievements").setVisible(Config.ascendant());
         com.github.tommyettinger.textra.TextraButton toSkills = ui.findActor("unlocks");
         if (toSkills != null)
             toSkills.setText("Skills"); // same layout as the Skills screen; this button goes back there

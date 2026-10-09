@@ -388,6 +388,8 @@ public class CardZoom extends FOverlay {
         float maxCardHeight = h - aspectRatioMultiplier * messageHeight;
 
         float cardWidth, cardHeight, y;
+        // Landscape: show the picture and the oracle-text view side by side (printed text often differs from Oracle).
+        boolean sideBySide = Forge.isLandscapeMode() && zoomMode && currentCard != null;
 
         if (oneCardView && !Forge.isLandscapeMode()) {
             cardWidth = w;
@@ -411,10 +413,10 @@ public class CardZoom extends FOverlay {
                 cardWidth = cardHeight / FCardPanel.ASPECT_RATIO;
             }
             y = (h - cardHeight) / 2;
-            if (prevCard != null) {
+            if (prevCard != null && !sideBySide) {
                 CardImageRenderer.drawZoom(g, prevCard, gameView, false, 0, y, cardWidth, cardHeight, getWidth(), getHeight(), false);
             }
-            if (nextCard != null) {
+            if (nextCard != null && !sideBySide) {
                 CardImageRenderer.drawZoom(g, nextCard, gameView, false, w - cardWidth, y, cardWidth, cardHeight, getWidth(), getHeight(), false);
             }
 
@@ -428,7 +430,22 @@ public class CardZoom extends FOverlay {
         }
         float x = (w - cardWidth) / 2;
         y = (h - cardHeight) / 2;
-        if (zoomMode) {
+        if (sideBySide) {
+            float gap = cardWidth * 0.06f;
+            float total = cardWidth * 2 + gap;
+            if (total > w * 0.98f) {
+                float scale = w * 0.98f / total;
+                cardWidth *= scale;
+                cardHeight *= scale;
+                gap *= scale;
+                total = w * 0.98f;
+                y = (h - cardHeight) / 2;
+            }
+            x = (w - total) / 2;
+            boolean alt = showBackSide ? showBackSide : showAltState;
+            CardImageRenderer.drawZoom(g, currentCard, gameView, alt, x, y, cardWidth, cardHeight, getWidth(), getHeight(), true);
+            CardImageRenderer.drawDetails(g, currentCard, gameView, alt, x + cardWidth + gap, y, cardWidth, cardHeight);
+        } else if (zoomMode) {
             if (currentCard != null)
                 CardImageRenderer.drawZoom(g, currentCard, gameView, showBackSide? showBackSide : showAltState, x, y, cardWidth, cardHeight, getWidth(), getHeight(), true);
         } else {
@@ -472,7 +489,10 @@ public class CardZoom extends FOverlay {
             g.drawText(Forge.getLocalizer().getMessage("lblSwipeUpTo").replace("%s", currentActivateAction), FDialog.MSG_FONT, FDialog.getMsgForeColor(), 0, 0, w, messageHeight, false, Align.center, true);
         }
         g.fillRect(FDialog.getMsgBackColor(), 0, h - messageHeight, w, messageHeight);
-        g.drawText(zoomMode ? Forge.getLocalizer().getMessage("lblSwipeDownDetailView") : Forge.getLocalizer().getMessage("lblSwipeDownPictureView"), FDialog.MSG_FONT, FDialog.getMsgForeColor(), 0, h - messageHeight, w, messageHeight, false, Align.center, true);
+        String viewHint = Forge.isLandscapeMode()
+                ? (zoomMode ? "Space or swipe down: text only" : "Space or swipe down: picture and text")
+                : (zoomMode ? Forge.getLocalizer().getMessage("lblSwipeDownDetailView") : Forge.getLocalizer().getMessage("lblSwipeDownPictureView"));
+        g.drawText(viewHint, FDialog.MSG_FONT, FDialog.getMsgForeColor(), 0, h - messageHeight, w, messageHeight, false, Align.center, true);
 
         if (specialize.isVisible()) {
             specialize.setBounds(w/2 - specialize.getAutoSizeBounds().width/2, h - specialize.getAutoSizeBounds().height - messageHeight, specialize.getAutoSizeBounds().width, specialize.getAutoSizeBounds().height);
@@ -534,6 +554,10 @@ public class CardZoom extends FOverlay {
                 Forge.back();
                 return true;
             }
+        }
+        if (keyCode == Input.Keys.SPACE || keyCode == Input.Keys.TAB) {
+            fling(0, 300f); // toggle picture / text view
+            return true;
         }
         if (Forge.hasGamepad()) {
             if (keyCode == Input.Keys.DPAD_LEFT)

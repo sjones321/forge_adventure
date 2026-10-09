@@ -11,6 +11,7 @@ public class Paths {
     public static final String POINTS_OF_INTEREST = "world/points_of_interest.json";
     public static final String ITEMS = "world/items.json";
     public static final String MATERIALS = "world/materials.json";
+    public static final String NODE_VARIANTS = "world/node_variants.json";
     public static final String MASTERY_SURGE = "world/mastery_surge.json";
     public static final String ENEMY_MATERIAL_DROPS = "world/enemy_material_drops.json";
     public static final String RECIPES = "world/recipes.json";
@@ -19,6 +20,14 @@ public class Paths {
     /** FT1 fortress structure catalog. */
     public static final String STRUCTURES_FORTRESS = "world/structures_fortress.json";
     public static final String GYMS = "world/gyms.json";
+/** EN1 enemy themes (tags → themes → format decks / Standard recipes). */
+    public static final String ENEMY_THEMES = "world/enemy_themes.json";
+    /** Per-theme hand-picked cores: {@code world/enemy_cores/<themeId>.json}. */
+    public static final String ENEMY_CORES_DIR = "world/enemy_cores/";
+    /** EN1 overworld power-level ban list (tournament staples / shocklands). */
+    public static final String ENEMY_BANNED = "world/enemy_banned.json";
+    /** Ascendant AC1 account-wide achievements definitions. */
+    public static final String ACHIEVEMENTS = "world/achievements.json";
     public static final String QUESTS = "world/quests.json";
     public static final String SKIN = "skin/ui_skin.json";
     public static final String ITEMS_EQUIP = "skin/equip.png";
@@ -54,7 +63,7 @@ public class Paths {
     /** Gathering node art sheet (Steve's ore row = atlas regions ore_iron…ore_rune). */
     public static final String RESOURCE_NODES_ATLAS = "maps/tileset/resource_nodes.atlas";
     /** Two-tile-tall tree nodes (tiers 1–4); collision uses the bottom tile only. */
-    public static final String RESOURCE_NODES_TALL_ATLAS = "maps/tileset/resource_nodes_tall.atlas";
+    public static final String RESOURCE_NODES_TALL_ATLAS = "maps/tileset/resource_nodes.atlas"; // trees now live on the main node sheet
     public static final String CARD_PRICES = "world/cardprices.txt";
     public static final String CUSTOM_CARDS = "custom_cards";
     public static final String CUSTOM_CARDS_PICS = "custom_card_pics";

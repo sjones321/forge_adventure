@@ -89,6 +89,35 @@ public class ResourceNodeSprite extends CharacterSprite {
         releaseAmbient();
     }
 
+    @Override
+    protected void positionChanged() {
+        applyBiomeVariant();
+        super.positionChanged();
+    }
+
+    /** Ascendant: swap to the biome look for this spot (world/node_variants.json), keeping the material. */
+    private void applyBiomeVariant() {
+        if (!useNodeArt || material == null || !Config.ascendant())
+            return;
+        try {
+            String region = forge.adventure.data.NodeVariants.regionFor(material,
+                    forge.adventure.util.Current.world(), getX() + getWidth() / 2f, getY());
+            if (region == null)
+                return;
+            TextureAtlas atlas = Config.instance().getAtlas(material.nodeAtlas);
+            TextureAtlas.AtlasRegion r = atlas != null ? atlas.findRegion(region) : null;
+            if (r == null || r == nodeRegion)
+                return;
+            nodeRegion = r;
+            collisionHeight = collisionHeightForRegion(r.getRegionHeight());
+            tallNode = collisionHeight < 1f;
+            if (getWidth() != r.getRegionWidth() || getHeight() != r.getRegionHeight())
+                setSize(r.getRegionWidth(), r.getRegionHeight());
+        } catch (Exception ignored) {
+            // Keep the material's own region.
+        }
+    }
+
     /** Test/helper: true when this node uses bottom-tile-only collision. */
     public boolean isTallNode() {
         return tallNode;

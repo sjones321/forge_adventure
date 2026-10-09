@@ -601,6 +601,17 @@ public class RewardActor extends Actor implements Disposable, ImageFetcher.Callb
                         // Leave isDragging true so the ensuing click is ignored; cleared on next click.
                     }
                 });
+                // Desktop: right-click also toggles the Oracle-text tooltip (the drag is hard to discover).
+                addListener(new InputListener() {
+                    @Override
+                    public boolean touchDown(InputEvent event, float x, float y, int pointer, int button) {
+                        if (button != com.badlogic.gdx.Input.Buttons.RIGHT || !frontSideUp())
+                            return false;
+                        shouldDisplayText = !shouldDisplayText;
+                        switchTooltip();
+                        return true;
+                    }
+                });
             }
         }
     }

@@ -362,7 +362,7 @@ public class ConfigData {
      */
     public boolean planarPortalAutoCreate = true;
 
-    // ---- Ascendant multiverse (Package MV2): plane-per-set generator + alignment. ----
+// ---- Ascendant multiverse (Package MV2): plane-per-set generator + alignment. ----
 
     /** Minimum set-plane map width/height in tiles (inclusive). */
     public int setPlaneMinTiles = 300;
@@ -385,6 +385,16 @@ public class ConfigData {
      * unplaceable instances are skipped so generation always finishes.
      */
     public int setPlaneMaxPlacementRestarts = 8;
+
+    // ---- Ascendant achievements (Package AC1): account-wide, outside the save. ----
+
+    /** When true, show a HUD toast when an achievement unlocks. */
+    public boolean achievementToastEnabled = true;
+    /**
+     * Max achievement toasts emitted in one evaluation pass (set-completion spam guard).
+     * Extra unlocks still persist; only the toast is deferred.
+     */
+    public int achievementToastMaxPerPass = 5;
 
     // ---- Ascendant fortresses (Package FT1): claim site + instance build mode. ----
 
@@ -409,5 +419,21 @@ public class ConfigData {
      * (so stations stay solid but remain openable from adjacent tiles).
      */
     public float fortressStationInteractPadTiles = 0.5f;
+
+    // ---- Ascendant EN1: enemy decks by format and theme ----
+
+    /**
+     * When true (Ascendant default), ordinary overworld enemies pick a theme at spawn
+     * and play format-appropriate theme decks (fixed Historic/Pauper/Commander lists,
+     * Bellwarden Standard recipes filled from the current window).
+     */
+    public boolean en1EnemyThemeDecks = true;
+    /** Target size for EN1 Bellwarden Standard recipe decks. */
+    public int en1StandardDeckSize = 60;
+    /**
+     * When true, log EN1 format/theme fallbacks (missing .dck → nearest available).
+     * Defaults on so missing data is visible during content work.
+     */
+    public boolean en1LogFallbacks = true;
 
 }

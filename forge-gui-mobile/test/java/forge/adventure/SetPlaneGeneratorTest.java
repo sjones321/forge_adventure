@@ -223,7 +223,9 @@ public class SetPlaneGeneratorTest {
         Deck deck = SetPlaneRules.generateEnemyDeck(enemy, "ZZZ_NOT_A_SET");
         Assert.assertNotNull(deck);
         Assert.assertTrue(deck.getName().contains("Goblin Scout"));
-        Assert.assertTrue(SetPlaneRules.deckRestrictedToSet(deck, "ZZZ_NOT_A_SET"));
+        // An unknown set code is not restrictable, so the deck is not tied to it. Without a card DB the
+        // deck is empty or basics only; with one (loaded by an earlier test class) it may use any set.
+        Assert.assertEquals(SetPlaneRules.restrictableSetCode("ZZZ_NOT_A_SET"), "");
     }
 
     @Test

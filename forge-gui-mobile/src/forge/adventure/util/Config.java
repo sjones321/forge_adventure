@@ -61,6 +61,20 @@ public class Config {
         return currentConfig;
     }
 
+    /** Test helper: drop the singleton so the next {@link #instance()} rebuilds. */
+    public static void resetInstanceForTest() {
+        currentConfig = null;
+    }
+
+    /**
+     * Test helper: replace the loaded plane config (e.g. Ascendant {@code config.json})
+     * so {@link #ascendant()} and tunables match production without a full UI plane switch.
+     */
+    public static void installConfigDataForTest(ConfigData data) {
+        Config cfg = instance();
+        cfg.configData = data == null ? new ConfigData() : data;
+    }
+
     private Config() {
         String path = resPath();
         FilenameFilter planesFilter = (file, s) -> !s.contains(".") && !s.equals(commonDirectoryName);
