@@ -319,12 +319,11 @@ public class CoopSessionConnectionTest {
 
         for (int i = 0; i < CoopPorts.SESSION_CODE_MAX_FAILURES; i++) {
             final CountDownLatch rejected = new CountDownLatch(1);
-            final AtomicReference<CoopOverworldClient> holder = new AtomicReference<>();
+            final CountDownLatch slotFree = new CountDownLatch(1);
             final String badCode = "WRONGCD" + i;
             final CoopOverworldClient c = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
                 @Override
                 public void onConnected() {
-                    holder.get().send(hello(badCode));
                 }
 
                 @Override
@@ -336,18 +335,19 @@ public class CoopSessionConnectionTest {
 
                 @Override
                 public void onDisconnected(final String reason) {
+                    slotFree.countDown();
                 }
 
                 @Override
                 public void onError(final String message, final Throwable cause) {
                 }
             });
-            holder.set(c);
             c.connect();
             Assert.assertTrue(c.awaitConnected(5000), "attempt " + i + " connect");
+            c.send(hello(badCode));
             Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "attempt " + i + " not rejected");
             c.disconnect();
-            // Wait until the guest slot is free before the next attempt (no fixed sleep).
+            Assert.assertTrue(slotFree.await(5, TimeUnit.SECONDS), "attempt " + i + " disconnect");
             final long slotDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
             while (server.hasGuest() && System.nanoTime() < slotDeadline) {
                 Thread.yield();

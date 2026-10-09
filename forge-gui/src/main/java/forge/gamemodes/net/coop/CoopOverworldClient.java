@@ -80,29 +80,19 @@ public final class CoopOverworldClient implements IHasForgeLog {
         }
         final EventLoopGroup g = group;
         group = null;
-        if (g == null) {
-            return;
-        }
-        final boolean onLoop;
-        try {
-            onLoop = g.next().inEventLoop();
-        } catch (final Exception e) {
-            onLoop = false;
-        }
-        final Runnable shutdown = () -> {
-            try {
-                final Future<?> f = g.shutdownGracefully(0, 2, TimeUnit.SECONDS);
-                f.awaitUninterruptibly(3, TimeUnit.SECONDS);
-            } catch (final Exception e) {
-                netLog.debug("Co-op client shutdown: {}", e.toString());
-            }
-        };
-        if (onLoop) {
-            final Thread t = new Thread(shutdown, "coop-overworld-client-shutdown");
+        if (g != null) {
+            // Always defer group shutdown: awaiting it on the test thread after a
+            // reject can race the server's writeAndFlush(reject) completion.
+            final Thread t = new Thread(() -> {
+                try {
+                    final Future<?> f = g.shutdownGracefully(0, 2, TimeUnit.SECONDS);
+                    f.awaitUninterruptibly(3, TimeUnit.SECONDS);
+                } catch (final Exception e) {
+                    netLog.debug("Co-op client shutdown: {}", e.toString());
+                }
+            }, "coop-overworld-client-shutdown");
             t.setDaemon(true);
             t.start();
-        } else {
-            shutdown.run();
         }
     }
 
