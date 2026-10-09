@@ -251,6 +251,41 @@ public final class EnemyThemeDecks {
     }
 
     /**
+     * Themes that list {@code tag} (case-insensitive). Empty when none. Used by EN2
+     * partner pairing and the creature-type tag coverage test.
+     */
+    public static List<EnemyThemeData> themesForTag(String tag) {
+        ensureLoaded();
+        synchronized (LOCK) {
+            if (tag == null || tag.isEmpty() || byTag == null)
+                return Collections.emptyList();
+            List<EnemyThemeData> list = byTag.get(normalizeTag(tag));
+            if (list == null || list.isEmpty())
+                return Collections.emptyList();
+            return Collections.unmodifiableList(new ArrayList<>(list));
+        }
+    }
+
+    /**
+     * Every distinct theme tag → theme count. EN2 requires each creature-type tag
+     * to have two or more themes so a pair never mirrors.
+     */
+    public static Map<String, Integer> themeCountsByTag() {
+        ensureLoaded();
+        synchronized (LOCK) {
+            Map<String, Integer> counts = new HashMap<>();
+            if (byTag == null)
+                return counts;
+            for (Map.Entry<String, List<EnemyThemeData>> e : byTag.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null)
+                    continue;
+                counts.put(e.getKey(), e.getValue().size());
+            }
+            return counts;
+        }
+    }
+
+    /**
      * Picks a theme for an enemy at spawn from its quest tags. Returns null when
      * EN1 is off, the enemy is a boss, or no theme matches.
      */
@@ -974,8 +1009,9 @@ public final class EnemyThemeDecks {
                 || theme.creatureTypes.length == 0)
             return false;
         String id = theme.id;
-        // Strict tribal lists + the two creature-type specialty themes.
-        return id.contains("tribal") || "spirit_tempo".equals(id) || "kraken_leviathan".equals(id);
+        // Strict tribal lists + creature-type specialty themes (EN1/EN2).
+        return id.contains("tribal") || "spirit_tempo".equals(id) || "merfolk_tempo".equals(id)
+                || "kraken_leviathan".equals(id) || "serpent_leviathan".equals(id);
     }
 
     public static int countNonLandsAll(Deck deck) {
@@ -1098,7 +1134,8 @@ public final class EnemyThemeDecks {
         if (theme == null || theme.id == null)
             return true;
         String id = theme.id;
-        return !id.contains("ramp") && !id.contains("dragon") && !id.contains("kraken");
+        return !id.contains("ramp") && !id.contains("dragon") && !id.contains("kraken")
+                && !id.contains("serpent") && !id.contains("leviathan");
     }
 
     public static float averageNonLandCmc(Deck deck) {
@@ -2037,25 +2074,24 @@ public final class EnemyThemeDecks {
         ensureTribalCreatureDensity(deck, theme, FORMAT_COMMANDER, null, ci, true);
         stripCommanderDuplicates(deck);
         enforceFillerCap(deck, theme, maxFiller);
+        // Restore fair core interaction (removal / wraths) after tribal top-up.
+        ensureCommanderInteractionFromCore(deck, theme, ci);
+        stripCommanderDuplicates(deck);
+        enforceFillerCap(deck, theme, maxFiller);
         // Trim excess non-lands (never strip the land band), then rebuild the mana base.
+        // Prefer dropping off-tribe creatures; never drop non-creature spells first.
         while (countNonLands(main) > needMain - landBudget) {
-            PaperCard remove = null;
-            for (PaperCard pc : main.toFlatList()) {
-                if (pc.getRules().getType().isLand())
-                    continue;
-                if (countsAsTribalCreature(pc, theme))
-                    continue;
-                if (isInCore(pc.getName(), theme))
-                    continue;
-                remove = pc;
-                break;
-            }
+            PaperCard remove = pickTribalSwapVictim(deck, theme, FORMAT_COMMANDER);
             if (remove == null) {
                 for (PaperCard pc : main.toFlatList()) {
-                    if (!pc.getRules().getType().isLand() && !countsAsTribalCreature(pc, theme)) {
-                        remove = pc;
-                        break;
-                    }
+                    if (pc.getRules().getType().isLand())
+                        continue;
+                    if (isNonCreatureSpell(pc))
+                        continue;
+                    if (countsAsTribalCreature(pc, theme))
+                        continue;
+                    remove = pc;
+                    break;
                 }
             }
             if (remove == null)
@@ -2065,21 +2101,17 @@ public final class EnemyThemeDecks {
         rebuildCommanderManaBase(deck, ci, landBudget);
         stripCommanderDuplicates(deck);
         while (deck.getMain().countAll() > needMain) {
-            PaperCard remove = null;
-            for (PaperCard pc : deck.getMain().toFlatList()) {
-                if (pc.getRules().getType().isLand())
-                    continue;
-                if (countsAsTribalCreature(pc, theme))
-                    continue;
-                remove = pc;
-                break;
-            }
+            PaperCard remove = pickTribalSwapVictim(deck, theme, FORMAT_COMMANDER);
             if (remove == null) {
                 for (PaperCard pc : deck.getMain().toFlatList()) {
-                    if (!pc.getRules().getType().isBasicLand()) {
-                        remove = pc;
-                        break;
-                    }
+                    if (pc.getRules().getType().isLand())
+                        continue;
+                    if (isNonCreatureSpell(pc))
+                        continue;
+                    if (countsAsTribalCreature(pc, theme))
+                        continue;
+                    remove = pc;
+                    break;
                 }
             }
             if (remove == null)
@@ -2434,6 +2466,14 @@ public final class EnemyThemeDecks {
         if (FORMAT_HISTORIC.equals(format) && theme.id != null && theme.id.contains("dragon"))
             ensureHistoricDragonDensity(done, theme, forgeFormat, allowed);
         ensureTribalCreatureDensity(done, theme, format, forgeFormat, allowed, false);
+        // Tribal top-up must not erase the non-creature spell floor.
+        ensureMinNonCreatureSpellsFromCore(done, theme, format, forgeFormat, allowed,
+                target - MIN_LANDS_60);
+        String[] padAfter = colorsFromMask(spellColorMask(done));
+        if (padAfter.length == 0)
+            padAfter = theme.colors != null ? theme.colors : new String[]{"blue"};
+        rebuildBasicLands(done, padAfter, target);
+        enforceFillerCap(done, theme);
         return done;
     }
 
@@ -2441,7 +2481,7 @@ public final class EnemyThemeDecks {
      * Raise tribe creature count toward {@link #MIN_TRIBAL_CREATURES_60} /
      * {@link #MIN_TRIBAL_CREATURES_COMMANDER}. Tops up from the theme's hand-picked
      * core first; only expands into the broader card DB when core tribe copies are
-     * exhausted (changelings count).
+     * exhausted (changelings count). Never removes non-creature spells to make room.
      */
     private static void ensureTribalCreatureDensity(Deck deck, EnemyThemeData theme, String format,
                                                     GameFormat forgeFormat, byte allowed,
@@ -2499,9 +2539,43 @@ public final class EnemyThemeDecks {
                 : MAX_FILLER_NONLAND);
     }
 
+    /** True for non-land, non-creature cards (instants, sorceries, enchantments, …). */
+    public static boolean isNonCreatureSpell(PaperCard pc) {
+        if (pc == null || pc.getRules() == null)
+            return false;
+        return !pc.getRules().getType().isLand() && !pc.getRules().getType().isCreature();
+    }
+
+    /**
+     * Pick a creature to swap out for a tribal top-up. Never returns a non-creature spell
+     * or a land. Prefers off-tribe creatures, then non-core creatures.
+     */
+    private static PaperCard pickTribalSwapVictim(Deck deck, EnemyThemeData theme, String fmt) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        // 1) Off-tribe creatures (filler bodies).
+        for (PaperCard c : main.toFlatList()) {
+            if (c == null || c.getRules() == null || !c.getRules().getType().isCreature())
+                continue;
+            if (countsAsTribalCreature(c, theme))
+                continue;
+            return c;
+        }
+        // 2) Commander: non-core tribe creatures (extras) before core interaction.
+        if (FORMAT_COMMANDER.equals(fmt)) {
+            for (PaperCard c : main.toFlatList()) {
+                if (c == null || c.getRules() == null || !c.getRules().getType().isCreature())
+                    continue;
+                if (isInCore(c.getName(), theme))
+                    continue;
+                return c;
+            }
+        }
+        return null;
+    }
+
     /**
      * Add tribe creatures from {@code pool} until {@code need} or the pool is exhausted
-     * at per-name caps. Swaps non-tribe non-lands when the non-land budget is tight.
+     * at per-name caps. When space is tight, swaps creatures only — never non-creature spells.
      */
     private static void addTribalCreaturesFromPool(Deck deck, EnemyThemeData theme, String fmt,
                                                    List<PaperCard> pool, int need,
@@ -2531,41 +2605,17 @@ public final class EnemyThemeDecks {
                     if (isCmd)
                         continue;
                 }
-                // Swap a non-tribe non-land when the non-land budget is tight.
-                if (!FORMAT_COMMANDER.equals(fmt) && main.countAll() >= 60 - MIN_LANDS_60) {
-                    PaperCard victim = null;
-                    for (PaperCard c : main.toFlatList()) {
-                        if (c.getRules().getType().isLand())
-                            continue;
-                        if (countsAsTribalCreature(c, theme))
-                            continue;
-                        victim = c;
-                        break;
-                    }
-                    if (victim != null)
-                        main.remove(victim);
-                } else if (FORMAT_COMMANDER.equals(fmt)) {
-                    PaperCard victim = null;
-                    for (PaperCard c : main.toFlatList()) {
-                        if (c.getRules().getType().isLand())
-                            continue;
-                        if (countsAsTribalCreature(c, theme))
-                            continue;
-                        if (isInCore(c.getName(), theme))
-                            continue;
-                        victim = c;
-                        break;
-                    }
-                    if (victim == null) {
-                        for (PaperCard c : main.toFlatList()) {
-                            if (!c.getRules().getType().isLand() && !countsAsTribalCreature(c, theme)) {
-                                victim = c;
-                                break;
-                            }
-                        }
-                    }
-                    if (victim != null)
-                        main.remove(victim);
+                boolean needSwap = false;
+                if (!FORMAT_COMMANDER.equals(fmt) && main.countAll() >= 60 - MIN_LANDS_60)
+                    needSwap = true;
+                else if (FORMAT_COMMANDER.equals(fmt))
+                    needSwap = true;
+                if (needSwap) {
+                    PaperCard victim = pickTribalSwapVictim(deck, theme, fmt);
+                    // Refuse to steal non-creature spells (or lands) for tribal density.
+                    if (victim == null)
+                        continue;
+                    main.remove(victim);
                 }
                 main.add(preferPaperPrinting(pc));
                 added = true;
@@ -2576,12 +2626,106 @@ public final class EnemyThemeDecks {
     }
 
     /**
-     * Test hook: run tribal density top-up (core before DB) on an existing deck.
+     * Test hook: tribal density top-up only (core before DB). Does <em>not</em>
+     * refill the non-creature spell floor — use this when asserting the top-up
+     * itself never strips spells.
+     */
+    public static void ensureTribalCreatureDensityRawForTests(Deck deck, EnemyThemeData theme,
+                                                              String format, GameFormat forgeFormat,
+                                                              byte allowed, boolean singleton) {
+        ensureTribalCreatureDensity(deck, theme, format, forgeFormat, allowed, singleton);
+    }
+
+    /**
+     * Test hook: run tribal density top-up (core before DB) on an existing deck,
+     * then re-check the non-creature spell floor for 60-card formats (same as
+     * {@link #buildConstructedDeck}).
      */
     public static void ensureTribalCreatureDensityForTests(Deck deck, EnemyThemeData theme,
                                                            String format, GameFormat forgeFormat,
                                                            byte allowed, boolean singleton) {
-        ensureTribalCreatureDensity(deck, theme, format, forgeFormat, allowed, singleton);
+        ensureTribalCreatureDensityRawForTests(deck, theme, format, forgeFormat, allowed, singleton);
+        String fmt = normalizeFormat(format);
+        if (!FORMAT_COMMANDER.equals(fmt)) {
+            ensureMinNonCreatureSpellsFromCore(deck, theme, fmt, forgeFormat, allowed,
+                    60 - MIN_LANDS_60);
+        }
+    }
+
+    /**
+     * Fair Commander interaction staples (spot removal / wraths / soft bounce). No
+     * {@code enemy_banned} power cards. Injected from the theme core when missing after
+     * tribal density, swapping off-tribe creatures when needed.
+     */
+    private static final String[] COMMANDER_INTERACTION_PRIORITY = {
+            "Swords to Plowshares", "Path to Exile", "Anguished Unmaking", "Mortify",
+            "Go for the Throat", "Feed the Swarm", "Infernal Grasp", "Cast Down",
+            "Oblivion Ring", "Journey to Nowhere", "Generous Gift", "Beast Within",
+            "Chaos Warp", "Languish", "Wrath of God", "Supreme Verdict", "Time Wipe",
+            "Deafening Clarion", "Austere Command", "Farewell", "Counterspell",
+            "Negate", "Aetherize", "Engulf the Shore", "River's Rebuke", "Wash Out"
+    };
+
+    /** Minimum fair interaction spells to keep in tribal Commander decks. */
+    public static final int MIN_COMMANDER_INTERACTION_SPELLS = 6;
+
+    private static void ensureCommanderInteractionFromCore(Deck deck, EnemyThemeData theme,
+                                                           byte ci) {
+        if (deck == null || theme == null || theme.core == null)
+            return;
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        int have = 0;
+        for (var e : main) {
+            PaperCard pc = e.getKey();
+            if (pc == null || !isNonCreatureSpell(pc))
+                continue;
+            if (isCommanderInteractionName(pc.getName()))
+                have += e.getValue();
+        }
+        if (have >= MIN_COMMANDER_INTERACTION_SPELLS)
+            return;
+        for (String name : COMMANDER_INTERACTION_PRIORITY) {
+            if (have >= MIN_COMMANDER_INTERACTION_SPELLS)
+                break;
+            if (!isInCore(name, theme) || isEnemyBanned(name) || isRestrictedCardName(name))
+                continue;
+            if (main.countByName(name) > 0)
+                continue;
+            PaperCard pc = cardByName(name);
+            if (pc == null || isExcludedFromAdventureDecks(pc) || !isNonCreatureSpell(pc))
+                continue;
+            if (ci != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            PaperCard victim = pickTribalSwapVictim(deck, theme, FORMAT_COMMANDER);
+            if (victim == null) {
+                // Allow trimming a tribe creature only while still above the EDH floor.
+                if (countTribalCreatures(deck, theme) > MIN_TRIBAL_CREATURES_COMMANDER) {
+                    for (PaperCard c : main.toFlatList()) {
+                        if (c != null && c.getRules() != null && c.getRules().getType().isCreature()
+                                && countsAsTribalCreature(c, theme)) {
+                            victim = c;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (victim == null)
+                break;
+            main.remove(victim);
+            main.add(preferPaperPrinting(pc));
+            have++;
+        }
+    }
+
+    private static boolean isCommanderInteractionName(String name) {
+        if (name == null)
+            return false;
+        for (String n : COMMANDER_INTERACTION_PRIORITY) {
+            if (n.equals(name))
+                return true;
+        }
+        return false;
     }
 
     private static boolean countsAsTribalCreature(PaperCard pc, EnemyThemeData theme) {
@@ -2764,18 +2908,55 @@ public final class EnemyThemeDecks {
         for (PaperCard pc : coreLegal) {
             if (have >= MIN_NON_CREATURE_SPELLS_60)
                 break;
-            if (pc.getRules().getType().isCreature() || pc.getRules().getType().isLand())
+            if (pc.getRules() == null || pc.getRules().getType().isCreature()
+                    || pc.getRules().getType().isLand())
                 continue;
-            if (countNonLands(main) >= maxNonLand)
-                break;
             int cur = main.countByName(pc.getName());
             PaperCard print = preferPaperPrinting(pc);
-            for (int i = cur; i < perName && have < MIN_NON_CREATURE_SPELLS_60
-                    && countNonLands(main) < maxNonLand; i++) {
+            for (int i = cur; i < perName && have < MIN_NON_CREATURE_SPELLS_60; i++) {
+                if (countNonLands(main) >= maxNonLand) {
+                    // Free a creature slot (never another spell) so the floor can recover.
+                    PaperCard victim = pickSpellFloorSwapVictim(deck, theme);
+                    if (victim == null)
+                        return;
+                    main.remove(victim);
+                }
                 main.add(print);
                 have++;
             }
         }
+    }
+
+    /**
+     * Creature to drop when restoring the non-creature spell floor. Prefers off-tribe
+     * creatures, then any creature above the tribal floor; never a spell or land.
+     */
+    private static PaperCard pickSpellFloorSwapVictim(Deck deck, EnemyThemeData theme) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        for (PaperCard c : main.toFlatList()) {
+            if (c == null || c.getRules() == null || !c.getRules().getType().isCreature())
+                continue;
+            if (isTribalTheme(theme) && countsAsTribalCreature(c, theme))
+                continue;
+            return c;
+        }
+        if (isTribalTheme(theme)) {
+            int floor = MIN_TRIBAL_CREATURES_60;
+            if (countTribalCreatures(deck, theme) > floor) {
+                for (PaperCard c : main.toFlatList()) {
+                    if (c == null || c.getRules() == null || !c.getRules().getType().isCreature())
+                        continue;
+                    if (countsAsTribalCreature(c, theme))
+                        return c;
+                }
+            }
+        } else {
+            for (PaperCard c : main.toFlatList()) {
+                if (c != null && c.getRules() != null && c.getRules().getType().isCreature())
+                    return c;
+            }
+        }
+        return null;
     }
 
     private static List<PaperCard> resolveCoreCards(EnemyThemeData theme, String format,
@@ -2871,38 +3052,37 @@ public final class EnemyThemeDecks {
         } catch (Throwable ignored) {
         }
         Collections.shuffle(pool, MyRandom.getRandom());
-        // Prefer tribe creatures for tribal themes so filler does not spend slots on
-        // off-tribe "flash/flying" matches (e.g. Undersea Invader in spirit_tempo).
-        if (isTribalTheme(theme)) {
-            pool.sort((a, b) -> Boolean.compare(
-                    countsAsTribalCreature(b, theme),
-                    countsAsTribalCreature(a, theme)));
+        // Prefer tribe creatures for tribal constructed themes, then allow off-tribe glue.
+        // Precompute order once (no per-card pool rescan). Dragon themes skip
+        // Studious First-Year so it cannot block non-tribe filler forever.
+        List<PaperCard> ordered = new ArrayList<>(pool.size());
+        if (isTribalTheme(theme) && !FORMAT_COMMANDER.equals(format)) {
+            List<PaperCard> tribeFirst = new ArrayList<>();
+            List<PaperCard> nonTribe = new ArrayList<>();
+            boolean dragonTheme = theme.id != null && theme.id.contains("dragon");
+            for (PaperCard pc : pool) {
+                if (dragonTheme && "Studious First-Year".equals(pc.getName()))
+                    continue;
+                if (countsAsTribalCreature(pc, theme))
+                    tribeFirst.add(pc);
+                else
+                    nonTribe.add(pc);
+            }
+            ordered.addAll(tribeFirst);
+            ordered.addAll(nonTribe);
+        } else {
+            for (PaperCard pc : pool) {
+                if (theme != null && theme.id != null && theme.id.contains("dragon")
+                        && "Studious First-Year".equals(pc.getName()))
+                    continue;
+                ordered.add(pc);
+            }
         }
         int fillerCap = FORMAT_COMMANDER.equals(format) ? MAX_FILLER_COMMANDER : MAX_FILLER_NONLAND;
         int added = 0;
-        for (PaperCard pc : pool) {
+        for (PaperCard pc : ordered) {
             if (added >= want)
                 break;
-            // Skip changeling / off-tribal fodder for dragon themes.
-            if (theme != null && theme.id != null && theme.id.contains("dragon")
-                    && "Studious First-Year".equals(pc.getName()))
-                continue;
-            // Tribal constructed: spend filler on tribe creatures before off-tribe glue.
-            if (isTribalTheme(theme) && !FORMAT_COMMANDER.equals(format)
-                    && !countsAsTribalCreature(pc, theme)) {
-                // Allow a little non-tribe only if we somehow cannot fill with tribe.
-                boolean anyTribeLeft = false;
-                for (PaperCard t : pool) {
-                    if (countsAsTribalCreature(t, theme)
-                            && main.countByName(t.getName()) < (singleton ? 1
-                            : (FORMAT_PAUPER.equals(format) ? 4 : 2))) {
-                        anyTribeLeft = true;
-                        break;
-                    }
-                }
-                if (anyTribeLeft)
-                    continue;
-            }
             if (countFillerInPool(main, theme) >= fillerCap)
                 break;
             int max = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 2);
