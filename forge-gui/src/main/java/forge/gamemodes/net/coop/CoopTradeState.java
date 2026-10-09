@@ -1,5 +1,6 @@
 package forge.gamemodes.net.coop;
 
+import forge.gamemodes.net.event.coop.CoopTradeAckEvent;
 import forge.gamemodes.net.event.coop.CoopTradeCancelEvent;
 import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
 import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
@@ -11,12 +12,26 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 /**
- * Headless TR1 trade state machine. Host-authoritative: validates offers,
- * clears both confirmations when either offer changes, and emits an execute
- * event only when both sides confirm. Disconnect / cancel leaves bags unchanged.
+ * Headless TR1 trade state machine (locked for Netty + GL thread safety).
  *
- * <p>Process off the Netty loop; apply world/character changes on the GL thread
- * via the caller's {@code postRunnable}.
+ * <h2>Two-phase commit</h2>
+ * <ol>
+ *   <li>Both sides confirm matching offer versions → host emits
+ *       {@link CoopTradeExecuteEvent} and enters {@link Status#WAITING_GUEST_ACK}
+ *       <b>without</b> mutating its bag.</li>
+ *   <li>Guest applies locally, keeps a rollback snapshot, sends
+ *       {@link CoopTradeAckEvent}, enters {@link Status#GUEST_APPLIED}.</li>
+ *   <li>Host applies only after a successful guest ack, then sends a host ack
+ *       (complete). Guest discards its snapshot.</li>
+ *   <li>Any failure, cancel, or disconnect before the host ack means
+ *       <b>neither</b> side keeps changes — the guest restores its snapshot on
+ *       cancel / disconnect / {@link #expireGuestAckIfNeeded}.</li>
+ * </ol>
+ *
+ * <p>Guest-side timeout: after applying, if the host complete ack does not
+ * arrive within {@code coopTradeAckTimeoutSeconds}, the guest rolls back.
+ * Confirms carry an offer version; a confirm for a stale version is ignored.
+ * Peers are identified by {@link CoopTradeRole}, not character name.
  */
 public final class CoopTradeState {
     public enum Status {
@@ -24,33 +39,35 @@ public final class CoopTradeState {
         INVITE_SENT,
         INVITE_RECEIVED,
         OPEN,
-        /** Host has broadcast execute; waiting for local apply (optional). */
-        EXECUTING,
+        /** Host sent Execute; waiting for guest Ack. Host bag unchanged. */
+        WAITING_GUEST_ACK,
+        /** Guest applied locally; waiting for host complete Ack or timeout rollback. */
+        GUEST_APPLIED,
         COMPLETED,
         CANCELLED
     }
 
-    public enum Side { HOST, GUEST, LOCAL, PEER }
-
+    private final Object lock = new Object();
     private final AtomicLong seq = new AtomicLong(1L);
     private final CoopRateLimiter rateLimiter;
 
-    private volatile Status status = Status.IDLE;
-    private volatile long tradeId;
-    private volatile long inviteId;
-    private volatile String localName = "";
-    private volatile String peerName = "";
-    private volatile boolean localIsHost;
-    private volatile CoopTradeOffer localOffer = CoopTradeOffer.empty();
-    private volatile CoopTradeOffer peerOffer = CoopTradeOffer.empty();
-    private volatile boolean localConfirmed;
-    private volatile boolean peerConfirmed;
-    private volatile String cancelReason = "";
-    private volatile CoopTradeExecuteEvent pendingExecute;
-    private volatile long inviteSinceMs;
+    private Status status = Status.IDLE;
+    private long tradeId;
+    private long inviteId;
+    private CoopTradeRole localRole = CoopTradeRole.GUEST;
+    private CoopTradeOffer hostOffer = CoopTradeOffer.empty();
+    private CoopTradeOffer guestOffer = CoopTradeOffer.empty();
+    private int hostOfferVersion;
+    private int guestOfferVersion;
+    private boolean hostConfirmed;
+    private boolean guestConfirmed;
+    private String cancelReason = "";
+    private CoopTradeExecuteEvent pendingExecute;
+    private long inviteSinceMs;
+    private long guestAppliedSinceMs;
+    private CoopTradeBag.Snapshot guestRollbackSnap;
 
-    /** Optional live bags keyed by player name (host validation). */
-    private volatile Function<String, CoopTradeBag> bagLookup = name -> null;
+    private Function<CoopTradeRole, CoopTradeBag> bagLookup = role -> null;
 
     public CoopTradeState() {
         this(new CoopRateLimiter(CoopTradeWireLimits.DEFAULT_MAX_PER_WINDOW,
@@ -64,418 +81,567 @@ public final class CoopTradeState {
                         CoopTradeWireLimits.DEFAULT_WINDOW_MS);
     }
 
-    public void setBagLookup(final Function<String, CoopTradeBag> lookup) {
-        bagLookup = lookup != null ? lookup : name -> null;
+    public void setBagLookup(final Function<CoopTradeRole, CoopTradeBag> lookup) {
+        synchronized (lock) {
+            bagLookup = lookup != null ? lookup : role -> null;
+        }
     }
 
     public Status getStatus() {
-        return status;
+        synchronized (lock) {
+            return status;
+        }
     }
 
     public long getTradeId() {
-        return tradeId;
+        synchronized (lock) {
+            return tradeId;
+        }
     }
 
     public long getInviteId() {
-        return inviteId;
+        synchronized (lock) {
+            return inviteId;
+        }
     }
 
-    public String getLocalName() {
-        return localName;
-    }
-
-    public String getPeerName() {
-        return peerName;
+    public CoopTradeRole getLocalRole() {
+        synchronized (lock) {
+            return localRole;
+        }
     }
 
     public boolean isOpen() {
-        return status == Status.OPEN;
+        synchronized (lock) {
+            return status == Status.OPEN;
+        }
     }
 
     public boolean isIdle() {
-        return status == Status.IDLE || status == Status.COMPLETED || status == Status.CANCELLED;
+        synchronized (lock) {
+            return status == Status.IDLE || status == Status.COMPLETED || status == Status.CANCELLED;
+        }
+    }
+
+    public boolean isInFlight() {
+        synchronized (lock) {
+            return status == Status.WAITING_GUEST_ACK || status == Status.GUEST_APPLIED
+                    || status == Status.OPEN || status == Status.INVITE_SENT
+                    || status == Status.INVITE_RECEIVED;
+        }
+    }
+
+    public CoopTradeOffer getHostOffer() {
+        synchronized (lock) {
+            return hostOffer;
+        }
+    }
+
+    public CoopTradeOffer getGuestOffer() {
+        synchronized (lock) {
+            return guestOffer;
+        }
     }
 
     public CoopTradeOffer getLocalOffer() {
-        return localOffer;
+        synchronized (lock) {
+            return localRole == CoopTradeRole.HOST ? hostOffer : guestOffer;
+        }
     }
 
     public CoopTradeOffer getPeerOffer() {
-        return peerOffer;
+        synchronized (lock) {
+            return localRole == CoopTradeRole.HOST ? guestOffer : hostOffer;
+        }
+    }
+
+    public int getHostOfferVersion() {
+        synchronized (lock) {
+            return hostOfferVersion;
+        }
+    }
+
+    public int getGuestOfferVersion() {
+        synchronized (lock) {
+            return guestOfferVersion;
+        }
+    }
+
+    public int getLocalOfferVersion() {
+        synchronized (lock) {
+            return localRole == CoopTradeRole.HOST ? hostOfferVersion : guestOfferVersion;
+        }
     }
 
     public boolean isLocalConfirmed() {
-        return localConfirmed;
+        synchronized (lock) {
+            return localRole == CoopTradeRole.HOST ? hostConfirmed : guestConfirmed;
+        }
     }
 
     public boolean isPeerConfirmed() {
-        return peerConfirmed;
+        synchronized (lock) {
+            return localRole == CoopTradeRole.HOST ? guestConfirmed : hostConfirmed;
+        }
     }
 
     public String getCancelReason() {
-        return cancelReason;
+        synchronized (lock) {
+            return cancelReason;
+        }
     }
 
     public CoopTradeExecuteEvent getPendingExecute() {
-        return pendingExecute;
+        synchronized (lock) {
+            return pendingExecute;
+        }
     }
 
-    /** Local player invites the peer. */
+    public boolean hasGuestRollbackSnap() {
+        synchronized (lock) {
+            return guestRollbackSnap != null;
+        }
+    }
+
+    /** Local player invites the peer. {@code weAreHost} sets the local role. */
     public CoopTradeInviteEvent beginInvite(final String fromPlayer, final int timeoutSeconds,
-                                            final long nowMs) {
-        if (status == Status.OPEN || status == Status.INVITE_SENT || status == Status.EXECUTING) {
-            return null;
+                                            final boolean weAreHost, final long nowMs) {
+        synchronized (lock) {
+            if (status == Status.OPEN || status == Status.INVITE_SENT
+                    || status == Status.WAITING_GUEST_ACK || status == Status.GUEST_APPLIED) {
+                return null;
+            }
+            if (!rateLimiter.tryAcquire(nowMs)) {
+                return null;
+            }
+            if (fromPlayer == null || fromPlayer.isEmpty()
+                    || fromPlayer.length() > CoopTradeWireLimits.MAX_NAME_LEN) {
+                return null;
+            }
+            final String from = CoopTradeWireLimits.clampName(fromPlayer);
+            if (from.isEmpty()) {
+                return null;
+            }
+            resetOffersUnlocked();
+            status = Status.INVITE_SENT;
+            inviteId = seq.getAndIncrement();
+            tradeId = inviteId;
+            localRole = weAreHost ? CoopTradeRole.HOST : CoopTradeRole.GUEST;
+            inviteSinceMs = nowMs;
+            cancelReason = "";
+            pendingExecute = null;
+            guestRollbackSnap = null;
+            final int timeout = Math.max(1, Math.min(timeoutSeconds, 120));
+            return new CoopTradeInviteEvent(inviteId, from, timeout);
         }
-        if (!rateLimiter.tryAcquire(nowMs)) {
-            return null;
-        }
-        if (fromPlayer == null || fromPlayer.isEmpty()
-                || fromPlayer.length() > CoopTradeWireLimits.MAX_NAME_LEN) {
-            return null;
-        }
-        final String from = CoopTradeWireLimits.clampName(fromPlayer);
-        if (from.isEmpty()) {
-            return null;
-        }
-        resetOffers();
-        status = Status.INVITE_SENT;
-        inviteId = seq.getAndIncrement();
-        tradeId = inviteId;
-        localName = from;
-        inviteSinceMs = nowMs;
-        cancelReason = "";
-        pendingExecute = null;
-        final int timeout = Math.max(1, Math.min(timeoutSeconds, 120));
-        return new CoopTradeInviteEvent(inviteId, from, timeout);
     }
 
+    public CoopTradeInviteEvent beginInvite(final String fromPlayer, final int timeoutSeconds,
+                                            final boolean weAreHost) {
+        return beginInvite(fromPlayer, timeoutSeconds, weAreHost, System.currentTimeMillis());
+    }
+
+    /** @deprecated use {@link #beginInvite(String, int, boolean)} */
     public CoopTradeInviteEvent beginInvite(final String fromPlayer, final int timeoutSeconds) {
-        return beginInvite(fromPlayer, timeoutSeconds, System.currentTimeMillis());
+        return beginInvite(fromPlayer, timeoutSeconds, true);
     }
 
-    /** Inbound invite. */
-    public boolean receiveInvite(final CoopTradeInviteEvent invite, final long nowMs) {
-        if (invite == null || status == Status.OPEN || status == Status.EXECUTING) {
-            return false;
-        }
-        if (!rateLimiter.tryAcquire(nowMs)) {
-            return false;
-        }
-        if (invite.getInviteId() <= 0L) {
-            return false;
-        }
-        final String from = invite.getFromPlayer();
-        if (from == null || from.isEmpty() || from.length() > CoopTradeWireLimits.MAX_NAME_LEN) {
-            return false;
-        }
-        resetOffers();
-        status = Status.INVITE_RECEIVED;
-        inviteId = invite.getInviteId();
-        tradeId = inviteId;
-        peerName = from;
-        inviteSinceMs = nowMs;
-        cancelReason = "";
-        pendingExecute = null;
-        return true;
-    }
-
-    public boolean receiveInvite(final CoopTradeInviteEvent invite) {
-        return receiveInvite(invite, System.currentTimeMillis());
-    }
-
-    /** Local accept/decline of an invite. */
-    public CoopTradeResponseEvent respondInvite(final boolean accepted) {
-        if (status != Status.INVITE_RECEIVED) {
-            return null;
-        }
-        final long id = inviteId;
-        if (!accepted) {
-            status = Status.CANCELLED;
-            cancelReason = "declined";
-            return new CoopTradeResponseEvent(id, false);
-        }
-        status = Status.OPEN;
-        localConfirmed = false;
-        peerConfirmed = false;
-        return new CoopTradeResponseEvent(id, true);
-    }
-
-    /** Host/peer applied an accept response — open the window. */
-    public boolean applyPeerResponse(final CoopTradeResponseEvent response, final String peer,
-                                     final boolean weAreHost) {
-        if (response == null) {
-            return false;
-        }
-        if (status != Status.INVITE_SENT && status != Status.INVITE_RECEIVED) {
-            return false;
-        }
-        if (response.getInviteId() != inviteId) {
-            return false;
-        }
-        if (!response.isAccepted()) {
-            status = Status.CANCELLED;
-            cancelReason = "declined";
+    public boolean receiveInvite(final CoopTradeInviteEvent invite, final boolean weAreHost,
+                                 final long nowMs) {
+        synchronized (lock) {
+            if (invite == null || status == Status.OPEN || status == Status.WAITING_GUEST_ACK
+                    || status == Status.GUEST_APPLIED) {
+                return false;
+            }
+            if (!rateLimiter.tryAcquire(nowMs)) {
+                return false;
+            }
+            if (invite.getInviteId() <= 0L) {
+                return false;
+            }
+            final String from = invite.getFromPlayer();
+            if (from == null || from.isEmpty() || from.length() > CoopTradeWireLimits.MAX_NAME_LEN) {
+                return false;
+            }
+            resetOffersUnlocked();
+            status = Status.INVITE_RECEIVED;
+            inviteId = invite.getInviteId();
+            tradeId = inviteId;
+            localRole = weAreHost ? CoopTradeRole.HOST : CoopTradeRole.GUEST;
+            inviteSinceMs = nowMs;
+            cancelReason = "";
+            pendingExecute = null;
+            guestRollbackSnap = null;
             return true;
         }
-        final String name = CoopTradeWireLimits.clampName(peer);
-        if (status == Status.INVITE_SENT) {
-            peerName = name;
-        } else if (localName.isEmpty()) {
-            localName = name;
+    }
+
+    public boolean receiveInvite(final CoopTradeInviteEvent invite, final boolean weAreHost) {
+        return receiveInvite(invite, weAreHost, System.currentTimeMillis());
+    }
+
+    /** @deprecated use {@link #receiveInvite(CoopTradeInviteEvent, boolean)} */
+    public boolean receiveInvite(final CoopTradeInviteEvent invite) {
+        return receiveInvite(invite, false);
+    }
+
+    public CoopTradeResponseEvent respondInvite(final boolean accepted) {
+        synchronized (lock) {
+            if (status != Status.INVITE_RECEIVED) {
+                return null;
+            }
+            final long id = inviteId;
+            if (!accepted) {
+                status = Status.CANCELLED;
+                cancelReason = "declined";
+                return new CoopTradeResponseEvent(id, false);
+            }
+            status = Status.OPEN;
+            hostConfirmed = false;
+            guestConfirmed = false;
+            return new CoopTradeResponseEvent(id, true);
         }
-        localIsHost = weAreHost;
-        status = Status.OPEN;
-        localConfirmed = false;
-        peerConfirmed = false;
-        return true;
+    }
+
+    public boolean applyPeerResponse(final CoopTradeResponseEvent response, final boolean weAreHost) {
+        synchronized (lock) {
+            if (response == null) {
+                return false;
+            }
+            if (status != Status.INVITE_SENT && status != Status.INVITE_RECEIVED) {
+                return false;
+            }
+            if (response.getInviteId() != inviteId) {
+                return false;
+            }
+            if (!response.isAccepted()) {
+                status = Status.CANCELLED;
+                cancelReason = "declined";
+                return true;
+            }
+            localRole = weAreHost ? CoopTradeRole.HOST : CoopTradeRole.GUEST;
+            status = Status.OPEN;
+            hostConfirmed = false;
+            guestConfirmed = false;
+            return true;
+        }
     }
 
     /**
-     * Host path: accept a local or peer offer update. Returns null when rejected
-     * (caller should not forward; inventory unchanged).
+     * Accept an offer update from {@code fromRole}. Returns a wire event with the
+     * assigned offer version, or null when rejected.
      */
-    public CoopTradeOfferEvent acceptOffer(final CoopTradeOfferEvent event, final boolean fromLocal,
-                                           final long nowMs) {
-        if (event == null || status != Status.OPEN || event.getTradeId() != tradeId) {
-            return null;
+    public CoopTradeOfferEvent acceptOffer(final CoopTradeOfferEvent event, final long nowMs) {
+        synchronized (lock) {
+            if (event == null || status != Status.OPEN || event.getTradeId() != tradeId) {
+                return null;
+            }
+            if (!rateLimiter.tryAcquire(nowMs)) {
+                return null;
+            }
+            final CoopTradeRole role = event.getFromRole();
+            if (role == null) {
+                return null;
+            }
+            final CoopTradeBag bag = bagLookup.apply(role);
+            final CoopTradeValidator.Result check = CoopTradeValidator.validate(event.getOffer(), bag);
+            if (!check.ok()) {
+                return null;
+            }
+            if (role == CoopTradeRole.HOST) {
+                hostOffer = event.getOffer();
+                hostOfferVersion++;
+            } else {
+                guestOffer = event.getOffer();
+                guestOfferVersion++;
+            }
+            hostConfirmed = false;
+            guestConfirmed = false;
+            final int ver = role == CoopTradeRole.HOST ? hostOfferVersion : guestOfferVersion;
+            return new CoopTradeOfferEvent(tradeId, role, event.getOffer(), ver);
         }
-        if (!rateLimiter.tryAcquire(nowMs)) {
-            return null;
-        }
-        final String from = event.getFromPlayer();
-        if (from == null || from.length() > CoopTradeWireLimits.MAX_NAME_LEN) {
-            return null;
-        }
-        final CoopTradeBag bag = bagLookup.apply(from);
-        final CoopTradeValidator.Result check = CoopTradeValidator.validate(event.getOffer(), bag);
-        if (!check.ok()) {
-            return null;
-        }
-        if (fromLocal) {
-            localOffer = event.getOffer();
-            localName = CoopTradeWireLimits.clampName(from);
-        } else {
-            peerOffer = event.getOffer();
-            peerName = CoopTradeWireLimits.clampName(from);
-        }
-        // Changing an offer resets both confirmations.
-        localConfirmed = false;
-        peerConfirmed = false;
-        return event;
     }
 
-    public CoopTradeOfferEvent acceptOffer(final CoopTradeOfferEvent event, final boolean fromLocal) {
-        return acceptOffer(event, fromLocal, System.currentTimeMillis());
+    public CoopTradeOfferEvent acceptOffer(final CoopTradeOfferEvent event) {
+        return acceptOffer(event, System.currentTimeMillis());
     }
 
     /**
-     * Apply a confirm. When this side is the host and both are confirmed, returns
-     * a {@link CoopTradeExecuteEvent} to broadcast; otherwise null.
+     * Confirm for a specific offer version. Stale versions are ignored (returns null).
+     * When host and both sides confirmed, returns {@link CoopTradeExecuteEvent}.
      */
-    public Object acceptConfirm(final CoopTradeConfirmEvent event, final boolean fromLocal,
-                                final boolean weAreHost, final long nowMs) {
-        if (event == null || status != Status.OPEN || event.getTradeId() != tradeId) {
-            return null;
+    public Object acceptConfirm(final CoopTradeConfirmEvent event, final boolean weAreHost,
+                                final long nowMs) {
+        synchronized (lock) {
+            if (event == null || status != Status.OPEN || event.getTradeId() != tradeId) {
+                return null;
+            }
+            if (!rateLimiter.tryAcquire(nowMs)) {
+                return null;
+            }
+            final CoopTradeRole role = event.getFromRole();
+            if (role == null) {
+                return null;
+            }
+            final int currentVer = role == CoopTradeRole.HOST ? hostOfferVersion : guestOfferVersion;
+            if (event.getOfferVersion() != currentVer) {
+                // Stale confirm after an offer change — ignore.
+                return null;
+            }
+            if (role == CoopTradeRole.HOST) {
+                hostConfirmed = event.isConfirmed();
+            } else {
+                guestConfirmed = event.isConfirmed();
+            }
+            if (!hostConfirmed || !guestConfirmed) {
+                return event;
+            }
+            final CoopTradeBag hostBag = bagLookup.apply(CoopTradeRole.HOST);
+            final CoopTradeBag guestBag = bagLookup.apply(CoopTradeRole.GUEST);
+            if (!CoopTradeValidator.validate(hostOffer, hostBag).ok()
+                    || !CoopTradeValidator.validate(guestOffer, guestBag).ok()) {
+                return cancelUnlocked("invalid offer at confirm");
+            }
+            if (!weAreHost) {
+                return event;
+            }
+            final CoopTradeExecuteEvent exec = new CoopTradeExecuteEvent(
+                    tradeId, hostOffer, guestOffer, hostOfferVersion, guestOfferVersion);
+            pendingExecute = exec;
+            status = Status.WAITING_GUEST_ACK;
+            return exec;
         }
-        if (!rateLimiter.tryAcquire(nowMs)) {
-            return null;
-        }
-        final String from = event.getFromPlayer();
-        if (from == null || from.length() > CoopTradeWireLimits.MAX_NAME_LEN) {
-            return null;
-        }
-        if (fromLocal) {
-            localConfirmed = event.isConfirmed();
-        } else {
-            peerConfirmed = event.isConfirmed();
-        }
-        if (!localConfirmed || !peerConfirmed) {
-            return event;
-        }
-        // Re-validate both offers before commit.
-        final CoopTradeBag localBag = bagLookup.apply(localName);
-        final CoopTradeBag peerBag = bagLookup.apply(peerName);
-        if (!CoopTradeValidator.validate(localOffer, localBag).ok()
-                || !CoopTradeValidator.validate(peerOffer, peerBag).ok()) {
-            return cancel("invalid offer at confirm");
-        }
-        if (!weAreHost) {
-            return event;
-        }
-        final String hostPlayer = localIsHost ? localName : peerName;
-        final String guestPlayer = localIsHost ? peerName : localName;
-        final CoopTradeOffer hostOffer = localIsHost ? localOffer : peerOffer;
-        final CoopTradeOffer guestOffer = localIsHost ? peerOffer : localOffer;
-        final CoopTradeExecuteEvent exec = new CoopTradeExecuteEvent(
-                tradeId, hostPlayer, guestPlayer, hostOffer, guestOffer);
-        pendingExecute = exec;
-        status = Status.EXECUTING;
-        return exec;
     }
 
-    public Object acceptConfirm(final CoopTradeConfirmEvent event, final boolean fromLocal,
-                                final boolean weAreHost) {
-        return acceptConfirm(event, fromLocal, weAreHost, System.currentTimeMillis());
+    public Object acceptConfirm(final CoopTradeConfirmEvent event, final boolean weAreHost) {
+        return acceptConfirm(event, weAreHost, System.currentTimeMillis());
     }
 
-    /** Peer mirrored our confirm / we received execute. */
+    /** Guest (or host mirror) receives Execute — do not apply bags here. */
+    public boolean receiveExecute(final CoopTradeExecuteEvent event, final boolean weAreHost) {
+        synchronized (lock) {
+            if (event == null || (status != Status.OPEN && status != Status.WAITING_GUEST_ACK)) {
+                return false;
+            }
+            if (event.getTradeId() != tradeId) {
+                return false;
+            }
+            pendingExecute = event;
+            status = weAreHost ? Status.WAITING_GUEST_ACK : Status.WAITING_GUEST_ACK;
+            // Guest will move to GUEST_APPLIED after local apply via markGuestApplied.
+            return true;
+        }
+    }
+
     public boolean receiveExecute(final CoopTradeExecuteEvent event) {
-        if (event == null || (status != Status.OPEN && status != Status.EXECUTING)) {
-            return false;
-        }
-        if (event.getTradeId() != tradeId) {
-            return false;
-        }
-        pendingExecute = event;
-        status = Status.EXECUTING;
-        return true;
+        return receiveExecute(event, localRole == CoopTradeRole.HOST);
     }
 
-    public void markCompleted() {
-        status = Status.COMPLETED;
-        localConfirmed = false;
-        peerConfirmed = false;
+    /**
+     * Guest finished local apply (or failed). On success keeps {@code snap} for
+     * timeout/disconnect rollback until {@link #receiveHostComplete}.
+     */
+    public CoopTradeAckEvent markGuestApplied(final boolean success, final String detail,
+                                              final CoopTradeBag.Snapshot snap, final long nowMs) {
+        synchronized (lock) {
+            if (status != Status.WAITING_GUEST_ACK && status != Status.OPEN) {
+                return null;
+            }
+            if (pendingExecute == null) {
+                return null;
+            }
+            if (success) {
+                guestRollbackSnap = snap;
+                guestAppliedSinceMs = nowMs;
+                status = Status.GUEST_APPLIED;
+            } else {
+                guestRollbackSnap = null;
+                if (snap != null) {
+                    // Caller already restored; ensure cancel state.
+                }
+                status = Status.CANCELLED;
+                cancelReason = detail == null ? "guest apply failed" : detail;
+            }
+            return new CoopTradeAckEvent(tradeId, CoopTradeRole.GUEST, success,
+                    detail == null ? "" : detail);
+        }
+    }
+
+    /**
+     * Host processes guest ack. On success the caller must apply the host bag,
+     * then call {@link #markHostCompleted()} and send the returned host ack.
+     * On failure returns a cancel (host never applies).
+     */
+    public Object receiveGuestAck(final CoopTradeAckEvent ack) {
+        synchronized (lock) {
+            if (ack == null || ack.getFromRole() != CoopTradeRole.GUEST) {
+                return null;
+            }
+            if (status != Status.WAITING_GUEST_ACK || ack.getTradeId() != tradeId) {
+                return null;
+            }
+            if (!ack.isSuccess()) {
+                return cancelUnlocked("guest apply failed: " + ack.getDetail());
+            }
+            // Stay WAITING_GUEST_ACK until markHostCompleted after local apply.
+            return ack;
+        }
+    }
+
+    /** Host finished applying after guest ack — emit complete ack for the guest. */
+    public CoopTradeAckEvent markHostCompleted() {
+        synchronized (lock) {
+            if (status != Status.WAITING_GUEST_ACK || pendingExecute == null) {
+                return null;
+            }
+            status = Status.COMPLETED;
+            hostConfirmed = false;
+            guestConfirmed = false;
+            guestRollbackSnap = null;
+            return new CoopTradeAckEvent(tradeId, CoopTradeRole.HOST, true, "complete");
+        }
+    }
+
+    /**
+     * Guest receives host complete ack — discard rollback snapshot.
+     * @return true if this completed the trade
+     */
+    public boolean receiveHostComplete(final CoopTradeAckEvent ack) {
+        synchronized (lock) {
+            if (ack == null || ack.getFromRole() != CoopTradeRole.HOST || !ack.isSuccess()) {
+                return false;
+            }
+            if (ack.getTradeId() != tradeId) {
+                return false;
+            }
+            if (status != Status.GUEST_APPLIED && status != Status.WAITING_GUEST_ACK) {
+                return false;
+            }
+            guestRollbackSnap = null;
+            status = Status.COMPLETED;
+            hostConfirmed = false;
+            guestConfirmed = false;
+            return true;
+        }
+    }
+
+    /**
+     * Roll back guest apply using the stored snapshot. Used on cancel,
+     * disconnect, and ack timeout.
+     * @return true if a snapshot was restored
+     */
+    public boolean rollbackGuestApply(final CoopTradeBag bag) {
+        synchronized (lock) {
+            if (guestRollbackSnap == null || bag == null) {
+                guestRollbackSnap = null;
+                return false;
+            }
+            bag.restore(guestRollbackSnap);
+            guestRollbackSnap = null;
+            return true;
+        }
     }
 
     public CoopTradeCancelEvent cancel(final String reason) {
+        synchronized (lock) {
+            return cancelUnlocked(reason);
+        }
+    }
+
+    private CoopTradeCancelEvent cancelUnlocked(final String reason) {
         final long id = tradeId > 0L ? tradeId : inviteId;
         cancelReason = CoopTradeWireLimits.clampText(reason);
         status = Status.CANCELLED;
-        localConfirmed = false;
-        peerConfirmed = false;
+        hostConfirmed = false;
+        guestConfirmed = false;
         pendingExecute = null;
+        // Snapshot kept until caller invokes rollbackGuestApply.
         return new CoopTradeCancelEvent(id, cancelReason);
     }
 
     public boolean receiveCancel(final CoopTradeCancelEvent event) {
-        if (event == null) {
-            return false;
+        synchronized (lock) {
+            if (event == null) {
+                return false;
+            }
+            if (tradeId > 0L && event.getTradeId() != tradeId && event.getTradeId() != inviteId) {
+                return false;
+            }
+            cancelReason = CoopTradeWireLimits.clampText(event.getReason());
+            status = Status.CANCELLED;
+            hostConfirmed = false;
+            guestConfirmed = false;
+            pendingExecute = null;
+            return true;
         }
-        if (tradeId > 0L && event.getTradeId() != tradeId && event.getTradeId() != inviteId) {
-            return false;
-        }
-        cancelReason = CoopTradeWireLimits.clampText(event.getReason());
-        status = Status.CANCELLED;
-        localConfirmed = false;
-        peerConfirmed = false;
-        pendingExecute = null;
-        return true;
-    }
-
-    /** Disconnect mid-trade — cancel cleanly with no partial swap. */
-    public CoopTradeCancelEvent onDisconnect() {
-        if (status == Status.IDLE || status == Status.COMPLETED || status == Status.CANCELLED) {
-            return null;
-        }
-        return cancel("disconnect");
-    }
-
-    public boolean expireInviteIfNeeded(final long nowMs, final long timeoutMs) {
-        if (status != Status.INVITE_SENT && status != Status.INVITE_RECEIVED) {
-            return false;
-        }
-        if (timeoutMs <= 0L || nowMs - inviteSinceMs < timeoutMs) {
-            return false;
-        }
-        cancel("invite expired");
-        return true;
-    }
-
-    public void reset() {
-        status = Status.IDLE;
-        tradeId = 0L;
-        inviteId = 0L;
-        localName = "";
-        peerName = "";
-        localIsHost = false;
-        resetOffers();
-        cancelReason = "";
-        pendingExecute = null;
-        inviteSinceMs = 0L;
-        rateLimiter.reset();
-    }
-
-    private void resetOffers() {
-        localOffer = CoopTradeOffer.empty();
-        peerOffer = CoopTradeOffer.empty();
-        localConfirmed = false;
-        peerConfirmed = false;
     }
 
     /**
-     * Apply a pending execute against two bags atomically. Does not mutate if
-     * either side would fail. Marks COMPLETED on success, CANCELLED on failure.
+     * Disconnect mid-trade. If the guest had applied, caller must
+     * {@link #rollbackGuestApply}. Host never applies without guest ack.
      */
-    public CoopTradeApply.Result applyPending(final CoopTradeBag localBag, final CoopTradeBag peerBag,
-                                              final boolean weAreHost) {
-        final CoopTradeExecuteEvent exec = pendingExecute;
-        if (exec == null || status != Status.EXECUTING) {
-            return CoopTradeApply.Result.fail("no pending execute");
+    public CoopTradeCancelEvent onDisconnect() {
+        synchronized (lock) {
+            if (status == Status.IDLE || status == Status.COMPLETED || status == Status.CANCELLED) {
+                return null;
+            }
+            return cancelUnlocked("disconnect");
         }
-        final CoopTradeOffer give = weAreHost ? exec.getHostOffer() : exec.getGuestOffer();
-        final CoopTradeOffer recv = weAreHost ? exec.getGuestOffer() : exec.getHostOffer();
-        // Atomic across both bags when both are available (host/tests).
-        if (peerBag != null) {
-            final CoopTradeApply.Result r = CoopTradeApply.applyAtomic(localBag, give, peerBag, recv);
-            if (r.applied) {
-                markCompleted();
-            } else {
-                cancel("apply failed: " + r.detail);
+    }
+
+    public boolean expireInviteIfNeeded(final long nowMs, final long timeoutMs) {
+        synchronized (lock) {
+            if (status != Status.INVITE_SENT && status != Status.INVITE_RECEIVED) {
+                return false;
             }
-            return r;
+            if (timeoutMs <= 0L || nowMs - inviteSinceMs < timeoutMs) {
+                return false;
+            }
+            cancelUnlocked("invite expired");
+            return true;
         }
-        // Single local bag: remove what we give, grant what we receive (still atomic via snapshot).
-        final CoopTradeBag.Snapshot snap = localBag.snapshot();
-        final CoopTradeValidator.Result check = CoopTradeValidator.validate(give, localBag);
-        if (!check.ok()) {
-            cancel("local offer invalid");
-            return CoopTradeApply.Result.fail(check.reason + ":" + check.detail);
+    }
+
+    /**
+     * Guest ack timeout: if still {@link Status#GUEST_APPLIED} past
+     * {@code timeoutMs}, cancel so the caller rolls back the snapshot.
+     * Documented guest-side timeout for lost host complete acks.
+     */
+    public boolean expireGuestAckIfNeeded(final long nowMs, final long timeoutMs) {
+        synchronized (lock) {
+            if (status != Status.GUEST_APPLIED) {
+                return false;
+            }
+            if (timeoutMs <= 0L || nowMs - guestAppliedSinceMs < timeoutMs) {
+                return false;
+            }
+            cancelUnlocked("guest ack timeout — rolled back");
+            return true;
         }
-        try {
-            if (give.getGold() > 0 && !localBag.takeGold(give.getGold())) {
-                localBag.restore(snap);
-                cancel("take gold");
-                return CoopTradeApply.Result.fail("take gold");
-            }
-            for (final CoopTradeOffer.Line line : give.getMaterials()) {
-                if (!localBag.takeMaterial(line.getId(), line.getCount())) {
-                    localBag.restore(snap);
-                    cancel("take material");
-                    return CoopTradeApply.Result.fail("take material");
-                }
-            }
-            for (final CoopTradeOffer.Line line : give.getItems()) {
-                if (!localBag.takeItem(line.getId(), line.getCount())) {
-                    localBag.restore(snap);
-                    cancel("take item");
-                    return CoopTradeApply.Result.fail("take item");
-                }
-            }
-            for (final CoopTradeOffer.CardLine line : give.getCards()) {
-                if (!localBag.takeCard(line.key(), line.getCount())) {
-                    localBag.restore(snap);
-                    cancel("take card");
-                    return CoopTradeApply.Result.fail("take card");
-                }
-            }
-            if (recv.getGold() > 0) {
-                localBag.addGold(recv.getGold());
-            }
-            for (final CoopTradeOffer.Line line : recv.getMaterials()) {
-                localBag.addMaterial(line.getId(), line.getCount());
-            }
-            for (final CoopTradeOffer.Line line : recv.getItems()) {
-                localBag.addItem(line.getId(), line.getCount());
-            }
-            for (final CoopTradeOffer.CardLine line : recv.getCards()) {
-                localBag.addCard(line.key(), line.getCount());
-            }
-            markCompleted();
-            return CoopTradeApply.Result.ok();
-        } catch (final RuntimeException ex) {
-            localBag.restore(snap);
-            cancel("exception");
-            return CoopTradeApply.Result.fail(ex.getMessage());
+    }
+
+    public void reset() {
+        synchronized (lock) {
+            status = Status.IDLE;
+            tradeId = 0L;
+            inviteId = 0L;
+            localRole = CoopTradeRole.GUEST;
+            resetOffersUnlocked();
+            cancelReason = "";
+            pendingExecute = null;
+            inviteSinceMs = 0L;
+            guestAppliedSinceMs = 0L;
+            guestRollbackSnap = null;
+            rateLimiter.reset();
         }
+    }
+
+    private void resetOffersUnlocked() {
+        hostOffer = CoopTradeOffer.empty();
+        guestOffer = CoopTradeOffer.empty();
+        hostOfferVersion = 0;
+        guestOfferVersion = 0;
+        hostConfirmed = false;
+        guestConfirmed = false;
     }
 }

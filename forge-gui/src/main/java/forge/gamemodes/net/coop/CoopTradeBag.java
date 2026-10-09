@@ -10,7 +10,11 @@ public interface CoopTradeBag {
 
     boolean takeGold(int amount);
 
-    void addGold(int amount);
+    /**
+     * Grant gold. Must refuse int overflow ({@code current + amount} wraps).
+     * @return false when amount invalid or would overflow
+     */
+    boolean addGold(int amount);
 
     int getMaterial(String id);
 
@@ -68,6 +72,8 @@ public interface CoopTradeBag {
         /** Distinct item types that fit before Overflow. 0 = unlimited. */
         private int itemCapacity;
         private final java.util.List<String> overflowItems = new java.util.ArrayList<>();
+        /** Test hook: next grant (gold/material/item/card) fails once. */
+        private boolean failNextGrant;
 
         public void setGold(final int gold) {
             this.gold = Math.max(0, gold);
@@ -128,6 +134,18 @@ public interface CoopTradeBag {
             this.itemCapacity = Math.max(0, capacity);
         }
 
+        public void setFailNextGrant(final boolean fail) {
+            this.failNextGrant = fail;
+        }
+
+        private boolean consumeFailGrant() {
+            if (!failNextGrant) {
+                return false;
+            }
+            failNextGrant = false;
+            return true;
+        }
+
         public java.util.List<String> getOverflowItems() {
             return java.util.Collections.unmodifiableList(overflowItems);
         }
@@ -151,10 +169,15 @@ public interface CoopTradeBag {
         }
 
         @Override
-        public void addGold(final int amount) {
-            if (amount > 0) {
-                gold += amount;
+        public boolean addGold(final int amount) {
+            if (amount <= 0 || consumeFailGrant()) {
+                return false;
             }
+            if (gold > Integer.MAX_VALUE - amount) {
+                return false;
+            }
+            gold += amount;
+            return true;
         }
 
         @Override
@@ -186,10 +209,14 @@ public interface CoopTradeBag {
 
         @Override
         public boolean addMaterial(final String id, final int amount) {
-            if (id == null || id.isEmpty() || amount <= 0) {
+            if (id == null || id.isEmpty() || amount <= 0 || consumeFailGrant()) {
                 return false;
             }
-            materials.put(id, getMaterial(id) + amount);
+            final int have = getMaterial(id);
+            if (have > Integer.MAX_VALUE - amount) {
+                return false;
+            }
+            materials.put(id, have + amount);
             return true;
         }
 
@@ -227,7 +254,7 @@ public interface CoopTradeBag {
 
         @Override
         public boolean addItem(final String name, final int amount) {
-            if (name == null || name.isEmpty() || amount <= 0) {
+            if (name == null || name.isEmpty() || amount <= 0 || consumeFailGrant()) {
                 return false;
             }
             int remaining = amount;
@@ -289,10 +316,14 @@ public interface CoopTradeBag {
 
         @Override
         public boolean addCard(final String cardKey, final int amount) {
-            if (cardKey == null || cardKey.isEmpty() || amount <= 0) {
+            if (cardKey == null || cardKey.isEmpty() || amount <= 0 || consumeFailGrant()) {
                 return false;
             }
-            tradeableCards.put(cardKey, getTradeableCardCount(cardKey) + amount);
+            final int have = getTradeableCardCount(cardKey);
+            if (have > Integer.MAX_VALUE - amount) {
+                return false;
+            }
+            tradeableCards.put(cardKey, have + amount);
             cards.put(cardKey, cards.getOrDefault(cardKey, 0) + amount);
             return true;
         }

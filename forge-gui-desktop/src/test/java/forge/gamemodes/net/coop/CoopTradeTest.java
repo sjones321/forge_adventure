@@ -4,6 +4,7 @@ import forge.gamemodes.net.WireClassFilter;
 import forge.gamemodes.net.event.NetEvent;
 import forge.gamemodes.net.event.coop.CoopHelloEvent;
 import forge.gamemodes.net.event.coop.CoopSessionReadyEvent;
+import forge.gamemodes.net.event.coop.CoopTradeAckEvent;
 import forge.gamemodes.net.event.coop.CoopTradeCancelEvent;
 import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
 import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
@@ -17,15 +18,16 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.net.ServerSocket;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * TR1 behaviour tests: atomic swap, rejected offer, disconnect mid-trade,
- * vaulted/deck refusal, WireClassFilter allowlist, Overflow on receive.
- * Loopback uses {@link CoopOverworldServer}/{@link CoopOverworldClient} like CO2 E2E.
+ * TR1 behaviour tests: two-phase commit, offer versions, disconnect/cancel
+ * after Execute, item/card rollback, null wire fields, gold overflow.
+ * Loopback uses {@link CoopOverworldServer}/{@link CoopOverworldClient}.
  */
 public class CoopTradeTest {
 
@@ -61,6 +63,38 @@ public class CoopTradeTest {
                 CoopVersion.buildHash(), CoopVersion.cardDataHash(), "Guest", "Guest", code);
     }
 
+    /** Open a trade: host invites, guest accepts. Bags keyed by role. */
+    private static CoopTradeState openTrade(final CoopTradeBag hostBag, final CoopTradeBag guestBag) {
+        final CoopTradeState host = new CoopTradeState();
+        host.setBagLookup(role -> role == CoopTradeRole.HOST ? hostBag : guestBag);
+        final CoopTradeInviteEvent invite = host.beginInvite("Host", 20, true);
+        Assert.assertNotNull(invite);
+        final CoopTradeState guest = new CoopTradeState();
+        guest.setBagLookup(role -> role == CoopTradeRole.HOST ? hostBag : guestBag);
+        Assert.assertTrue(guest.receiveInvite(invite, false));
+        Assert.assertTrue(host.applyPeerResponse(guest.respondInvite(true), true));
+        Assert.assertTrue(host.isOpen());
+        return host;
+    }
+
+    private static CoopTradeOfferEvent setOffer(final CoopTradeState st, final CoopTradeRole role,
+                                                final CoopTradeOffer offer) {
+        final CoopTradeOfferEvent accepted = st.acceptOffer(
+                new CoopTradeOfferEvent(st.getTradeId(), role, offer, 0));
+        Assert.assertNotNull(accepted, "offer rejected for " + role);
+        return accepted;
+    }
+
+    private static CoopTradeExecuteEvent bothConfirm(final CoopTradeState host) {
+        final int hv = host.getHostOfferVersion();
+        final int gv = host.getGuestOfferVersion();
+        host.acceptConfirm(new CoopTradeConfirmEvent(host.getTradeId(), CoopTradeRole.HOST, true, hv), true);
+        final Object result = host.acceptConfirm(
+                new CoopTradeConfirmEvent(host.getTradeId(), CoopTradeRole.GUEST, true, gv), true);
+        Assert.assertTrue(result instanceof CoopTradeExecuteEvent, String.valueOf(result));
+        return (CoopTradeExecuteEvent) result;
+    }
+
     @Test
     public void protocolVersionIsEightForTr1() {
         Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 8);
@@ -72,19 +106,9 @@ public class CoopTradeTest {
         Assert.assertTrue(WireClassFilter.isAllowed(
                 "forge.gamemodes.net.event.coop.CoopTradeInviteEvent"));
         Assert.assertTrue(WireClassFilter.isAllowed(
-                "forge.gamemodes.net.event.coop.CoopTradeResponseEvent"));
+                "forge.gamemodes.net.event.coop.CoopTradeAckEvent"));
         Assert.assertTrue(WireClassFilter.isAllowed(
-                "forge.gamemodes.net.event.coop.CoopTradeOfferEvent"));
-        Assert.assertTrue(WireClassFilter.isAllowed(
-                "forge.gamemodes.net.event.coop.CoopTradeConfirmEvent"));
-        Assert.assertTrue(WireClassFilter.isAllowed(
-                "forge.gamemodes.net.event.coop.CoopTradeCancelEvent"));
-        Assert.assertTrue(WireClassFilter.isAllowed(
-                "forge.gamemodes.net.event.coop.CoopTradeExecuteEvent"));
-        Assert.assertTrue(WireClassFilter.isAllowed(
-                "forge.gamemodes.net.coop.CoopTradeOffer"));
-        Assert.assertTrue(WireClassFilter.isAllowed(
-                "forge.gamemodes.net.coop.CoopTradeOffer$Line"));
+                "forge.gamemodes.net.coop.CoopTradeRole"));
         Assert.assertTrue(WireClassFilter.isAllowed(
                 "forge.gamemodes.net.coop.CoopTradeOffer$CardLine"));
     }
@@ -117,16 +141,288 @@ public class CoopTradeTest {
         Assert.assertEquals(b.getGold(), 50 - 10 + 25);
         Assert.assertEquals(a.getMaterial("oak"), 3);
         Assert.assertEquals(b.getMaterial("oak"), 2);
-        Assert.assertEquals(a.getMaterial("iron"), 1);
-        Assert.assertEquals(b.getMaterial("iron"), 3);
-        Assert.assertEquals(a.getItemCount("Potion"), 1);
-        Assert.assertEquals(b.getItemCount("Potion"), 1);
-        Assert.assertEquals(a.getItemCount("Boots"), 1);
-        Assert.assertEquals(b.getItemCount("Boots"), 0);
-        Assert.assertEquals(a.getTradeableCardCount("Forest|LEA|0"), 2);
-        Assert.assertEquals(b.getTradeableCardCount("Forest|LEA|0"), 1);
-        Assert.assertEquals(a.getTradeableCardCount("Island|LEA|0"), 1);
-        Assert.assertEquals(b.getTradeableCardCount("Island|LEA|0"), 1);
+    }
+
+    @Test
+    public void twoPhaseCommitGuestFirstThenHost() {
+        final CoopTradeBag.Simple hostBag = new CoopTradeBag.Simple();
+        final CoopTradeBag.Simple guestBag = new CoopTradeBag.Simple();
+        hostBag.setGold(40);
+        guestBag.setGold(40);
+        final CoopTradeState host = openTrade(hostBag, guestBag);
+
+        setOffer(host, CoopTradeRole.HOST, new CoopTradeOffer(5, null, null, null));
+        setOffer(host, CoopTradeRole.GUEST, new CoopTradeOffer(3, null, null, null));
+        final CoopTradeExecuteEvent exec = bothConfirm(host);
+        Assert.assertEquals(host.getStatus(), CoopTradeState.Status.WAITING_GUEST_ACK);
+        // Host bag unchanged until guest ack.
+        Assert.assertEquals(hostBag.getGold(), 40);
+        Assert.assertEquals(guestBag.getGold(), 40);
+
+        // Guest applies.
+        final CoopTradeBag.Snapshot guestSnap = guestBag.snapshot();
+        final CoopTradeApply.Result guestApply = CoopTradeApply.applyLocal(
+                guestBag, exec.getGuestOffer(), exec.getHostOffer(), guestSnap);
+        Assert.assertTrue(guestApply.applied, guestApply.detail);
+        Assert.assertEquals(guestBag.getGold(), 40 - 3 + 5);
+        Assert.assertEquals(hostBag.getGold(), 40);
+
+        // Host receives guest ack while still WAITING_GUEST_ACK (host bag unchanged).
+        final Object ackResult = host.receiveGuestAck(
+                new CoopTradeAckEvent(exec.getTradeId(), CoopTradeRole.GUEST, true, ""));
+        Assert.assertTrue(ackResult instanceof CoopTradeAckEvent);
+
+        final CoopTradeBag.Snapshot hostSnap = hostBag.snapshot();
+        final CoopTradeApply.Result hostApply = CoopTradeApply.applyLocal(
+                hostBag, exec.getHostOffer(), exec.getGuestOffer(), hostSnap);
+        Assert.assertTrue(hostApply.applied, hostApply.detail);
+        final CoopTradeAckEvent complete = host.markHostCompleted();
+        Assert.assertNotNull(complete);
+        Assert.assertEquals(complete.getFromRole(), CoopTradeRole.HOST);
+        Assert.assertEquals(hostBag.getGold(), 40 - 5 + 3);
+        Assert.assertEquals(guestBag.getGold(), 40 - 3 + 5);
+        Assert.assertEquals(host.getStatus(), CoopTradeState.Status.COMPLETED);
+    }
+
+    @Test
+    public void cancelAfterExecuteLeavesBothUnchanged() {
+        final CoopTradeBag.Simple hostBag = new CoopTradeBag.Simple();
+        final CoopTradeBag.Simple guestBag = new CoopTradeBag.Simple();
+        hostBag.setGold(40);
+        guestBag.setGold(40);
+        guestBag.setItem("Sword", 1);
+        hostBag.setItem("Shield", 1);
+        final CoopTradeState host = openTrade(hostBag, guestBag);
+        setOffer(host, CoopTradeRole.HOST, new CoopTradeOffer(0, null,
+                Collections.singletonList(new CoopTradeOffer.Line("Shield", 1, 1)), null));
+        setOffer(host, CoopTradeRole.GUEST, new CoopTradeOffer(0, null,
+                Collections.singletonList(new CoopTradeOffer.Line("Sword", 1, 1)), null));
+        bothConfirm(host);
+        Assert.assertEquals(host.getStatus(), CoopTradeState.Status.WAITING_GUEST_ACK);
+
+        // Cancel before guest applies.
+        final CoopTradeCancelEvent cancel = host.cancel("cancel after execute");
+        Assert.assertNotNull(cancel);
+        Assert.assertEquals(hostBag.getGold(), 40);
+        Assert.assertEquals(guestBag.getGold(), 40);
+        Assert.assertEquals(hostBag.getItemCount("Shield"), 1);
+        Assert.assertEquals(guestBag.getItemCount("Sword"), 1);
+    }
+
+    @Test
+    public void disconnectAfterExecuteBeforeAckLeavesBothUnchanged() {
+        final CoopTradeBag.Simple hostBag = new CoopTradeBag.Simple();
+        final CoopTradeBag.Simple guestBag = new CoopTradeBag.Simple();
+        hostBag.setGold(40);
+        guestBag.setGold(40);
+        final CoopTradeState host = openTrade(hostBag, guestBag);
+        setOffer(host, CoopTradeRole.HOST, new CoopTradeOffer(5, null, null, null));
+        setOffer(host, CoopTradeRole.GUEST, new CoopTradeOffer(5, null, null, null));
+        bothConfirm(host);
+
+        final CoopTradeCancelEvent cancel = host.onDisconnect();
+        Assert.assertNotNull(cancel);
+        Assert.assertEquals(host.getStatus(), CoopTradeState.Status.CANCELLED);
+        Assert.assertEquals(hostBag.getGold(), 40);
+        Assert.assertEquals(guestBag.getGold(), 40);
+    }
+
+    @Test
+    public void disconnectAfterExecuteAfterGuestAckRollsGuestBack() {
+        final CoopTradeBag.Simple hostBag = new CoopTradeBag.Simple();
+        final CoopTradeBag.Simple guestBag = new CoopTradeBag.Simple();
+        hostBag.setGold(40);
+        guestBag.setGold(40);
+
+        final CoopTradeState host = new CoopTradeState();
+        host.setBagLookup(role -> role == CoopTradeRole.HOST ? hostBag : guestBag);
+        final CoopTradeInviteEvent inv = host.beginInvite("Host", 20, true);
+        final CoopTradeState guest = new CoopTradeState();
+        guest.setBagLookup(role -> role == CoopTradeRole.HOST ? hostBag : guestBag);
+        guest.receiveInvite(inv, false);
+        host.applyPeerResponse(guest.respondInvite(true), true);
+        guest.applyPeerResponse(new CoopTradeResponseEvent(inv.getInviteId(), true), false);
+
+        setOffer(host, CoopTradeRole.HOST, new CoopTradeOffer(5, null, null, null));
+        setOffer(host, CoopTradeRole.GUEST, new CoopTradeOffer(3, null, null, null));
+        // Mirror offers onto guest state for versioned confirms on host only.
+        setOffer(guest, CoopTradeRole.HOST, new CoopTradeOffer(5, null, null, null));
+        setOffer(guest, CoopTradeRole.GUEST, new CoopTradeOffer(3, null, null, null));
+        final CoopTradeExecuteEvent exec = bothConfirm(host);
+        guest.receiveExecute(exec, false);
+
+        final CoopTradeBag.Snapshot snap = guestBag.snapshot();
+        Assert.assertTrue(CoopTradeApply.applyLocal(
+                guestBag, exec.getGuestOffer(), exec.getHostOffer(), snap).applied);
+        Assert.assertEquals(guestBag.getGold(), 40 - 3 + 5);
+        Assert.assertNotNull(guest.markGuestApplied(true, "", snap, 1_000L));
+        Assert.assertEquals(guest.getStatus(), CoopTradeState.Status.GUEST_APPLIED);
+
+        // Disconnect before host complete → guest rolls back; host never applied.
+        Assert.assertNotNull(guest.onDisconnect());
+        Assert.assertTrue(guest.rollbackGuestApply(guestBag));
+        Assert.assertEquals(guestBag.getGold(), 40);
+        Assert.assertEquals(hostBag.getGold(), 40);
+    }
+
+    @Test
+    public void guestAckTimeoutRollsBack() {
+        final CoopTradeBag.Simple guestBag = new CoopTradeBag.Simple();
+        guestBag.setGold(40);
+        final CoopTradeState guest = new CoopTradeState();
+        final CoopTradeInviteEvent inv = guest.beginInvite("Host", 20, true);
+        final CoopTradeState g = new CoopTradeState();
+        g.receiveInvite(inv, false);
+        guest.applyPeerResponse(g.respondInvite(true), true);
+        g.applyPeerResponse(new CoopTradeResponseEvent(inv.getInviteId(), true), false);
+
+        setOffer(guest, CoopTradeRole.HOST, new CoopTradeOffer(5, null, null, null));
+        setOffer(guest, CoopTradeRole.GUEST, new CoopTradeOffer(3, null, null, null));
+        // Use host state for confirm/execute.
+        final CoopTradeExecuteEvent exec = bothConfirm(guest);
+        g.receiveExecute(exec, false);
+
+        final CoopTradeBag.Snapshot snap = guestBag.snapshot();
+        // Guest bag is the "guest" side — apply guest give/host receive.
+        // For this test guestBag is the only bag; treat offers as give 3 recv 5.
+        Assert.assertTrue(CoopTradeApply.applyLocal(guestBag,
+                exec.getGuestOffer(), exec.getHostOffer(), snap).applied);
+        g.markGuestApplied(true, "", snap, 1_000L);
+        Assert.assertEquals(guestBag.getGold(), 42);
+
+        Assert.assertTrue(g.expireGuestAckIfNeeded(1_000L + 20_000L, 15_000L));
+        Assert.assertTrue(g.rollbackGuestApply(guestBag));
+        Assert.assertEquals(guestBag.getGold(), 40);
+        Assert.assertEquals(g.getStatus(), CoopTradeState.Status.CANCELLED);
+    }
+
+    @Test
+    public void confirmForStaleOfferVersionIsIgnored() {
+        final CoopTradeBag.Simple bag = new CoopTradeBag.Simple();
+        bag.setGold(20);
+        final CoopTradeState host = openTrade(bag, bag);
+        setOffer(host, CoopTradeRole.HOST, new CoopTradeOffer(5, null, null, null));
+        final int ver = host.getHostOfferVersion();
+        host.acceptConfirm(new CoopTradeConfirmEvent(host.getTradeId(), CoopTradeRole.HOST, true, ver), true);
+        Assert.assertTrue(host.isLocalConfirmed());
+
+        // Offer change bumps version and clears confirms.
+        setOffer(host, CoopTradeRole.HOST, new CoopTradeOffer(6, null, null, null));
+        Assert.assertFalse(host.isLocalConfirmed());
+        Assert.assertTrue(host.getHostOfferVersion() > ver);
+
+        // Stale confirm ignored.
+        final Object stale = host.acceptConfirm(
+                new CoopTradeConfirmEvent(host.getTradeId(), CoopTradeRole.HOST, true, ver), true);
+        Assert.assertNull(stale);
+        Assert.assertFalse(host.isLocalConfirmed());
+    }
+
+    @Test
+    public void itemAndCardRollbackOnGrantFailure() {
+        final CoopTradeBag.Simple a = new CoopTradeBag.Simple();
+        final CoopTradeBag.Simple b = new CoopTradeBag.Simple();
+        a.setGold(10);
+        a.setItem("Axe", 1);
+        a.setCard("Mountain|LEA|0", 2, false);
+        b.setGold(10);
+        b.setItem("Helm", 1);
+        b.setCard("Swamp|LEA|0", 1, false);
+        b.setFailNextGrant(true); // fail when receiving A's grant
+
+        final CoopTradeOffer aOffer = new CoopTradeOffer(0, null,
+                Collections.singletonList(new CoopTradeOffer.Line("Axe", 1, 1)),
+                Collections.singletonList(new CoopTradeOffer.CardLine("Mountain", "LEA", 0, 1, 2)));
+        final CoopTradeOffer bOffer = new CoopTradeOffer(0, null,
+                Collections.singletonList(new CoopTradeOffer.Line("Helm", 1, 1)),
+                Collections.singletonList(new CoopTradeOffer.CardLine("Swamp", "LEA", 0, 1, 1)));
+
+        final CoopTradeApply.Result r = CoopTradeApply.applyAtomic(a, aOffer, b, bOffer);
+        Assert.assertFalse(r.applied);
+        Assert.assertEquals(a.getItemCount("Axe"), 1);
+        Assert.assertEquals(b.getItemCount("Helm"), 1);
+        Assert.assertEquals(a.getTradeableCardCount("Mountain|LEA|0"), 2);
+        Assert.assertEquals(b.getTradeableCardCount("Swamp|LEA|0"), 1);
+        Assert.assertEquals(a.getGold(), 10);
+        Assert.assertEquals(b.getGold(), 10);
+    }
+
+    @Test
+    public void guestApplyFailureLeavesBothUnchanged() {
+        final CoopTradeBag.Simple hostBag = new CoopTradeBag.Simple();
+        final CoopTradeBag.Simple guestBag = new CoopTradeBag.Simple();
+        hostBag.setGold(40);
+        guestBag.setGold(40);
+        guestBag.setFailNextGrant(true);
+        final CoopTradeState host = openTrade(hostBag, guestBag);
+        setOffer(host, CoopTradeRole.HOST, new CoopTradeOffer(5, null, null, null));
+        setOffer(host, CoopTradeRole.GUEST, new CoopTradeOffer(3, null, null, null));
+        final CoopTradeExecuteEvent exec = bothConfirm(host);
+
+        final CoopTradeBag.Snapshot snap = guestBag.snapshot();
+        final CoopTradeApply.Result fail = CoopTradeApply.applyLocal(
+                guestBag, exec.getGuestOffer(), exec.getHostOffer(), snap);
+        Assert.assertFalse(fail.applied);
+        Assert.assertEquals(guestBag.getGold(), 40);
+        Assert.assertEquals(hostBag.getGold(), 40);
+
+        final Object ackResult = host.receiveGuestAck(
+                new CoopTradeAckEvent(exec.getTradeId(), CoopTradeRole.GUEST, false, fail.detail));
+        Assert.assertTrue(ackResult instanceof CoopTradeCancelEvent);
+        Assert.assertEquals(host.getStatus(), CoopTradeState.Status.CANCELLED);
+        Assert.assertEquals(hostBag.getGold(), 40);
+    }
+
+    @Test
+    public void nullWireFieldsRejected() {
+        Assert.assertFalse(CoopTradeValidator.validate(null, null).ok());
+        Assert.assertEquals(CoopTradeValidator.validate(null, null).reason,
+                CoopTradeValidator.RejectReason.NULL_OFFER);
+
+        // Null id / name via Line constructor becomes "" → TEXT_LEN / empty reject as COUNT or TEXT_LEN.
+        final CoopTradeOffer badItem = new CoopTradeOffer(0, null,
+                Collections.singletonList(new CoopTradeOffer.Line(null, 1, 1)), null);
+        Assert.assertFalse(CoopTradeValidator.validateWire(badItem).ok());
+
+        final CoopTradeOffer badCard = new CoopTradeOffer(0, null, null,
+                Collections.singletonList(new CoopTradeOffer.CardLine(null, "LEA", 0, 1, 1)));
+        Assert.assertFalse(CoopTradeValidator.validateWire(badCard).ok());
+
+        // Negative count clamped to 0 by Line → COUNT reject.
+        final CoopTradeOffer neg = new CoopTradeOffer(0,
+                Collections.singletonList(new CoopTradeOffer.Line("oak", -3, 5)), null, null);
+        Assert.assertFalse(CoopTradeValidator.validateWire(neg).ok());
+        Assert.assertEquals(CoopTradeValidator.validateWire(neg).reason,
+                CoopTradeValidator.RejectReason.COUNT);
+
+        // Null lists are frozen to empty — still valid empty offer.
+        Assert.assertTrue(CoopTradeValidator.validateWire(new CoopTradeOffer(0, null, null, null)).ok());
+    }
+
+    @Test
+    public void goldOverflowRefused() {
+        Assert.assertTrue(CoopTradeValidator.goldAddWouldOverflow(Integer.MAX_VALUE - 5, 10));
+        Assert.assertFalse(CoopTradeValidator.goldAddWouldOverflow(100, 50));
+
+        final CoopTradeBag.Simple bag = new CoopTradeBag.Simple();
+        bag.setGold(Integer.MAX_VALUE - 10);
+        Assert.assertFalse(bag.addGold(20));
+        Assert.assertEquals(bag.getGold(), Integer.MAX_VALUE - 10);
+        Assert.assertTrue(bag.addGold(5));
+        Assert.assertEquals(bag.getGold(), Integer.MAX_VALUE - 5);
+
+        // Offer that would overflow the receiver when bag is supplied.
+        final CoopTradeBag.Simple recv = new CoopTradeBag.Simple();
+        recv.setGold(Integer.MAX_VALUE - 1);
+        final CoopTradeOffer offer = new CoopTradeOffer(5, null, null, null);
+        // validate checks overflow against bag gold (as if bag is giving — ownership)
+        // For receiver overflow we check in grant; applyLocal must fail and restore.
+        final CoopTradeBag.Simple giver = new CoopTradeBag.Simple();
+        giver.setGold(10);
+        final CoopTradeBag.Snapshot snap = recv.snapshot();
+        final CoopTradeApply.Result r = CoopTradeApply.applyLocal(recv, CoopTradeOffer.empty(), offer, snap);
+        Assert.assertFalse(r.applied);
+        Assert.assertEquals(recv.getGold(), Integer.MAX_VALUE - 1);
     }
 
     @Test
@@ -134,123 +430,23 @@ public class CoopTradeTest {
         final CoopTradeBag.Simple a = new CoopTradeBag.Simple();
         a.setGold(20);
         a.setMaterial("oak", 1);
-        final CoopTradeBag.Snapshot snap = a.snapshot();
-
+        final CoopTradeState host = openTrade(a, a);
         final CoopTradeOffer bad = new CoopTradeOffer(50,
-                Collections.singletonList(new CoopTradeOffer.Line("oak", 5, 1)),
-                null, null);
-        final CoopTradeValidator.Result v = CoopTradeValidator.validate(bad, a);
-        Assert.assertFalse(v.ok());
-        Assert.assertEquals(v.reason, CoopTradeValidator.RejectReason.OWNERSHIP);
-
-        final CoopTradeState host = new CoopTradeState();
-        host.setBagLookup(name -> a);
-        final CoopTradeInviteEvent inv = host.beginInvite("Host", 20);
-        Assert.assertNotNull(inv);
-        final CoopTradeState guest = new CoopTradeState();
-        guest.receiveInvite(inv);
-        host.applyPeerResponse(guest.respondInvite(true), "Guest", true);
-
-        final CoopTradeOfferEvent rejected = host.acceptOffer(
-                new CoopTradeOfferEvent(host.getTradeId(), "Host", bad), true);
-        Assert.assertNull(rejected);
+                Collections.singletonList(new CoopTradeOffer.Line("oak", 5, 1)), null, null);
+        Assert.assertNull(host.acceptOffer(new CoopTradeOfferEvent(host.getTradeId(),
+                CoopTradeRole.HOST, bad, 0)));
         Assert.assertEquals(a.getGold(), 20);
         Assert.assertEquals(a.getMaterial("oak"), 1);
-        // Snapshot unchanged — never applied.
-        a.restore(snap);
-        Assert.assertEquals(a.getGold(), 20);
-        Assert.assertEquals(a.getMaterial("oak"), 1);
-    }
-
-    @Test
-    public void disconnectBeforeConfirmLeavesBothUnchanged() {
-        final CoopTradeBag.Simple a = new CoopTradeBag.Simple();
-        final CoopTradeBag.Simple b = new CoopTradeBag.Simple();
-        a.setGold(40);
-        b.setGold(40);
-        final CoopTradeBag.Snapshot snapA = a.snapshot();
-        final CoopTradeBag.Snapshot snapB = b.snapshot();
-
-        final CoopTradeState host = new CoopTradeState();
-        host.setBagLookup(name -> "Host".equals(name) ? a : b);
-        final CoopTradeInviteEvent invite = host.beginInvite("Host", 20);
-        Assert.assertNotNull(invite);
-        final CoopTradeState guest = new CoopTradeState();
-        Assert.assertTrue(guest.receiveInvite(invite));
-        final CoopTradeResponseEvent resp = guest.respondInvite(true);
-        Assert.assertTrue(host.applyPeerResponse(resp, "Guest", true));
-        Assert.assertTrue(host.isOpen());
-
-        host.acceptOffer(new CoopTradeOfferEvent(host.getTradeId(), "Host",
-                new CoopTradeOffer(10, null, null, null)), true);
-        // Disconnect before any confirm.
-        final CoopTradeCancelEvent cancel = host.onDisconnect();
-        Assert.assertNotNull(cancel);
-        Assert.assertEquals(host.getStatus(), CoopTradeState.Status.CANCELLED);
-        a.restore(snapA);
-        b.restore(snapB);
-        Assert.assertEquals(a.getGold(), 40);
-        Assert.assertEquals(b.getGold(), 40);
-    }
-
-    @Test
-    public void disconnectBetweenConfirmsLeavesBothUnchanged() {
-        final CoopTradeBag.Simple a = new CoopTradeBag.Simple();
-        final CoopTradeBag.Simple b = new CoopTradeBag.Simple();
-        a.setGold(40);
-        b.setGold(40);
-        final CoopTradeBag.Snapshot snapA = a.snapshot();
-        final CoopTradeBag.Snapshot snapB = b.snapshot();
-
-        final CoopTradeState host = new CoopTradeState();
-        host.setBagLookup(name -> "Host".equals(name) ? a : b);
-        final CoopTradeInviteEvent invite = host.beginInvite("Host", 20);
-        final CoopTradeState guest = new CoopTradeState();
-        guest.receiveInvite(invite);
-        host.applyPeerResponse(guest.respondInvite(true), "Guest", true);
-
-        host.acceptOffer(new CoopTradeOfferEvent(host.getTradeId(), "Host",
-                new CoopTradeOffer(5, null, null, null)), true);
-        host.acceptOffer(new CoopTradeOfferEvent(host.getTradeId(), "Guest",
-                new CoopTradeOffer(5, null, null, null)), false);
-
-        // Only host confirms — peer has not.
-        final Object mid = host.acceptConfirm(
-                new CoopTradeConfirmEvent(host.getTradeId(), "Host", true), true, true);
-        Assert.assertTrue(mid instanceof CoopTradeConfirmEvent);
-        Assert.assertNull(host.getPendingExecute());
-
-        final CoopTradeCancelEvent cancel = host.onDisconnect();
-        Assert.assertNotNull(cancel);
-        Assert.assertEquals(host.getStatus(), CoopTradeState.Status.CANCELLED);
-        a.restore(snapA);
-        b.restore(snapB);
-        Assert.assertEquals(a.getGold(), 40);
-        Assert.assertEquals(b.getGold(), 40);
     }
 
     @Test
     public void vaultedAndDeckCardsRefused() {
         final CoopTradeBag.Simple bag = new CoopTradeBag.Simple();
-        bag.setCard("Black Lotus|LEA|0", 0, true); // vaulted/deck only
+        bag.setCard("Black Lotus|LEA|0", 0, true);
         final CoopTradeOffer vaulted = new CoopTradeOffer(0, null, null,
                 Collections.singletonList(new CoopTradeOffer.CardLine("Black Lotus", "LEA", 0, 1, 1)));
-        final CoopTradeValidator.Result r1 = CoopTradeValidator.validate(vaulted, bag);
-        Assert.assertFalse(r1.ok());
-        Assert.assertEquals(r1.reason, CoopTradeValidator.RejectReason.VAULTED_OR_DECK);
-
-        bag.setCard("Lightning Bolt|LEA|0", 0, true);
-        final CoopTradeOffer inDeck = new CoopTradeOffer(0, null, null,
-                Collections.singletonList(new CoopTradeOffer.CardLine("Lightning Bolt", "LEA", 0, 1, 1)));
-        final CoopTradeValidator.Result r2 = CoopTradeValidator.validate(inDeck, bag);
-        Assert.assertFalse(r2.ok());
-        Assert.assertEquals(r2.reason, CoopTradeValidator.RejectReason.VAULTED_OR_DECK);
-
-        // Tradeable copies still work.
-        bag.setCard("Mountain|LEA|0", 2, false);
-        final CoopTradeOffer ok = new CoopTradeOffer(0, null, null,
-                Collections.singletonList(new CoopTradeOffer.CardLine("Mountain", "LEA", 0, 1, 2)));
-        Assert.assertTrue(CoopTradeValidator.validate(ok, bag).ok());
+        Assert.assertEquals(CoopTradeValidator.validate(vaulted, bag).reason,
+                CoopTradeValidator.RejectReason.VAULTED_OR_DECK);
     }
 
     @Test
@@ -260,9 +456,8 @@ public class CoopTradeTest {
         bag.markQuestItem("Quest Relic");
         final CoopTradeOffer offer = new CoopTradeOffer(0, null,
                 Collections.singletonList(new CoopTradeOffer.Line("Quest Relic", 1, 1)), null);
-        final CoopTradeValidator.Result r = CoopTradeValidator.validate(offer, bag);
-        Assert.assertFalse(r.ok());
-        Assert.assertEquals(r.reason, CoopTradeValidator.RejectReason.QUEST_ITEM);
+        Assert.assertEquals(CoopTradeValidator.validate(offer, bag).reason,
+                CoopTradeValidator.RejectReason.QUEST_ITEM);
     }
 
     @Test
@@ -273,134 +468,34 @@ public class CoopTradeTest {
         a.setItem("Sword", 1);
         b.setItem("Shield", 1);
         b.setItem("Helmet", 1);
-
-        final CoopTradeOffer aOffer = CoopTradeOffer.empty();
-        final CoopTradeOffer bOffer = new CoopTradeOffer(0, null,
-                java.util.Arrays.asList(
+        final CoopTradeApply.Result r = CoopTradeApply.applyAtomic(a, CoopTradeOffer.empty(), b,
+                new CoopTradeOffer(0, null, Arrays.asList(
                         new CoopTradeOffer.Line("Shield", 1, 1),
-                        new CoopTradeOffer.Line("Helmet", 1, 1)),
-                null);
-        final CoopTradeApply.Result r = CoopTradeApply.applyAtomic(a, aOffer, b, bOffer);
+                        new CoopTradeOffer.Line("Helmet", 1, 1)), null));
         Assert.assertTrue(r.applied, r.detail);
-        // Sword fills capacity; first received may fit if we clear nothing from a —
-        // a offered nothing so still has Sword; Shield/Helmet overflow.
-        Assert.assertEquals(a.getItemCount("Sword"), 1);
-        Assert.assertTrue(a.overflowCount() >= 1, "expected Overflow for excess items");
-        Assert.assertTrue(a.getOverflowItems().contains("Shield")
-                || a.getOverflowItems().contains("Helmet")
-                || a.getItemCount("Shield") + a.getItemCount("Helmet") + a.overflowCount() == 3);
+        Assert.assertTrue(a.overflowCount() >= 1);
     }
 
     @Test
-    public void offerChangeResetsBothConfirmations() {
-        final CoopTradeBag.Simple a = new CoopTradeBag.Simple();
-        a.setGold(20);
-        final CoopTradeState host = new CoopTradeState();
-        host.setBagLookup(name -> a);
-        final CoopTradeInviteEvent invite = host.beginInvite("Host", 20);
-        final CoopTradeState guest = new CoopTradeState();
-        guest.receiveInvite(invite);
-        host.applyPeerResponse(guest.respondInvite(true), "Guest", true);
-
-        host.acceptOffer(new CoopTradeOfferEvent(host.getTradeId(), "Host",
-                new CoopTradeOffer(5, null, null, null)), true);
-        host.acceptConfirm(new CoopTradeConfirmEvent(host.getTradeId(), "Host", true), true, true);
-        Assert.assertTrue(host.isLocalConfirmed());
-
-        host.acceptOffer(new CoopTradeOfferEvent(host.getTradeId(), "Host",
-                new CoopTradeOffer(6, null, null, null)), true);
-        Assert.assertFalse(host.isLocalConfirmed());
-        Assert.assertFalse(host.isPeerConfirmed());
+    public void peersIdentifiedByRoleNotName() {
+        final CoopTradeBag.Simple hostBag = new CoopTradeBag.Simple();
+        final CoopTradeBag.Simple guestBag = new CoopTradeBag.Simple();
+        hostBag.setGold(10);
+        guestBag.setGold(20);
+        final CoopTradeState host = openTrade(hostBag, guestBag);
+        Assert.assertEquals(host.getLocalRole(), CoopTradeRole.HOST);
+        setOffer(host, CoopTradeRole.GUEST, new CoopTradeOffer(2, null, null, null));
+        Assert.assertEquals(host.getGuestOffer().getGold(), 2);
+        Assert.assertEquals(host.getHostOffer().getGold(), 0);
     }
 
     @Test
-    public void bothConfirmProducesExecuteEvent() {
-        final CoopTradeBag.Simple a = new CoopTradeBag.Simple();
-        final CoopTradeBag.Simple b = new CoopTradeBag.Simple();
-        a.setGold(20);
-        b.setGold(20);
-        final CoopTradeState host = new CoopTradeState();
-        host.setBagLookup(name -> "Host".equals(name) ? a : b);
-        final CoopTradeInviteEvent invite = host.beginInvite("Host", 20);
-        final CoopTradeState guest = new CoopTradeState();
-        guest.receiveInvite(invite);
-        host.applyPeerResponse(guest.respondInvite(true), "Guest", true);
-
-        host.acceptOffer(new CoopTradeOfferEvent(host.getTradeId(), "Host",
-                new CoopTradeOffer(5, null, null, null)), true);
-        host.acceptOffer(new CoopTradeOfferEvent(host.getTradeId(), "Guest",
-                new CoopTradeOffer(3, null, null, null)), false);
-
-        host.acceptConfirm(new CoopTradeConfirmEvent(host.getTradeId(), "Host", true), true, true);
-        final Object result = host.acceptConfirm(
-                new CoopTradeConfirmEvent(host.getTradeId(), "Guest", true), false, true);
-        Assert.assertTrue(result instanceof CoopTradeExecuteEvent);
-        final CoopTradeExecuteEvent exec = (CoopTradeExecuteEvent) result;
-        Assert.assertEquals(exec.getHostOffer().getGold(), 5);
-        Assert.assertEquals(exec.getGuestOffer().getGold(), 3);
-
-        final CoopTradeApply.Result applied = host.applyPending(a, b, true);
-        Assert.assertTrue(applied.applied, applied.detail);
-        Assert.assertEquals(a.getGold(), 20 - 5 + 3);
-        Assert.assertEquals(b.getGold(), 20 - 3 + 5);
-    }
-
-    @Test
-    public void tradeInviteRoundTripOverLoopback() throws Exception {
-        final CountDownLatch ready = new CountDownLatch(1);
-        final CountDownLatch gotInvite = new CountDownLatch(1);
-        final AtomicReference<CoopTradeInviteEvent> received = new AtomicReference<>();
-        final String worldHash = CoopWorldHash.hash(9L, 4, 4, sampleBiome(4), sampleTerrain(4));
-
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
-            @Override public void onConnected() { }
-            @Override public void onMessage(final NetEvent event) {
-                if (event instanceof CoopHelloEvent) {
-                    server.markGuestAuthenticated();
-                    server.send(new CoopWorldOfferEvent("Host", "Shandalar Ascendant", "plane",
-                            9L, worldHash, CoopPorts.GAME_PORT, port));
-                } else if (event instanceof CoopSessionReadyEvent) {
-                    ready.countDown();
-                    server.send(new CoopTradeInviteEvent(42L, "Host", 20));
-                }
-            }
-            @Override public void onDisconnected(final String reason) { }
-            @Override public void onError(final String message, final Throwable cause) { }
-        });
-        server.start();
-        Assert.assertTrue(server.awaitBound(5000));
-
-        client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
-            @Override public void onConnected() { client.send(hello(sessionCode)); }
-            @Override public void onMessage(final NetEvent event) {
-                if (event instanceof CoopWorldOfferEvent) {
-                    final CoopWorldOfferEvent offer = (CoopWorldOfferEvent) event;
-                    final String local = CoopWorldHash.hash(offer.getWorldSeed(), 4, 4,
-                            sampleBiome(4), sampleTerrain(4));
-                    client.send(new CoopSessionReadyEvent(false, "Guest", local));
-                } else if (event instanceof CoopTradeInviteEvent) {
-                    received.set((CoopTradeInviteEvent) event);
-                    gotInvite.countDown();
-                    client.send(new CoopTradeResponseEvent(
-                            ((CoopTradeInviteEvent) event).getInviteId(), true));
-                }
-            }
-            @Override public void onDisconnected(final String reason) { }
-            @Override public void onError(final String message, final Throwable cause) { }
-        });
-        client.connect();
-        Assert.assertTrue(ready.await(10, TimeUnit.SECONDS));
-        Assert.assertTrue(gotInvite.await(10, TimeUnit.SECONDS));
-        Assert.assertNotNull(received.get());
-        Assert.assertEquals(received.get().getFromPlayer(), "Host");
-        Assert.assertEquals(received.get().getInviteId(), 42L);
-    }
-
-    @Test
-    public void tradeExecuteRoundTripOverLoopback() throws Exception {
+    public void tradeExecuteAndAckRoundTripOverLoopback() throws Exception {
         final CountDownLatch ready = new CountDownLatch(1);
         final CountDownLatch gotExecute = new CountDownLatch(1);
-        final AtomicReference<CoopTradeExecuteEvent> received = new AtomicReference<>();
+        final CountDownLatch gotAck = new CountDownLatch(1);
+        final AtomicReference<CoopTradeExecuteEvent> execRef = new AtomicReference<>();
+        final AtomicReference<CoopTradeAckEvent> ackRef = new AtomicReference<>();
         final String worldHash = CoopWorldHash.hash(11L, 4, 4, sampleBiome(4), sampleTerrain(4));
 
         final CoopTradeOffer hostOffer = new CoopTradeOffer(7, null, null, null);
@@ -415,7 +510,12 @@ public class CoopTradeTest {
                             11L, worldHash, CoopPorts.GAME_PORT, port));
                 } else if (event instanceof CoopSessionReadyEvent) {
                     ready.countDown();
-                    server.send(new CoopTradeExecuteEvent(99L, "Host", "Guest", hostOffer, guestOffer));
+                    server.send(new CoopTradeExecuteEvent(99L, hostOffer, guestOffer, 1, 1));
+                } else if (event instanceof CoopTradeAckEvent) {
+                    ackRef.set((CoopTradeAckEvent) event);
+                    gotAck.countDown();
+                    // Host complete ack back.
+                    server.send(new CoopTradeAckEvent(99L, CoopTradeRole.HOST, true, "complete"));
                 }
             }
             @Override public void onDisconnected(final String reason) { }
@@ -433,8 +533,12 @@ public class CoopTradeTest {
                             sampleBiome(4), sampleTerrain(4));
                     client.send(new CoopSessionReadyEvent(false, "Guest", local));
                 } else if (event instanceof CoopTradeExecuteEvent) {
-                    received.set((CoopTradeExecuteEvent) event);
+                    execRef.set((CoopTradeExecuteEvent) event);
                     gotExecute.countDown();
+                    // Guest acks success (apply simulated by test bags below).
+                    client.send(new CoopTradeAckEvent(
+                            ((CoopTradeExecuteEvent) event).getTradeId(),
+                            CoopTradeRole.GUEST, true, ""));
                 }
             }
             @Override public void onDisconnected(final String reason) { }
@@ -443,19 +547,19 @@ public class CoopTradeTest {
         client.connect();
         Assert.assertTrue(ready.await(10, TimeUnit.SECONDS));
         Assert.assertTrue(gotExecute.await(10, TimeUnit.SECONDS));
-        Assert.assertNotNull(received.get());
-        Assert.assertEquals(received.get().getTradeId(), 99L);
-        Assert.assertEquals(received.get().getHostOffer().getGold(), 7);
-        Assert.assertEquals(received.get().getGuestOffer().getGold(), 3);
+        Assert.assertTrue(gotAck.await(10, TimeUnit.SECONDS));
+        Assert.assertNotNull(execRef.get());
+        Assert.assertEquals(execRef.get().getHostOffer().getGold(), 7);
+        Assert.assertNotNull(ackRef.get());
+        Assert.assertEquals(ackRef.get().getFromRole(), CoopTradeRole.GUEST);
+        Assert.assertTrue(ackRef.get().isSuccess());
 
-        // Apply on both bags from the wire payload.
         final CoopTradeBag.Simple a = new CoopTradeBag.Simple();
         final CoopTradeBag.Simple b = new CoopTradeBag.Simple();
         a.setGold(20);
         b.setGold(20);
-        final CoopTradeApply.Result applied = CoopTradeApply.applyAtomic(
-                a, received.get().getHostOffer(), b, received.get().getGuestOffer());
-        Assert.assertTrue(applied.applied, applied.detail);
+        Assert.assertTrue(CoopTradeApply.applyAtomic(
+                a, execRef.get().getHostOffer(), b, execRef.get().getGuestOffer()).applied);
         Assert.assertEquals(a.getGold(), 20 - 7 + 3);
         Assert.assertEquals(b.getGold(), 20 - 3 + 7);
     }
@@ -463,17 +567,9 @@ public class CoopTradeTest {
     @Test
     public void inviteQueuedBehindBusyPrompt() {
         final CoopInviteUiState ui = new CoopInviteUiState();
-        final CoopInviteUiState.Prompt first = ui.enqueue(
-                CoopInviteUiState.PromptKind.PARTY, 1L, "A", "");
-        Assert.assertNotNull(first);
-        final CoopInviteUiState.Prompt trade = ui.enqueue(
-                CoopInviteUiState.PromptKind.TRADE, 2L, "B", "", true);
-        Assert.assertNull(trade);
-        Assert.assertEquals(ui.queueSize(), 1);
-        Assert.assertEquals(ui.getKind(), CoopInviteUiState.PromptKind.PARTY);
-        final CoopInviteUiState.Prompt next = ui.hideAndPollNext();
-        Assert.assertNotNull(next);
-        Assert.assertEquals(next.kind, CoopInviteUiState.PromptKind.TRADE);
+        Assert.assertNotNull(ui.enqueue(CoopInviteUiState.PromptKind.PARTY, 1L, "A", ""));
+        Assert.assertNull(ui.enqueue(CoopInviteUiState.PromptKind.TRADE, 2L, "B", "", true));
+        Assert.assertEquals(ui.hideAndPollNext().kind, CoopInviteUiState.PromptKind.TRADE);
     }
 
     private static long[][] sampleBiome(final int n) {

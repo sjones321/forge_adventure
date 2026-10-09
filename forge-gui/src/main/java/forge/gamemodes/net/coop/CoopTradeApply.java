@@ -1,9 +1,12 @@
 package forge.gamemodes.net.coop;
 
 /**
- * Atomic two-bag swap for TR1. Either both inventories change or neither does.
- * Received grants go through {@link CoopTradeBag#addItem}/{@code addMaterial}/
- * {@code addCard}, which may route excess to Overflow — never silent loss.
+ * Atomic inventory mutation helpers for TR1. Every take/grant return value is
+ * checked; any failure restores the pre-apply snapshot so items and cards roll
+ * back along with gold and materials.
+ *
+ * <p>Two-phase commit (guest first, host after ack) lives in
+ * {@link CoopTradeState}; this class only mutates bags.
  */
 public final class CoopTradeApply {
 
@@ -30,6 +33,7 @@ public final class CoopTradeApply {
 
     /**
      * {@code a} gives {@code aOffer} to {@code b}; {@code b} gives {@code bOffer} to {@code a}.
+     * Either both bags change or neither does.
      */
     public static Result applyAtomic(final CoopTradeBag a, final CoopTradeOffer aOffer,
                                      final CoopTradeBag b, final CoopTradeOffer bOffer) {
@@ -61,8 +65,16 @@ public final class CoopTradeApply {
                 b.restore(snapB);
                 return Result.fail("remove b");
             }
-            grantOffer(b, left);
-            grantOffer(a, right);
+            if (!grantOffer(b, left)) {
+                a.restore(snapA);
+                b.restore(snapB);
+                return Result.fail("grant b");
+            }
+            if (!grantOffer(a, right)) {
+                a.restore(snapA);
+                b.restore(snapB);
+                return Result.fail("grant a");
+            }
             return Result.ok();
         } catch (final RuntimeException ex) {
             a.restore(snapA);
@@ -71,40 +83,78 @@ public final class CoopTradeApply {
         }
     }
 
-    private static boolean removeOffer(final CoopTradeBag bag, final CoopTradeOffer offer) {
+    /**
+     * Apply one side's give/receive against a single bag (guest or host local apply).
+     * Caller keeps {@code snap} for two-phase rollback until the peer commits.
+     */
+    public static Result applyLocal(final CoopTradeBag bag, final CoopTradeOffer give,
+                                    final CoopTradeOffer receive, final CoopTradeBag.Snapshot snap) {
+        if (bag == null || snap == null) {
+            return Result.fail("null bag/snap");
+        }
+        final CoopTradeOffer out = give != null ? give : CoopTradeOffer.empty();
+        final CoopTradeOffer in = receive != null ? receive : CoopTradeOffer.empty();
+        final CoopTradeValidator.Result check = CoopTradeValidator.validate(out, bag);
+        if (!check.ok()) {
+            return Result.fail(check.reason + ":" + check.detail);
+        }
+        try {
+            if (!removeOffer(bag, out)) {
+                bag.restore(snap);
+                return Result.fail("remove");
+            }
+            if (!grantOffer(bag, in)) {
+                bag.restore(snap);
+                return Result.fail("grant");
+            }
+            return Result.ok();
+        } catch (final RuntimeException ex) {
+            bag.restore(snap);
+            return Result.fail("exception:" + ex.getMessage());
+        }
+    }
+
+    public static boolean removeOffer(final CoopTradeBag bag, final CoopTradeOffer offer) {
         if (offer.getGold() > 0 && !bag.takeGold(offer.getGold())) {
             return false;
         }
         for (final CoopTradeOffer.Line line : offer.getMaterials()) {
-            if (!bag.takeMaterial(line.getId(), line.getCount())) {
+            if (line == null || !bag.takeMaterial(line.getId(), line.getCount())) {
                 return false;
             }
         }
         for (final CoopTradeOffer.Line line : offer.getItems()) {
-            if (!bag.takeItem(line.getId(), line.getCount())) {
+            if (line == null || !bag.takeItem(line.getId(), line.getCount())) {
                 return false;
             }
         }
         for (final CoopTradeOffer.CardLine line : offer.getCards()) {
-            if (!bag.takeCard(line.key(), line.getCount())) {
+            if (line == null || !bag.takeCard(line.key(), line.getCount())) {
                 return false;
             }
         }
         return true;
     }
 
-    private static void grantOffer(final CoopTradeBag bag, final CoopTradeOffer offer) {
-        if (offer.getGold() > 0) {
-            bag.addGold(offer.getGold());
+    public static boolean grantOffer(final CoopTradeBag bag, final CoopTradeOffer offer) {
+        if (offer.getGold() > 0 && !bag.addGold(offer.getGold())) {
+            return false;
         }
         for (final CoopTradeOffer.Line line : offer.getMaterials()) {
-            bag.addMaterial(line.getId(), line.getCount());
+            if (line == null || !bag.addMaterial(line.getId(), line.getCount())) {
+                return false;
+            }
         }
         for (final CoopTradeOffer.Line line : offer.getItems()) {
-            bag.addItem(line.getId(), line.getCount());
+            if (line == null || !bag.addItem(line.getId(), line.getCount())) {
+                return false;
+            }
         }
         for (final CoopTradeOffer.CardLine line : offer.getCards()) {
-            bag.addCard(line.key(), line.getCount());
+            if (line == null || !bag.addCard(line.key(), line.getCount())) {
+                return false;
+            }
         }
+        return true;
     }
 }

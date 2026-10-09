@@ -4,37 +4,31 @@ import forge.gamemodes.net.coop.CoopTradeOffer;
 import forge.gamemodes.net.event.NetEvent;
 
 /**
- * TR1: host-authoritative commit. Both peers apply the swap atomically on the
- * GL thread — either both character inventories change or neither does.
+ * TR1: host starts two-phase commit. The guest applies first and acks; the host
+ * applies only after a successful {@link CoopTradeAckEvent}. Failure or
+ * disconnect before that ack means neither side keeps changes.
  */
 public class CoopTradeExecuteEvent implements NetEvent {
     private static final long serialVersionUID = 1L;
 
     private final long tradeId;
-    private final String hostPlayer;
-    private final String guestPlayer;
     private final CoopTradeOffer hostOffer;
     private final CoopTradeOffer guestOffer;
+    private final int hostOfferVersion;
+    private final int guestOfferVersion;
 
-    public CoopTradeExecuteEvent(final long tradeId, final String hostPlayer, final String guestPlayer,
-                                 final CoopTradeOffer hostOffer, final CoopTradeOffer guestOffer) {
+    public CoopTradeExecuteEvent(final long tradeId,
+                                 final CoopTradeOffer hostOffer, final CoopTradeOffer guestOffer,
+                                 final int hostOfferVersion, final int guestOfferVersion) {
         this.tradeId = tradeId;
-        this.hostPlayer = hostPlayer;
-        this.guestPlayer = guestPlayer;
         this.hostOffer = hostOffer != null ? hostOffer : CoopTradeOffer.empty();
         this.guestOffer = guestOffer != null ? guestOffer : CoopTradeOffer.empty();
+        this.hostOfferVersion = Math.max(0, hostOfferVersion);
+        this.guestOfferVersion = Math.max(0, guestOfferVersion);
     }
 
     public long getTradeId() {
         return tradeId;
-    }
-
-    public String getHostPlayer() {
-        return hostPlayer;
-    }
-
-    public String getGuestPlayer() {
-        return guestPlayer;
     }
 
     public CoopTradeOffer getHostOffer() {
@@ -43,5 +37,13 @@ public class CoopTradeExecuteEvent implements NetEvent {
 
     public CoopTradeOffer getGuestOffer() {
         return guestOffer;
+    }
+
+    public int getHostOfferVersion() {
+        return hostOfferVersion;
+    }
+
+    public int getGuestOfferVersion() {
+        return guestOfferVersion;
     }
 }

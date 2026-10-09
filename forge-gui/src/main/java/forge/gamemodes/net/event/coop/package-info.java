@@ -21,10 +21,12 @@
  * match itself uses {@link forge.gamemodes.net.coop.CoopPorts#GAME_PORT} via
  * {@code FServerManager} / {@code FGameClient}, started only for co-op duels.
  *
- * <p>TR1 player trading (invite / response / offer / confirm / cancel / execute)
+ * <p>TR1 player trading (invite / response / offer / confirm / cancel / execute / ack)
  * also travels the overworld port. Offers are plain data
  * ({@link forge.gamemodes.net.coop.CoopTradeOffer}) — never {@code PaperCard} or
- * {@code ItemData} graphs.
+ * {@code ItemData} graphs. Two-phase commit: guest applies first and acks; host
+ * applies only after a successful ack. Peers are identified by
+ * {@link forge.gamemodes.net.coop.CoopTradeRole}.
  *
  * <p>Protocol: CO2 is 5; CO3 is 6; MV1 plane-follow ({@link CoopPlaneSwitchEvent}) is 7;
  * TR1 trade is 8.

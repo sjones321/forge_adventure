@@ -1,11 +1,12 @@
 package forge.gamemodes.net.coop;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
- * Host-side TR1 offer validation: wire caps, ownership/counts, gold, and
- * eligibility (no quest items; no vaulted / in-deck cards when a bag is supplied).
+ * Host-side TR1 offer validation: null-safe wire caps, ownership/counts, gold,
+ * and eligibility (no quest items; no vaulted / in-deck cards when a bag is supplied).
  */
 public final class CoopTradeValidator {
 
@@ -13,6 +14,7 @@ public final class CoopTradeValidator {
         OK,
         NULL_OFFER,
         GOLD,
+        GOLD_OVERFLOW,
         NAME_LEN,
         TEXT_LEN,
         COUNT,
@@ -20,7 +22,8 @@ public final class CoopTradeValidator {
         QUEST_ITEM,
         VAULTED_OR_DECK,
         TOO_MANY_LINES,
-        DUPLICATE
+        DUPLICATE,
+        NULL_FIELD
     }
 
     public static final class Result {
@@ -51,39 +54,54 @@ public final class CoopTradeValidator {
     /**
      * Validate wire shape and self-attested ownership on the offer lines.
      * When {@code bag} is non-null, also checks live ownership and eligibility.
+     * Null lists are treated as empty; null line entries / names are rejected.
      */
     public static Result validate(final CoopTradeOffer offer, final CoopTradeBag bag) {
         if (offer == null) {
             return Result.reject(RejectReason.NULL_OFFER, "null");
         }
-        if (offer.getGold() < 0 || offer.getGold() > CoopTradeWireLimits.MAX_GOLD) {
-            return Result.reject(RejectReason.GOLD, "gold=" + offer.getGold());
+        final int gold = offer.getGold();
+        if (gold < 0 || gold > CoopTradeWireLimits.MAX_GOLD) {
+            return Result.reject(RejectReason.GOLD, "gold=" + gold);
         }
-        if (bag != null && offer.getGold() > bag.getGold()) {
-            return Result.reject(RejectReason.OWNERSHIP, "gold");
+        if (bag != null) {
+            if (gold > bag.getGold()) {
+                return Result.reject(RejectReason.OWNERSHIP, "gold");
+            }
+            if (gold > 0 && bag.getGold() > Integer.MAX_VALUE - gold) {
+                // Peer receiving this gold would overflow — refuse the offer.
+                return Result.reject(RejectReason.GOLD_OVERFLOW, "recv");
+            }
         }
-        if (offer.getMaterials().size() > CoopTradeWireLimits.MAX_MATERIAL_LINES
-                || offer.getItems().size() > CoopTradeWireLimits.MAX_ITEM_LINES
-                || offer.getCards().size() > CoopTradeWireLimits.MAX_CARD_LINES) {
+
+        final List<CoopTradeOffer.Line> materials = offer.getMaterials();
+        final List<CoopTradeOffer.Line> items = offer.getItems();
+        final List<CoopTradeOffer.CardLine> cards = offer.getCards();
+        if (materials == null || items == null || cards == null) {
+            return Result.reject(RejectReason.NULL_FIELD, "list");
+        }
+        if (materials.size() > CoopTradeWireLimits.MAX_MATERIAL_LINES
+                || items.size() > CoopTradeWireLimits.MAX_ITEM_LINES
+                || cards.size() > CoopTradeWireLimits.MAX_CARD_LINES) {
             return Result.reject(RejectReason.TOO_MANY_LINES, "lines");
         }
 
         final Set<String> seenMat = new HashSet<>();
-        for (final CoopTradeOffer.Line line : offer.getMaterials()) {
+        for (final CoopTradeOffer.Line line : materials) {
             final Result r = validateLine(line, seenMat, bag, true);
             if (!r.ok()) {
                 return r;
             }
         }
         final Set<String> seenItem = new HashSet<>();
-        for (final CoopTradeOffer.Line line : offer.getItems()) {
+        for (final CoopTradeOffer.Line line : items) {
             final Result r = validateItemLine(line, seenItem, bag);
             if (!r.ok()) {
                 return r;
             }
         }
         final Set<String> seenCard = new HashSet<>();
-        for (final CoopTradeOffer.CardLine line : offer.getCards()) {
+        for (final CoopTradeOffer.CardLine line : cards) {
             final Result r = validateCardLine(line, seenCard, bag);
             if (!r.ok()) {
                 return r;
@@ -97,12 +115,25 @@ public final class CoopTradeValidator {
         return validate(offer, null);
     }
 
+    /**
+     * Whether {@code current + add} would overflow a signed 32-bit gold total.
+     */
+    public static boolean goldAddWouldOverflow(final int current, final int add) {
+        if (add < 0 || current < 0) {
+            return true;
+        }
+        return current > Integer.MAX_VALUE - add;
+    }
+
     private static Result validateLine(final CoopTradeOffer.Line line, final Set<String> seen,
                                        final CoopTradeBag bag, final boolean material) {
         if (line == null) {
-            return Result.reject(RejectReason.NULL_OFFER, "line");
+            return Result.reject(RejectReason.NULL_FIELD, "line");
         }
         final String id = line.getId();
+        if (id == null) {
+            return Result.reject(RejectReason.NULL_FIELD, "id");
+        }
         if (id.isEmpty() || id.length() > CoopTradeWireLimits.MAX_TEXT_LEN) {
             return Result.reject(RejectReason.TEXT_LEN, id);
         }
@@ -112,7 +143,7 @@ public final class CoopTradeValidator {
         if (line.getCount() <= 0 || line.getCount() > CoopTradeWireLimits.MAX_STACK_COUNT) {
             return Result.reject(RejectReason.COUNT, id);
         }
-        if (line.getCount() > line.getAvailable()) {
+        if (line.getAvailable() < 0 || line.getCount() > line.getAvailable()) {
             return Result.reject(RejectReason.OWNERSHIP, id);
         }
         if (bag != null) {
@@ -139,13 +170,19 @@ public final class CoopTradeValidator {
     private static Result validateCardLine(final CoopTradeOffer.CardLine line, final Set<String> seen,
                                            final CoopTradeBag bag) {
         if (line == null) {
-            return Result.reject(RejectReason.NULL_OFFER, "card");
+            return Result.reject(RejectReason.NULL_FIELD, "card");
+        }
+        if (line.getName() == null || line.getSetCode() == null) {
+            return Result.reject(RejectReason.NULL_FIELD, "card-name");
         }
         if (line.getName().isEmpty() || line.getName().length() > CoopTradeWireLimits.MAX_TEXT_LEN) {
             return Result.reject(RejectReason.TEXT_LEN, line.getName());
         }
         if (line.getSetCode().length() > CoopTradeWireLimits.MAX_SET_CODE_LEN) {
             return Result.reject(RejectReason.TEXT_LEN, line.getSetCode());
+        }
+        if (line.getArtIndex() < 0) {
+            return Result.reject(RejectReason.COUNT, "art");
         }
         final String key = line.key();
         if (!seen.add(key)) {
@@ -154,7 +191,7 @@ public final class CoopTradeValidator {
         if (line.getCount() <= 0 || line.getCount() > CoopTradeWireLimits.MAX_STACK_COUNT) {
             return Result.reject(RejectReason.COUNT, key);
         }
-        if (line.getCount() > line.getAvailable()) {
+        if (line.getAvailable() < 0 || line.getCount() > line.getAvailable()) {
             return Result.reject(RejectReason.OWNERSHIP, key);
         }
         if (bag != null) {
@@ -162,7 +199,6 @@ public final class CoopTradeValidator {
                 return Result.reject(RejectReason.VAULTED_OR_DECK, key);
             }
             if (line.getCount() > bag.getTradeableCardCount(key)) {
-                // Zero tradeable with blocked flag → vaulted/deck; otherwise ownership.
                 if (bag.getTradeableCardCount(key) <= 0 && bag.isCardBlocked(key)) {
                     return Result.reject(RejectReason.VAULTED_OR_DECK, key);
                 }

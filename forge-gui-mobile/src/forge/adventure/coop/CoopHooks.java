@@ -23,6 +23,7 @@ import forge.gamemodes.net.event.coop.CoopPartyInviteEvent;
 import forge.gamemodes.net.event.coop.CoopPartyResponseEvent;
 import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
+import forge.gamemodes.net.event.coop.CoopTradeAckEvent;
 import forge.gamemodes.net.event.coop.CoopTradeCancelEvent;
 import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
 import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
@@ -113,6 +114,9 @@ public final class CoopHooks {
         }
 
         default void onTradeExecute(CoopTradeExecuteEvent event) {
+        }
+
+        default void onTradeAck(CoopTradeAckEvent event) {
         }
 
         default void onOverworldMessage(NetEvent event) {

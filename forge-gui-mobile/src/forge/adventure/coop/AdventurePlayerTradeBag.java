@@ -6,6 +6,7 @@ import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.Config;
 import forge.deck.CardPool;
 import forge.gamemodes.net.coop.CoopTradeBag;
+import forge.gamemodes.net.coop.CoopTradeValidator;
 import forge.item.PaperCard;
 import forge.model.FModel;
 
@@ -18,6 +19,7 @@ import java.util.Map;
  * Adapts {@link AdventurePlayer} to {@link CoopTradeBag} for TR1 host validation
  * and atomic apply. Received items/materials use INV1 grant paths (Overflow, never lost).
  * Guest character files stay isolated via {@link CoopCharacterStore}.
+ * {@link #restore} reconstitutes gold, materials, items and cards.
  */
 public final class AdventurePlayerTradeBag implements CoopTradeBag {
     private final AdventurePlayer player;
@@ -41,14 +43,19 @@ public final class AdventurePlayerTradeBag implements CoopTradeBag {
             return false;
         }
         player.takeGold(amount);
-        return player.getGold() >= 0;
+        return true;
     }
 
     @Override
-    public void addGold(final int amount) {
-        if (amount > 0) {
-            player.giveGold(amount);
+    public boolean addGold(final int amount) {
+        if (amount <= 0) {
+            return false;
         }
+        if (CoopTradeValidator.goldAddWouldOverflow(player.getGold(), amount)) {
+            return false;
+        }
+        player.giveGold(amount);
+        return true;
     }
 
     @Override
@@ -183,9 +190,11 @@ public final class AdventurePlayerTradeBag implements CoopTradeBag {
             if (item == null || item.name == null) {
                 continue;
             }
+            // Skip equipped — trade never takes them; restore puts unequipped copies back.
+            if (item.isEquipped) {
+                continue;
+            }
             s.itemNames.add(item.name);
-            s.itemEquipped.add(item.isEquipped);
-            s.itemQuest.add(item.questItem);
         }
         final CardPool pool = player.getCards();
         for (final Map.Entry<PaperCard, Integer> e : pool) {
@@ -201,15 +210,17 @@ public final class AdventurePlayerTradeBag implements CoopTradeBag {
         if (!(snap instanceof Snap) || !Config.ascendant()) {
             return;
         }
-        // Restore is only used inside failed atomic apply before any grants;
-        // full bag restore is best-effort for the headless/test path.
         final Snap s = (Snap) snap;
+
+        // Gold
         final int deltaGold = s.gold - player.getGold();
         if (deltaGold > 0) {
             player.giveGold(deltaGold);
         } else if (deltaGold < 0) {
             player.takeGold(-deltaGold);
         }
+
+        // Materials
         for (final Map.Entry<String, Integer> e : new HashMap<>(player.getMaterials()).entrySet()) {
             final int want = s.materials.getOrDefault(e.getKey(), 0);
             final int have = e.getValue() == null ? 0 : e.getValue();
@@ -220,8 +231,55 @@ public final class AdventurePlayerTradeBag implements CoopTradeBag {
             }
         }
         for (final Map.Entry<String, Integer> e : s.materials.entrySet()) {
-            if (!player.getMaterials().containsKey(e.getKey())) {
-                player.addMaterial(e.getKey(), e.getValue());
+            if (player.getMaterial(e.getKey()) < e.getValue()) {
+                player.addMaterial(e.getKey(), e.getValue() - player.getMaterial(e.getKey()));
+            }
+        }
+
+        // Items (unequipped only): remove extras, re-add missing.
+        final Map<String, Integer> wantItems = new HashMap<>();
+        for (final String name : s.itemNames) {
+            wantItems.merge(name, 1, Integer::sum);
+        }
+        final Map<String, Integer> haveItems = new HashMap<>();
+        for (final ItemData item : new ArrayList<>(player.getItems())) {
+            if (item == null || item.name == null || item.isEquipped) {
+                continue;
+            }
+            haveItems.merge(item.name, 1, Integer::sum);
+        }
+        for (final Map.Entry<String, Integer> e : haveItems.entrySet()) {
+            final int want = wantItems.getOrDefault(e.getKey(), 0);
+            final int extra = e.getValue() - want;
+            if (extra > 0) {
+                takeItem(e.getKey(), extra);
+            }
+        }
+        for (final Map.Entry<String, Integer> e : wantItems.entrySet()) {
+            final int have = getItemCount(e.getKey());
+            final int missing = e.getValue() - have;
+            if (missing > 0) {
+                addItem(e.getKey(), missing);
+            }
+        }
+
+        // Cards: adjust collection counts toward the snapshot.
+        final Map<String, Integer> haveCards = new HashMap<>();
+        for (final Map.Entry<PaperCard, Integer> e : player.getCards()) {
+            if (e.getKey() != null && e.getValue() != null && e.getValue() > 0) {
+                haveCards.put(cardKey(e.getKey()), e.getValue());
+            }
+        }
+        for (final Map.Entry<String, Integer> e : haveCards.entrySet()) {
+            final int want = s.cards.getOrDefault(e.getKey(), 0);
+            if (e.getValue() > want) {
+                takeCard(e.getKey(), e.getValue() - want);
+            }
+        }
+        for (final Map.Entry<String, Integer> e : s.cards.entrySet()) {
+            final int have = haveCards.getOrDefault(e.getKey(), 0);
+            if (e.getValue() > have) {
+                addCard(e.getKey(), e.getValue() - have);
             }
         }
     }
@@ -258,8 +316,6 @@ public final class AdventurePlayerTradeBag implements CoopTradeBag {
         int gold;
         final Map<String, Integer> materials = new HashMap<>();
         final List<String> itemNames = new ArrayList<>();
-        final List<Boolean> itemEquipped = new ArrayList<>();
-        final List<Boolean> itemQuest = new ArrayList<>();
         final Map<String, Integer> cards = new HashMap<>();
     }
 }

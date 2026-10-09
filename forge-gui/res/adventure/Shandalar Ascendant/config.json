@@ -76,6 +76,7 @@
   "coopDuelGuestConnectGraceSeconds": 8,
   "coopTradeInviteTimeoutSeconds": 20,
   "coopTradeMaxPerSecond": 8,
+  "coopTradeAckTimeoutSeconds": 15,
   "backpackSlots": 24,
   "backpackMaxStack": 20,
   "packsSlots": 12,

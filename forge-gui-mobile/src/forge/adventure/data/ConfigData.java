@@ -293,6 +293,12 @@ public class ConfigData {
     public int coopTradeInviteTimeoutSeconds = 20;
     /** Max trade request / offer / confirm messages accepted per peer per second. */
     public int coopTradeMaxPerSecond = 8;
+    /**
+     * Guest-side timeout (seconds) after applying Execute while waiting for the
+     * host complete ack. On expiry the guest rolls back so a lost ack never
+     * leaves a one-sided swap.
+     */
+    public int coopTradeAckTimeoutSeconds = 15;
 
     // ---- Ascendant inventory bags (INV1): slot counts and stack sizes (no weight). ----
 

@@ -18,6 +18,13 @@ public final class CoopTradeWireLimits {
     /** Trade request / offer / confirm messages per peer per window. */
     public static final int DEFAULT_MAX_PER_WINDOW = 8;
     public static final long DEFAULT_WINDOW_MS = 1000L;
+    /**
+     * Guest-side timeout after applying Execute while waiting for the host
+     * complete {@code CoopTradeAckEvent}. On expiry the guest rolls back so a
+     * lost ack never leaves a one-sided swap. Tunable via ConfigData
+     * {@code coopTradeAckTimeoutSeconds}.
+     */
+    public static final int DEFAULT_ACK_TIMEOUT_SECONDS = 15;
 
     private CoopTradeWireLimits() {
     }

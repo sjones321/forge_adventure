@@ -46,6 +46,7 @@ import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
 import forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent;
 import forge.gamemodes.net.event.coop.CoopSessionReadyEvent;
+import forge.gamemodes.net.event.coop.CoopTradeAckEvent;
 import forge.gamemodes.net.event.coop.CoopTradeCancelEvent;
 import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
 import forge.gamemodes.net.event.coop.CoopTradeExecuteEvent;
@@ -796,6 +797,11 @@ public final class CoopSession {
         } else if (event instanceof CoopTradeExecuteEvent) {
             for (final CoopHooks.OverworldListener l : overworldListeners) {
                 l.onTradeExecute((CoopTradeExecuteEvent) event);
+                l.onOverworldMessage(event);
+            }
+        } else if (event instanceof CoopTradeAckEvent) {
+            for (final CoopHooks.OverworldListener l : overworldListeners) {
+                l.onTradeAck((CoopTradeAckEvent) event);
                 l.onOverworldMessage(event);
             }
         }
