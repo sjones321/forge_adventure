@@ -13,9 +13,10 @@ public final class CoopPorts {
 
     /**
      * Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change.
-     * CO2 (merged #18) is protocol 5; CO3 is 6; MV1 plane-follow is 7; TR1 trade is 8.
+     * CO2 (merged #18) is 5; CO3 is 6; MV1 plane-follow is 7; MV2 live-world hash +
+     * host gate list + {@code mv2SetCode} is 8; TR1 trade (forward-only escrow) is 9.
      */
-    public static final int PROTOCOL_VERSION = 8;
+    public static final int PROTOCOL_VERSION = 9;
 
     /** Length of the short session code shown by the host. */
     public static final int SESSION_CODE_LENGTH = 8;

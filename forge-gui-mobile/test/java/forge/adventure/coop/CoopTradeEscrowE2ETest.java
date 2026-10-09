@@ -765,7 +765,7 @@ public class CoopTradeEscrowE2ETest {
 
     @Test
     public void protocolVersionRemainsEight() {
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 8);
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
         Assert.assertTrue(WireClassFilter.isAllowed(
                 "forge.gamemodes.net.event.coop.CoopTradeEscrowedEvent"));
     }

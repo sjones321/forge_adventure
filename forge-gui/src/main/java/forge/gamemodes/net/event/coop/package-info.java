@@ -30,6 +30,7 @@
  * {@link forge.gamemodes.net.coop.CoopTradeRole}.
  *
  * <p>Protocol: CO2 is 5; CO3 is 6; MV1 plane-follow ({@link CoopPlaneSwitchEvent}) is 7;
- * TR1 trade is 8 (bump to 9 only after MV2 merges).
+ * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8;
+ * TR1 trade is 9.
  */
 package forge.gamemodes.net.event.coop;

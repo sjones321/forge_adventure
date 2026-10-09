@@ -3,6 +3,7 @@ package forge.adventure.character;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.*;
 import com.badlogic.gdx.utils.Array;
+import forge.Forge;
 import forge.adventure.data.ConfigData;
 import forge.adventure.scene.TileMapScene;
 import forge.adventure.stage.GameHUD;
@@ -109,39 +110,165 @@ public class PortalActor extends EntryActor {
             return false;
         }
         try {
+            // MV2: alignment check before any mutation (no charge yet).
+            String alignErr = forge.adventure.world.SetPlaneRules.checkTravel(id, Current.player(), false);
+            if (alignErr != null) {
+                notifyPortal(alignErr);
+                return false;
+            }
             if (!save.getMultiverse().hasPlane(id)) {
                 ConfigData cfg = Config.instance().getConfigData();
                 if (cfg != null && cfg.planarPortalAutoCreate && !PlaneMeta.HOME_ID.equals(id)) {
-                    save.ensureSetPlane(id, id);
+                    // Register only; materialize below on the GL/UI path with loading feel.
+                    save.ensureSetPlane(id, id, false);
                 } else {
                     notifyPortal("Unknown plane: " + id);
                     return false;
                 }
             }
-            // Fail before POI eject when the registered plane has no compressed blob.
             if (!save.canTravelToPlane(id)) {
                 String err = save.getLastPlaneSwitchError();
                 notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
                 return false;
             }
-            if (stage != null && stage.isInMap()) {
-                stage.exitDungeon(false, false);
+            // Deferred MV2 gen: loading screen; World/GL work stays on the GL thread.
+            if (!save.getMultiverse().hasCompressedBlob(id)
+                    && !id.equals(save.getMultiverse().getCurrentPlaneId())) {
+                final String planeIdFinal = id;
+                try {
+                    materializePlaneWithLoadingScreen(save, planeIdFinal,
+                            () -> finishPortalTravel(planeIdFinal));
+                } catch (Exception e) {
+                    notifyPortal("Could not create plane: "
+                            + (e.getMessage() != null ? e.getMessage() : "unknown error"));
+                }
+                return true;
             }
-            if (!save.switchPlane(id)) {
-                String err = save.getLastPlaneSwitchError();
-                notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
-                return false;
-            }
-            // GameScene.enter() happens exactly once inside switchPlane.
-            notifyPortal("Planeswalked to " + save.getMultiverse().getCurrentMeta().getDisplayName());
-            return true;
+            return finishPortalTravel(id);
         } catch (Exception e) {
-            notifyPortal("Portal failed: " + e.getMessage());
+            notifyPortal("Portal failed: " + (e.getMessage() != null ? e.getMessage() : "unknown error"));
             return false;
         }
     }
 
+    /**
+     * Loading screen + {@link WorldSave#materializeSetPlane} — same path portal travel uses.
+     *
+     * @param afterMaterialize optional work after a successful materialize (still inside the loading runnable)
+     * @return whether a loading screen was requested
+     */
+    public static boolean materializePlaneWithLoadingScreen(WorldSave save, String planeId,
+                                                            Runnable afterMaterialize) {
+        if (save == null || planeId == null || planeId.isEmpty()) {
+            return false;
+        }
+        return materializePlaneWithLoadingScreen(() -> {
+            save.materializeSetPlane(planeId);
+            if (afterMaterialize != null) {
+                afterMaterialize.run();
+            }
+        });
+    }
+
+    /**
+     * Portal loading-screen wrapper around materialize work. Production passes
+     * {@code () -> save.materializeSetPlane(id)}; tests inject a stand-in when
+     * {@link WorldSave} cannot initialize headless.
+     */
+    public static boolean materializePlaneWithLoadingScreen(Runnable materializeWork) {
+        if (materializeWork == null) {
+            return false;
+        }
+        String loadingMsg = "Opening a portal…";
+        try {
+            if (Forge.getLocalizer() != null) {
+                final String localized = Forge.getLocalizer().getMessage("lblGeneratingWorld");
+                if (localized != null && !localized.isEmpty()) {
+                    loadingMsg = localized;
+                }
+            }
+        } catch (Throwable ignored) {
+            // Headless / missing bundle
+        }
+        final String msg = loadingMsg;
+        final Exception[] failure = new Exception[1];
+        final boolean shown = forge.adventure.world.SetPlaneLoading.runWithLoadingScreen(msg, () -> {
+            try {
+                materializeWork.run();
+            } catch (Exception e) {
+                failure[0] = e;
+            }
+        });
+        if (failure[0] != null) {
+            throw new IllegalStateException(failure[0].getMessage() != null
+                    ? failure[0].getMessage() : "materializeSetPlane failed", failure[0]);
+        }
+        return shown;
+    }
+
+    /**
+     * Charge gold, leave the POI, and switch planes. Called after any deferred
+     * materialize has finished (possibly behind a loading screen).
+     */
+    private boolean finishPortalTravel(String id) {
+        WorldSave save = WorldSave.getCurrentSave();
+        if (save == null) {
+            return false;
+        }
+        // Charge before persisting the switch; refund if switch fails.
+        int charged = forge.adventure.world.SetPlaneRules.chargePortalGold(id, Current.player());
+        if (charged < 0) {
+            notifyPortal(forge.adventure.world.SetPlaneRules.paymentFailureMessage(id, Current.player()));
+            return false;
+        }
+        if (stage != null && stage.isInMap()) {
+            stage.exitDungeon(false, false);
+        }
+        if (!save.switchPlane(id)) {
+            forge.adventure.world.SetPlaneRules.refundPortalGold(Current.player(), charged);
+            String err = save.getLastPlaneSwitchError();
+            notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
+            return false;
+        }
+        // GameScene.enter() happens exactly once inside switchPlane.
+        notifyPortal("Planeswalked to " + arrivalDisplayName(save, id));
+        return true;
+    }
+
+    /** Prefer set display name (MV2) over raw plane id / meta label. */
+    public static String arrivalDisplayName(WorldSave save, String planeId) {
+        try {
+            if (save != null && save.getMultiverse() != null) {
+                PlaneMeta meta = save.getMultiverse().getMeta(planeId);
+                if (meta == null) {
+                    meta = save.getMultiverse().getCurrentMeta();
+                }
+                if (meta != null) {
+                    String code = meta.getSetCode();
+                    if (code == null || code.isEmpty()) {
+                        code = forge.adventure.world.SetPlaneGenerator.setCodeFromPlaneId(meta.getId());
+                    }
+                    if (code != null && !code.isEmpty()) {
+                        return forge.adventure.world.SetPlaneGenerator.displayNameForSet(code);
+                    }
+                    if (meta.getDisplayName() != null && !meta.getDisplayName().isEmpty()) {
+                        return meta.getDisplayName();
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        String fromId = forge.adventure.world.SetPlaneGenerator.setCodeFromPlaneId(planeId);
+        if (!fromId.isEmpty()) {
+            return forge.adventure.world.SetPlaneGenerator.displayNameForSet(fromId);
+        }
+        return planeId != null ? planeId : "plane";
+    }
+
     private void notifyPortal(String msg) {
+        if (msg == null || msg.isEmpty()) {
+            return;
+        }
         try {
             GameHUD.getInstance().addNotification(msg);
         } catch (Exception ignored) {

@@ -21,7 +21,7 @@ public class CoopTradeTest {
 
     @Test
     public void protocolVersionRemainsEightUntilMv2Merges() {
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 8);
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
         Assert.assertNotNull(new CoopHelloEvent(CoopPorts.PROTOCOL_VERSION,
                 "b", "c", "p", "h", "sess"));
     }

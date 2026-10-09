@@ -4,12 +4,16 @@ import forge.gamemodes.net.event.NetEvent;
 
 /**
  * MV1: host → guest when the host changes the live overworld plane mid-session.
- * Guest rebuilds {@code sessionWorld} from seed + world config path and verifies
- * {@link #worldHash}. Adventure pack id stays in {@link #adventurePlaneId}
+ * Guest rebuilds {@code sessionWorld} from seed + world config path, replays
+ * {@link #gates}, and verifies {@link #worldHash} against the host's live hash.
+ * Adventure pack id stays in {@link #adventurePlaneId}
  * (same meaning as {@link CoopWorldOfferEvent#getPlaneId()}).
+ *
+ * <p>MV2: {@link #mv2SetCode} carries the host-stamped set code for rebuild
+ * customisation. World hash includes planar-gate terrain clears.
  */
 public class CoopPlaneSwitchEvent implements NetEvent {
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 3L;
 
     private final String adventurePlaneId;
     private final String worldPlaneId;
@@ -19,11 +23,31 @@ public class CoopPlaneSwitchEvent implements NetEvent {
     private final String worldHash;
     private final float spawnX;
     private final float spawnY;
+    private final String mv2SetCode;
+    private final CoopPlanarGateEntry[] gates;
 
     public CoopPlaneSwitchEvent(final String adventurePlaneId, final String worldPlaneId,
                                 final String worldConfigPath, final String planeConfigHash,
                                 final long worldSeed, final String worldHash,
                                 final float spawnX, final float spawnY) {
+        this(adventurePlaneId, worldPlaneId, worldConfigPath, planeConfigHash,
+                worldSeed, worldHash, spawnX, spawnY, "", null);
+    }
+
+    public CoopPlaneSwitchEvent(final String adventurePlaneId, final String worldPlaneId,
+                                final String worldConfigPath, final String planeConfigHash,
+                                final long worldSeed, final String worldHash,
+                                final float spawnX, final float spawnY,
+                                final String mv2SetCode) {
+        this(adventurePlaneId, worldPlaneId, worldConfigPath, planeConfigHash,
+                worldSeed, worldHash, spawnX, spawnY, mv2SetCode, null);
+    }
+
+    public CoopPlaneSwitchEvent(final String adventurePlaneId, final String worldPlaneId,
+                                final String worldConfigPath, final String planeConfigHash,
+                                final long worldSeed, final String worldHash,
+                                final float spawnX, final float spawnY,
+                                final String mv2SetCode, final CoopPlanarGateEntry[] gates) {
         this.adventurePlaneId = adventurePlaneId;
         this.worldPlaneId = worldPlaneId;
         this.worldConfigPath = worldConfigPath;
@@ -32,6 +56,8 @@ public class CoopPlaneSwitchEvent implements NetEvent {
         this.worldHash = worldHash;
         this.spawnX = spawnX;
         this.spawnY = spawnY;
+        this.mv2SetCode = mv2SetCode != null ? mv2SetCode : "";
+        this.gates = copyGates(gates);
     }
 
     public String getAdventurePlaneId() {
@@ -65,5 +91,24 @@ public class CoopPlaneSwitchEvent implements NetEvent {
 
     public float getSpawnY() {
         return spawnY;
+    }
+
+    /** Host-stamped MV2 set code; empty means no set customisation on rebuild. */
+    public String getMv2SetCode() {
+        return mv2SetCode != null ? mv2SetCode : "";
+    }
+
+    /** Host live planar gates; never null (may be empty). */
+    public CoopPlanarGateEntry[] getGates() {
+        return copyGates(gates);
+    }
+
+    private static CoopPlanarGateEntry[] copyGates(final CoopPlanarGateEntry[] src) {
+        if (src == null || src.length == 0) {
+            return new CoopPlanarGateEntry[0];
+        }
+        final CoopPlanarGateEntry[] out = new CoopPlanarGateEntry[src.length];
+        System.arraycopy(src, 0, out, 0, src.length);
+        return out;
     }
 }

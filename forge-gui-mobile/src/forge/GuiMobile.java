@@ -108,7 +108,8 @@ public class GuiMobile implements IGuiBase {
 
     private volatile Thread glThread;
 
-    void captureGlThread() {
+    /** Capture the current thread as the GL/UI thread (WorldGenBench / GL tests). */
+    public void captureGlThread() {
         this.glThread = Thread.currentThread();
     }
 
