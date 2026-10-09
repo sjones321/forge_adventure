@@ -101,6 +101,7 @@
   "setPlaneWorldConfig": "world/set_plane_world.json",
   "maxPlanesPerSave": 16,
   "planarPortalAutoCreate": true,
+  "llmOpponentDefaultTimeoutSeconds": 30,
   "screenWidth": 480,
   "screenHeight": 270,
   "skin": "skin/ui_skin.json",

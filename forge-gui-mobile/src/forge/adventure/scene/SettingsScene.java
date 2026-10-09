@@ -392,6 +392,13 @@ public class SettingsScene extends UIScene {
         addCheckBox(localizer.getMessage("lblVibrateOnAdventureReward"), ForgePreferences.FPref.UI_VIBRATE_ON_ADVENTURE_REWARD);
         addCheckBox(localizer.getMessage("lblVibrateOnShopAction"), ForgePreferences.FPref.UI_VIBRATE_ON_SHOP_ACTION);
 
+        // AI1: Ascendant-only LLM opponent settings (controller-friendly dedicated screen).
+        if (Config.ascendant()) {
+            TextraButton llmBtn = Controls.newTextButton("LLM opponent…", () -> Forge.switchScene(LlmSettingsScene.instance()));
+            addLabel("LLM opponent");
+            settingGroup.add(llmBtn).align(Align.right).pad(2);
+        }
+
         settingGroup.row();
         backButton = ui.findActor("return");
         ui.onButtonPress("return", SettingsScene.this::back);

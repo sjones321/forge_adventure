@@ -632,9 +632,11 @@ public class DuelScene extends ForgeScene {
         rules.setWarnAboutAICards(false);
 
         //hostedMatch.setEndGameHook(() -> DuelScene.this.GameEnd());
-        // LLM opponent (optional): settings live in llm_opponent.properties in the Forge user folder
-        System.setProperty("forge.llm.dir", ForgeConstants.USER_DIR);
-        LlmOpponent.setActive(true);
+        // AI1: LLM opponent (Ascendant only). Settings in llm_opponent.properties; key never in the save.
+        if (Config.ascendant()) {
+            System.setProperty("forge.llm.dir", ForgeConstants.USER_DIR);
+            LlmOpponent.setActive(true);
+        }
         hostedMatch.startMatch(rules, appliedVariants, players, guiMap, bossBattle ? MusicPlaylist.BOSS : MusicPlaylist.MATCH);
         MatchController.instance.setGameView(hostedMatch.getGameView());
         LiveGameLog.attach(hostedMatch.getGame(), enemy.getData().getName());
