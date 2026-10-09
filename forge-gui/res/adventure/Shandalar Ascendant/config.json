@@ -107,7 +107,6 @@
   "rotatedOutPortalGoldCost": 500,
   "masteryUnlocksSetPlane": true,
   "setPlaneMaxPlacementRestarts": 8,
-  "llmOpponentDefaultTimeoutSeconds": 30,
   "fortressBannerMinDistanceTiles": 8,
   "fortressMaxPerPlane": 1,
   "fortressDemolishRefundPercent": 50,
