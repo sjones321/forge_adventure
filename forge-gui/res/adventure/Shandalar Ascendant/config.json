@@ -101,7 +101,6 @@
   "setPlaneWorldConfig": "world/set_plane_world.json",
   "maxPlanesPerSave": 16,
   "planarPortalAutoCreate": true,
-  "llmOpponentDefaultTimeoutSeconds": 30,
   "fortressBannerMinDistanceTiles": 8,
   "fortressMaxPerPlane": 1,
   "fortressDemolishRefundPercent": 50,

@@ -6,6 +6,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.AclEntry;
@@ -13,6 +14,7 @@ import java.nio.file.attribute.AclEntryPermission;
 import java.nio.file.attribute.AclEntryType;
 import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.attribute.UserPrincipal;
 import java.util.EnumSet;
 import java.util.List;
@@ -50,7 +52,7 @@ public final class LlmSettings {
         return enabled;
     }
 
-    public void setEnabled(boolean enabled) {
+    public synchronized void setEnabled(boolean enabled) {
         this.enabled = enabled;
     }
 
@@ -58,7 +60,7 @@ public final class LlmSettings {
         return baseUrl;
     }
 
-    public void setBaseUrl(String baseUrl) {
+    public synchronized void setBaseUrl(String baseUrl) {
         this.baseUrl = baseUrl == null ? "" : baseUrl.trim();
     }
 
@@ -68,7 +70,7 @@ public final class LlmSettings {
     }
 
     /** Trims leading/trailing whitespace. Never log or display the raw value. */
-    public void setApiKey(String apiKey) {
+    public synchronized void setApiKey(String apiKey) {
         this.apiKey = apiKey == null ? "" : apiKey.trim();
     }
 
@@ -92,7 +94,7 @@ public final class LlmSettings {
         return model;
     }
 
-    public void setModel(String model) {
+    public synchronized void setModel(String model) {
         this.model = model == null ? "" : model.trim();
     }
 
@@ -100,7 +102,7 @@ public final class LlmSettings {
         return timeoutSeconds;
     }
 
-    public void setTimeoutSeconds(int timeoutSeconds) {
+    public synchronized void setTimeoutSeconds(int timeoutSeconds) {
         if (timeoutSeconds < MIN_TIMEOUT_SECONDS) {
             this.timeoutSeconds = MIN_TIMEOUT_SECONDS;
         } else if (timeoutSeconds > MAX_TIMEOUT_SECONDS) {
@@ -181,16 +183,69 @@ public final class LlmSettings {
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new IOException("Could not create settings directory: " + parent);
         }
+        // Snapshot under the instance lock so concurrent setters cannot tear a write.
+        final boolean snapEnabled;
+        final String snapBaseUrl;
+        final String snapApiKey;
+        final String snapModel;
+        final int snapTimeout;
+        synchronized (this) {
+            snapEnabled = enabled;
+            snapBaseUrl = baseUrl == null ? "" : baseUrl;
+            snapApiKey = apiKey == null ? "" : apiKey;
+            snapModel = model == null ? "" : model;
+            snapTimeout = timeoutSeconds;
+        }
+        // Restrict BEFORE writing the key: create an empty owner-only file, then store.
+        prepareOwnerOnlyFile(file);
+        Runnable beforeWrite = beforeWriteForTests;
+        if (beforeWrite != null) {
+            beforeWrite.run();
+        }
         Properties p = new Properties();
-        p.setProperty(PROP_ENABLED, Boolean.toString(enabled));
-        p.setProperty(PROP_BASE_URL, baseUrl == null ? "" : baseUrl);
-        p.setProperty(PROP_API_KEY, apiKey == null ? "" : apiKey);
-        p.setProperty(PROP_MODEL, model == null ? "" : model);
-        p.setProperty(PROP_TIMEOUT, Integer.toString(timeoutSeconds));
+        p.setProperty(PROP_ENABLED, Boolean.toString(snapEnabled));
+        p.setProperty(PROP_BASE_URL, snapBaseUrl);
+        p.setProperty(PROP_API_KEY, snapApiKey);
+        p.setProperty(PROP_MODEL, snapModel);
+        p.setProperty(PROP_TIMEOUT, Integer.toString(snapTimeout));
         try (OutputStream out = new FileOutputStream(file)) {
             p.store(out, "Forge Adventure LLM opponent (local only; not part of the save)");
         }
+    }
+
+    /**
+     * Ensures {@code file} exists with owner-only permissions before any key material is written.
+     * POSIX: create with {@code 600} when supported, otherwise create then {@link #restrictOwnerOnly}.
+     * Windows: best-effort ACL / owner-only flags via {@link #restrictOwnerOnly}.
+     */
+    static void prepareOwnerOnlyFile(File file) throws IOException {
+        Objects.requireNonNull(file, "file");
+        Path path = file.toPath();
+        if (!Files.isRegularFile(path)) {
+            try {
+                Set<PosixFilePermission> ownerRw = EnumSet.of(
+                        PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
+                Files.createFile(path, PosixFilePermissions.asFileAttribute(ownerRw));
+            } catch (UnsupportedOperationException e) {
+                if (!file.createNewFile() && !file.isFile()) {
+                    throw new IOException("Could not create settings file: " + file);
+                }
+            } catch (FileAlreadyExistsException ignored) {
+                // Lost a create race; restrict whatever is already there.
+            }
+        }
         restrictOwnerOnly(file);
+    }
+
+    /**
+     * Test-only hook invoked after owner-only preparation and before properties (including the API
+     * key) are written. Production code never sets this.
+     */
+    private static volatile Runnable beforeWriteForTests;
+
+    /** Test-only. Clears any previous hook when {@code hook} is null. */
+    public static void setBeforeWriteForTests(Runnable hook) {
+        beforeWriteForTests = hook;
     }
 
     /**
