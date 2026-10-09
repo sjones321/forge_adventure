@@ -27,13 +27,18 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Headless AC1 coverage: reachability filters, incremental re-check, account-wide
  * counters, USER_ADVENTURE_DIR/account path + migration, stock statistic.json,
  * pending CS1 grants, plus unlock/persist/toast/corrupt recovery.
  */
+@Test(singleThreaded = true)
 public class AchievementsAc1Test {
+
+    /** Held from {@code @BeforeMethod} through {@code @AfterMethod} so parallel methods cannot share defs. */
+    private static final ReentrantLock AC1_TEST_LOCK = new ReentrantLock();
 
     private Path tempDir;
     private Path achievementsFile;
@@ -62,37 +67,49 @@ public class AchievementsAc1Test {
 
     @BeforeMethod
     public void setUp() throws Exception {
-        AchievementService.resetInstance();
-        HallOfFame.resetInstance();
-        AchievementListData.clear();
-        tempDir = Files.createTempDirectory("ac1-achievements");
-        achievementsFile = tempDir.resolve("account").resolve("achievements.json");
-        Files.createDirectories(achievementsFile.getParent());
-        AchievementListData.loadFromJsonText(DEFS);
-        svc = AchievementService.forTest(achievementsFile.toFile());
-        hof = new HallOfFame(tempDir.resolve("account").resolve("hall_of_fame.json"));
-        svc.setHallOfFame(hof);
-        HallOfFame.setInstance(hof);
-        toasts.clear();
-        svc.setToastSink(toasts::add);
-        svc.setToastEnabled(true);
-        svc.setToastMaxPerPass(10);
-        AchievementService.setInstance(svc);
+        AC1_TEST_LOCK.lock();
+        try {
+            AchievementService.resetInstance();
+            HallOfFame.resetInstance();
+            AchievementListData.clear();
+            tempDir = Files.createTempDirectory("ac1-achievements");
+            achievementsFile = tempDir.resolve("account").resolve("achievements.json");
+            Files.createDirectories(achievementsFile.getParent());
+            AchievementListData.loadFromJsonText(DEFS);
+            svc = AchievementService.forTest(achievementsFile.toFile());
+            hof = new HallOfFame(tempDir.resolve("account").resolve("hall_of_fame.json"));
+            svc.setHallOfFame(hof);
+            HallOfFame.setInstance(hof);
+            toasts.clear();
+            svc.setToastSink(toasts::add);
+            svc.setToastEnabled(true);
+            svc.setToastMaxPerPass(10);
+            AchievementService.setInstance(svc);
+        } catch (Exception e) {
+            AC1_TEST_LOCK.unlock();
+            throw e;
+        }
     }
 
-    @AfterMethod
+    @AfterMethod(alwaysRun = true)
     public void tearDown() throws Exception {
-        AchievementService.resetInstance();
-        HallOfFame.resetInstance();
-        AchievementListData.clear();
-        if (tempDir != null && Files.isDirectory(tempDir)) {
-            try (var walk = Files.walk(tempDir)) {
-                walk.sorted((a, b) -> b.compareTo(a)).forEach(p -> {
-                    try {
-                        Files.deleteIfExists(p);
-                    } catch (Exception ignored) {
-                    }
-                });
+        try {
+            AchievementService.resetInstance();
+            HallOfFame.resetInstance();
+            AchievementListData.clear();
+            if (tempDir != null && Files.isDirectory(tempDir)) {
+                try (var walk = Files.walk(tempDir)) {
+                    walk.sorted((a, b) -> b.compareTo(a)).forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        } catch (Exception ignored) {
+                        }
+                    });
+                }
+            }
+        } finally {
+            if (AC1_TEST_LOCK.isHeldByCurrentThread()) {
+                AC1_TEST_LOCK.unlock();
             }
         }
     }

@@ -110,6 +110,8 @@ public class RewardData implements Serializable {
     private static Predicate<PaperCard> cachedRewardFilter;
     /** Whether the RemNonCommanderDecks clause was applied when the cache was built. */
     private static boolean cachedFilterExcludesNonCommander;
+    /** When true, {@link #installRewardFilterForTest} owns the cache until invalidated. */
+    private static boolean rewardFilterPinnedForTest;
 
     /**
      * Drop the cached reachability predicate (and card pool). Call when the
@@ -119,6 +121,7 @@ public class RewardData implements Serializable {
     public static synchronized void invalidateRewardFilterCache() {
         cachedRestrictedNames = null;
         cachedRewardFilter = null;
+        rewardFilterPinnedForTest = false;
     }
 
     /**
@@ -196,6 +199,9 @@ public class RewardData implements Serializable {
      * Invalidate via {@link #invalidateRewardFilterCache()} when the player changes.
      */
     public static synchronized Predicate<PaperCard> adventureRewardFilter() {
+        if (rewardFilterPinnedForTest && cachedRewardFilter != null) {
+            return cachedRewardFilter;
+        }
         boolean excludeNonCommander = false;
         try {
             excludeNonCommander = AdventurePlayer.current() != null
@@ -228,6 +234,7 @@ public class RewardData implements Serializable {
 
     /**
      * Install a prebuilt filter (real-data tests with Ascendant {@link ConfigData}).
+     * Pinned until {@link #invalidateRewardFilterCache()}.
      */
     public static synchronized void installRewardFilterForTest(Predicate<PaperCard> filter,
                                                               Set<String> restrictedNames) {
@@ -236,6 +243,7 @@ public class RewardData implements Serializable {
                 ? Collections.emptySet()
                 : Collections.unmodifiableSet(new HashSet<>(restrictedNames));
         cachedFilterExcludesNonCommander = false;
+        rewardFilterPinnedForTest = true;
     }
 
     /**
@@ -262,7 +270,36 @@ public class RewardData implements Serializable {
             return false;
         }
         try {
-            List<PaperCard> printings = StaticData.instance().getCommonCards().getAllCards(cardName);
+            StaticData db = StaticData.instance();
+            if (db == null || db.getCommonCards() == null) {
+                return false;
+            }
+            List<PaperCard> printings = db.getCommonCards().getAllCards(cardName);
+            if (printings == null || printings.isEmpty()) {
+                return false;
+            }
+            Predicate<PaperCard> filter = adventureRewardFilter();
+            for (PaperCard pc : printings) {
+                if (filter.test(pc)) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Same as {@link #isAdventureRewardReachableName(String)} against an explicit
+     * {@link StaticData} (real-data tests that pin a loaded card DB).
+     */
+    public static boolean isAdventureRewardReachableName(String cardName, StaticData db) {
+        if (cardName == null || cardName.isEmpty() || db == null || db.getCommonCards() == null) {
+            return false;
+        }
+        try {
+            List<PaperCard> printings = db.getCommonCards().getAllCards(cardName);
             if (printings == null || printings.isEmpty()) {
                 return false;
             }

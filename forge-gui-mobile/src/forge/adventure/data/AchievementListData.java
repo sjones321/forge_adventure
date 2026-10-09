@@ -23,6 +23,8 @@ public final class AchievementListData {
     private static List<AchievementData> list = Collections.emptyList();
     private static Map<String, AchievementData> byId = Collections.emptyMap();
     private static String loadedPlane;
+    /** When true, {@link #ensureLoaded()} will not replace in-memory test fixtures. */
+    private static boolean testFixtureLoaded;
 
     private AchievementListData() {
     }
@@ -31,22 +33,27 @@ public final class AchievementListData {
     public static void reload() {
         list = Collections.emptyList();
         byId = Collections.emptyMap();
+        testFixtureLoaded = false;
         try {
             loadedPlane = Config.instance().getPlane();
             FileHandle handle = Config.instance().getFile(Paths.ACHIEVEMENTS);
             if (handle == null || !handle.exists()) {
                 return;
             }
-            loadFromJsonText(AtomicJsonFiles.stripBom(handle.readString("UTF-8")));
+            parseJsonText(AtomicJsonFiles.stripBom(handle.readString("UTF-8")), false);
         } catch (Throwable ignored) {
             loadedPlane = null;
             list = Collections.emptyList();
             byId = Collections.emptyMap();
+            testFixtureLoaded = false;
         }
     }
 
     /** Reloads when the adventure plane no longer matches the cached data. */
     public static void ensureLoaded() {
+        if (testFixtureLoaded) {
+            return;
+        }
         String plane = null;
         try {
             plane = Config.instance().getPlane();
@@ -65,10 +72,15 @@ public final class AchievementListData {
         loadFromJsonText(AtomicJsonFiles.stripBom(text));
     }
 
-    /** Test helper / internal: parse JSON text (no BOM). */
+    /** Test helper: parse JSON text (no BOM) and pin so {@link #ensureLoaded()} won't replace it. */
     public static void loadFromJsonText(String text) {
+        parseJsonText(text, true);
+    }
+
+    private static void parseJsonText(String text, boolean asTestFixture) {
         list = Collections.emptyList();
         byId = Collections.emptyMap();
+        testFixtureLoaded = false;
         if (text == null || text.trim().isEmpty()) {
             return;
         }
@@ -89,6 +101,12 @@ public final class AchievementListData {
         }
         list = Collections.unmodifiableList(out);
         byId = Collections.unmodifiableMap(map);
+        testFixtureLoaded = asTestFixture;
+        try {
+            loadedPlane = Config.instance().getPlane();
+        } catch (Throwable ignored) {
+            loadedPlane = asTestFixture ? "" : null;
+        }
     }
 
     public static List<AchievementData> getAll() {
@@ -106,5 +124,6 @@ public final class AchievementListData {
         list = Collections.emptyList();
         byId = Collections.emptyMap();
         loadedPlane = null;
+        testFixtureLoaded = false;
     }
 }

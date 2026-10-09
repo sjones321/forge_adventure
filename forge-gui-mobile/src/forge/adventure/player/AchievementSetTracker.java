@@ -36,8 +36,14 @@ public final class AchievementSetTracker {
     private final Map<String, Integer> nameCounts = new HashMap<>();
     private List<String> reachableCache;
     private boolean nameCountsReady;
+    /** Test override when {@link StaticData#instance()} is unstable across threads. */
+    private static volatile StaticData magicDbOverride;
 
     public AchievementSetTracker() {
+    }
+
+    public static void setMagicDbForTest(StaticData db) {
+        magicDbOverride = db;
     }
 
     public void clearCaches() {
@@ -85,7 +91,10 @@ public final class AchievementSetTracker {
                 if (e == null || e.name() == null || e.name().isEmpty()) {
                     continue;
                 }
-                if (RewardData.isAdventureRewardReachableName(e.name())) {
+                StaticData dbForNames = magicDb();
+                if (dbForNames != null
+                        ? RewardData.isAdventureRewardReachableName(e.name(), dbForNames)
+                        : RewardData.isAdventureRewardReachableName(e.name())) {
                     names.add(e.name());
                 }
             }
@@ -122,6 +131,9 @@ public final class AchievementSetTracker {
     }
 
     private static StaticData magicDb() {
+        if (magicDbOverride != null) {
+            return magicDbOverride;
+        }
         try {
             StaticData fromModel = FModel.getMagicDb();
             if (fromModel != null) {

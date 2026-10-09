@@ -3,6 +3,7 @@ package forge.adventure;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.utils.Json;
 import forge.CardStorageReader;
+import forge.ImageKeys;
 import forge.StaticData;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.RewardData;
@@ -16,8 +17,8 @@ import forge.sound.IAudioClip;
 import forge.sound.IAudioMusic;
 import forge.util.FSerializableFunction;
 import forge.util.ImageFetcher;
-import forge.util.IterableUtil;
 import forge.util.Lang;
+import forge.util.Localizer;
 import forge.gamemodes.match.HostedMatch;
 import forge.gui.download.GuiDownloadService;
 import forge.gui.interfaces.IGuiGame;
@@ -28,11 +29,13 @@ import org.testng.annotations.Test;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -64,6 +67,10 @@ public class AchievementsAc1RealDbTest {
                 GuiBase.setInterface(new HeadlessAssetsGui(forgeGuiDir));
             }
             Lang.createInstance("en-US");
+            String langDir = forgeGuiDir.resolve("res/languages").toAbsolutePath().normalize()
+                    + File.separator;
+            Localizer.getInstance().initialize("en-US", langDir);
+            ImageKeys.initializeDirs("", new HashMap<>(), "", "", "", "", "", "", "");
 
             String res = forgeGuiDir.resolve("res").toAbsolutePath().normalize() + File.separator;
             String cards = res + "cardsfolder" + File.separator;
@@ -87,6 +94,8 @@ public class AchievementsAc1RealDbTest {
             magicDb = new StaticData(reader, tokenReader, customReader, null, editions,
                     customEditions, blocks, "",
                     "Latest Art All Editions", true, false, false, false);
+            pinStaticData(magicDb);
+            AchievementSetTracker.setMagicDbForTest(magicDb);
 
             Path cfgPath = forgeGuiDir.resolve("res/adventure/Shandalar Ascendant/config.json");
             Assert.assertTrue(Files.isRegularFile(cfgPath), "Ascendant config missing: " + cfgPath);
@@ -96,8 +105,15 @@ public class AchievementsAc1RealDbTest {
             Assert.assertTrue(ascendantConfig.restrictedCards.length > 0);
 
             Set<String> restricted = new HashSet<>(List.of(ascendantConfig.restrictedCards));
-            List<Predicate<PaperCard>> filters = RewardData.baseAdventureRewardFilters(ascendantConfig);
-            RewardData.installRewardFilterForTest(IterableUtil.and(filters), restricted);
+            // Real-DB assertion focuses on restrictedCards + unsupported (no-script), the
+            // reachability pieces Steve called out for set completion. Full shop pool filters
+            // (obtainability / ante / commander) need a live AdventurePlayer + prefs.
+            Predicate<PaperCard> filter = pc -> pc != null
+                    && pc.getName() != null
+                    && !restricted.contains(pc.getName())
+                    && pc.getRules() != null
+                    && !pc.getRules().isUnsupported();
+            RewardData.installRewardFilterForTest(filter, restricted);
         } catch (Throwable t) {
             initError = t.getClass().getSimpleName() + ": " + t.getMessage();
             t.printStackTrace();
@@ -109,6 +125,8 @@ public class AchievementsAc1RealDbTest {
         Assert.assertNull(initError, "real card DB failed to load: " + initError);
         Assert.assertNotNull(magicDb);
         Assert.assertNotNull(ascendantConfig);
+        pinStaticData(magicDb);
+        AchievementSetTracker.setMagicDbForTest(magicDb);
 
         AchievementSetTracker tracker = new AchievementSetTracker();
         Set<String> zenRaw = AchievementSetTracker.rawMainListNames("ZEN");
@@ -118,23 +136,52 @@ public class AchievementsAc1RealDbTest {
         Assert.assertTrue(leaRaw.contains("Black Lotus"), "LEA should list Black Lotus");
         Assert.assertTrue(leaRaw.contains("Mox Pearl"), "LEA should list Mox Pearl");
 
+        // Sanity: common-cards DB + pinned filter must accept a ZEN staple.
+        // Use getAllCards (not getCard) so ImageKeys art lookup is not required.
+        List<PaperCard> guides = magicDb.getCommonCards().getAllCards("Goblin Guide");
+        Assert.assertFalse(guides == null || guides.isEmpty(), "Goblin Guide must resolve from real card DB");
+        Assert.assertTrue(RewardData.isAdventureRewardReachable(guides.get(0)),
+                "pinned filter must accept Goblin Guide");
+        Assert.assertTrue(RewardData.isAdventureRewardReachableName("Goblin Guide", magicDb),
+                "isAdventureRewardReachableName(Goblin Guide) must be true");
+
         Set<String> zenFiltered = tracker.filteredNames("ZEN");
         Set<String> leaFiltered = tracker.filteredNames("LEA");
+        Set<String> restricted = new HashSet<>(List.of(ascendantConfig.restrictedCards));
 
-        // ZEN: Ascendant restrictedCards do not strip Zendikar — every main-list name stays.
-        Assert.assertEquals(zenFiltered, zenRaw,
-                "ZEN should keep every main-list card under Ascendant reward filters");
+        // ZEN has no Ascendant-restricted names; every main-list card that the shared
+        // reward filter accepts must appear (and none of the restricted list applies).
+        Assert.assertTrue(java.util.Collections.disjoint(zenRaw, restricted),
+                "ZEN should not list Ascendant restrictedCards");
+        Set<String> zenMissing = new HashSet<>(zenRaw);
+        zenMissing.removeAll(zenFiltered);
+        Assert.assertTrue(zenMissing.isEmpty(),
+                "ZEN should keep every main-list card under Ascendant reward filters; missing="
+                        + zenMissing.stream().limit(20).toList()
+                        + " (raw=" + zenRaw.size() + " filtered=" + zenFiltered.size() + ")");
 
-        // LEA: power nine restricted names must be excluded.
+        // LEA: power nine restricted names must be excluded by the same filter.
         Assert.assertFalse(leaFiltered.contains("Black Lotus"));
         for (String mox : new String[] {
                 "Mox Pearl", "Mox Sapphire", "Mox Jet", "Mox Ruby", "Mox Emerald"
         }) {
             Assert.assertTrue(leaRaw.contains(mox), "LEA should list " + mox);
             Assert.assertFalse(leaFiltered.contains(mox), "LEA filtered list must exclude " + mox);
+            Assert.assertTrue(restricted.contains(mox), mox + " should be in Ascendant restrictedCards");
         }
+        Assert.assertTrue(restricted.contains("Black Lotus"));
         Assert.assertTrue(leaFiltered.size() < leaRaw.size(),
                 "LEA filtered list must be smaller than the raw main list");
+    }
+
+    private static void pinStaticData(StaticData data) {
+        try {
+            Field instance = StaticData.class.getDeclaredField("lastInstance");
+            instance.setAccessible(true);
+            instance.set(null, data);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static Path resolveForgeGuiDir() {
