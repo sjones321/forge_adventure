@@ -19,7 +19,7 @@
     },
     {
       "id": "kraken_leviathan",
-      "tags": ["Merfolk"],
+      "tags": ["Kraken", "Leviathan", "Octopus", "Serpent", "Sea Monster"],
       "colors": ["blue"],
       "creatureTypes": ["Kraken", "Leviathan", "Octopus", "Serpent"],
       "preferredCommanders": ["Arixmethes, Slumbering Isle", "Wrexial, the Risen Deep", "Runo Stromkirk"],

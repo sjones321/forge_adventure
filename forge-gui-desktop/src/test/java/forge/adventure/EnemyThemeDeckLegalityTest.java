@@ -175,8 +175,13 @@ public class EnemyThemeDeckLegalityTest {
                         problems.add(deckPath.getFileName() + " [" + format + "]: " + quality);
 
                     String legal = EnemyThemeDecks.legalityProblem(deck, format);
-                    if (legal != null && (legal.contains("restricted") || legal.contains("Alchemy")))
+                    if (legal != null && (legal.contains("restricted") || legal.contains("Alchemy")
+                            || legal.contains("Online") || legal.contains("Funny")))
                         problems.add(deckPath.getFileName() + " [" + format + "]: " + legal);
+
+                    String landCover = EnemyThemeDecks.landColorCoverageProblem(deck, format);
+                    if (landCover != null)
+                        problems.add(deckPath.getFileName() + " [" + format + "]: " + landCover);
                 }
             }
         }
@@ -184,6 +189,44 @@ public class EnemyThemeDeckLegalityTest {
         Assert.assertTrue(problems.isEmpty(),
                 checked + " decks checked; quality/restricted/Alchemy problems:\n"
                         + String.join("\n", problems));
+    }
+
+    @Test
+    public void exclusionFilterRejectsOnlineFunnyUnAndPlaytestCards() {
+        String[] banned = {
+                "Sarevok the Usurper", // HBG
+                "Goblin Trapfinder", // J21
+                "Scion of Shiv", // HBG/J21 digital
+                "_____ Goblin", // Unfinity
+                "Hammer Jammer", // Un-set
+                "Steamflogger Temp", // Unstable / playtest-adjacent
+                "Bloodspatter Vampire", // Un-set
+                "Sliv-Mizzet, Hivemind", // playtest (CMB1) — name may vary
+                "Koma and Toski, Compleated", // playtest
+                "Nim Mongoose", // playtest
+                "Bolshack Dragon" // playtest / digital
+        };
+        List<String> notExcluded = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        for (String name : banned) {
+            PaperCard pc = FModel.getMagicDb().getCommonCards().getUniqueByName(name);
+            if (pc == null) {
+                // Try exact getCard; some Un-names use underscores.
+                pc = FModel.getMagicDb().getCommonCards().getCard(name);
+            }
+            if (pc == null) {
+                missing.add(name);
+                continue;
+            }
+            if (!EnemyThemeDecks.isExcludedFromAdventureDecks(pc))
+                notExcluded.add(name + " [" + pc.getEdition() + "]");
+        }
+        // Named cards that exist in the DB must be excluded; missing names are noted but
+        // do not fail if the card DB renamed them (we still require the ones that resolve).
+        Assert.assertTrue(notExcluded.isEmpty(),
+                "should be excluded (Online/Funny/restrictedEditions): " + notExcluded);
+        Assert.assertTrue(banned.length - missing.size() >= 5,
+                "expected to resolve most negative examples; missing=" + missing);
     }
 
     private static boolean printedInWindow(String name, StandardWindow window) {

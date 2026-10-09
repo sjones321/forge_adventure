@@ -46,6 +46,12 @@ public class EnemyThemeDeckGeneratorTest {
 
     @Test(timeOut = 600000)
     public void generateMissingFixedDecks() throws Exception {
+        // Opt-in only: normal `mvn test` must not rewrite res/. Regenerate with:
+        // mvn -pl forge-gui-desktop -am test -Dtest=EnemyThemeDeckGeneratorTest -Den1.generate=true
+        if (!"true".equalsIgnoreCase(System.getProperty("en1.generate", "false"))) {
+            throw new org.testng.SkipException(
+                    "EN1 deck generation is opt-in; pass -Den1.generate=true to rewrite res/");
+        }
         EnemyThemeDecks.setEnabledForTests(true);
         int wrote = 0;
         for (EnemyThemeData theme : themes) {

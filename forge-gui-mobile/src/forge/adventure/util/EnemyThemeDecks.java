@@ -11,6 +11,7 @@ import forge.adventure.data.EnemyThemeRecipeData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.player.BanLists;
 import forge.adventure.player.StandardWindow;
+import forge.card.CardEdition;
 import forge.card.CardRarity;
 import forge.card.CardRules;
 import forge.card.MagicColor;
@@ -18,6 +19,7 @@ import forge.deck.CardPool;
 import forge.deck.Deck;
 import forge.deck.DeckFormat;
 import forge.deck.DeckSection;
+import forge.deck.DeckgenUtil;
 import forge.deck.io.DeckSerializer;
 import forge.game.GameFormat;
 import forge.item.PaperCard;
@@ -26,6 +28,8 @@ import forge.util.MyRandom;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -34,8 +38,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 /**
  * EN1: enemy decks by format and theme.
@@ -65,6 +71,10 @@ public final class EnemyThemeDecks {
     public static final int MIN_LANDS_60 = 16;
     public static final int MAX_LANDS_60 = 18;
     public static final int TARGET_LANDS_60 = 17;
+    /** Minimum non-creature spells in a 60-card fixed deck. */
+    public static final int MIN_NON_CREATURE_SPELLS_60 = 8;
+    /** Max average CMC for non-ramp 60-card themes. */
+    public static final float MAX_AVG_CMC_NON_RAMP = 3.75f;
 
     private static final String[] FORMAT_FALLBACK_ORDER = {
             FORMAT_HISTORIC, FORMAT_PAUPER, FORMAT_COMMANDER, FORMAT_STANDARD
@@ -85,6 +95,7 @@ public final class EnemyThemeDecks {
     /** Pool cache: windowKey|colors|tribe|mechanics → unique cards. */
     private static final Map<String, List<PaperCard>> windowPoolCache = new HashMap<>();
     private static Set<String> cachedRestrictedNames;
+    private static Set<String> cachedRestrictedEditions;
 
     private EnemyThemeDecks() {
     }
@@ -100,6 +111,7 @@ public final class EnemyThemeDecks {
             cachedWindowLegalNames = null;
             windowPoolCache.clear();
             cachedRestrictedNames = null;
+            cachedRestrictedEditions = null;
         }
     }
 
@@ -117,6 +129,7 @@ public final class EnemyThemeDecks {
             cachedWindowKey = null;
             cachedWindowLegalNames = null;
             cachedRestrictedNames = null;
+            cachedRestrictedEditions = null;
             if (catalog.themes == null)
                 return;
             for (EnemyThemeData t : catalog.themes) {
@@ -388,7 +401,7 @@ public final class EnemyThemeDecks {
                     if (!windowLegalName(window, name))
                         continue;
                     PaperCard pc = cardByName(name);
-                    if (pc == null || isAlchemyOrDigitalOnly(pc) || !isStandardWindowLegal(pc, window))
+                    if (pc == null || isExcludedFromAdventureDecks(pc) || !isStandardWindowLegal(pc, window))
                         continue;
                     if (pc.getRules().getType().isBasicLand())
                         continue;
@@ -430,8 +443,12 @@ public final class EnemyThemeDecks {
                 addCopies(main, pc, 1 + rng.nextInt(3), spellTarget, used);
             }
 
-            padWithBasics(deck, target, colors);
-            stripIllegalStandard(deck, window, target, colors);
+            // Pad lands from actual spell colors (not a null/relaxed color filter).
+            String[] padColors = colorsFromMask(spellColorMask(deck));
+            if (padColors.length == 0)
+                padColors = colors;
+            rebuildBasicLands(deck, padColors, target);
+            stripIllegalStandard(deck, window, target, padColors);
             if (countOnThemeNonLand(deck, theme) < MIN_ON_THEME_NONLAND_STANDARD)
                 return empty;
             return deck;
@@ -503,27 +520,49 @@ public final class EnemyThemeDecks {
 
     // ---- theme / quality helpers (public for tests) -------------------------
 
-    /** True when the card is Alchemy (Y-set / rebalanced A-) or digital-only ONLINE Y-set. */
-    public static boolean isAlchemyOrDigitalOnly(PaperCard pc) {
+    /**
+     * True when every printing of this card is unusable in Ascendant enemy decks:
+     * Alchemy/rebalanced, Online-only, Funny/Un-sets, or {@code restrictedEditions}.
+     * Cards that also have a normal paper printing are allowed.
+     */
+    public static boolean isExcludedFromAdventureDecks(PaperCard pc) {
         if (pc == null)
+            return true;
+        String name = pc.getName();
+        if (name == null || name.isEmpty())
+            return true;
+        if (isRestrictedCardName(name))
             return true;
         try {
             if (pc.isRebalanced())
                 return true;
         } catch (Throwable ignored) {
         }
-        String name = pc.getName();
-        if (name != null && name.startsWith("A-"))
+        if (name.startsWith("A-"))
             return true;
-        String ed = pc.getEdition();
-        if (ed != null) {
-            String code = ed.trim();
-            if (code.length() >= 2 && (code.charAt(0) == 'Y' || code.charAt(0) == 'y'))
-                return true;
-            if (code.startsWith("OM") || code.startsWith("om"))
-                return true;
+
+        Collection<PaperCard> prints;
+        try {
+            prints = FModel.getMagicDb().getCommonCards().getAllCards(name);
+        } catch (Throwable e) {
+            prints = null;
         }
-        return false;
+        if (prints == null || prints.isEmpty()) {
+            // Fall back to the single printing we have.
+            return isBadEditionCode(pc.getEdition());
+        }
+        for (PaperCard print : prints) {
+            if (print == null)
+                continue;
+            if (!isBadEditionCode(print.getEdition()))
+                return false;
+        }
+        return true;
+    }
+
+    /** @deprecated use {@link #isExcludedFromAdventureDecks(PaperCard)} */
+    public static boolean isAlchemyOrDigitalOnly(PaperCard pc) {
+        return isExcludedFromAdventureDecks(pc);
     }
 
     public static boolean isRestrictedCardName(String name) {
@@ -532,6 +571,12 @@ public final class EnemyThemeDecks {
         return restrictedNames().contains(name);
     }
 
+    /**
+     * On-theme: key/commander names, creature-type subtypes (plus Changeling),
+     * tribal oracle references to those types (word-boundary), or named keywords
+     * from {@code theme.mechanics}. Does not substring-match generic words like
+     * "token" or "damage".
+     */
     public static boolean isOnTheme(PaperCard pc, EnemyThemeData theme) {
         if (pc == null || theme == null || pc.getRules() == null)
             return false;
@@ -549,34 +594,89 @@ public final class EnemyThemeDecks {
                     return true;
             }
         }
+        boolean changeling = false;
+        try {
+            changeling = pc.getRules().hasKeyword("Changeling");
+        } catch (Throwable ignored) {
+        }
         if (theme.creatureTypes != null) {
             for (String t : theme.creatureTypes) {
-                if (t != null && !t.isEmpty() && pc.getRules().getType().hasSubtype(t))
+                if (t == null || t.isEmpty())
+                    continue;
+                if (changeling || pc.getRules().getType().hasSubtype(t))
                     return true;
             }
-        }
-        String oracle = pc.getRules().getOracleText();
-        if (oracle != null) {
-            String lower = oracle.toLowerCase(Locale.ROOT);
-            if (theme.creatureTypes != null) {
+            // Tribal support: oracle mentions a theme creature type as a whole word.
+            String oracle = pc.getRules().getOracleText();
+            if (oracle != null) {
                 for (String t : theme.creatureTypes) {
-                    if (t != null && !t.isEmpty() && lower.contains(t.toLowerCase(Locale.ROOT)))
+                    if (t == null || t.isEmpty())
+                        continue;
+                    if (wordMatches(oracle, t))
                         return true;
                 }
             }
-            if (theme.mechanics != null) {
-                for (String m : theme.mechanics) {
-                    if (m != null && !m.isEmpty() && lower.contains(m.toLowerCase(Locale.ROOT)))
+        }
+        if (theme.mechanics != null) {
+            for (String m : theme.mechanics) {
+                if (m == null || m.isEmpty())
+                    continue;
+                // Only treat real keywords / short named mechanics — skip fuzzy generics.
+                if (isGenericMechanicToken(m))
+                    continue;
+                try {
+                    if (pc.getRules().hasKeyword(m))
                         return true;
+                    // Capitalize for keyword lookup variants.
+                    String titled = m.substring(0, 1).toUpperCase(Locale.ROOT) + m.substring(1);
+                    if (pc.getRules().hasKeyword(titled))
+                        return true;
+                } catch (Throwable ignored) {
                 }
             }
-            if (theme.tags != null) {
-                for (String tag : theme.tags) {
-                    if (tag != null && !tag.isEmpty()
-                            && lower.contains(tag.toLowerCase(Locale.ROOT)))
-                        return true;
-                }
-            }
+        }
+        return false;
+    }
+
+    private static boolean isGenericMechanicToken(String m) {
+        String s = m.toLowerCase(Locale.ROOT);
+        return s.equals("token") || s.equals("damage") || s.equals("burn")
+                || s.equals("mana") || s.equals("life") || s.equals("+1/+1")
+                || s.equals("graveyard") || s.equals("zombie") || s.equals("goblin")
+                || s.equals("dragon") || s.equals("spirit") || s.equals("soldier")
+                || s.equals("knight") || s.equals("merfolk") || s.equals("kraken")
+                || s.equals("leviathan") || s.equals("octopus") || s.equals("elf")
+                || s.equals("vampire");
+    }
+
+    private static boolean wordMatches(String text, String word) {
+        if (text == null || word == null || word.isEmpty())
+            return false;
+        Pattern p = Pattern.compile("\\b" + Pattern.quote(word) + "\\b", Pattern.CASE_INSENSITIVE);
+        return p.matcher(text).find();
+    }
+
+    private static boolean isBadEditionCode(String code) {
+        if (code == null || code.isEmpty())
+            return true;
+        String ed = code.trim();
+        if (ed.length() >= 2 && (ed.charAt(0) == 'Y' || ed.charAt(0) == 'y'))
+            return true;
+        if (ed.regionMatches(true, 0, "OM", 0, 2))
+            return true;
+        if (restrictedEditionCodes().contains(ed))
+            return true;
+        try {
+            CardEdition edition = FModel.getMagicDb().getEditions().get(ed);
+            if (edition == null)
+                return true;
+            CardEdition.Type type = edition.getType();
+            if (type == CardEdition.Type.ONLINE || type == CardEdition.Type.FUNNY)
+                return true;
+            if (edition.getBorderColor() == CardEdition.BorderColor.SILVER)
+                return true;
+        } catch (Throwable e) {
+            return true;
         }
         return false;
     }
@@ -610,7 +710,8 @@ public final class EnemyThemeDecks {
 
     /**
      * Theme-quality gate for fixed decks: on-theme floor, land band for 60-card,
-     * no Alchemy, no Ascendant restricted cards. Returns null if OK.
+     * non-creature spells, land colors covering spells/commander, sane average CMC,
+     * no Alchemy/Un/Online-only / Ascendant restricted cards. Returns null if OK.
      */
     public static String themeQualityProblem(Deck deck, EnemyThemeData theme, String format) {
         if (deck == null)
@@ -625,6 +726,9 @@ public final class EnemyThemeDecks {
             return "only " + onTheme + " on-theme non-lands (need ~"
                     + MIN_ON_THEME_NONLAND_FIXED + ")";
         String fmt = normalizeFormat(format);
+        String landCover = landColorCoverageProblem(deck, fmt);
+        if (landCover != null)
+            return landCover;
         if (FORMAT_PAUPER.equals(fmt) || FORMAT_HISTORIC.equals(fmt)) {
             int lands = countLands(deck);
             if (lands < MIN_LANDS_60 || lands > MAX_LANDS_60)
@@ -632,8 +736,119 @@ public final class EnemyThemeDecks {
             int main = deck.getMain().countAll();
             if (main < 60)
                 return "main deck has " + main + " cards (need 60+)";
+            int spells = countNonCreatureSpells(deck);
+            if (spells < MIN_NON_CREATURE_SPELLS_60)
+                return "only " + spells + " non-creature spells (need ~"
+                        + MIN_NON_CREATURE_SPELLS_60 + ")";
+            if (expectsLowCurve(theme)) {
+                float avg = averageNonLandCmc(deck);
+                if (avg > MAX_AVG_CMC_NON_RAMP)
+                    return "average CMC " + String.format(Locale.ROOT, "%.2f", avg)
+                            + " too high for non-ramp theme (max " + MAX_AVG_CMC_NON_RAMP + ")";
+            }
         }
         return null;
+    }
+
+    public static int countNonCreatureSpells(Deck deck) {
+        if (deck == null)
+            return 0;
+        int n = 0;
+        for (var e : deck.getMain()) {
+            PaperCard pc = e.getKey();
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (pc.getRules().getType().isLand() || pc.getRules().getType().isCreature())
+                continue;
+            n += e.getValue();
+        }
+        return n;
+    }
+
+    /** Low-curve archetypes (not ramp / fat tribal like dragons or sea monsters). */
+    private static boolean expectsLowCurve(EnemyThemeData theme) {
+        if (theme == null || theme.id == null)
+            return true;
+        String id = theme.id;
+        return !id.contains("ramp") && !id.contains("dragon") && !id.contains("kraken");
+    }
+
+    public static float averageNonLandCmc(Deck deck) {
+        if (deck == null)
+            return 0f;
+        int total = 0;
+        int count = 0;
+        for (var e : deck.getMain()) {
+            PaperCard pc = e.getKey();
+            if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
+                continue;
+            int cmc = pc.getRules().getManaCost().getCMC();
+            total += cmc * e.getValue();
+            count += e.getValue();
+        }
+        return count == 0 ? 0f : (float) total / count;
+    }
+
+    /** Lands must produce every color used by spells (and commander identity). */
+    public static String landColorCoverageProblem(Deck deck, String format) {
+        if (deck == null)
+            return "deck is null";
+        byte need = spellColorMask(deck);
+        String fmt = normalizeFormat(format);
+        if (FORMAT_COMMANDER.equals(fmt) && deck.getCommanders() != null) {
+            for (PaperCard cmd : deck.getCommanders()) {
+                if (cmd != null && cmd.getRules() != null)
+                    need |= cmd.getRules().getColorIdentity().getColor();
+            }
+        }
+        if (need == 0)
+            return null;
+        byte have = landColorMask(deck);
+        byte missing = (byte) (need & ~have);
+        if (missing == 0)
+            return null;
+        return "lands missing colors for spells/commander: mask=" + missing;
+    }
+
+    public static byte spellColorMask(Deck deck) {
+        byte m = 0;
+        if (deck == null)
+            return 0;
+        for (var e : deck.getMain()) {
+            PaperCard pc = e.getKey();
+            if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
+                continue;
+            m |= pc.getRules().getColor().getColor();
+            m |= pc.getRules().getManaCost().getColorProfile();
+        }
+        return m;
+    }
+
+    public static byte landColorMask(Deck deck) {
+        byte m = 0;
+        if (deck == null)
+            return 0;
+        for (var e : deck.getMain()) {
+            PaperCard pc = e.getKey();
+            if (pc == null || pc.getRules() == null || !pc.getRules().getType().isLand())
+                continue;
+            String name = pc.getName();
+            if ("Plains".equals(name) || "Snow-Covered Plains".equals(name))
+                m |= MagicColor.WHITE;
+            else if ("Island".equals(name) || "Snow-Covered Island".equals(name))
+                m |= MagicColor.BLUE;
+            else if ("Swamp".equals(name) || "Snow-Covered Swamp".equals(name))
+                m |= MagicColor.BLACK;
+            else if ("Mountain".equals(name) || "Snow-Covered Mountain".equals(name))
+                m |= MagicColor.RED;
+            else if ("Forest".equals(name) || "Snow-Covered Forest".equals(name))
+                m |= MagicColor.GREEN;
+            else {
+                // Nonbasics: use color identity as a proxy for mana produced.
+                m |= pc.getRules().getColorIdentity().getColor();
+            }
+        }
+        return m;
     }
 
     // ---- internals ----------------------------------------------------------
@@ -793,13 +1008,12 @@ public final class EnemyThemeDecks {
     }
 
     private static Deck sanitizeLoadedFixed(Deck deck, String format, EnemyThemeData theme) {
-        String[] colors = theme != null && theme.colors != null ? theme.colors : new String[]{"blue"};
         CardPool main = deck.getOrCreate(DeckSection.Main);
         List<PaperCard> keep = new ArrayList<>();
         for (PaperCard pc : main.toFlatList()) {
             if (pc == null)
                 continue;
-            if (isRestrictedCardName(pc.getName()) || isAlchemyOrDigitalOnly(pc))
+            if (isRestrictedCardName(pc.getName()) || isExcludedFromAdventureDecks(pc))
                 continue;
             if (pc.getRules().getType().isBasicLand()) {
                 keep.add(pc);
@@ -811,12 +1025,11 @@ public final class EnemyThemeDecks {
             }
             keep.add(pc);
         }
-        // Commander section
         if (deck.has(DeckSection.Commander)) {
             CardPool cmd = deck.get(DeckSection.Commander);
             List<PaperCard> cmdKeep = new ArrayList<>();
             for (PaperCard pc : cmd.toFlatList()) {
-                if (pc == null || isRestrictedCardName(pc.getName()) || isAlchemyOrDigitalOnly(pc))
+                if (pc == null || isRestrictedCardName(pc.getName()) || isExcludedFromAdventureDecks(pc))
                     continue;
                 cmdKeep.add(pc);
             }
@@ -828,38 +1041,36 @@ public final class EnemyThemeDecks {
         for (PaperCard pc : keep)
             main.add(pc);
 
+        // Pad lands from spell colors / commander identity — not bare theme.colors.
+        String[] padColors = colorsForPadding(deck, theme);
         if (FORMAT_COMMANDER.equals(format)) {
             int cmdN = deck.getCommanders() != null ? deck.getCommanders().size() : 0;
             int need = 100 - cmdN;
-            padWithBasics(deck, need, colors);
-            while (main.countAll() > need) {
-                PaperCard remove = null;
-                for (PaperCard pc : main.toFlatList()) {
-                    if (pc.getRules().getType().isBasicLand()) {
-                        remove = pc;
-                        break;
-                    }
-                }
-                if (remove == null)
-                    break;
-                main.remove(remove);
-            }
+            rebuildBasicLands(deck, padColors, need);
         } else {
-            padWithBasics(deck, 60, colors);
-            while (main.countAll() > 60) {
-                PaperCard remove = null;
-                for (PaperCard pc : main.toFlatList()) {
-                    if (pc.getRules().getType().isBasicLand()) {
-                        remove = pc;
-                        break;
-                    }
-                }
-                if (remove == null)
-                    break;
-                main.remove(remove);
-            }
+            rebuildBasicLands(deck, padColors, 60);
         }
         return deck;
+    }
+
+    /** Colors for land padding: commander CI if present, else colors of spells in the deck. */
+    private static String[] colorsForPadding(Deck deck, EnemyThemeData theme) {
+        byte mask = 0;
+        if (deck != null && deck.getCommanders() != null) {
+            for (PaperCard cmd : deck.getCommanders()) {
+                if (cmd != null && cmd.getRules() != null)
+                    mask |= cmd.getRules().getColorIdentity().getColor();
+            }
+        }
+        if (mask == 0)
+            mask = spellColorMask(deck);
+        if (mask == 0 && theme != null)
+            mask = colorMask(theme.colors);
+        String[] fromMask = colorsFromMask(mask);
+        if (fromMask.length > 0)
+            return fromMask;
+        return theme != null && theme.colors != null && theme.colors.length > 0
+                ? theme.colors : new String[]{"blue"};
     }
 
     private static Deck tryAnyThemeDeck(String format) {
@@ -947,6 +1158,25 @@ public final class EnemyThemeDecks {
         }
     }
 
+    private static Set<String> restrictedEditionCodes() {
+        synchronized (LOCK) {
+            if (cachedRestrictedEditions != null)
+                return cachedRestrictedEditions;
+            Set<String> set = new HashSet<>();
+            try {
+                ConfigData cfg = Config.instance().getConfigData();
+                if (cfg != null && cfg.restrictedEditions != null)
+                    Collections.addAll(set, cfg.restrictedEditions);
+            } catch (Throwable ignored) {
+            }
+            // Always block common Un-/playtest codes even without Config.
+            Collections.addAll(set, "UST", "UGL", "UNH", "UND", "UNF", "PUST",
+                    "CMB1", "CMB2", "MB2", "HHO", "PCEL", "DA1", "PPC1");
+            cachedRestrictedEditions = set;
+            return set;
+        }
+    }
+
     private static Set<String> windowLegalNames(StandardWindow window) {
         if (window == null || !window.isActive())
             return Collections.emptySet();
@@ -995,7 +1225,7 @@ public final class EnemyThemeDecks {
                     continue;
                 if (pc.getRules().getType().isBasicLand())
                     continue;
-                if (isRestrictedCardName(pc.getName()) || isAlchemyOrDigitalOnly(pc))
+                if (isRestrictedCardName(pc.getName()) || isExcludedFromAdventureDecks(pc))
                     continue;
                 // Color before legality (cheaper).
                 if (allowed != 0 && !pc.getRules().getType().isLand()
@@ -1008,24 +1238,31 @@ public final class EnemyThemeDecks {
                     continue;
                 if (tribe != null && !tribe.isEmpty()) {
                     boolean tribal = pc.getRules().getType().hasSubtype(tribe);
+                    boolean changeling = false;
+                    try {
+                        changeling = pc.getRules().hasKeyword("Changeling");
+                    } catch (Throwable ignored) {
+                    }
                     boolean synergy = false;
-                    if (!tribal && pc.getRules().getOracleText() != null)
-                        synergy = pc.getRules().getOracleText().toLowerCase(Locale.ROOT)
-                                .contains(tribe.toLowerCase(Locale.ROOT));
-                    if (!tribal && !synergy && recipe != null && recipe.mechanics != null) {
-                        String text = pc.getRules().getOracleText();
-                        if (text != null) {
-                            String lower = text.toLowerCase(Locale.ROOT);
-                            for (String m : recipe.mechanics) {
-                                if (m != null && !m.isEmpty()
-                                        && lower.contains(m.toLowerCase(Locale.ROOT))) {
+                    if (!tribal && !changeling && pc.getRules().getOracleText() != null)
+                        synergy = wordMatches(pc.getRules().getOracleText(), tribe);
+                    if (!tribal && !changeling && !synergy && recipe != null
+                            && recipe.mechanics != null) {
+                        for (String m : recipe.mechanics) {
+                            if (m == null || m.isEmpty() || isGenericMechanicToken(m))
+                                continue;
+                            try {
+                                if (pc.getRules().hasKeyword(m)
+                                        || pc.getRules().hasKeyword(
+                                        m.substring(0, 1).toUpperCase(Locale.ROOT) + m.substring(1))) {
                                     synergy = true;
                                     break;
                                 }
+                            } catch (Throwable ignored) {
                             }
                         }
                     }
-                    if (!tribal && !synergy)
+                    if (!tribal && !changeling && !synergy)
                         continue;
                 }
                 if (seen.add(pc.getName()))
@@ -1063,7 +1300,7 @@ public final class EnemyThemeDecks {
             return true;
         if (window == null || !window.isActive())
             return false;
-        if (isRestrictedCardName(pc.getName()) || isAlchemyOrDigitalOnly(pc))
+        if (isRestrictedCardName(pc.getName()) || isExcludedFromAdventureDecks(pc))
             return false;
         return windowLegalNames(window).contains(pc.getName());
     }
@@ -1081,7 +1318,10 @@ public final class EnemyThemeDecks {
         main.clear();
         for (PaperCard pc : keep)
             main.add(pc);
-        padWithBasics(deck, target, colors);
+        String[] pad = colorsFromMask(spellColorMask(deck));
+        if (pad.length == 0)
+            pad = colors;
+        rebuildBasicLands(deck, pad, target);
     }
 
     private static void addCopies(CardPool main, PaperCard pc, int want, int spellTarget,
@@ -1108,22 +1348,105 @@ public final class EnemyThemeDecks {
         return m;
     }
 
-    private static Deck padWithBasics(Deck deck, int target, String[] colors) {
+    /** Remove basics and rebuild them from {@code colors} so every color is represented. */
+    private static void rebuildBasicLands(Deck deck, String[] colors, int totalTarget) {
         CardPool main = deck.getOrCreate(DeckSection.Main);
-        int guard = 0;
-        while (main.countAll() < target && guard++ < target * 2) {
-            String basic = "Island";
-            if (colors != null && colors.length > 0) {
-                String c = colors[main.countAll() % colors.length];
-                basic = basicForColor(c);
+        List<PaperCard> nonBasics = new ArrayList<>();
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc == null)
+                continue;
+            if (pc.getRules().getType().isBasicLand())
+                continue;
+            nonBasics.add(pc);
+        }
+        main.clear();
+        for (PaperCard pc : nonBasics)
+            main.add(pc);
+
+        String[] cols = colors != null && colors.length > 0 ? colors : new String[]{"blue"};
+        List<String> basics = new ArrayList<>();
+        for (String c : cols) {
+            String b = basicForColor(c);
+            if (!basics.contains(b))
+                basics.add(b);
+        }
+        if (basics.isEmpty())
+            basics.add("Island");
+
+        int landTarget;
+        if (totalTarget == 60) {
+            while (main.countAll() > 60 - MIN_LANDS_60) {
+                List<PaperCard> flat = new ArrayList<>(main.toFlatList());
+                if (flat.isEmpty())
+                    break;
+                PaperCard remove = null;
+                for (int i = flat.size() - 1; i >= 0; i--) {
+                    if (flat.get(i).getRules().getType().isCreature()) {
+                        remove = flat.get(i);
+                        break;
+                    }
+                }
+                if (remove == null)
+                    remove = flat.get(flat.size() - 1);
+                main.remove(remove);
             }
-            PaperCard land = cardByName(basic);
+            landTarget = Math.min(MAX_LANDS_60, Math.max(MIN_LANDS_60, 60 - main.countAll()));
+            while (main.countAll() + landTarget > 60) {
+                List<PaperCard> flat = new ArrayList<>(main.toFlatList());
+                if (flat.isEmpty())
+                    break;
+                main.remove(flat.get(flat.size() - 1));
+                landTarget = Math.min(MAX_LANDS_60, Math.max(MIN_LANDS_60, 60 - main.countAll()));
+            }
+        } else {
+            landTarget = Math.max(0, totalTarget - main.countAll());
+        }
+
+        int added = 0;
+        for (String b : basics) {
+            if (added >= landTarget)
+                break;
+            PaperCard land = cardByName(b);
             if (land == null)
                 land = cardByName("Wastes");
             if (land == null)
                 break;
             main.add(land);
+            added++;
         }
+        while (added < landTarget) {
+            String b = basics.get(added % basics.size());
+            PaperCard land = cardByName(b);
+            if (land == null)
+                break;
+            main.add(land);
+            added++;
+        }
+        int guard = 0;
+        while (main.countAll() < totalTarget && guard++ < totalTarget * 2) {
+            String b = basics.get(main.countAll() % basics.size());
+            PaperCard land = cardByName(b);
+            if (land == null)
+                break;
+            main.add(land);
+        }
+        while (main.countAll() > totalTarget) {
+            List<PaperCard> flat = new ArrayList<>(main.toFlatList());
+            PaperCard remove = null;
+            for (PaperCard pc : flat) {
+                if (pc.getRules().getType().isBasicLand()) {
+                    remove = pc;
+                    break;
+                }
+            }
+            if (remove == null)
+                break;
+            main.remove(remove);
+        }
+    }
+
+    private static Deck padWithBasics(Deck deck, int target, String[] colors) {
+        rebuildBasicLands(deck, colors, target);
         return deck;
     }
 
@@ -1159,7 +1482,8 @@ public final class EnemyThemeDecks {
 
     /**
      * Builds a fixed-format deck for a theme (Historic, Pauper, or Commander).
-     * Used by the deck generator tool; not the runtime Standard path.
+     * Prefers Forge {@link DeckgenUtil} color / Commander generators (real curves,
+     * spells, mana bases), then injects on-theme creatures and archetype spells.
      */
     public static Deck buildFixedDeck(EnemyThemeData theme, String format, long seed) {
         String fmt = normalizeFormat(format);
@@ -1184,70 +1508,29 @@ public final class EnemyThemeDecks {
             LOG.warning("EN1: no commander for " + theme.id);
             return new Deck(theme.id + " Commander");
         }
-        Random rng = new Random(seed);
-        Deck deck = new Deck(theme.id + " Commander");
-        deck.getOrCreate(DeckSection.Commander).add(commander);
-        CardPool main = deck.getOrCreate(DeckSection.Main);
+        Deck deck;
+        try {
+            deck = DeckgenUtil.generateRandomCommanderDeck(commander, DeckFormat.Commander, true, false);
+        } catch (Throwable e) {
+            LOG.log(Level.WARNING, "EN1: DeckgenUtil commander failed for " + theme.id, e);
+            deck = new Deck(theme.id + " Commander");
+            deck.getOrCreate(DeckSection.Commander).add(commander);
+        }
+        if (deck == null)
+            deck = new Deck(theme.id + " Commander");
+        deck.setName(theme.id + " Commander");
+        if (deck.getCommanders().isEmpty())
+            deck.getOrCreate(DeckSection.Commander).add(commander);
+
         byte ci = commander.getRules().getColorIdentity().getColor();
-        String[] colors = theme.colors != null ? theme.colors : colorsFromMask(ci);
-
-        List<PaperCard> tribal = new ArrayList<>();
-        List<PaperCard> synergy = new ArrayList<>();
-        List<PaperCard> filler = new ArrayList<>();
-        collectThemedPool(theme, FORMAT_COMMANDER, null, ci, tribal, synergy, filler);
-
-        Collections.shuffle(tribal, rng);
-        Collections.shuffle(synergy, rng);
-        Collections.shuffle(filler, rng);
-
-        int landTarget = 36;
-        int spellTarget = 99 - landTarget;
-        Set<String> used = new HashSet<>();
-        used.add(commander.getName());
-
-        for (PaperCard pc : tribal) {
-            if (main.countAll() >= spellTarget)
-                break;
-            if (!used.add(pc.getName()))
-                continue;
-            if (!pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
-                    && !pc.getRules().getColorIdentity().isColorless())
-                continue;
-            main.add(pc);
-        }
-        for (PaperCard pc : synergy) {
-            if (main.countAll() >= spellTarget)
-                break;
-            if (!used.add(pc.getName()))
-                continue;
-            if (!pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
-                    && !pc.getRules().getColorIdentity().isColorless())
-                continue;
-            main.add(pc);
-        }
-        for (PaperCard pc : filler) {
-            if (main.countAll() >= spellTarget)
-                break;
-            if (!used.add(pc.getName()))
-                continue;
-            if (!pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
-                    && !pc.getRules().getColorIdentity().isColorless())
-                continue;
-            main.add(pc);
-        }
-        padWithBasics(deck, 99, colors);
-        while (main.countAll() > 99) {
-            PaperCard remove = null;
-            for (PaperCard pc : main.toFlatList()) {
-                if (pc.getRules().getType().isBasicLand()) {
-                    remove = pc;
-                    break;
-                }
-            }
-            if (remove == null)
-                break;
-            main.remove(remove);
-        }
+        stripExcludedAndOffIdentity(deck, ci);
+        injectThemeCreatures(deck, theme, FORMAT_COMMANDER, null, ci, 24, true);
+        injectThemeSpells(deck, theme, FORMAT_COMMANDER, null, ci, 12, true);
+        String[] pad = colorsFromMask(ci);
+        if (pad.length == 0)
+            pad = colorsFromMask(spellColorMask(deck));
+        int cmdN = deck.getCommanders().size();
+        rebuildBasicLands(deck, pad, 100 - cmdN);
         return deck;
     }
 
@@ -1263,8 +1546,6 @@ public final class EnemyThemeDecks {
             out.add("red");
         if ((ci & MagicColor.GREEN) != 0)
             out.add("green");
-        if (out.isEmpty())
-            out.add("blue");
         return out.toArray(new String[0]);
     }
 
@@ -1274,7 +1555,7 @@ public final class EnemyThemeDecks {
                 if (isRestrictedCardName(name))
                     continue;
                 PaperCard pc = cardByName(name);
-                if (pc != null && !isAlchemyOrDigitalOnly(pc)
+                if (pc != null && !isExcludedFromAdventureDecks(pc)
                         && DeckFormat.Commander.isLegalCommander(pc.getRules()))
                     return pc;
             }
@@ -1285,31 +1566,18 @@ public final class EnemyThemeDecks {
         for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
             if (pc == null || pc.getRules() == null)
                 continue;
-            if (isRestrictedCardName(pc.getName()) || isAlchemyOrDigitalOnly(pc))
+            if (isRestrictedCardName(pc.getName()) || isExcludedFromAdventureDecks(pc))
                 continue;
             CardRules rules = pc.getRules();
             if (!DeckFormat.Commander.isLegalCommander(rules))
                 continue;
-            if (tribe != null && !tribe.isEmpty() && !rules.getType().hasSubtype(tribe))
+            if (tribe != null && !tribe.isEmpty() && !rules.getType().hasSubtype(tribe)
+                    && !rules.hasKeyword("Changeling"))
                 continue;
             if (allowed != 0 && !rules.getColorIdentity().hasNoColorsExcept(allowed)
                     && !rules.getColorIdentity().isColorless())
                 continue;
             candidates.add(pc);
-        }
-        if (candidates.isEmpty()) {
-            for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
-                if (pc == null || pc.getRules() == null)
-                    continue;
-                if (isRestrictedCardName(pc.getName()) || isAlchemyOrDigitalOnly(pc))
-                    continue;
-                if (!DeckFormat.Commander.isLegalCommander(pc.getRules()))
-                    continue;
-                if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
-                        && !pc.getRules().getColorIdentity().isColorless())
-                    continue;
-                candidates.add(pc);
-            }
         }
         if (candidates.isEmpty())
             return null;
@@ -1317,234 +1585,310 @@ public final class EnemyThemeDecks {
     }
 
     private static Deck buildConstructedDeck(EnemyThemeData theme, String format, int target, long seed) {
-        Deck deck = new Deck(theme.id + " " + format);
-        CardPool main = deck.getOrCreate(DeckSection.Main);
-        String[] colors = theme.colors != null ? theme.colors : new String[]{"blue"};
-        byte allowed = colorMask(colors);
         GameFormat forgeFormat = forgeFormatFor(format);
-        Random rng = new Random(seed);
-
-        List<PaperCard> tribal = new ArrayList<>();
-        List<PaperCard> synergy = new ArrayList<>();
-        List<PaperCard> filler = new ArrayList<>();
-        collectThemedPool(theme, format, forgeFormat, allowed, tribal, synergy, filler);
-
-        // If tribe is too thin (e.g. Kraken commons), relax to synergy+color then color-only.
-        if (tribal.size() + synergy.size() < MIN_ON_THEME_NONLAND_FIXED) {
-            tribal.clear();
-            synergy.clear();
-            filler.clear();
-            // Treat all creatureTypes / tags as soft oracle matches already in collect;
-            // rebuild without requiring subtype — expand tribe list.
-            collectThemedPoolRelaxed(theme, format, forgeFormat, allowed, tribal, synergy, filler);
-        }
-        if (tribal.size() + synergy.size() < MIN_ON_THEME_NONLAND_FIXED) {
-            // Last resort for constructed: drop color filter for on-theme types only.
-            tribal.clear();
-            synergy.clear();
-            collectThemedPoolRelaxed(theme, format, forgeFormat, (byte) 0, tribal, synergy, filler);
-        }
-
-        Collections.shuffle(tribal, rng);
-        Collections.shuffle(synergy, rng);
-        Collections.shuffle(filler, rng);
-
-        int landTarget = TARGET_LANDS_60;
-        int spellTarget = target - landTarget;
-        Set<String> used = new HashSet<>();
-
-        // Prefer key cards.
-        if (theme.keyCards != null) {
-            for (String name : theme.keyCards) {
-                if (name == null || used.contains(name) || isRestrictedCardName(name))
-                    continue;
-                PaperCard pc = cardByName(name);
-                if (pc == null || isAlchemyOrDigitalOnly(pc))
-                    continue;
-                if (pc.getRules().getType().isLand())
-                    continue;
-                if (!cardLegalInFixedFormat(pc, format, forgeFormat))
-                    continue;
-                int copies = FORMAT_PAUPER.equals(format) ? 4 : 2 + rng.nextInt(3);
-                for (int i = 0; i < copies && main.countAll() < spellTarget; i++)
-                    main.add(pc);
-                used.add(name);
-            }
-        }
-
-        for (PaperCard pc : tribal) {
-            if (main.countAll() >= spellTarget)
-                break;
-            if (!used.add(pc.getName()))
-                continue;
-            int copies = FORMAT_PAUPER.equals(format) ? 4 : 2 + rng.nextInt(3);
-            for (int i = 0; i < copies && main.countAll() < spellTarget; i++)
-                main.add(pc);
-        }
-        for (PaperCard pc : synergy) {
-            if (main.countAll() >= spellTarget)
-                break;
-            if (!used.add(pc.getName()))
-                continue;
-            int copies = FORMAT_PAUPER.equals(format) ? 4 : 1 + rng.nextInt(3);
-            for (int i = 0; i < copies && main.countAll() < spellTarget; i++)
-                main.add(pc);
-        }
-        for (PaperCard pc : filler) {
-            if (main.countAll() >= spellTarget)
-                break;
-            if (!used.add(pc.getName()))
-                continue;
-            int copies = 1 + rng.nextInt(2);
-            for (int i = 0; i < copies && main.countAll() < spellTarget; i++)
-                main.add(pc);
-        }
-        padWithBasics(deck, target, colors);
-        return sanitizeConstructed(deck, format, target, colors);
-    }
-
-    private static void collectThemedPool(EnemyThemeData theme, String format, GameFormat forgeFormat,
-                                          byte allowed, List<PaperCard> tribal, List<PaperCard> synergy,
-                                          List<PaperCard> filler) {
-        String[] types = theme.creatureTypes != null ? theme.creatureTypes : new String[0];
+        Predicate<PaperCard> formatFilter = pc -> cardLegalInFixedFormat(pc, format, forgeFormat);
+        List<String> selection = colorSelection(theme.colors);
+        Deck deck = null;
         try {
-            for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
-                if (pc == null || pc.getRules() == null)
-                    continue;
-                if (pc.getRules().getType().isBasicLand() || pc.getRules().getType().isLand())
-                    continue;
-                if (isRestrictedCardName(pc.getName()) || isAlchemyOrDigitalOnly(pc))
-                    continue;
-                if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
-                        && !pc.getRules().getColorIdentity().isColorless())
-                    continue;
-                if (!cardLegalInFixedFormat(pc, format, forgeFormat))
-                    continue;
-                boolean isTribal = false;
-                for (String t : types) {
-                    if (t != null && pc.getRules().getType().hasSubtype(t)) {
-                        isTribal = true;
-                        break;
-                    }
-                }
-                if (isTribal) {
-                    tribal.add(pc);
-                    continue;
-                }
-                if (isOnTheme(pc, theme))
-                    synergy.add(pc);
-                else
-                    filler.add(pc);
-            }
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "EN1: themed pool build failed", e);
+            deck = DeckgenUtil.buildColorDeck(selection, formatFilter, true);
+        } catch (Throwable e) {
+            LOG.log(Level.WARNING, "EN1: DeckgenUtil.buildColorDeck failed for " + theme.id, e);
         }
+        if (deck == null)
+            deck = new Deck(theme.id + " " + format);
+        deck.setName(theme.id + " " + format);
+
+        byte allowed = colorMask(theme.colors);
+        stripExcludedFromMain(deck, format, forgeFormat);
+        // Inject key cards / tribal / archetype spells on top of Forge's curve.
+        injectKeyCards(deck, theme, format, forgeFormat, allowed, false);
+        injectThemeCreatures(deck, theme, format, forgeFormat, allowed, 22, false);
+        injectThemeSpells(deck, theme, format, forgeFormat, allowed, 14, false);
+        ensureMinNonCreatureSpells(deck, theme, format, forgeFormat, allowed);
+
+        String[] pad = colorsFromMask(spellColorMask(deck));
+        if (pad.length == 0)
+            pad = theme.colors != null ? theme.colors : new String[]{"blue"};
+        rebuildBasicLands(deck, pad, target);
+        return finalizeConstructed(deck, theme, format, target);
     }
 
-    /** Soften subtype requirement: oracle / mechanic / tag matches count as tribal. */
-    private static void collectThemedPoolRelaxed(EnemyThemeData theme, String format,
-                                                 GameFormat forgeFormat, byte allowed,
-                                                 List<PaperCard> tribal, List<PaperCard> synergy,
-                                                 List<PaperCard> filler) {
-        try {
-            for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
-                if (pc == null || pc.getRules() == null)
-                    continue;
-                if (pc.getRules().getType().isBasicLand() || pc.getRules().getType().isLand())
-                    continue;
-                if (isRestrictedCardName(pc.getName()) || isAlchemyOrDigitalOnly(pc))
-                    continue;
-                if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
-                        && !pc.getRules().getColorIdentity().isColorless())
-                    continue;
-                if (!cardLegalInFixedFormat(pc, format, forgeFormat))
-                    continue;
-                if (isOnTheme(pc, theme))
-                    tribal.add(pc);
-                else
-                    filler.add(pc);
-            }
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "EN1: relaxed pool build failed", e);
+    private static List<String> colorSelection(String[] colors) {
+        List<String> out = new ArrayList<>();
+        if (colors == null || colors.length == 0) {
+            out.add("blue");
+            return out;
         }
+        for (String c : colors) {
+            if (c == null || c.isEmpty())
+                continue;
+            out.add(c.trim().toLowerCase(Locale.ROOT));
+        }
+        if (out.isEmpty())
+            out.add("blue");
+        // DeckgenUtil color gens support 1–3 or 5; clamp 4→3.
+        if (out.size() == 4)
+            return out.subList(0, 3);
+        return out;
     }
 
-    private static Deck sanitizeConstructed(Deck deck, String format, int target, String[] colors) {
+    private static void stripExcludedFromMain(Deck deck, String format, GameFormat forgeFormat) {
         CardPool main = deck.getOrCreate(DeckSection.Main);
         List<PaperCard> keep = new ArrayList<>();
-        GameFormat forgeFormat = forgeFormatFor(format);
         for (PaperCard pc : main.toFlatList()) {
             if (pc == null)
                 continue;
-            if (isRestrictedCardName(pc.getName()) || isAlchemyOrDigitalOnly(pc))
+            if (pc.getRules().getType().isBasicLand())
+                continue; // lands rebuilt later
+            if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(pc.getName()))
                 continue;
-            if (pc.getRules().getType().isBasicLand()) {
-                keep.add(pc);
-                continue;
-            }
             if (!cardLegalInFixedFormat(pc, format, forgeFormat))
                 continue;
             keep.add(pc);
         }
         main.clear();
+        for (PaperCard pc : keep)
+            main.add(pc);
+    }
+
+    private static void stripExcludedAndOffIdentity(Deck deck, byte ci) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        List<PaperCard> keep = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc == null)
+                continue;
+            if (pc.getRules().getType().isBasicLand())
+                continue;
+            if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(pc.getName()))
+                continue;
+            if (!pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            if (!pc.getRules().getType().isBasicLand() && !canHaveAnyNumber(pc)
+                    && !seen.add(pc.getName()))
+                continue; // singleton
+            keep.add(pc);
+        }
+        main.clear();
+        for (PaperCard pc : keep)
+            main.add(pc);
+    }
+
+    private static void injectKeyCards(Deck deck, EnemyThemeData theme, String format,
+                                       GameFormat forgeFormat, byte allowed, boolean singleton) {
+        if (theme.keyCards == null)
+            return;
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        for (String name : theme.keyCards) {
+            if (name == null || isRestrictedCardName(name))
+                continue;
+            PaperCard pc = cardByName(name);
+            if (pc == null || isExcludedFromAdventureDecks(pc))
+                continue;
+            if (pc.getRules().getType().isLand())
+                continue;
+            if (!cardLegalInFixedFormat(pc, format, forgeFormat))
+                continue;
+            if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            int copies = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 2);
+            int have = main.countByName(pc.getName());
+            for (int i = have; i < copies; i++)
+                main.add(pc);
+        }
+    }
+
+    private static void injectThemeCreatures(Deck deck, EnemyThemeData theme, String format,
+                                             GameFormat forgeFormat, byte allowed, int want,
+                                             boolean singleton) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        int have = 0;
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc != null && isOnTheme(pc, theme) && pc.getRules().getType().isCreature())
+                have++;
+        }
+        if (have >= want)
+            return;
+        List<PaperCard> pool = new ArrayList<>();
+        for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (!pc.getRules().getType().isCreature())
+                continue;
+            if (!isOnTheme(pc, theme))
+                continue;
+            if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(pc.getName()))
+                continue;
+            if (forgeFormat != null && !cardLegalInFixedFormat(pc, format, forgeFormat))
+                continue;
+            if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            pool.add(pc);
+        }
+        Collections.shuffle(pool, MyRandom.getRandom());
+        Set<String> used = new HashSet<>();
+        for (PaperCard pc : main.toFlatList())
+            used.add(pc.getName());
+        for (PaperCard pc : pool) {
+            if (have >= want)
+                break;
+            if (singleton && !used.add(pc.getName()))
+                continue;
+            if (!singleton && used.contains(pc.getName()) && main.countByName(pc.getName()) >= 4)
+                continue;
+            // Swap out an off-theme creature when possible to keep size stable.
+            PaperCard victim = null;
+            for (PaperCard c : main.toFlatList()) {
+                if (c.getRules().getType().isCreature() && !isOnTheme(c, theme)) {
+                    victim = c;
+                    break;
+                }
+            }
+            if (victim != null)
+                main.remove(victim);
+            int copies = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 2);
+            for (int i = 0; i < copies && have < want; i++) {
+                main.add(pc);
+                have++;
+            }
+            used.add(pc.getName());
+        }
+    }
+
+    private static void injectThemeSpells(Deck deck, EnemyThemeData theme, String format,
+                                          GameFormat forgeFormat, byte allowed, int want,
+                                          boolean singleton) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        List<String> names = archetypeSpellNames(theme);
+        List<PaperCard> pool = new ArrayList<>();
+        for (String name : names) {
+            PaperCard pc = cardByName(name);
+            if (pc == null || isExcludedFromAdventureDecks(pc) || isRestrictedCardName(name))
+                continue;
+            if (pc.getRules().getType().isLand() || pc.getRules().getType().isCreature())
+                continue;
+            if (forgeFormat != null && !cardLegalInFixedFormat(pc, format, forgeFormat))
+                continue;
+            if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            pool.add(pc);
+        }
+        // Also pull legal non-creature spells that are on-theme (tribal lords etc. may be creatures).
+        for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (pc.getRules().getType().isLand() || pc.getRules().getType().isCreature())
+                continue;
+            if (!isOnTheme(pc, theme))
+                continue;
+            if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(pc.getName()))
+                continue;
+            if (forgeFormat != null && !cardLegalInFixedFormat(pc, format, forgeFormat))
+                continue;
+            if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            pool.add(pc);
+        }
+        Collections.shuffle(pool, MyRandom.getRandom());
+        int have = countNonCreatureSpells(deck);
+        Set<String> used = new HashSet<>();
+        for (PaperCard pc : main.toFlatList())
+            used.add(pc.getName());
+        for (PaperCard pc : pool) {
+            if (have >= want)
+                break;
+            int copies = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 2);
+            int cur = main.countByName(pc.getName());
+            for (int i = cur; i < copies && have < want; i++) {
+                main.add(pc);
+                have++;
+            }
+        }
+    }
+
+    private static List<String> archetypeSpellNames(EnemyThemeData theme) {
+        List<String> names = new ArrayList<>();
+        if (theme.keyCards != null)
+            names.addAll(Arrays.asList(theme.keyCards));
+        String id = theme.id != null ? theme.id : "";
+        if (id.contains("burn") || id.contains("goblin")) {
+            Collections.addAll(names, "Lightning Bolt", "Shock", "Lava Spike", "Searing Blaze",
+                    "Goblin Grenade", "Fireblast", "Chain Lightning", "Skewer the Critics");
+        }
+        if (id.contains("ramp") || id.contains("dragon")) {
+            Collections.addAll(names, "Cultivate", "Rampant Growth", "Farseek", "Kodama's Reach",
+                    "Utopia Sprawl", "Sakura-Tribe Elder", "Nature's Lore", "Three Visits");
+        }
+        if (id.contains("vampire") || id.contains("drain")) {
+            Collections.addAll(names, "Blood Artist", "Sign in Blood", "Infernal Grasp", "Go for the Throat",
+                    "Fatal Push", "Feed the Swarm");
+        }
+        if (id.contains("zombie")) {
+            Collections.addAll(names, "Village Rites", "Deadly Dispute", "Feed the Swarm",
+                    "Go for the Throat", "Infernal Grasp", "Unearth");
+        }
+        if (id.contains("elf")) {
+            Collections.addAll(names, "Harvest Time", "Elven Chorus", "Collected Company",
+                    "Chord of Calling", "Natural Order", "Heroic Intervention");
+        }
+        if (id.contains("merfolk") || id.contains("kraken") || id.contains("spirit_tempo")) {
+            Collections.addAll(names, "Counterspell", "Remand", "Mana Leak", "Negate",
+                    "Brainstorm", "Ponder", "Preordain", "Opt");
+        }
+        if (id.contains("knight") || id.contains("soldier") || id.contains("spirit_tribal")) {
+            Collections.addAll(names, "Swords to Plowshares", "Path to Exile", "Raise the Alarm",
+                    "History of Benalia", "Secure the Wastes", "Brave the Elements");
+        }
+        // Universal interaction / draw staples by color.
+        byte cols = colorMask(theme.colors);
+        if ((cols & MagicColor.BLUE) != 0)
+            Collections.addAll(names, "Counterspell", "Brainstorm", "Ponder", "Negate");
+        if ((cols & MagicColor.BLACK) != 0)
+            Collections.addAll(names, "Go for the Throat", "Infernal Grasp", "Sign in Blood", "Duress");
+        if ((cols & MagicColor.RED) != 0)
+            Collections.addAll(names, "Lightning Bolt", "Shock", "Abrade", "Lightning Strike");
+        if ((cols & MagicColor.GREEN) != 0)
+            Collections.addAll(names, "Rampant Growth", "Cultivate", "Nature's Claim", "Beast Within");
+        if ((cols & MagicColor.WHITE) != 0)
+            Collections.addAll(names, "Swords to Plowshares", "Path to Exile", "Raise the Alarm");
+        return names;
+    }
+
+    private static void ensureMinNonCreatureSpells(Deck deck, EnemyThemeData theme, String format,
+                                                   GameFormat forgeFormat, byte allowed) {
+        int have = countNonCreatureSpells(deck);
+        if (have >= MIN_NON_CREATURE_SPELLS_60)
+            return;
+        injectThemeSpells(deck, theme, format, forgeFormat, allowed,
+                MIN_NON_CREATURE_SPELLS_60 + 4, false);
+    }
+
+    private static Deck finalizeConstructed(Deck deck, EnemyThemeData theme, String format, int target) {
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        // Cap at 4 copies.
         Map<String, Integer> counts = new HashMap<>();
-        for (PaperCard pc : keep) {
+        List<PaperCard> flat = new ArrayList<>(main.toFlatList());
+        main.clear();
+        for (PaperCard pc : flat) {
+            if (pc.getRules().getType().isBasicLand()) {
+                main.add(pc);
+                continue;
+            }
             int n = counts.getOrDefault(pc.getName(), 0);
-            if (!pc.getRules().getType().isBasicLand() && n >= 4)
+            if (n >= 4)
                 continue;
             main.add(pc);
             counts.put(pc.getName(), n + 1);
         }
-        // Trim spells if we have too many lands after pad, then set land band.
-        padWithBasics(deck, target, colors);
-        while (main.countAll() > target) {
-            PaperCard remove = null;
-            for (PaperCard pc : main.toFlatList()) {
-                if (pc.getRules().getType().isBasicLand()) {
-                    remove = pc;
-                    break;
-                }
-            }
-            if (remove == null)
-                break;
-            main.remove(remove);
-        }
-        // Enforce 16–18 lands: if too many lands, drop basics; if too few, add.
-        int lands = countLands(deck);
-        while (lands > MAX_LANDS_60) {
-            PaperCard remove = null;
-            for (PaperCard pc : main.toFlatList()) {
-                if (pc.getRules().getType().isBasicLand()) {
-                    remove = pc;
-                    break;
-                }
-            }
-            if (remove == null)
-                break;
-            main.remove(remove);
-            lands--;
-        }
-        while (lands < MIN_LANDS_60 && main.countAll() < target) {
-            String basic = basicForColor(colors != null && colors.length > 0 ? colors[0] : "blue");
-            PaperCard land = cardByName(basic);
-            if (land == null)
-                break;
-            main.add(land);
-            lands++;
-        }
-        // If over target after adding lands, trim non-theme non-lands first.
-        while (main.countAll() > target) {
-            PaperCard remove = null;
-            for (PaperCard pc : main.toFlatList()) {
-                if (!pc.getRules().getType().isBasicLand()) {
-                    remove = pc;
-                    break;
-                }
-            }
-            if (remove == null)
-                break;
-            main.remove(remove);
-        }
+        String[] pad = colorsFromMask(spellColorMask(deck));
+        if (pad.length == 0 && theme.colors != null)
+            pad = theme.colors;
+        rebuildBasicLands(deck, pad, target);
         return deck;
     }
 
@@ -1605,8 +1949,8 @@ public final class EnemyThemeDecks {
                 continue;
             if (isRestrictedCardName(pc.getName()))
                 return pc.getName() + " is Ascendant-restricted";
-            if (isAlchemyOrDigitalOnly(pc))
-                return pc.getName() + " is Alchemy/digital-only";
+            if (isExcludedFromAdventureDecks(pc))
+                return pc.getName() + " is Alchemy/Online/Funny/restricted-edition only";
         }
         return null;
     }
