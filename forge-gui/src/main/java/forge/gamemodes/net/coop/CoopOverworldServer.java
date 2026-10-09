@@ -167,8 +167,9 @@ public final class CoopOverworldServer implements IHasForgeLog {
     }
 
     /**
-     * Stop listening. {@link EventLoopGroup#shutdownGracefully()} is always run
-     * off the Netty event loop to avoid deadlock when called from a handler.
+     * Stop listening. When called from a Netty event-loop thread, group shutdown
+     * is deferred to a daemon thread (avoids deadlock). From test / UI threads,
+     * shutdown is awaited so EventLoopGroups do not pile up across a suite.
      */
     public void stop() {
         bound = false;
@@ -186,10 +187,24 @@ public final class CoopOverworldServer implements IHasForgeLog {
         final EventLoopGroup worker = workerGroup;
         bossGroup = null;
         workerGroup = null;
-        shutdownGroupsOffEventLoop(boss, worker);
+        shutdownGroups(boss, worker, isOnEventLoop(boss, worker));
     }
 
-    private void shutdownGroupsOffEventLoop(final EventLoopGroup boss, final EventLoopGroup worker) {
+    private static boolean isOnEventLoop(final EventLoopGroup boss, final EventLoopGroup worker) {
+        final Thread cur = Thread.currentThread();
+        return (boss != null && inGroup(boss, cur)) || (worker != null && inGroup(worker, cur));
+    }
+
+    private static boolean inGroup(final EventLoopGroup group, final Thread cur) {
+        try {
+            return group.next().inEventLoop(cur);
+        } catch (final Exception e) {
+            return false;
+        }
+    }
+
+    private void shutdownGroups(final EventLoopGroup boss, final EventLoopGroup worker,
+                                final boolean deferOffLoop) {
         final Runnable shutdown = () -> {
             try {
                 if (boss != null) {
@@ -208,9 +223,13 @@ public final class CoopOverworldServer implements IHasForgeLog {
                 netLog.debug("Co-op worker shutdown: {}", e.toString());
             }
         };
-        final Thread t = new Thread(shutdown, "coop-overworld-shutdown");
-        t.setDaemon(true);
-        t.start();
+        if (deferOffLoop) {
+            final Thread t = new Thread(shutdown, "coop-overworld-shutdown");
+            t.setDaemon(true);
+            t.start();
+        } else {
+            shutdown.run();
+        }
     }
 
     private final class GuestHandler extends SimpleChannelInboundHandler<NetEvent> {
