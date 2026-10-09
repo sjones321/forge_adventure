@@ -134,7 +134,8 @@ public class PlaneFormatTest {
 
     @Test
     public void guestUnknownFormatUsesHostDefaultNotLocalPlane() throws Exception {
-        // Local plane is Historic; unknown wire token must not fall through to it.
+        // Non-Commander run: local plane Historic must not win over an unknown host token.
+        setAdventureMode(AdventureModes.Standard);
         MultiverseState multi = Current.player() != null
                 && forge.adventure.world.WorldSave.getCurrentSave() != null
                 && forge.adventure.world.WorldSave.getCurrentSave().getMultiverse() != null
@@ -157,6 +158,7 @@ public class PlaneFormatTest {
                 prior.setFormat(priorFmt != null ? priorFmt : "");
             }
             CoopSession.get().testClearGuestPlaneFollow();
+            restoreAdventureMode();
         }
     }
 
@@ -260,12 +262,14 @@ public class PlaneFormatTest {
 
     @Test
     public void oldProtocolPeerIsRefusedViaRealOnHello() {
+        CoopVersion.setCardDataHashSupplier(() -> CoopVersion.sha256Hex("plane-format-k-test-cards"));
         final String code = CoopSessionCode.generate();
         final CoopSession session = CoopSession.get();
         session.testPrepareHostingForHello(code);
         try {
             final int oldProtocol = CoopPorts.PROTOCOL_VERSION - 1;
             Assert.assertTrue(oldProtocol >= 1);
+            // Real HostListener.onHello — protocol gate runs before card-hash / world offer.
             session.testHostOnHello(new CoopHelloEvent(oldProtocol,
                     CoopVersion.buildHash(), CoopVersion.cardDataHash(),
                     "Guest", "Guest", code));
@@ -277,6 +281,7 @@ public class PlaneFormatTest {
             Assert.assertEquals(session.getState(), CoopSession.State.HOSTING);
         } finally {
             session.testClearHostingForHello();
+            CoopVersion.setCardDataHashSupplier(null);
         }
     }
 
