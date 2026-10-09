@@ -107,8 +107,9 @@ Firstborn. Losses are real; dialog stays skippable; the stakes live in the world
 
 ## Co-op: shared world (decided)
 
-Both players are in the **same world at the same time**. The host's save owns the world; each player keeps their
-own character (collection, decks, skills, materials, items). The host is authoritative over the world (enemies,
+Both players are in the **same world at the same time**. The host's save owns the world **and the partner's
+character**: like a Stardew farmhand, the guest has a character made for that world, stored in the host's save and
+following that world's rules. Solo characters stay in solo games (see roadmap CO5). The host is authoritative over the world (enemies,
 nodes, POI changes, loot rolls). Players **team up or go their separate ways**: party up by invite, leave any time,
 and nobody is ever pulled into a fight or a location without saying yes. Co-op fights are two humans on one team
 against the enemy, using Forge's existing network duel code. Connection is direct over LAN or Tailscale, no servers. See roadmap packages CO1-CO4.
