@@ -56,7 +56,35 @@ public class ForgeProfileProperties {
         //prevent initializing static class
     }
 
+    /**
+     * Test-only: when set before {@link ForgeConstants} class init, {@link #load}
+     * uses this directory as {@code userDir} (and {@code forge.test.cacheDir} or
+     * {@code <userDir>/cache} for cache) instead of the real profile / OS defaults.
+     * Shared with CO1 (#38) / MV2 suite listeners — must not be used by production.
+     */
+    public static final String TEST_USER_DIR_PROPERTY = "forge.test.userDir";
+    public static final String TEST_CACHE_DIR_PROPERTY = "forge.test.cacheDir";
+
     public static void load(boolean isUsingAppDirectory) {
+        // Isolate TestNG / suite listeners from the real USER_DIR (settings.json, saves).
+        final String testUserDir = System.getProperty(TEST_USER_DIR_PROPERTY);
+        if (StringUtils.isNotBlank(testUserDir)) {
+            final String testCacheDir = System.getProperty(TEST_CACHE_DIR_PROPERTY,
+                    new File(testUserDir, "cache").getAbsolutePath());
+            userDir = getDir(new Properties(), USER_DIR_KEY, testUserDir);
+            cacheDir = getDir(new Properties(), CACHE_DIR_KEY, testCacheDir);
+            cardPicsDir = getDir(new Properties(), CARD_PICS_DIR_KEY,
+                    cacheDir + "pics" + File.separator + "cards" + File.separator);
+            cardPicsSubDirs = getMap(new Properties(), CARD_PICS_SUB_DIRS_KEY);
+            decksDir = getDir(new Properties(), DECKS_DIR_KEY, userDir + "decks" + File.separator);
+            decksConstructedDir = getDir(new Properties(), DECKS_CONSTRUCTED_DIR_KEY,
+                    decksDir + "constructed" + File.separator);
+            FileUtil.ensureDirectoryExists(userDir);
+            FileUtil.ensureDirectoryExists(cacheDir);
+            FileUtil.ensureDirectoryExists(cardPicsDir);
+            return;
+        }
+
         final Properties props = new Properties();
         final File propFile = new File(ForgeConstants.PROFILE_FILE);
         try {

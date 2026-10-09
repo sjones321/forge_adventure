@@ -24,6 +24,7 @@ import forge.gui.download.GuiDownloadService;
 import forge.gui.interfaces.IGuiGame;
 import org.jupnp.UpnpServiceConfiguration;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -46,9 +47,15 @@ import java.util.function.Predicate;
  * AC1 real-data reachability against the live card / edition DB (not test setters).
  * ZEN keeps every main-list card under Ascendant filters; LEA excludes Black Lotus
  * and the Moxen via {@code restrictedCards}.
+ *
+ * <p>Isolation: {@link AdventureTestUserDir} + {@code forge.test.userDir} (CO1 #38)
+ * so reward-filter / Config touches cannot rewrite the real user dir.
  */
 public class AchievementsAc1RealDbTest {
 
+    private static Path tempUserDir;
+    private static Path realUserDir;
+    private static java.util.Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
     private static StaticData magicDb;
     private static ConfigData ascendantConfig;
     private static String initError;
@@ -56,16 +63,22 @@ public class AchievementsAc1RealDbTest {
     @BeforeClass
     public void loadRealCardDb() {
         try {
+            realUserDir = AdventureTestUserDir.defaultRealUserDir();
+            realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
+            tempUserDir = AchievementsAc1Test.ensureIsolatedUserDir();
+
             Path forgeGuiDir = resolveForgeGuiDir();
             Assert.assertTrue(Files.isDirectory(forgeGuiDir.resolve("res/editions")),
                     "editions dir missing under " + forgeGuiDir);
             Assert.assertTrue(Files.isDirectory(forgeGuiDir.resolve("res/cardsfolder")),
                     "cardsfolder missing under " + forgeGuiDir);
 
-            // Install GuiBase before any code path that may touch ForgeConstants.
+            // GuiBase before ForgeConstants clinit (ASSETS_DIR).
             if (GuiBase.getInterface() == null) {
                 GuiBase.setInterface(new HeadlessAssetsGui(forgeGuiDir));
             }
+            AdventureTestUserDir.assertConstantsUse(tempUserDir);
+
             Lang.createInstance("en-US");
             String langDir = forgeGuiDir.resolve("res/languages").toAbsolutePath().normalize()
                     + File.separator;
@@ -117,6 +130,14 @@ public class AchievementsAc1RealDbTest {
         } catch (Throwable t) {
             initError = t.getClass().getSimpleName() + ": " + t.getMessage();
             t.printStackTrace();
+        }
+    }
+
+    @AfterClass(alwaysRun = true)
+    public void assertRealUserDirUntouched() throws Exception {
+        if (realUserDirSnapshot != null) {
+            AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
+                    "AchievementsAc1RealDbTest");
         }
     }
 

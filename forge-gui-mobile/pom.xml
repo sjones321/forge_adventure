@@ -22,6 +22,20 @@
                     <target>17</target>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                      Isolate USER_DIR / USER_ADVENTURE_DIR for the whole module suite
+                      before ForgeConstants class-init (same property as CO1 #38).
+                    -->
+                    <systemPropertyVariables>
+                        <forge.test.userDir>${project.build.directory}/forge-test-user</forge.test.userDir>
+                        <forge.test.cacheDir>${project.build.directory}/forge-test-cache</forge.test.cacheDir>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
     <repositories>

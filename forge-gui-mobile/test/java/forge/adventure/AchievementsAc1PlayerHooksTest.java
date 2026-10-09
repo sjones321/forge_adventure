@@ -33,6 +33,7 @@ import forge.gui.download.GuiDownloadService;
 import forge.gui.interfaces.IGuiGame;
 import org.jupnp.UpnpServiceConfiguration;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
@@ -50,6 +51,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
@@ -59,12 +61,18 @@ import java.util.function.Consumer;
  * un-own the last copy via {@code afterCardsRemoved}. Does not use
  * {@link AchievementSetTracker#setNameCountForTest} or call
  * {@link AchievementService#onPlayerCollectionReady} / {@code applyRemoveNames} directly.
+ *
+ * <p>Isolation: {@link AdventureTestUserDir} + {@code forge.test.userDir} (CO1 #38)
+ * before {@link Config#instance()} / {@code AdventurePlayer.create}.
  */
 @Test(singleThreaded = true)
 public class AchievementsAc1PlayerHooksTest {
 
     private static final ReentrantLock LOCK = new ReentrantLock();
 
+    private static Path tempUserDir;
+    private static Path realUserDir;
+    private static Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
     private static StaticData magicDb;
     private static ConfigData ascendantConfig;
     private static String initError;
@@ -81,10 +89,18 @@ public class AchievementsAc1PlayerHooksTest {
     @BeforeClass
     public void bootstrapRealDbAndAscendant() {
         try {
+            // Snapshot real OS user dir BEFORE ForgeConstants / profile load can touch it.
+            realUserDir = AdventureTestUserDir.defaultRealUserDir();
+            realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
+            tempUserDir = AchievementsAc1Test.ensureIsolatedUserDir();
+
             Path forgeGuiDir = resolveForgeGuiDir();
+            // GuiBase before ForgeConstants clinit (ASSETS_DIR).
             if (GuiBase.getInterface() == null) {
                 GuiBase.setInterface(new HeadlessAssetsGui(forgeGuiDir));
             }
+            AdventureTestUserDir.assertConstantsUse(tempUserDir);
+
             Lang.createInstance("en-US");
             String langDir = forgeGuiDir.resolve("res/languages").toAbsolutePath().normalize()
                     + File.separator;
@@ -124,12 +140,20 @@ public class AchievementsAc1PlayerHooksTest {
             Assert.assertTrue(ascendantConfig.ascendantRules);
 
             Config.resetInstanceForTest();
-            Config.instance(); // construct against forge-gui/res/adventure
+            Config.instance(); // settings.json under isolated USER_ADVENTURE_DIR
             Config.installConfigDataForTest(ascendantConfig);
             Assert.assertTrue(Config.ascendant(), "hooks require Ascendant rules");
         } catch (Throwable t) {
             initError = t.getClass().getSimpleName() + ": " + t.getMessage();
             t.printStackTrace();
+        }
+    }
+
+    @AfterClass(alwaysRun = true)
+    public void assertRealUserDirUntouched() throws Exception {
+        if (realUserDirSnapshot != null) {
+            AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
+                    "AchievementsAc1PlayerHooksTest");
         }
     }
 
