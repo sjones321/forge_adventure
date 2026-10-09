@@ -336,8 +336,13 @@ public class WorldStage extends GameStage implements SaveFileContent {
         if (materialId == null || materialId.isEmpty()) {
             return;
         }
+        // Mixed-build hosts may still send pre-schema-3 ore ids on the wire.
+        final String wireId = materialId;
+        materialId = MaterialListData.migrateOreLineMaterialId(wireId);
         MaterialData mat = MaterialListData.get(materialId);
         if (mat == null) {
+            GameHUD.getInstance().addNotification("Unknown node material \"" + wireId
+                    + "\" — update Adventure so ore ids match");
             return;
         }
         AdventurePlayer ap = Current.player();

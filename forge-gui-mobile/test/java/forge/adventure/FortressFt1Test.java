@@ -4,6 +4,7 @@ import forge.adventure.coop.CoopSessionRole;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.FortressStructureData;
 import forge.adventure.data.FortressStructureListData;
+import forge.adventure.data.MaterialListData;
 import forge.adventure.fortress.FortressBuildGrid;
 import forge.adventure.fortress.FortressBuildMode;
 import forge.adventure.fortress.FortressInstance;
@@ -129,7 +130,7 @@ public class FortressFt1Test {
         bags.setOverflowCap(1);
         bags.placeInOverflow(OverflowEntry.ofMaterial("oak", 1));
         // No shed → hook is NONE by default.
-        GrantResult r = bags.placeInOverflow(OverflowEntry.ofMaterial("copper", 2));
+        GrantResult r = bags.placeInOverflow(OverflowEntry.ofMaterial("ore_iron", 2));
         Assert.assertTrue(r.wasAutoSold());
     }
 
@@ -159,10 +160,10 @@ public class FortressFt1Test {
             return true;
         });
         // Distinct material → cannot merge; at-cap path hits the fortress hook.
-        GrantResult accepted = bags.placeInOverflow(OverflowEntry.ofMaterial("copper", 3));
+        GrantResult accepted = bags.placeInOverflow(OverflowEntry.ofMaterial("ore_iron", 3));
         Assert.assertTrue(accepted.wentToOverflow());
         Assert.assertEquals(stored[0], 3);
-        Assert.assertEquals(inst.getStored("copper"), 3);
+        Assert.assertEquals(inst.getStored("ore_iron"), 3);
 
         // Demolish shed → detach (NONE) — materials no longer accepted.
         FortressBuildGrid.demolish(inst, 0, cfg);
@@ -296,7 +297,7 @@ public class FortressFt1Test {
         Assert.assertTrue(after.isEmpty(), "demolish must clear blocked cells immediately");
     }
 
-    // ---- Build mode only in fortress (service gate) ----
+    // ---- Build mode / demolish only in fortress (service gate) ----
 
     @Test
     public void buildModeOnlyOpensInsideFortress() {
@@ -307,6 +308,141 @@ public class FortressFt1Test {
         Assert.assertFalse(FortressService.get().getBuildMode().isActive());
         String refuse = "Build mode only works inside your fortress.";
         Assert.assertTrue(refuse.toLowerCase().contains("inside"));
+    }
+
+    @Test
+    public void demolishRequiresInsideFortressGate() {
+        // Same inside-fortress gate as place: headless MapStage is not a fortress map.
+        Assert.assertFalse(FortressService.isInsideFortressMap());
+        String refuse = "Build mode only works inside your fortress.";
+        Assert.assertEquals(refuse,
+                "Build mode only works inside your fortress.");
+    }
+
+    // ---- Tile size / entry from TMX / station interact / map collision / ore migrate ----
+
+    @Test
+    public void playerGridUsesRealTileSizeNotAssumed16() {
+        // 32px tiles: pixel (48, 80) → tile (1, 2), not the 16px answer (3, 5).
+        int[] at32 = FortressService.get().playerGridInFortress(32f, 32f, 48f, 80f);
+        Assert.assertEquals(at32[0], 1);
+        Assert.assertEquals(at32[1], 2);
+        int[] at16 = FortressService.get().playerGridInFortress(16f, 16f, 48f, 80f);
+        Assert.assertEquals(at16[0], 3);
+        Assert.assertEquals(at16[1], 5);
+        Assert.assertFalse(at32[0] == at16[0] && at32[1] == at16[1]);
+    }
+
+    @Test
+    public void entryTileIsReadFromTmxObjectPixels() {
+        // fortress_camp.tmx spawn entry: x=176 y=16 tilewidth/height=16 → (11, 1).
+        int[] fromCamp = FortressWorldHelper.entryTileFromPixels(176f, 16f, 16f, 16f);
+        Assert.assertEquals(fromCamp[0], 11);
+        Assert.assertEquals(fromCamp[1], 1);
+        // Different tile size must not assume 16.
+        int[] at32 = FortressWorldHelper.entryTileFromPixels(64f, 32f, 32f, 32f);
+        Assert.assertEquals(at32[0], 2);
+        Assert.assertEquals(at32[1], 1);
+        FortressInstance inst = new FortressInstance();
+        inst.setEntryTile(0, 0);
+        inst.setEntryTile(fromCamp[0], fromCamp[1]);
+        Assert.assertEquals(inst.getEntryGridX(), 11);
+        Assert.assertEquals(inst.getEntryGridY(), 1);
+    }
+
+    @Test
+    public void stationsAreSolidButInteractZoneIsLargerAndHaveSprites() {
+        FortressStructureData forge = FortressStructureListData.get("station_forge");
+        Assert.assertNotNull(forge);
+        Assert.assertTrue(forge.blocksMovement, "stations stay solid");
+        Assert.assertTrue(forge.isStation());
+        Assert.assertEquals(forge.sprite, "LavaForge");
+        Assert.assertEquals(FortressStructureListData.get("station_workshop").sprite, "ArtifactShop");
+        Assert.assertEquals(FortressStructureListData.get("station_apothecary").sprite, "GreenShop");
+        Assert.assertEquals(FortressStructureListData.get("station_jeweler").sprite, "MultiColorShop");
+        Assert.assertEquals(FortressStructureListData.get("station_spellsmith").sprite, "EnchantmentShop");
+
+        float[] solid = new float[]{32f, 48f, 2 * 16f, 2 * 16f};
+        float[] interact = FortressBuildGrid.stationInteractBounds(32f, 48f, 2, 2, 16f, 16f, 0.5f);
+        Assert.assertTrue(interact[0] < solid[0]);
+        Assert.assertTrue(interact[1] < solid[1]);
+        Assert.assertTrue(interact[2] > solid[2]);
+        Assert.assertTrue(interact[3] > solid[3]);
+        // Half-tile pad on each side of a 2×2 footprint at 16px → 48×48 interact box.
+        Assert.assertEquals(interact[2], 48f, 0.001f);
+        Assert.assertEquals(interact[3], 48f, 0.001f);
+    }
+
+    @Test
+    public void pathBfsHonorsMapCollisionLayer() {
+        FortressInstance inst = new FortressInstance();
+        inst.setPoiId("p");
+        inst.setBuildableZone(0, 0, 5, 5);
+        inst.setMapSizeTiles(5, 5);
+        inst.setEntryTile(0, 0);
+        FortressStructureData gate = FortressStructureListData.get("wooden_gate");
+        Assert.assertFalse(gate.blocksMovement);
+
+        // Vertical map-collision wall at x=1 seals the left (entry) from the right (player).
+        Set<Long> mapWalls = new HashSet<>();
+        FortressBuildGrid.addCellsCoveredByRect(mapWalls, 16f, 16f, 16f, 0f, 16f, 80f); // x=1, y=0..4
+        Assert.assertFalse(FortressBuildGrid.hasPathToEntry(5, 5, mapWalls, 4, 0, 0, 0));
+        Assert.assertTrue(FortressBuildGrid.hasPathToEntry(5, 5, null, 4, 0, 0, 0));
+
+        // Non-blocking gate placement still fails when map collision seals the path.
+        Assert.assertEquals(
+                FortressBuildGrid.canPlace(inst, gate, 3, 3, 0, 99, 4, 0, 0, 0, 5, 5, mapWalls),
+                FortressBuildGrid.PlaceReject.BLOCKS_PATH_TO_ENTRY);
+        Assert.assertEquals(
+                FortressBuildGrid.canPlace(inst, gate, 3, 3, 0, 99, 4, 0, 0, 0, 5, 5, null),
+                FortressBuildGrid.PlaceReject.OK);
+    }
+
+    @Test
+    public void paidCostAndStorageMigrateOreIdsWhenSchemaBelow3() {
+        FortressInstance inst = new FortressInstance();
+        inst.setPoiId("p");
+        inst.setBuildableZone(0, 0, 8, 8);
+        FortressStructureData wall = FortressStructureListData.get("wooden_wall");
+        Map<String, Integer> paid = new LinkedHashMap<>();
+        paid.put("copper", 10);
+        paid.put("iron", 4);
+        Assert.assertTrue(FortressBuildGrid.place(inst, wall, 0, 0, 0, 99, paid, 0,
+                Integer.MIN_VALUE, Integer.MIN_VALUE, -1, -1, 0, 0));
+        inst.addStored("copper", 3);
+        inst.addStored("mithril", 2);
+        inst.addStored("adamant", 1);
+
+        SaveFileData raw = inst.save();
+        // Simulate a pre-schema-3 fortress blob (missing materialSchema / schema 0).
+        raw.store("materialSchema", 0);
+        // Also rewrite paid snapshot back to old ids (save already wrote post-place ids).
+        SaveFileData struct0 = raw.readSubData("structure_0");
+        struct0.storeObject("paidMaterialIds", Arrays.asList("copper", "iron"));
+        struct0.storeObject("paidMaterialCounts", Arrays.asList(10, 4));
+        raw.store("structure_0", struct0);
+        raw.storeObject("storageIds", Arrays.asList("copper", "mithril", "adamant"));
+        raw.storeObject("storageCounts", Arrays.asList(3, 2, 1));
+
+        FortressInstance loaded = new FortressInstance();
+        loaded.load(raw);
+        Assert.assertEquals(loaded.getMaterialSchema(), MaterialListData.MATERIAL_SCHEMA_ORE_LINE);
+        Assert.assertEquals(loaded.getStored("ore_iron"), 3);
+        Assert.assertEquals(loaded.getStored("ore_adamant"), 2);
+        Assert.assertEquals(loaded.getStored("ore_rune"), 1);
+        Assert.assertEquals(loaded.getStored("copper"), 0);
+        Map<String, Integer> migratedPaid = loaded.getStructures().get(0).getPaidMaterials();
+        Assert.assertEquals(migratedPaid.get("ore_iron").intValue(), 10);
+        Assert.assertEquals(migratedPaid.get("ore_mithral").intValue(), 4);
+        Assert.assertFalse(migratedPaid.containsKey("copper"));
+        Assert.assertFalse(migratedPaid.containsKey("iron"));
+
+        // Schema already at 3 → never chain (ore_iron stays ore_iron).
+        SaveFileData again = loaded.save();
+        FortressInstance reloaded = new FortressInstance();
+        reloaded.load(again);
+        Assert.assertEquals(reloaded.getStored("ore_iron"), 3);
+        Assert.assertEquals(reloaded.getStructures().get(0).getPaidMaterials().get("ore_iron").intValue(), 10);
     }
 
     @Test

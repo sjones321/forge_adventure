@@ -524,12 +524,17 @@ public final class ModernDuelController {
             final boolean fromHand = heldFromHand;
             heldCard = null;
             heldFromHand = false;
-            if (focused == null) {
+            final boolean focusMissing = focused == null;
+            final boolean focusInHand = !focusMissing && focused.getZone() == ZoneType.Hand;
+            final boolean sameCard = !focusMissing && focused.getId() == source.getId();
+            final ModernDuelActions.HandHeldSecondA second = ModernDuelActions.handHeldSecondA(
+                    fromHand, focusInHand, sameCard, focusMissing);
+            if (second == ModernDuelActions.HandHeldSecondA.CANCEL) {
                 Gdx.graphics.requestRendering();
                 return true;
             }
-            // Hand → hand: reorder at the focused card's index (multi-step OK).
-            if (fromHand && focused.getZone() == ZoneType.Hand) {
+            if (second == ModernDuelActions.HandHeldSecondA.REORDER) {
+                // Hand → other hand card: reorder at the focused card's index.
                 final int heldIdx = handIndexOf(source);
                 final int targetIdx = handIndexOf(focused);
                 final int handSize = handSize();
@@ -543,10 +548,16 @@ public final class ModernDuelController {
                 Gdx.graphics.requestRendering();
                 return true;
             }
-            final boolean overBoard = focused.getZone() == ZoneType.Battlefield
-                    || focused.getZone() == ZoneType.Command;
-            final boolean overHand = focused.getZone() == ZoneType.Hand && fromHand;
-            applyDrop(source, fromHand, focused, overBoard && !overHand, overHand, -1);
+            // CAST: same hand card confirms cast; board/player aim uses drop target.
+            if (focusInHand && sameCard) {
+                applyDrop(source, fromHand, null, true, false, -1);
+            } else {
+                final boolean overBoard = focused != null
+                        && (focused.getZone() == ZoneType.Battlefield
+                        || focused.getZone() == ZoneType.Command);
+                final boolean overHand = focusInHand && fromHand;
+                applyDrop(source, fromHand, focused, overBoard && !overHand, overHand, -1);
+            }
             Gdx.graphics.requestRendering();
             return true;
         }
@@ -557,16 +568,10 @@ public final class ModernDuelController {
         if (!canControllerPickupCard(focused)) {
             return false;
         }
-        final boolean fromHand = focused.getZone() == ZoneType.Hand;
-        final boolean handCastable = fromHand && isHandCastable(focused);
-        // Castable hand: cast in ONE press (no pick-up / second A). Combat still uses hold+aim.
-        if (ModernDuelActions.isOnePressHandCast(fromHand, handCastable, false)) {
-            applyDrop(focused, true, null, true, false, -1);
-            Gdx.graphics.requestRendering();
-            return true;
-        }
+        // Two-press: first A picks up (castable hand or combat creature); second A
+        // casts / reorders / aims. Restores controller hand reorder vs one-press cast.
         heldCard = focused;
-        heldFromHand = fromHand;
+        heldFromHand = focused.getZone() == ZoneType.Hand;
         Gdx.graphics.requestRendering();
         return true;
     }

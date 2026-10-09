@@ -100,7 +100,19 @@ public final class FortressBuildGrid {
      */
     public static Set<Long> blockedCellsAfterPlace(FortressInstance inst, FortressStructureData def,
                                                    int gridX, int gridY, int rotationDeg) {
+        return blockedCellsAfterPlace(inst, def, gridX, gridY, rotationDeg, null);
+    }
+
+    /**
+     * Blocked cells after a hypothetical place: map collision layer + existing structure
+     * blockers + the new footprint when it blocks movement. Gates stay walkable.
+     */
+    public static Set<Long> blockedCellsAfterPlace(FortressInstance inst, FortressStructureData def,
+                                                   int gridX, int gridY, int rotationDeg,
+                                                   Set<Long> mapCollision) {
         Set<Long> blocked = movementBlockedCells(inst, -1);
+        if (mapCollision != null)
+            blocked.addAll(mapCollision);
         if (def != null && def.blocksMovement) {
             for (int[] c : footprintCells(def, gridX, gridY, rotationDeg))
                 blocked.add(pack(c[0], c[1]));
@@ -124,6 +136,42 @@ public final class FortressBuildGrid {
                 blocked.add(pack(c[0], c[1]));
         }
         return blocked;
+    }
+
+    /**
+     * Rasterize a world-pixel rectangle into map tile keys for path BFS.
+     * A cell is covered when the rect overlaps any part of that tile.
+     */
+    public static void addCellsCoveredByRect(Set<Long> out, float tileW, float tileH,
+                                             float x, float y, float w, float h) {
+        if (out == null || tileW <= 0f || tileH <= 0f || w <= 0f || h <= 0f)
+            return;
+        int x0 = (int) Math.floor(x / tileW);
+        int y0 = (int) Math.floor(y / tileH);
+        int x1 = (int) Math.floor((x + w - 0.001f) / tileW);
+        int y1 = (int) Math.floor((y + h - 0.001f) / tileH);
+        for (int tx = x0; tx <= x1; tx++) {
+            for (int ty = y0; ty <= y1; ty++)
+                out.add(pack(tx, ty));
+        }
+    }
+
+    /**
+     * Interaction zone for a solid station: same footprint expanded by {@code padTiles}
+     * on each side so the player can open it without walking into the collision box.
+     *
+     * @return {@code [x, y, width, height]} in world pixels
+     */
+    public static float[] stationInteractBounds(float px, float py, int footprintW, int footprintH,
+                                                float tileW, float tileH, float padTiles) {
+        float tw = Math.max(1f, tileW);
+        float th = Math.max(1f, tileH);
+        float pad = Math.max(0f, padTiles);
+        float padX = pad * tw;
+        float padY = pad * th;
+        int w = Math.max(1, footprintW);
+        int h = Math.max(1, footprintH);
+        return new float[]{px - padX, py - padY, w * tw + 2f * padX, h * th + 2f * padY};
     }
 
     /**
@@ -166,18 +214,28 @@ public final class FortressBuildGrid {
     public static PlaceReject canPlace(FortressInstance inst, FortressStructureData def,
                                        int gridX, int gridY, int rotationDeg, int constructionLevel) {
         return canPlace(inst, def, gridX, gridY, rotationDeg, constructionLevel,
-                Integer.MIN_VALUE, Integer.MIN_VALUE, -1, -1, 0, 0);
+                Integer.MIN_VALUE, Integer.MIN_VALUE, -1, -1, 0, 0, null);
     }
 
     /**
      * Full placement check including player-tile trap and path-to-entry.
      * Pass {@code playerGridX == Integer.MIN_VALUE} to skip player/path checks (catalog only).
+     * {@code mapCollision} is the map's own collision layer (TMX), merged with placed structures.
      */
     public static PlaceReject canPlace(FortressInstance inst, FortressStructureData def,
                                        int gridX, int gridY, int rotationDeg, int constructionLevel,
                                        int playerGridX, int playerGridY,
                                        int entryGridX, int entryGridY,
                                        int mapW, int mapH) {
+        return canPlace(inst, def, gridX, gridY, rotationDeg, constructionLevel,
+                playerGridX, playerGridY, entryGridX, entryGridY, mapW, mapH, null);
+    }
+
+    public static PlaceReject canPlace(FortressInstance inst, FortressStructureData def,
+                                       int gridX, int gridY, int rotationDeg, int constructionLevel,
+                                       int playerGridX, int playerGridY,
+                                       int entryGridX, int entryGridY,
+                                       int mapW, int mapH, Set<Long> mapCollision) {
         if (def == null)
             return PlaceReject.UNKNOWN_STRUCTURE;
         int w = def.rotatedW(rotationDeg);
@@ -192,7 +250,7 @@ public final class FortressBuildGrid {
                 && coversPlayerTile(def, gridX, gridY, rotationDeg, playerGridX, playerGridY))
             return PlaceReject.ON_PLAYER;
         if (playerGridX != Integer.MIN_VALUE && mapW > 0 && mapH > 0) {
-            Set<Long> blocked = blockedCellsAfterPlace(inst, def, gridX, gridY, rotationDeg);
+            Set<Long> blocked = blockedCellsAfterPlace(inst, def, gridX, gridY, rotationDeg, mapCollision);
             if (!hasPathToEntry(mapW, mapH, blocked, playerGridX, playerGridY, entryGridX, entryGridY))
                 return PlaceReject.BLOCKS_PATH_TO_ENTRY;
         }
@@ -204,8 +262,18 @@ public final class FortressBuildGrid {
                                          int playerGridX, int playerGridY,
                                          int entryGridX, int entryGridY,
                                          int mapW, int mapH) {
+        return isValidPreview(inst, def, gridX, gridY, rotationDeg, constructionLevel,
+                playerGridX, playerGridY, entryGridX, entryGridY, mapW, mapH, null);
+    }
+
+    public static boolean isValidPreview(FortressInstance inst, FortressStructureData def,
+                                         int gridX, int gridY, int rotationDeg, int constructionLevel,
+                                         int playerGridX, int playerGridY,
+                                         int entryGridX, int entryGridY,
+                                         int mapW, int mapH, Set<Long> mapCollision) {
         return canPlace(inst, def, gridX, gridY, rotationDeg, constructionLevel,
-                playerGridX, playerGridY, entryGridX, entryGridY, mapW, mapH) == PlaceReject.OK;
+                playerGridX, playerGridY, entryGridX, entryGridY, mapW, mapH, mapCollision)
+                == PlaceReject.OK;
     }
 
     /**
@@ -217,8 +285,19 @@ public final class FortressBuildGrid {
                                 int playerGridX, int playerGridY,
                                 int entryGridX, int entryGridY,
                                 int mapW, int mapH) {
+        return place(inst, def, gridX, gridY, rotationDeg, constructionLevel,
+                paidMaterials, paidGold, playerGridX, playerGridY, entryGridX, entryGridY, mapW, mapH, null);
+    }
+
+    public static boolean place(FortressInstance inst, FortressStructureData def,
+                                int gridX, int gridY, int rotationDeg, int constructionLevel,
+                                Map<String, Integer> paidMaterials, int paidGold,
+                                int playerGridX, int playerGridY,
+                                int entryGridX, int entryGridY,
+                                int mapW, int mapH, Set<Long> mapCollision) {
         if (canPlace(inst, def, gridX, gridY, rotationDeg, constructionLevel,
-                playerGridX, playerGridY, entryGridX, entryGridY, mapW, mapH) != PlaceReject.OK)
+                playerGridX, playerGridY, entryGridX, entryGridY, mapW, mapH, mapCollision)
+                != PlaceReject.OK)
             return false;
         PlacedStructure placed = new PlacedStructure(def.id, gridX, gridY, rotationDeg);
         placed.setPaidCost(paidMaterials, paidGold);

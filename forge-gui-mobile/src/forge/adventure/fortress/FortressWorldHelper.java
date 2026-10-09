@@ -68,4 +68,14 @@ public final class FortressWorldHelper {
         int t = Math.max(1, tileSize);
         return (int) (ax / t) == (int) (bx / t) && (int) (ay / t) == (int) (by / t);
     }
+
+    /**
+     * Convert a TMX entry object's world-pixel origin to a fortress grid tile using the
+     * map's real tile size (never assume 16).
+     */
+    public static int[] entryTileFromPixels(float pixelX, float pixelY, float tileW, float tileH) {
+        float tw = Math.max(1f, tileW);
+        float th = Math.max(1f, tileH);
+        return new int[]{(int) (pixelX / tw), (int) (pixelY / th)};
+    }
 }

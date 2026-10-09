@@ -1127,11 +1127,18 @@ public final class CoopOverworldRuntime implements CoopHooks.OverworldListener {
             case SPAWN: {
                 // Replace any existing sprite for this id (ghost fix).
                 removeLocalNode(event.getNodeId());
-                if (!authority.putNode(event.getNodeId(), event.getMaterialId(), event.getX(), event.getY())) {
+                // Map old ore ids (copper/iron/mithril/adamant) from mixed-build hosts.
+                // Wire carries a plain String id only — no Java object deserialization of network bytes.
+                final String wireId = event.getMaterialId();
+                final String materialId = MaterialListData.migrateOreLineMaterialId(wireId);
+                if (!authority.putNode(event.getNodeId(), materialId, event.getX(), event.getY())) {
                     return;
                 }
-                final MaterialData mat = MaterialListData.get(event.getMaterialId());
+                final MaterialData mat = MaterialListData.get(materialId);
                 if (mat == null) {
+                    notifyHud(capHud("Host sent unknown node material \""
+                            + (wireId == null ? "" : wireId)
+                            + "\" — update Adventure so ore ids match"));
                     return;
                 }
                 final ResourceNodeSprite node = new ResourceNodeSprite(mat);

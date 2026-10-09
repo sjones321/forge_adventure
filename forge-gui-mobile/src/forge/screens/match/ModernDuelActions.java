@@ -120,8 +120,9 @@ public final class ModernDuelActions {
     /**
      * View-only castability for controller A / pickup gating. Never calls
      * {@code IGameController} (guest {@code getActivateDescription} would block the UI thread).
-     * Heuristic: lands when the player can still play a land; non-lands when total mana
-     * in the pool is at least the card CMC. Engine still validates on cast.
+     * Heuristic: lands when the player can still play a land; non-lands when mana in the
+     * pool plus untapped lands (available mana sources) is at least the card CMC.
+     * Engine still validates on cast.
      */
     public static boolean isHandCastableFromViews(final CardView card, final PlayerView controller) {
         if (card == null || card.getZone() != ZoneType.Hand) {
@@ -138,7 +139,7 @@ public final class ModernDuelActions {
         if (cost == null || cost.isNoCost()) {
             return false;
         }
-        return estimateSpellCastable(cost.getCMC(), controller == null ? 0 : totalMana(controller));
+        return estimateSpellCastable(cost.getCMC(), availableManaEstimate(controller));
     }
 
     /** Land playability from player views only (no network). */
@@ -150,15 +151,66 @@ public final class ModernDuelActions {
                 || controller.getNumLandThisTurn() < controller.getMaxLandPlay();
     }
 
-    /** Spell affordability heuristic from CMC vs total mana pool. */
-    public static boolean estimateSpellCastable(final int cmc, final int totalMana) {
-        return cmc <= totalMana;
+    /** Spell affordability heuristic from CMC vs available mana (pool + untapped lands). */
+    public static boolean estimateSpellCastable(final int cmc, final int availableMana) {
+        return cmc <= availableMana;
     }
 
-    /** True when A on a castable hand card should cast immediately (no pick-up). */
-    public static boolean isOnePressHandCast(final boolean fromHand, final boolean handCastable,
-                                             final boolean alreadyHolding) {
-        return fromHand && handCastable && !alreadyHolding;
+    /** Pool mana plus untapped battlefield lands (each counts as one available source). */
+    public static int availableManaEstimate(final PlayerView controller) {
+        if (controller == null) {
+            return 0;
+        }
+        return availableManaEstimate(totalMana(controller), countUntappedLands(controller));
+    }
+
+    /** Pure combine for tests — pool floating mana + untapped land sources. */
+    public static int availableManaEstimate(final int poolMana, final int untappedLands) {
+        return Math.max(0, poolMana) + Math.max(0, untappedLands);
+    }
+
+    /** Untapped lands on the battlefield (view-only mana-source hint). */
+    public static int countUntappedLands(final PlayerView controller) {
+        if (controller == null || controller.getBattlefield() == null) {
+            return 0;
+        }
+        int n = 0;
+        for (final CardView c : controller.getBattlefield()) {
+            if (c == null || c.isTapped()) {
+                continue;
+            }
+            final CardView.CardStateView st = c.getCurrentState();
+            if (st == null || st.getType() == null || !st.getType().isLand()) {
+                continue;
+            }
+            n++;
+        }
+        return n;
+    }
+
+    /**
+     * Second A while holding a hand card: reorder when focus is a different hand card;
+     * cast when focus is the same hand card (confirm) or outside the hand.
+     */
+    public enum HandHeldSecondA {
+        REORDER,
+        CAST,
+        CANCEL
+    }
+
+    public static HandHeldSecondA handHeldSecondA(final boolean heldFromHand, final boolean focusInHand,
+                                                  final boolean sameCard, final boolean focusMissing) {
+        if (!heldFromHand) {
+            return HandHeldSecondA.CAST;
+        }
+        if (focusMissing) {
+            return HandHeldSecondA.CANCEL;
+        }
+        if (focusInHand && !sameCard) {
+            return HandHeldSecondA.REORDER;
+        }
+        // Same hand card again, or aim at board/player → cast.
+        return HandHeldSecondA.CAST;
     }
 
     private static int totalMana(final PlayerView player) {
