@@ -114,8 +114,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
     private EnemySprite strictRefuseGraceMob;
     private float strictRefuseGraceSeconds;
     /** Knock-back distance after a strict refusal (world pixels). */
-    static final float STRICT_REFUSE_KNOCKBACK_PX = 48f;
-    static final float STRICT_REFUSE_GRACE_SECONDS = 1.5f;
+    public static final float STRICT_REFUSE_KNOCKBACK_PX = 48f;
+    public static final float STRICT_REFUSE_GRACE_SECONDS = 1.5f;
     private final Vector2 navDirectionVec = new Vector2();
     private final ArrayList<Float> cachedSaveTimeouts = new ArrayList<>(32);
     private final ArrayList<String> cachedSaveNames = new ArrayList<>(32);
