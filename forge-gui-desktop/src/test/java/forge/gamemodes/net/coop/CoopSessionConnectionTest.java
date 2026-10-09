@@ -11,7 +11,6 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import java.net.ServerSocket;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -34,9 +33,8 @@ public class CoopSessionConnectionTest {
     public void setUp() throws Exception {
         CoopVersion.setCardDataHashSupplier(() -> CoopVersion.sha256Hex("test-cards-v3"));
         sessionCode = CoopSessionCode.generate();
-        try (ServerSocket ss = new ServerSocket(0)) {
-            port = ss.getLocalPort();
-        }
+        // Ephemeral bind via Netty (port 0) — avoid ServerSocket grab/rebind TIME_WAIT races.
+        port = 0;
     }
 
     @AfterMethod
@@ -77,7 +75,7 @@ public class CoopSessionConnectionTest {
         final CountDownLatch ready = new CountDownLatch(1);
         final AtomicReference<String> reject = new AtomicReference<>();
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override
             public void onConnected() {
             }
@@ -114,6 +112,7 @@ public class CoopSessionConnectionTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         final CountDownLatch guestReady = new CountDownLatch(1);
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
@@ -158,7 +157,7 @@ public class CoopSessionConnectionTest {
         final CountDownLatch rejected = new CountDownLatch(1);
         final AtomicReference<String> reason = new AtomicReference<>();
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override
             public void onConnected() {
             }
@@ -183,6 +182,7 @@ public class CoopSessionConnectionTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
@@ -219,7 +219,7 @@ public class CoopSessionConnectionTest {
         final AtomicReference<String> reason = new AtomicReference<>();
         final AtomicReference<String> hostState = new AtomicReference<>("HOSTING");
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override
             public void onConnected() {
             }
@@ -249,6 +249,7 @@ public class CoopSessionConnectionTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
@@ -283,7 +284,7 @@ public class CoopSessionConnectionTest {
         final AtomicReference<String> hostState = new AtomicReference<>("HOSTING");
         final AtomicInteger failures = new AtomicInteger();
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override
             public void onConnected() {
             }
@@ -314,6 +315,7 @@ public class CoopSessionConnectionTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         for (int i = 0; i < CoopPorts.SESSION_CODE_MAX_FAILURES; i++) {
             final CountDownLatch rejected = new CountDownLatch(1);
@@ -405,7 +407,7 @@ public class CoopSessionConnectionTest {
         final CountDownLatch hostSawDisconnect = new CountDownLatch(1);
         final AtomicReference<String> refuseMsg = new AtomicReference<>();
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override
             public void onConnected() {
             }
@@ -438,6 +440,7 @@ public class CoopSessionConnectionTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
@@ -486,7 +489,7 @@ public class CoopSessionConnectionTest {
         final CountDownLatch secondRejected = new CountDownLatch(1);
         final AtomicInteger connections = new AtomicInteger();
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override
             public void onConnected() {
                 connections.incrementAndGet();
@@ -510,6 +513,7 @@ public class CoopSessionConnectionTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
@@ -582,7 +586,7 @@ public class CoopSessionConnectionTest {
         final CountDownLatch helloSeen = new CountDownLatch(1);
         final AtomicInteger nonHello = new AtomicInteger();
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override
             public void onConnected() {
             }
@@ -606,6 +610,7 @@ public class CoopSessionConnectionTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override

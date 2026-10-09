@@ -28,7 +28,6 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -71,9 +70,7 @@ public class CoopPartnerLoopbackTest {
     public void setUp() throws Exception {
         CoopVersion.setCardDataHashSupplier(() -> CoopVersion.sha256Hex("co5-partner-loopback"));
         sessionCode = CoopSessionCode.generate();
-        try (ServerSocket ss = new ServerSocket(0)) {
-            port = ss.getLocalPort();
-        }
+        port = 0;
     }
 
     @AfterMethod
@@ -97,7 +94,7 @@ public class CoopPartnerLoopbackTest {
         final CountDownLatch gotAck = new CountDownLatch(1);
         final AtomicReference<CoopPartnerSnapshotAckEvent> ackRef = new AtomicReference<>();
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override
             public void onConnected() {
             }
@@ -107,7 +104,7 @@ public class CoopPartnerLoopbackTest {
                 if (event instanceof CoopHelloEvent) {
                     server.markGuestAuthenticated();
                     server.send(new CoopWorldOfferEvent("Host", "Shandalar Ascendant", "planeHash",
-                            42L, worldHash, CoopPorts.GAME_PORT, port));
+                            42L, worldHash, CoopPorts.GAME_PORT, server.getLocalPort()));
                 } else if (event instanceof CoopSessionReadyEvent) {
                     sessionReady.countDown();
                 } else if (event instanceof CoopPartnerSnapshotEvent) {
@@ -131,6 +128,7 @@ public class CoopPartnerLoopbackTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         final CountDownLatch guestReady = new CountDownLatch(1);
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {

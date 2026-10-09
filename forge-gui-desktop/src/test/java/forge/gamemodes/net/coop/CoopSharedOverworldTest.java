@@ -17,7 +17,6 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -44,9 +43,8 @@ public class CoopSharedOverworldTest {
     public void setUp() throws Exception {
         CoopVersion.setCardDataHashSupplier(() -> CoopVersion.sha256Hex("test-cards-co2"));
         sessionCode = CoopSessionCode.generate();
-        try (ServerSocket ss = new ServerSocket(0)) {
-            port = ss.getLocalPort();
-        }
+        // Ephemeral bind via Netty (port 0) — avoid ServerSocket grab/rebind TIME_WAIT races.
+        port = 0;
     }
 
     @AfterMethod
@@ -74,7 +72,7 @@ public class CoopSharedOverworldTest {
         final AtomicReference<CoopPlayerMoveEvent> received = new AtomicReference<>();
         final String worldHash = CoopWorldHash.hash(7L, 4, 4, sampleBiome(4), sampleTerrain(4));
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override public void onConnected() { }
             @Override public void onMessage(final NetEvent event) {
                 if (event instanceof CoopHelloEvent) {
@@ -93,6 +91,7 @@ public class CoopSharedOverworldTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         final CountDownLatch guestReady = new CountDownLatch(1);
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
@@ -510,7 +509,7 @@ public class CoopSharedOverworldTest {
         final CountDownLatch gotHello = new CountDownLatch(1);
         final CountDownLatch gotMoveAfterAuth = new CountDownLatch(1);
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override public void onConnected() { connected.countDown(); }
             @Override public void onMessage(final NetEvent event) {
                 if (event instanceof CoopPlayerMoveEvent) {
@@ -529,6 +528,7 @@ public class CoopSharedOverworldTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override public void onConnected() {

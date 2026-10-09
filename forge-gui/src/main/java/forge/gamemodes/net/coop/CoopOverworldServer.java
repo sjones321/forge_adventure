@@ -96,7 +96,24 @@ public final class CoopOverworldServer implements IHasForgeLog {
         return bindLatch.await(timeoutMs, TimeUnit.MILLISECONDS) && bound;
     }
 
+    /** Configured bind port (may be {@code 0} for ephemeral). */
     public int getPort() {
+        return port;
+    }
+
+    /**
+     * Actual listening port after {@link #start()}. When constructed with port
+     * {@code 0}, this is the ephemeral port the OS assigned — prefer this over
+     * grabbing a free port with {@code ServerSocket} then rebinding (TIME_WAIT races).
+     */
+    public int getLocalPort() {
+        final Channel ch = serverChannel;
+        if (ch != null) {
+            final SocketAddress local = ch.localAddress();
+            if (local instanceof InetSocketAddress) {
+                return ((InetSocketAddress) local).getPort();
+            }
+        }
         return port;
     }
 
