@@ -12,6 +12,8 @@ import forge.assets.FSkinColor;
 import forge.assets.FSkinColor.Colors;
 import forge.assets.FSkinFont;
 import forge.game.phase.PhaseType;
+import forge.screens.match.ModernDuelController;
+import forge.screens.match.ModernDuelScreen;
 import forge.toolbox.FContainer;
 import forge.toolbox.FDisplayObject;
 import forge.util.TextBounds;
@@ -198,6 +200,10 @@ public class VPhaseIndicator extends FContainer {
 
         @Override
         public boolean tap(float x, float y, int count) {
+            // Taps are touch — keep pad/touch arrow mode consistent with modern duel.
+            if (ModernDuelScreen.enabled()) {
+                ModernDuelController.get().markTouchInput();
+            }
             stopAtPhase = !stopAtPhase;
             if (onToggled != null) onToggled.run();
             return true;

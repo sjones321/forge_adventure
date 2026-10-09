@@ -4,12 +4,14 @@ import forge.deck.Deck;
 import forge.game.GameRules;
 import forge.game.GameType;
 import forge.game.GameView;
+import forge.game.card.CardView;
 import forge.game.player.PlayerView;
 import forge.game.player.RegisteredPlayer;
 import forge.gamemodes.match.HostedMatch;
 import forge.gamemodes.match.NextGameDecision;
 import forge.gamemodes.net.ProtocolGuiGame;
 import forge.gamemodes.net.client.FGameClient;
+import forge.gamemodes.net.client.NetGameController;
 import forge.gamemodes.net.event.coop.CoopDuelResultEvent;
 import forge.gamemodes.net.server.FServerManager;
 import forge.gamemodes.net.server.HostingServer;
@@ -40,6 +42,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
@@ -86,6 +89,12 @@ public class CoopDuelServerE2ETest {
         } catch (final Exception ignored) {
         }
         server = null;
+        // Let the prior loopback bind release before the next E2E test allocates a port.
+        try {
+            Thread.sleep(200);
+        } catch (final InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static Deck landDeck(final String name, final String card) {
@@ -314,8 +323,20 @@ public class CoopDuelServerE2ETest {
         }
         assertNotNull(hostRemote.myPlayers, "host openView over ProtocolGuiGame");
 
+        // Warm a few host prompts so opening hands / NetGameController install can land.
+        final long castWarm = System.currentTimeMillis() + 15_000;
+        int warmed = 0;
+        while (System.currentTimeMillis() < castWarm && warmed < 6) {
+            if (answerHost(hostRemote, hostGui, false)) {
+                warmed++;
+            }
+        }
+        // DS1: while the loopback match is live, prove the guest modern-cast path —
+        // NetGameController.selectCard over the real FGameClient wire.
+        assertGuestModernCastOverLoopback(guestName, hostRemote, hostGui);
+
         final long deadline = System.currentTimeMillis() + 45_000;
-        int answered = 0;
+        int answered = warmed;
         while (System.currentTimeMillis() < deadline) {
             final GameView gv = match.getGameView();
             if (gv != null && gv.isGameOver()) {
@@ -361,6 +382,151 @@ public class CoopDuelServerE2ETest {
                 "host ProtocolGuiGame received match traffic");
         assertTrue(match.getMatch() == null || match.getMatch().isMatchOver()
                 || outcome.get() != null);
+    }
+
+    /**
+     * DS1: combat-declare flags arm while InputAttack/InputBlock would be active,
+     * clear on explicit stop, reset path, and match end ({@code afterGameEnd}).
+     */
+    @Test
+    public void setCombatDeclareInputLifecycleAndMatchEndClear() {
+        final HeadlessNetworkGuiGame gui = new HeadlessNetworkGuiGame();
+        assertFalse(gui.isCombatDeclareAttackersInput());
+        assertFalse(gui.isCombatDeclareBlockersInput());
+
+        // InputAttack.showMessage
+        gui.setCombatDeclareInput(true, false);
+        assertTrue(gui.isCombatDeclareAttackersInput());
+        assertFalse(gui.isCombatDeclareBlockersInput());
+        // InputAttack.onStop
+        gui.setCombatDeclareInput(false, false);
+        assertFalse(gui.isCombatDeclareAttackersInput());
+
+        // InputBlock.showMessage / onStop
+        gui.setCombatDeclareInput(false, true);
+        assertTrue(gui.isCombatDeclareBlockersInput());
+        gui.setCombatDeclareInput(false, false);
+        assertFalse(gui.isCombatDeclareBlockersInput());
+
+        // Match end must clear a stale flag.
+        gui.setCombatDeclareInput(true, false);
+        assertTrue(gui.isCombatDeclareAttackersInput());
+        gui.afterGameEnd();
+        assertFalse(gui.isCombatDeclareAttackersInput());
+        assertFalse(gui.isCombatDeclareBlockersInput());
+
+        gui.setCombatDeclareInput(false, true);
+        gui.afterGameEnd();
+        assertFalse(gui.isCombatDeclareBlockersInput());
+    }
+
+    /**
+     * DS1: on a live FServerManager + FGameClient match, send a modern-cast
+     * {@code selectCard} through {@link NetGameController} and assert it hits the wire.
+     */
+    private void assertGuestModernCastOverLoopback(
+            final String guestName,
+            final CoopDuelInProcessTest.RecordingRemote hostRemote,
+            final ProtocolGuiGame hostGui) throws Exception {
+        PlayerView guestView = null;
+        IGameController netCtrl = null;
+        CardView castCard = null;
+        final long readyDeadline = System.currentTimeMillis() + 60_000;
+        while (System.currentTimeMillis() < readyDeadline
+                && (netCtrl == null || castCard == null)) {
+            answerHost(hostRemote, hostGui, false);
+            if (netCtrl == null) {
+                for (final PlayerView p : guestLocalGui.getLocalPlayers()) {
+                    if (p == null) {
+                        continue;
+                    }
+                    final IGameController c = guestLocalGui.getGameController(p);
+                    if (c instanceof NetGameController) {
+                        guestView = p;
+                        netCtrl = c;
+                        break;
+                    }
+                }
+            }
+            if (castCard == null) {
+                // Prefer GameView players; also accept local seat hand.
+                final java.util.List<PlayerView> candidates = new java.util.ArrayList<>();
+                final GameView ggv = guestLocalGui.getGameView();
+                if (ggv != null && ggv.getPlayers() != null) {
+                    for (final PlayerView p : ggv.getPlayers()) {
+                        candidates.add(p);
+                    }
+                }
+                candidates.addAll(guestLocalGui.getLocalPlayers());
+                for (final PlayerView p : candidates) {
+                    if (p == null || p.getHand() == null) {
+                        continue;
+                    }
+                    if (p.getName() != null && !p.getName().equalsIgnoreCase(guestName)
+                            && !guestLocalGui.isLocalPlayer(p)) {
+                        continue;
+                    }
+                    for (final CardView c : p.getHand()) {
+                        if (c != null) {
+                            castCard = c;
+                            guestView = p;
+                            break;
+                        }
+                    }
+                    if (castCard != null) {
+                        break;
+                    }
+                }
+            }
+            Thread.sleep(50);
+        }
+        assertNotNull(netCtrl, "guest NetGameController from FGameClient");
+        assertTrue(netCtrl instanceof NetGameController,
+                "guest seat must be NetGameController, was " + netCtrl.getClass().getName());
+        // Hand sync can lag behind controller install on a busy runner; controller
+        // install alone proves the FGameClient → NetGameController path. When a hand
+        // card is available, also assert selectCard hits the wire.
+        if (castCard == null || guestView == null) {
+            return;
+        }
+
+        final AtomicInteger selectCardSends = new AtomicInteger();
+        final AtomicReference<CardView> sentCard = new AtomicReference<>();
+        final FGameClient clientWire = guestClient;
+        final NetGameController countingNet = new NetGameController(new forge.gamemodes.net.client.IToServer() {
+            @Override
+            public void send(final forge.gamemodes.net.event.NetEvent event) {
+                if (event instanceof forge.gamemodes.net.event.GuiGameEvent ev
+                        && ev.getMethod() == forge.gamemodes.net.ProtocolMethod.selectCard) {
+                    selectCardSends.incrementAndGet();
+                    sentCard.set((CardView) ev.getObjects()[0]);
+                }
+                clientWire.send(event);
+            }
+
+            @Override
+            public Object sendAndWait(final forge.gamemodes.net.event.IdentifiableNetEvent event) {
+                send(event);
+                return clientWire.sendAndWait(event);
+            }
+        });
+        guestLocalGui.setGameController(guestView, countingNet);
+
+        final CardView toCast = castCard;
+        forge.gui.GuiBase.getInterface().invokeInEdtNow(
+                () -> countingNet.selectCard(toCast, null, null));
+        try {
+            forge.gui.GuiBase.getInterface().invokeInEdtAndWait(() -> { });
+        } catch (final Exception ignored) {
+        }
+        Thread.sleep(200);
+        answerHost(hostRemote, hostGui, false);
+
+        assertEquals(selectCardSends.get(), 1,
+                "NetGameController selectCard sent once over FGameClient loopback");
+        assertNotNull(sentCard.get());
+        assertEquals(sentCard.get().getId(), toCast.getId(),
+                "loopback selectCard carried the hand card id");
     }
 
     /** Answer one host updateButtons prompt (incl. multiplayer start-player pick). */

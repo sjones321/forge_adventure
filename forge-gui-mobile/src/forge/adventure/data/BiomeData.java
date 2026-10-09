@@ -195,4 +195,40 @@ public class BiomeData implements Serializable {
     public void replacePointsOfInterest(ArrayList<PointOfInterestData> list) {
         pointOfInterestList = list != null ? new ArrayList<>(list) : new ArrayList<>();
     }
+
+    /**
+     * MV2: ensure {@code poi} is listed by name and present in the frozen POI list
+     * (so injection works even after {@link #scaleAndFreezePois(float)}).
+     */
+    public void ensurePointOfInterest(PointOfInterestData poi) {
+        if (poi == null || poi.name == null || poi.name.isEmpty()) {
+            return;
+        }
+        ArrayList<String> names = new ArrayList<>();
+        if (pointsOfInterest != null) {
+            for (String n : pointsOfInterest) {
+                if (n != null && !n.isEmpty() && !names.contains(n)) {
+                    names.add(n);
+                }
+            }
+        }
+        if (!names.contains(poi.name)) {
+            names.add(0, poi.name);
+        }
+        pointsOfInterest = names.toArray(new String[0]);
+
+        if (pointOfInterestList == null) {
+            return; // will be loaded from names on first getPointsOfInterest()
+        }
+        for (PointOfInterestData existing : pointOfInterestList) {
+            if (existing != null && poi.name.equals(existing.name)) {
+                return;
+            }
+        }
+        PointOfInterestData copy = new PointOfInterestData(poi);
+        if (copy.count <= 0) {
+            copy.count = 1;
+        }
+        pointOfInterestList.add(0, copy);
+    }
 }

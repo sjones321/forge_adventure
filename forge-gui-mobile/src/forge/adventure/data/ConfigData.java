@@ -386,4 +386,32 @@ public class ConfigData {
      */
     public int setPlaneMaxPlacementRestarts = 8;
 
+    // ---- AI1: LLM opponent (optional). Player settings live in llm_opponent.properties
+    // (local only; API key never in the save). These plane tunables are reserved defaults /
+    // documentation; the in-game LLM settings screen owns enable/URL/model/key/timeout. ----
+
+    /**
+     * Soft documentation default for the LLM HTTP timeout (seconds) when creating a fresh
+     * {@code llm_opponent.properties}. The settings screen and properties file are authoritative.
+     */
+    public int llmOpponentDefaultTimeoutSeconds = 30;
+    // ---- Ascendant fortresses (Package FT1): claim site + instance build mode. ----
+
+    /**
+     * Minimum tile distance from towns and other POIs required to plant a Fortress Banner.
+     */
+    public float fortressBannerMinDistanceTiles = 8f;
+    /** Max fortresses that may exist on one plane (FT1 starts at 1). */
+    public int fortressMaxPerPlane = 1;
+    /** Percent of structure material cost returned on demolish (0–100). */
+    public float fortressDemolishRefundPercent = 50f;
+    /** Buildable zone origin X inside the fortress template map (tiles). */
+    public int fortressBuildableOriginX = 4;
+    /** Buildable zone origin Y inside the fortress template map (tiles). */
+    public int fortressBuildableOriginY = 4;
+    /** Buildable zone width in tiles. */
+    public int fortressBuildableWidth = 16;
+    /** Buildable zone height in tiles. */
+    public int fortressBuildableHeight = 12;
+
 }

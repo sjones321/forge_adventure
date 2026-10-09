@@ -3,6 +3,7 @@ package forge.adventure.character;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.*;
 import com.badlogic.gdx.utils.Array;
+import forge.Forge;
 import forge.adventure.data.ConfigData;
 import forge.adventure.scene.TileMapScene;
 import forge.adventure.stage.GameHUD;
@@ -12,6 +13,7 @@ import forge.adventure.util.Current;
 import forge.adventure.util.Paths;
 import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.WorldSave;
+import forge.screens.TransitionScreen;
 
 import java.util.HashMap;
 
@@ -130,42 +132,82 @@ public class PortalActor extends EntryActor {
                 notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
                 return false;
             }
-            // Deferred MV2 gen: build the plane blob now (GL thread) before leaving the POI.
+            // Deferred MV2 gen: loading screen; World/GL work stays on the GL thread.
             if (!save.getMultiverse().hasCompressedBlob(id)
                     && !id.equals(save.getMultiverse().getCurrentPlaneId())) {
+                final String planeIdFinal = id;
+                final String loadingMsg = Forge.getLocalizer() != null
+                        ? Forge.getLocalizer().getMessage("lblGeneratingWorld")
+                        : "Opening a portal…";
                 try {
-                    notifyPortal("Opening a portal…");
-                    save.materializeSetPlane(id);
+                    Forge.setTransitionScreen(new TransitionScreen(() -> {
+                        try {
+                            save.materializeSetPlane(planeIdFinal);
+                            finishPortalTravel(planeIdFinal);
+                        } catch (Exception e) {
+                            notifyPortal("Could not create plane: "
+                                    + (e.getMessage() != null ? e.getMessage() : "unknown error"));
+                        } finally {
+                            try {
+                                Forge.clearTransitionScreen();
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    }, null, false, true, loadingMsg));
+                    return true;
                 } catch (Exception e) {
-                    notifyPortal("Could not create plane: " + e.getMessage());
-                    return false;
+                    // TransitionScreen unavailable — still materialize on this (GL) thread.
+                    try {
+                        save.materializeSetPlane(id);
+                    } catch (Exception genEx) {
+                        notifyPortal("Could not create plane: "
+                                + (genEx.getMessage() != null ? genEx.getMessage() : "unknown error"));
+                        return false;
+                    }
                 }
             }
-            // Charge before persisting the switch; refund if switch fails.
-            int charged = forge.adventure.world.SetPlaneRules.chargePortalGold(id, Current.player());
-            if (charged < 0) {
-                notifyPortal(forge.adventure.world.SetPlaneRules.checkTravel(id, Current.player(), false));
-                return false;
-            }
-            if (stage != null && stage.isInMap()) {
-                stage.exitDungeon(false, false);
-            }
-            if (!save.switchPlane(id)) {
-                forge.adventure.world.SetPlaneRules.refundPortalGold(Current.player(), charged);
-                String err = save.getLastPlaneSwitchError();
-                notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
-                return false;
-            }
-            // GameScene.enter() happens exactly once inside switchPlane.
-            notifyPortal("Planeswalked to " + save.getMultiverse().getCurrentMeta().getDisplayName());
-            return true;
+            return finishPortalTravel(id);
         } catch (Exception e) {
-            notifyPortal("Portal failed: " + e.getMessage());
+            notifyPortal("Portal failed: " + (e.getMessage() != null ? e.getMessage() : "unknown error"));
             return false;
         }
     }
 
+    /**
+     * Charge gold, leave the POI, and switch planes. Called after any deferred
+     * materialize has finished (possibly behind a loading screen).
+     */
+    private boolean finishPortalTravel(String id) {
+        WorldSave save = WorldSave.getCurrentSave();
+        if (save == null) {
+            return false;
+        }
+        // Charge before persisting the switch; refund if switch fails.
+        int charged = forge.adventure.world.SetPlaneRules.chargePortalGold(id, Current.player());
+        if (charged < 0) {
+            notifyPortal(forge.adventure.world.SetPlaneRules.paymentFailureMessage(id, Current.player()));
+            return false;
+        }
+        if (stage != null && stage.isInMap()) {
+            stage.exitDungeon(false, false);
+        }
+        if (!save.switchPlane(id)) {
+            forge.adventure.world.SetPlaneRules.refundPortalGold(Current.player(), charged);
+            String err = save.getLastPlaneSwitchError();
+            notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
+            return false;
+        }
+        // GameScene.enter() happens exactly once inside switchPlane.
+        String dest = save.getMultiverse().getCurrentMeta() != null
+                ? save.getMultiverse().getCurrentMeta().getDisplayName() : id;
+        notifyPortal("Planeswalked to " + dest);
+        return true;
+    }
+
     private void notifyPortal(String msg) {
+        if (msg == null || msg.isEmpty()) {
+            return;
+        }
         try {
             GameHUD.getInstance().addNotification(msg);
         } catch (Exception ignored) {

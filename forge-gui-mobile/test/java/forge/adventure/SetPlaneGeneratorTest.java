@@ -3,6 +3,7 @@ package forge.adventure;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
 import forge.adventure.coop.CoopSession;
+import forge.adventure.coop.CoopWorldSync;
 import forge.adventure.data.BiomeData;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.EnemyData;
@@ -29,6 +30,7 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -571,7 +573,136 @@ public class SetPlaneGeneratorTest {
                 forge.adventure.coop.CoopSessionRole.NONE, CoopSession.State.IDLE));
     }
 
+    @Test
+    public void injectPlanarGatePoiActuallyInjectsIntoFrozenList() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        WorldData data = sampleTemplate(120);
+        // Freeze POIs first (the bug: inject used to only touch the name array).
+        for (BiomeData b : data.GetBiomes()) {
+            ArrayList<PointOfInterestData> seeded = new ArrayList<>();
+            if (!"base".equalsIgnoreCase(b.name)) {
+                seeded.add(poiDef("PreTown", "town", 2));
+            }
+            b.replacePointsOfInterest(seeded);
+        }
+        Assert.assertFalse(SetPlaneGenerator.hasInjectedPlanarGate(data));
+
+        SetPlaneGenerator.injectPlanarGatePoi(data, PlaneMeta.HOME_ID, "Portal to Home");
+        Assert.assertTrue(SetPlaneGenerator.hasInjectedPlanarGate(data));
+
+        boolean inFrozen = false;
+        for (BiomeData b : data.GetBiomes()) {
+            if ("base".equalsIgnoreCase(b.name)) {
+                continue;
+            }
+            for (PointOfInterestData p : b.getPointsOfInterest()) {
+                if (p != null && SetPlaneGenerator.PLANAR_GATE_POI.equals(p.name)) {
+                    inFrozen = true;
+                    Assert.assertEquals(p.count, 1);
+                    Assert.assertEquals(p.targetPlane, PlaneMeta.HOME_ID);
+                }
+            }
+            Assert.assertTrue(Arrays.asList(b.pointsOfInterest).contains(SetPlaneGenerator.PLANAR_GATE_POI));
+            break;
+        }
+        Assert.assertTrue(inFrozen, "PlanarGate must appear in the frozen POI list");
+    }
+
+    @Test
+    public void smallSetCheckExcludesBasicLands() {
+        Deck basicsOnly = new Deck("basics");
+        // Empty / no non-basics → below floor.
+        Assert.assertEquals(SetPlaneRules.countNonBasicCards(basicsOnly), 0);
+        Assert.assertTrue(SetPlaneRules.countNonBasicCards(basicsOnly) < SetPlaneRules.MIN_SET_POOL_SIZE);
+
+        // setPoolIsUsable must ignore basics from other editions when counting the set.
+        List<PaperCard> emptyPool = List.of();
+        Assert.assertFalse(SetPlaneRules.setPoolIsUsable(emptyPool, "DMU"));
+        Assert.assertFalse(SetPlaneRules.isBasicLand(null));
+    }
+
+    @Test
+    public void paymentFailureMessageNeverNullOrEmpty() {
+        String msg = SetPlaneRules.paymentFailureMessage("home", null);
+        Assert.assertNotNull(msg);
+        Assert.assertFalse(msg.isEmpty());
+        // Locked / drifted with null player still yields a non-empty string.
+        String drifted = SetPlaneRules.paymentFailureMessage(
+                SetPlaneGenerator.planeIdForSet("ONE"), null);
+        Assert.assertNotNull(drifted);
+        Assert.assertFalse(drifted.isEmpty());
+    }
+
+    @Test
+    public void hostAndGuestSetPlaneHashesMatchWithGates() {
+        // Reproduce host materialize vs guest rebuild: same seed, customization
+        // path (skipped for unknown edition in headless), and return-gate terrain.
+        long seed = 0xC0FFEE42L;
+        String planeId = SetPlaneGenerator.planeIdForSet("TST");
+
+        World host = new World();
+        World guest = new World();
+        WorldData grid = new WorldData();
+        grid.width = 48;
+        grid.height = 48;
+        grid.tileSize = 16;
+        grid.playerStartPosX = 0.5f;
+        grid.playerStartPosY = 0.5f;
+        host.installTestWorldGrid(grid);
+        guest.installTestWorldGrid(copyWorldGrid(grid));
+        // Identical starting terrain.
+        copyTerrain(host, guest);
+
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        // Host path (materializeSetPlane post-gen): return portal + terrain clear.
+        CoopWorldSync.applySetPlaneGates(host, seed, planeId);
+        // Guest path: same helper after regenerate-from-seed.
+        CoopWorldSync.applySetPlaneGates(guest, seed, planeId);
+
+        Assert.assertTrue(PlanarPortalPlacer.existingPortalTargets(host).contains(PlaneMeta.HOME_ID),
+                "host return gate should be placed");
+        Assert.assertEquals(PlanarPortalPlacer.existingPortalTargets(guest),
+                PlanarPortalPlacer.existingPortalTargets(host));
+
+        String hostHash = CoopWorldSync.hashWorld(host);
+        String guestHash = CoopWorldSync.hashWorld(guest);
+        Assert.assertEquals(guestHash, hostHash, "host/guest set-plane hashes must match with gates");
+    }
+
+    @Test
+    public void portalMaterializeUsesLoadingScreenContract() throws Exception {
+        String portal = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Paths.get("src/forge/adventure/character/PortalActor.java")));
+        Assert.assertTrue(portal.contains("TransitionScreen"));
+        Assert.assertTrue(portal.contains("lblGeneratingWorld") || portal.contains("Opening a portal"));
+        Assert.assertTrue(portal.contains("materializeSetPlane"));
+        Assert.assertTrue(portal.contains("finishPortalTravel"));
+        Assert.assertTrue(portal.contains("paymentFailureMessage"));
+    }
+
     // --- helpers ---
+
+    private static WorldData copyWorldGrid(WorldData src) {
+        WorldData d = new WorldData();
+        d.width = src.width;
+        d.height = src.height;
+        d.tileSize = src.tileSize;
+        d.playerStartPosX = src.playerStartPosX;
+        d.playerStartPosY = src.playerStartPosY;
+        return d;
+    }
+
+    private static void copyTerrain(World from, World to) {
+        if (from.terrainMap == null || to.terrainMap == null) {
+            return;
+        }
+        for (int x = 0; x < from.terrainMap.length && x < to.terrainMap.length; x++) {
+            System.arraycopy(from.terrainMap[x], 0, to.terrainMap[x], 0,
+                    Math.min(from.terrainMap[x].length, to.terrainMap[x].length));
+        }
+    }
 
     private static PointOfInterestData poiDef(String name, String type, int count) {
         PointOfInterestData d = new PointOfInterestData();

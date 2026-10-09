@@ -5,7 +5,7 @@
     "result": "Bronze Sword",
     "resultType": "item",
     "materials": {
-      "copper": 3,
+      "ore_iron": 3,
       "ash": 1
     },
     "gold": 25,
@@ -62,12 +62,12 @@
     "xp": 45
   },
   {
-    "id": "tool_iron_hatchet",
+    "id": "tool_mithral_hatchet",
     "station": "workshop",
-    "result": "Iron Hatchet",
+    "result": "Mithral Hatchet",
     "resultType": "tool",
     "materials": {
-      "iron": 4,
+      "ore_mithral": 4,
       "oak": 2
     },
     "gold": 40,
@@ -76,12 +76,12 @@
     "xp": 60
   },
   {
-    "id": "tool_mithril_hatchet",
+    "id": "tool_adamant_hatchet",
     "station": "workshop",
-    "result": "Mithril Hatchet",
+    "result": "Adamant Hatchet",
     "resultType": "tool",
     "materials": {
-      "mithril": 4,
+      "ore_adamant": 4,
       "willow": 3
     },
     "gold": 120,
@@ -90,12 +90,12 @@
     "xp": 120
   },
   {
-    "id": "tool_adamant_hatchet",
+    "id": "tool_rune_hatchet",
     "station": "workshop",
-    "result": "Adamant Hatchet",
+    "result": "Rune Hatchet",
     "resultType": "tool",
     "materials": {
-      "adamant": 4,
+      "ore_rune": 4,
       "yew": 3
     },
     "gold": 300,
@@ -104,12 +104,12 @@
     "xp": 200
   },
   {
-    "id": "tool_iron_pickaxe",
+    "id": "tool_mithral_pickaxe",
     "station": "forge",
-    "result": "Iron Pickaxe",
+    "result": "Mithral Pickaxe",
     "resultType": "tool",
     "materials": {
-      "iron": 5,
+      "ore_mithral": 5,
       "ash": 2
     },
     "gold": 40,
@@ -118,12 +118,12 @@
     "xp": 60
   },
   {
-    "id": "tool_mithril_pickaxe",
+    "id": "tool_adamant_pickaxe",
     "station": "forge",
-    "result": "Mithril Pickaxe",
+    "result": "Adamant Pickaxe",
     "resultType": "tool",
     "materials": {
-      "mithril": 5,
+      "ore_adamant": 5,
       "charcoal": 3
     },
     "gold": 120,
@@ -132,12 +132,12 @@
     "xp": 120
   },
   {
-    "id": "tool_adamant_pickaxe",
+    "id": "tool_rune_pickaxe",
     "station": "forge",
-    "result": "Adamant Pickaxe",
+    "result": "Rune Pickaxe",
     "resultType": "tool",
     "materials": {
-      "adamant": 5,
+      "ore_rune": 5,
       "brimstone": 3
     },
     "gold": 300,
@@ -146,12 +146,12 @@
     "xp": 200
   },
   {
-    "id": "tool_iron_chisel",
+    "id": "tool_mithral_chisel",
     "station": "forge",
-    "result": "Iron Chisel",
+    "result": "Mithral Chisel",
     "resultType": "tool",
     "materials": {
-      "iron": 4,
+      "ore_mithral": 4,
       "marble": 2
     },
     "gold": 40,
@@ -160,12 +160,12 @@
     "xp": 60
   },
   {
-    "id": "tool_mithril_chisel",
+    "id": "tool_adamant_chisel",
     "station": "forge",
-    "result": "Mithril Chisel",
+    "result": "Adamant Chisel",
     "resultType": "tool",
     "materials": {
-      "mithril": 4,
+      "ore_adamant": 4,
       "sunstone": 2
     },
     "gold": 120,
@@ -174,12 +174,12 @@
     "xp": 120
   },
   {
-    "id": "tool_adamant_chisel",
+    "id": "tool_rune_chisel",
     "station": "forge",
-    "result": "Adamant Chisel",
+    "result": "Rune Chisel",
     "resultType": "tool",
     "materials": {
-      "adamant": 4,
+      "ore_rune": 4,
       "starstone": 2
     },
     "gold": 300,
@@ -188,12 +188,12 @@
     "xp": 200
   },
   {
-    "id": "tool_iron_sickle",
+    "id": "tool_mithral_sickle",
     "station": "workshop",
-    "result": "Iron Sickle",
+    "result": "Mithral Sickle",
     "resultType": "tool",
     "materials": {
-      "iron": 3,
+      "ore_mithral": 3,
       "wild_herbs": 4
     },
     "gold": 40,
@@ -202,12 +202,12 @@
     "xp": 60
   },
   {
-    "id": "tool_mithril_sickle",
+    "id": "tool_adamant_sickle",
     "station": "workshop",
-    "result": "Mithril Sickle",
+    "result": "Adamant Sickle",
     "resultType": "tool",
     "materials": {
-      "mithril": 3,
+      "ore_adamant": 3,
       "tree_sap": 4
     },
     "gold": 120,
@@ -216,12 +216,12 @@
     "xp": 120
   },
   {
-    "id": "tool_adamant_sickle",
+    "id": "tool_rune_sickle",
     "station": "workshop",
-    "result": "Adamant Sickle",
+    "result": "Rune Sickle",
     "resultType": "tool",
     "materials": {
-      "adamant": 3,
+      "ore_rune": 3,
       "elder_seeds": 4
     },
     "gold": 300,
@@ -230,12 +230,12 @@
     "xp": 200
   },
   {
-    "id": "tool_iron_probe",
+    "id": "tool_mithral_probe",
     "station": "jeweler",
-    "result": "Iron Probe",
+    "result": "Mithral Probe",
     "resultType": "tool",
     "materials": {
-      "iron": 3,
+      "ore_mithral": 3,
       "glacier_ice": 3
     },
     "gold": 40,
@@ -244,12 +244,12 @@
     "xp": 60
   },
   {
-    "id": "tool_mithril_probe",
+    "id": "tool_adamant_probe",
     "station": "jeweler",
-    "result": "Mithril Probe",
+    "result": "Adamant Probe",
     "resultType": "tool",
     "materials": {
-      "mithril": 3,
+      "ore_adamant": 3,
       "purified_water": 3
     },
     "gold": 120,
@@ -258,12 +258,12 @@
     "xp": 120
   },
   {
-    "id": "tool_adamant_probe",
+    "id": "tool_rune_probe",
     "station": "jeweler",
-    "result": "Adamant Probe",
+    "result": "Rune Probe",
     "resultType": "tool",
     "materials": {
-      "adamant": 3,
+      "ore_rune": 3,
       "elemental_water": 3
     },
     "gold": 300,
@@ -272,12 +272,12 @@
     "xp": 200
   },
   {
-    "id": "tool_iron_spanner",
+    "id": "tool_mithral_spanner",
     "station": "forge",
-    "result": "Iron Spanner",
+    "result": "Mithral Spanner",
     "resultType": "tool",
     "materials": {
-      "iron": 4,
+      "ore_mithral": 4,
       "scrap": 4
     },
     "gold": 40,
@@ -286,12 +286,12 @@
     "xp": 60
   },
   {
-    "id": "tool_mithril_spanner",
+    "id": "tool_adamant_spanner",
     "station": "forge",
-    "result": "Mithril Spanner",
+    "result": "Adamant Spanner",
     "resultType": "tool",
     "materials": {
-      "mithril": 4,
+      "ore_adamant": 4,
       "brass_gears": 3
     },
     "gold": 120,
@@ -300,12 +300,12 @@
     "xp": 120
   },
   {
-    "id": "tool_adamant_spanner",
+    "id": "tool_rune_spanner",
     "station": "forge",
-    "result": "Adamant Spanner",
+    "result": "Rune Spanner",
     "resultType": "tool",
     "materials": {
-      "adamant": 4,
+      "ore_rune": 4,
       "thran_parts": 3
     },
     "gold": 300,
@@ -321,7 +321,7 @@
     "methodId": "woodcutting_felling_axe",
     "materials": {
       "oak": 20,
-      "iron": 5
+      "ore_mithral": 5
     },
     "gold": 80,
     "skill": "Woodworking",
@@ -336,7 +336,7 @@
     "methodId": "woodcutting_lumber_crew",
     "materials": {
       "yew": 25,
-      "mithril": 6
+      "ore_adamant": 6
     },
     "gold": 200,
     "skill": "Woodworking",
@@ -350,7 +350,7 @@
     "resultType": "method",
     "methodId": "mining_drill",
     "materials": {
-      "iron": 20,
+      "ore_mithral": 20,
       "brass_gears": 4
     },
     "gold": 80,
@@ -366,7 +366,7 @@
     "methodId": "mining_blasting_charge",
     "materials": {
       "brimstone": 20,
-      "mithril": 6
+      "ore_adamant": 6
     },
     "gold": 200,
     "skill": "Smithing",
@@ -381,7 +381,7 @@
     "methodId": "quarrying_stonecutter",
     "materials": {
       "marble": 20,
-      "iron": 5
+      "ore_mithral": 5
     },
     "gold": 80,
     "skill": "Smithing",
@@ -396,7 +396,7 @@
     "methodId": "quarrying_consecrated",
     "materials": {
       "sunstone": 20,
-      "mithril": 6
+      "ore_adamant": 6
     },
     "gold": 200,
     "skill": "Smithing",
@@ -471,7 +471,7 @@
     "methodId": "salvaging_magnet",
     "materials": {
       "scrap": 25,
-      "iron": 5
+      "ore_mithral": 5
     },
     "gold": 80,
     "skill": "Smithing",
@@ -486,7 +486,7 @@
     "methodId": "salvaging_thran_scanner",
     "materials": {
       "thran_parts": 12,
-      "mithril": 6
+      "ore_adamant": 6
     },
     "gold": 200,
     "skill": "Smithing",
@@ -518,7 +518,7 @@
     "toolFamily": "ore",
     "materials": {
       "garnet": 1,
-      "copper": 5
+      "ore_iron": 5
     },
     "gold": 60,
     "skill": "Jewelcrafting",
@@ -550,7 +550,7 @@
     "toolFamily": "ore",
     "materials": {
       "sapphire": 1,
-      "iron": 5
+      "ore_mithral": 5
     },
     "gold": 80,
     "skill": "Jewelcrafting",
@@ -643,7 +643,7 @@
     "materials": {
       "willow": 12,
       "hide": 8,
-      "iron": 4
+      "ore_mithral": 4
     },
     "gold": 200,
     "skill": "Woodworking",
@@ -671,7 +671,7 @@
     "resultType": "item",
     "materials": {
       "hide": 4,
-      "copper": 4
+      "ore_iron": 4
     },
     "gold": 50,
     "skill": "Jewelcrafting",

@@ -49,8 +49,17 @@ public final class ModernDuelGestures {
         return Math.abs(dy) > Math.abs(dx);
     }
 
-    /** Touch input must not draw the gamepad focus arrow. */
-    public static boolean shouldDrawPadFocusArrow(final boolean touchInputActive) {
-        return !touchInputActive;
+    /**
+     * Pad amber targeting arrow: only after real pad input, and never while touch is driving.
+     * Prevents a stray amber arrow at match start before any input.
+     */
+    public static boolean shouldDrawPadFocusArrow(final boolean touchInputActive,
+                                                  final boolean padInputSeen) {
+        return !touchInputActive && padInputSeen;
+    }
+
+    /** Double-tap zooms a hand card (long-press peeks instead of stock zoom). */
+    public static boolean shouldZoomOnDoubleTap(final boolean modernEnabled, final int tapCount) {
+        return modernEnabled && tapCount > 1;
     }
 }

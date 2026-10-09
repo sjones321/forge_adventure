@@ -1012,13 +1012,15 @@ public final class CoopSession {
                 World staging = new World();
                 try {
                     // Rebuild into a staging world first — never overwrite sessionWorld on mismatch.
-                    final String localHash = CoopWorldSync.rebuildFromSeed(staging, offer.getWorldSeed(), worldPath);
+                    final String offerPlaneId = offer.getWorldPlaneId() != null && !offer.getWorldPlaneId().isEmpty()
+                            ? offer.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                    final String localHash = CoopWorldSync.rebuildFromSeed(
+                            staging, offer.getWorldSeed(), worldPath, offerPlaneId);
                     if (CoopWorldHash.matches(localHash, offer.getWorldHash())) {
                         final World previous = sessionWorld;
                         sessionWorld = staging;
                         worldHash = localHash;
-                        guestWorldPlaneId = offer.getWorldPlaneId() != null && !offer.getWorldPlaneId().isEmpty()
-                                ? offer.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                        guestWorldPlaneId = offerPlaneId;
                         if (previous != null && previous != staging) {
                             try {
                                 previous.dispose();
@@ -1067,7 +1069,10 @@ public final class CoopSession {
             runWorldOpOnGl(loadingMsg, () -> {
                 World staging = new World();
                 try {
-                    final String localHash = CoopWorldSync.rebuildFromSeed(staging, event.getWorldSeed(), worldPath);
+                    final String switchPlaneId = event.getWorldPlaneId() != null && !event.getWorldPlaneId().isEmpty()
+                            ? event.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                    final String localHash = CoopWorldSync.rebuildFromSeed(
+                            staging, event.getWorldSeed(), worldPath, switchPlaneId);
                     if (!CoopWorldHash.matches(localHash, event.getWorldHash())) {
                         try {
                             staging.dispose();
@@ -1079,8 +1084,7 @@ public final class CoopSession {
                     final World previous = sessionWorld;
                     sessionWorld = staging;
                     worldHash = localHash;
-                    guestWorldPlaneId = event.getWorldPlaneId() != null && !event.getWorldPlaneId().isEmpty()
-                            ? event.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                    guestWorldPlaneId = switchPlaneId;
                     if (previous != null && previous != staging) {
                         try {
                             previous.dispose();

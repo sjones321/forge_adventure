@@ -1,0 +1,20 @@
+resource_nodes.png
+size: 64,128
+format: RGBA8888
+filter: Nearest,Nearest
+repeat: none
+ore_iron
+  xy: 0, 16
+  size: 16, 16
+ore_mithral
+  xy: 16, 16
+  size: 16, 16
+ore_adamant
+  xy: 32, 16
+  size: 16, 16
+ore_rune
+  xy: 48, 16
+  size: 16, 16
+Idle
+  xy: 0, 16
+  size: 16, 16

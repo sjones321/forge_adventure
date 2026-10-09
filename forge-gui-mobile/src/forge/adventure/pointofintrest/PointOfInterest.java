@@ -89,19 +89,30 @@ public class PointOfInterest implements Serializable, SaveFileContent {
     public PointOfInterest() {
     }
     public PointOfInterest(PointOfInterestData d, Vector2 pos, Random rand) {
-        Array<Sprite> textureAtlas = Config.instance().getPOISprites(d);
-        if (textureAtlas.isEmpty()) {
-            System.out.print("sprite " + d.sprite + " not found");
-        }
-        spriteIndex = rand.nextInt(Integer.SIZE - 1) % textureAtlas.size;
-        sprite = textureAtlas.get(spriteIndex);
         data = d;
-        active = d.active;
-        targetPlane = d.targetPlane != null ? d.targetPlane : "";
+        active = d == null || d.active;
+        targetPlane = d != null && d.targetPlane != null ? d.targetPlane : "";
         position.set(pos);
-        questFlagsToActivate.addAll(Arrays.asList(data.questFlagsToActivate));
-
-        rectangle.set(position.x, position.y, sprite.getWidth(), sprite.getHeight());
+        if (data != null && data.questFlagsToActivate != null) {
+            questFlagsToActivate.addAll(Arrays.asList(data.questFlagsToActivate));
+        }
+        float rw = 16f;
+        float rh = 16f;
+        try {
+            Array<Sprite> textureAtlas = Config.instance().getPOISprites(d);
+            if (textureAtlas != null && textureAtlas.size > 0) {
+                spriteIndex = rand.nextInt(Integer.SIZE - 1) % textureAtlas.size;
+                sprite = textureAtlas.get(spriteIndex);
+                rw = sprite.getWidth();
+                rh = sprite.getHeight();
+            } else if (d != null) {
+                System.out.print("sprite " + d.sprite + " not found");
+            }
+        } catch (Throwable t) {
+            // Headless / missing atlas — geometry still valid for placement and save.
+            spriteIndex = 0;
+        }
+        rectangle.set(position.x, position.y, rw, rh);
     }
     public PointOfInterest(PointOfInterestData d, PointOfInterest parent) {
         spriteIndex = parent.spriteIndex;

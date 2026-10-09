@@ -34,7 +34,7 @@ public final class PlanarPortalPlacer {
     }
 
     public static int ensureHomePortals(World world, StandardWindow window, long seed, MultiverseState multi) {
-        if (!Config.ascendant() || world == null) {
+        if (world == null || !ascendantGatesEnabled()) {
             return 0;
         }
         SetPlaneGenerator.ensurePlanarGateRegistered();
@@ -103,7 +103,7 @@ public final class PlanarPortalPlacer {
 
     /** On a generated set plane, ensure a return portal to home exists. */
     public static int ensureReturnPortal(World world, String setCode, long seed) {
-        if (!Config.ascendant() || world == null) {
+        if (world == null || !ascendantGatesEnabled()) {
             return 0;
         }
         SetPlaneGenerator.ensurePlanarGateRegistered();
@@ -135,7 +135,7 @@ public final class PlanarPortalPlacer {
      * is loaded / switched to.
      */
     public static void onSetUnlocked(WorldSave save, String setCode) {
-        if (!Config.ascendant() || save == null || setCode == null || setCode.isEmpty()) {
+        if (save == null || setCode == null || setCode.isEmpty() || !ascendantGatesEnabled()) {
             return;
         }
         if (StandardWindow.CORE_COLLECTION.equalsIgnoreCase(setCode)
@@ -165,7 +165,7 @@ public final class PlanarPortalPlacer {
      * and pending mastery gates.
      */
     public static int ensureMissingGatesOnLoad(WorldSave save) {
-        if (!Config.ascendant() || save == null || save.getWorld() == null) {
+        if (save == null || save.getWorld() == null || !ascendantGatesEnabled()) {
             return 0;
         }
         SetPlaneGenerator.ensurePlanarGateRegistered();
@@ -290,6 +290,15 @@ public final class PlanarPortalPlacer {
         }
     }
 
+    /** Ascendant gates; true in headless when Config is unavailable so co-op hash tests can run. */
+    private static boolean ascendantGatesEnabled() {
+        try {
+            return Config.ascendant();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     private static PointOfInterestData copyGate(PointOfInterestData template, String targetPlane, String display) {
         PointOfInterestData gate = new PointOfInterestData(template);
         gate.name = SetPlaneGenerator.PLANAR_GATE_POI;
@@ -300,7 +309,7 @@ public final class PlanarPortalPlacer {
         return gate;
     }
 
-    static Set<String> existingPortalTargets(World world) {
+    public static Set<String> existingPortalTargets(World world) {
         Set<String> out = new HashSet<>();
         if (world == null) {
             return out;

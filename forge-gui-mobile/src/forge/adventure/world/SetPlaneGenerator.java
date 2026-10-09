@@ -107,19 +107,26 @@ public final class SetPlaneGenerator {
 
         SetColorBalance bal = balance != null ? balance : SetColorBalance.equal();
         applyBiomeMix(data, bal);
-        try {
-            scalePoiCountsForShrunkBiomes(data, size);
-        } catch (Throwable t) {
-            // Headless / missing POI JSON — size and biome mix still apply.
-        }
-        applyThemedTownNames(data, setCode, rng);
-        int maxRestarts = cfg != null ? Math.max(1, cfg.setPlaneMaxPlacementRestarts) : 8;
-        data.maxPoiPlacementRestarts = maxRestarts;
+        // Inject PlanarGate into biome POI names before scaling freezes the list.
         try {
             injectPlanarGatePoi(data, PlaneMeta.HOME_ID, "Portal to Home");
         } catch (Throwable t) {
             // Headless / missing Config — biome mix and town names still apply.
         }
+        try {
+            scalePoiCountsForShrunkBiomes(data, size);
+        } catch (Throwable t) {
+            // Headless / missing POI JSON — size and biome mix still apply.
+        }
+        // Re-inject after freeze so the gate is present in the scaled POI list.
+        try {
+            injectPlanarGatePoi(data, PlaneMeta.HOME_ID, "Portal to Home");
+        } catch (Throwable t) {
+            // ignore
+        }
+        applyThemedTownNames(data, setCode, rng);
+        int maxRestarts = cfg != null ? Math.max(1, cfg.setPlaneMaxPlacementRestarts) : 8;
+        data.maxPoiPlacementRestarts = maxRestarts;
         return data;
     }
 
@@ -236,11 +243,26 @@ public final class SetPlaneGenerator {
         names.addAll(unique);
     }
 
-    /** Ensure each color biome lists a PlanarGate POI aimed at {@code targetPlaneId}. */
+    /**
+     * Ensure a color biome lists a PlanarGate POI aimed at {@code targetPlaneId}.
+     * Updates both the name array and any frozen {@link BiomeData} POI list so
+     * generation actually places the gate after {@link #scalePoiCountsForShrunkBiomes}.
+     */
     public static void injectPlanarGatePoi(WorldData data, String targetPlaneId, String displayName) {
         if (data == null) {
             return;
         }
+        PointOfInterestData gate = ensurePlanarGateData(targetPlaneId, displayName);
+        if (gate == null) {
+            return;
+        }
+        PointOfInterestData instance = new PointOfInterestData(gate);
+        instance.name = PLANAR_GATE_POI;
+        instance.count = 1;
+        instance.type = "planar_gate";
+        instance.targetPlane = targetPlaneId != null ? targetPlaneId : PlaneMeta.HOME_ID;
+        instance.displayName = displayName != null ? displayName : "Planar Gate";
+
         List<BiomeData> biomes = data.GetBiomes();
         if (biomes == null || biomes.isEmpty()) {
             return;
@@ -250,21 +272,42 @@ public final class SetPlaneGenerator {
             if (biome == null || "base".equalsIgnoreCase(biome.name)) {
                 continue;
             }
-            String[] pois = biome.pointsOfInterest;
-            ArrayList<String> list = new ArrayList<>();
-            if (pois != null) {
-                for (String p : pois) {
-                    list.add(p);
+            biome.ensurePointOfInterest(instance);
+            return;
+        }
+    }
+
+    /** True when any biome's frozen POI list or name array contains PlanarGate. */
+    public static boolean hasInjectedPlanarGate(WorldData data) {
+        if (data == null) {
+            return false;
+        }
+        List<BiomeData> biomes = data.GetBiomes();
+        if (biomes == null) {
+            return false;
+        }
+        for (BiomeData biome : biomes) {
+            if (biome == null) {
+                continue;
+            }
+            if (biome.pointsOfInterest != null) {
+                for (String n : biome.pointsOfInterest) {
+                    if (PLANAR_GATE_POI.equals(n)) {
+                        return true;
+                    }
                 }
             }
-            if (!list.contains(PLANAR_GATE_POI)) {
-                list.add(0, PLANAR_GATE_POI);
+            try {
+                for (PointOfInterestData p : biome.getPointsOfInterest()) {
+                    if (p != null && PLANAR_GATE_POI.equals(p.name)) {
+                        return true;
+                    }
+                }
+            } catch (Throwable ignored) {
+                // headless
             }
-            biome.pointsOfInterest = list.toArray(new String[0]);
-            // Only need one biome to carry the gate for placement count.
-            break;
         }
-        ensurePlanarGateData(targetPlaneId, displayName);
+        return false;
     }
 
     /**

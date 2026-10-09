@@ -226,6 +226,18 @@ public final class SetPlaneRules {
     }
 
     /**
+     * User-facing message when {@link #chargePortalGold} fails. Never null/empty —
+     * callers can pass the result straight to HUD / console.
+     */
+    public static String paymentFailureMessage(String planeId, AdventurePlayer player) {
+        String err = checkTravel(planeId, player, false);
+        if (err != null && !err.isEmpty()) {
+            return err;
+        }
+        return "Cannot planeswalk — payment failed.";
+    }
+
+    /**
      * Build a {@code $generate} enemy deck restricted to {@code setCode}.
      * Uses a local {@link Random} and temporarily swaps {@link MyRandom} only —
      * never reseeds the shared world RNG.
@@ -284,7 +296,8 @@ public final class SetPlaneRules {
                 sanitizeToSet(deck, code);
             }
             // Tiny / empty set → fall back to unrestricted generate so decks stay playable.
-            if (deck.getMain().countAll() < MIN_SET_POOL_SIZE && edition != null) {
+            // Count excludes basic lands (basics alone must not satisfy the pool floor).
+            if (countNonBasicCards(deck) < MIN_SET_POOL_SIZE && edition != null) {
                 try {
                     deck = CardUtil.generateDeck(data, null, true);
                 } catch (Throwable e) {
@@ -355,7 +368,7 @@ public final class SetPlaneRules {
             if (!setCode.equalsIgnoreCase(pc.getEdition())) {
                 continue;
             }
-            if (pc.getRules() != null && pc.getRules().getType().isBasicLand()) {
+            if (isBasicLand(pc)) {
                 continue;
             }
             n++;
@@ -364,6 +377,29 @@ public final class SetPlaneRules {
             }
         }
         return false;
+    }
+
+    /** Non-basic card count in a deck's mainboard (basics do not count toward the small-set floor). */
+    public static int countNonBasicCards(Deck deck) {
+        if (deck == null || deck.getMain() == null) {
+            return 0;
+        }
+        int n = 0;
+        for (PaperCard pc : deck.getMain().toFlatList()) {
+            if (pc == null || isBasicLand(pc)) {
+                continue;
+            }
+            n++;
+        }
+        return n;
+    }
+
+    public static boolean isBasicLand(PaperCard pc) {
+        try {
+            return pc != null && pc.getRules() != null && pc.getRules().getType().isBasicLand();
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /** Filter a card pool to printings of {@code setCode}. */

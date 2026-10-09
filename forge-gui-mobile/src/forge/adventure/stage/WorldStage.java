@@ -546,6 +546,14 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
     /** @return true if the POI map loaded and became the active scene. */
     public boolean loadPOI(PointOfInterest poi) {
+        // FT1 co-op: guests are kept out of the host's fortress (no structure sync /
+        // protocol bump). Simpler correct option until CO4.
+        if (forge.adventure.fortress.FortressService.isFortressPoi(poi)
+                && !forge.adventure.fortress.FortressService.get().guestMayEnterFortress()) {
+            GameHUD.getInstance().addNotification(
+                    forge.adventure.fortress.FortressService.get().guestFortressDeniedMessage());
+            return false;
+        }
         try {
             stop();
             TileMapScene.instance().load(poi);
@@ -1397,7 +1405,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 if (nTimeouts != null && nMats != null && nX != null && nY != null) {
                     int n = Math.min(Math.min(nTimeouts.size(), nMats.size()), Math.min(nX.size(), nY.size()));
                     for (int i = 0; i < n; i++) {
-                        String matId = nMats.get(i); // nodes only exist in saves made after the color-line rename
+                        // Schema 3 ore-line ids (idempotent for already-migrated saves).
+                        String matId = MaterialListData.migrateOreLineMaterialId(nMats.get(i));
                         MaterialData mat = MaterialListData.get(matId);
                         if (mat == null)
                             continue;
