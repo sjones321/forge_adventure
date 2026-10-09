@@ -766,11 +766,10 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsExactlyEightForMv2() {
-        // CO3=6; MV1 plane-follow=7; MV2 live hash + host gate list + mv2SetCode=8.
-        // Assert exact equality (not >= 8): TR1 (#27) will take 9 when it rebases onto MV2;
-        // a soft lower-bound would let that collision pass silently.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 8);
+    public void protocolVersionIsExactlyNineForTr1() {
+        // CO3=6; MV1=7; MV2 live hash + host gate list + mv2SetCode=8; TR1 trade=9.
+        // Exact equality only — do not use >= or a later bump can pass silently.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
     }
 
     private static long[][] sampleBiome(final int n) {

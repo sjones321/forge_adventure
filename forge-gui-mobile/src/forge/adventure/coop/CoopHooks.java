@@ -23,6 +23,15 @@ import forge.gamemodes.net.event.coop.CoopPartyInviteEvent;
 import forge.gamemodes.net.event.coop.CoopPartyResponseEvent;
 import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
+import forge.gamemodes.net.event.coop.CoopTradeCancelEvent;
+import forge.gamemodes.net.event.coop.CoopTradeConfirmEvent;
+import forge.gamemodes.net.event.coop.CoopTradeDeliveredEvent;
+import forge.gamemodes.net.event.coop.CoopTradeEscrowedEvent;
+import forge.gamemodes.net.event.coop.CoopTradeInviteEvent;
+import forge.gamemodes.net.event.coop.CoopTradeOfferEvent;
+import forge.gamemodes.net.event.coop.CoopTradeReconcileEvent;
+import forge.gamemodes.net.event.coop.CoopTradeRequestEvent;
+import forge.gamemodes.net.event.coop.CoopTradeResponseEvent;
 
 /**
  * Extension points for CO2 (shared overworld) and CO3 (co-op duels).
@@ -87,6 +96,35 @@ public final class CoopHooks {
         }
 
         default void onHostPresence(CoopHostPresenceEvent event) {
+        }
+
+        // ---- TR1 player trading ----
+
+        default void onTradeRequest(CoopTradeRequestEvent event) {
+        }
+
+        default void onTradeInvite(CoopTradeInviteEvent event) {
+        }
+
+        default void onTradeResponse(CoopTradeResponseEvent event) {
+        }
+
+        default void onTradeOffer(CoopTradeOfferEvent event) {
+        }
+
+        default void onTradeConfirm(CoopTradeConfirmEvent event) {
+        }
+
+        default void onTradeCancel(CoopTradeCancelEvent event) {
+        }
+
+        default void onTradeEscrowed(CoopTradeEscrowedEvent event) {
+        }
+
+        default void onTradeDelivered(CoopTradeDeliveredEvent event) {
+        }
+
+        default void onTradeReconcile(CoopTradeReconcileEvent event) {
         }
 
         default void onOverworldMessage(NetEvent event) {

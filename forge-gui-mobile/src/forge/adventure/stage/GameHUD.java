@@ -92,7 +92,7 @@ public class GameHUD extends Stage {
     private final Image miniMap, gamehud, mapborder, avatarborder, blank;
     private final InputEvent eventTouchDown, eventTouchUp;
     private final TextraButton deckActor, openMapActor, menuActor, logbookActor, inventoryActor, exitToWorldMapActor, bookmarkActor;
-    private enum CoopDialogKind { NONE, PARTY_INVITE, LOCATION_INVITE, PARTY_LEAVE, JOIN_FIGHT, EXIT_DUNGEON }
+    private enum CoopDialogKind { NONE, PARTY_INVITE, LOCATION_INVITE, PARTY_LEAVE, JOIN_FIGHT, TRADE_INVITE, EXIT_DUNGEON }
     private CoopDialogKind coopDialogKind = CoopDialogKind.NONE;
     private String lastPartyStatusText = "";
     /** Index into dialogButtonMap for left/right focus on side-by-side party/co-op buttons. */
@@ -1030,7 +1030,8 @@ public class GameHUD extends Stage {
                     && (coopDialogKind == CoopDialogKind.PARTY_INVITE
                     || coopDialogKind == CoopDialogKind.LOCATION_INVITE
                     || coopDialogKind == CoopDialogKind.PARTY_LEAVE
-                    || coopDialogKind == CoopDialogKind.JOIN_FIGHT)) {
+                    || coopDialogKind == CoopDialogKind.JOIN_FIGHT
+                    || coopDialogKind == CoopDialogKind.TRADE_INVITE)) {
                 performTouch(dialogButtonMap.get(1));
                 return true;
             }
@@ -1336,7 +1337,24 @@ public class GameHUD extends Stage {
             case PARTY: {
                 final String name = CoopWireLimits.clampString(party.getPartnerName(),
                         CoopWireLimits.MAX_PLAYER_NAME_LEN);
-                statusText = "[%90]Party with " + (name.isEmpty() ? "partner" : name);
+                String base = "[%90]Party with " + (name.isEmpty() ? "partner" : name);
+                // TR1: surface pending escrows on the party status line.
+                try {
+                    final java.util.List<forge.gamemodes.net.coop.CoopTradeLog.Entry> pending =
+                            forge.adventure.coop.CoopTradeRuntime.get().pendingEscrows();
+                    if (pending != null && !pending.isEmpty()) {
+                        final StringBuilder sb = new StringBuilder(base).append('\n')
+                                .append("[%80]Pending trades:");
+                        for (final forge.gamemodes.net.coop.CoopTradeLog.Entry e : pending) {
+                            sb.append('\n').append("[%75]")
+                                    .append(e.phase.name()).append(" ↔ ")
+                                    .append(e.peerCharacterId.isEmpty() ? "?" : e.peerCharacterId);
+                        }
+                        base = sb.toString();
+                    }
+                } catch (final Exception ignored) {
+                }
+                statusText = base;
                 buttonText = "[%100]Leave";
                 buttonDisabled = false;
                 break;
@@ -1381,13 +1399,46 @@ public class GameHUD extends Stage {
             return;
         final CoopPartyState party = CoopOverworldRuntime.get().getParty();
         if (party.inParty()) {
-            showLeavePartyConfirm();
+            showPartyActionsMenu();
             return;
         }
         if (party.getStatus() == CoopPartyState.Status.SOLO) {
             CoopOverworldRuntime.get().inviteParty();
             refreshCoopPartyHud();
         }
+    }
+
+    /** In-party: Trade / Leave / Cancel (TR1 + CO2). Never replaces exit-dungeon. */
+    private void showPartyActionsMenu() {
+        if (console.isVisible())
+            return;
+        if (dialogOnlyInput)
+            return;
+        dialog.getButtonTable().clear();
+        dialog.getContentTable().clear();
+        dialog.clearListeners();
+        coopDialogKind = CoopDialogKind.PARTY_LEAVE;
+        TextraButton trade = Controls.newTextButton("Trade", () -> {
+            hideCoopInviteDialog();
+            try {
+                forge.adventure.coop.CoopTradeRuntime.get().inviteTrade();
+            } catch (final Exception ignored) {
+            }
+        });
+        TextraButton leave = Controls.newTextButton("Leave", () -> {
+            hideCoopInviteDialog();
+            leavePartyFromUi();
+        });
+        TextraButton cancel = Controls.newTextButton("Cancel", this::hideCoopInviteDialog);
+        TypingLabel label = Controls.newTypingLabel("Party actions");
+        label.setWrap(true);
+        label.skipToTheEnd();
+        dialog.getButtonTable().add(trade).width(70f);
+        dialog.getButtonTable().add(leave).width(70f);
+        dialog.getButtonTable().add(cancel).width(70f);
+        dialog.getContentTable().add(label).width(200f);
+        dialog.setKeepWithinStage(true);
+        showDialog();
     }
 
     public void showCoopPartyInviteDialog(String fromPlayer) {
@@ -1419,6 +1470,14 @@ public class GameHUD extends Stage {
                 + (enc.isEmpty() ? "" : " (" + enc + ")") + ". Join?";
         enqueueOrShowCoopDialog(CoopDialogKind.JOIN_FIGHT, msg,
                 this::acceptJoinFightFromUi, this::declineJoinFightFromUi);
+    }
+
+    /** TR1 trade invite — queued with party/location/join-fight; never replaces exit-dungeon. */
+    public void showCoopTradeInviteDialog(String fromPlayer) {
+        final String from = CoopWireLimits.clampString(fromPlayer, CoopWireLimits.MAX_PLAYER_NAME_LEN);
+        enqueueOrShowCoopDialog(CoopDialogKind.TRADE_INVITE,
+                from + " wants to trade.",
+                this::acceptTradeInviteFromUi, this::declineTradeInviteFromUi);
     }
 
     /** @deprecated use {@link #showCoopJoinFightDialog(String, String)}; runnables ignored. */
@@ -1525,6 +1584,11 @@ public class GameHUD extends Stage {
                                 + (next.detail.isEmpty() ? "" : " (" + next.detail + ")") + ". Join?",
                         this::acceptJoinFightFromUi, this::declineJoinFightFromUi);
                 break;
+            case TRADE:
+                showCoopChoiceDialogNow(CoopDialogKind.TRADE_INVITE,
+                        next.from + " wants to trade.",
+                        this::acceptTradeInviteFromUi, this::declineTradeInviteFromUi);
+                break;
             default:
                 break;
         }
@@ -1567,6 +1631,20 @@ public class GameHUD extends Stage {
     private void leavePartyFromUi() {
         CoopOverworldRuntime.get().leaveParty();
         refreshCoopPartyHud();
+    }
+
+    private void acceptTradeInviteFromUi() {
+        try {
+            forge.adventure.coop.CoopTradeRuntime.get().acceptTradeInvite();
+        } catch (final Exception ignored) {
+        }
+    }
+
+    private void declineTradeInviteFromUi() {
+        try {
+            forge.adventure.coop.CoopTradeRuntime.get().declineTradeInvite();
+        } catch (final Exception ignored) {
+        }
     }
 
     public Batch getBatch() {

@@ -21,7 +21,16 @@
  * match itself uses {@link forge.gamemodes.net.coop.CoopPorts#GAME_PORT} via
  * {@code FServerManager} / {@code FGameClient}, started only for co-op duels.
  *
+ * <p>TR1 player trading (request / invite / response / offer / confirm / cancel /
+ * escrowed / delivered / reconcile) also travels the overworld port. Offers are
+ * plain data ({@link forge.gamemodes.net.coop.CoopTradeOffer}) — never
+ * {@code PaperCard} or {@code ItemData} graphs. Forward-only escrow: each side
+ * removes only its own offer, then delivers the peer offer after receiving
+ * escrowed(id). Peers are identified by
+ * {@link forge.gamemodes.net.coop.CoopTradeRole}.
+ *
  * <p>Protocol: CO2 is 5; CO3 is 6; MV1 plane-follow ({@link CoopPlaneSwitchEvent}) is 7;
- * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8.
+ * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8;
+ * TR1 trade is 9.
  */
 package forge.gamemodes.net.event.coop;

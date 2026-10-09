@@ -1,0 +1,125 @@
+{
+  "width": 480,
+  "height": 270,
+  "yDown": true,
+  "elements": [
+    {
+      "type": "Image",
+      "image": "ui/spellsmith.png",
+      "width": 480,
+      "height": 270
+    },
+    {
+      "type": "Label",
+      "name": "title",
+      "style": "background",
+      "text": "Trade",
+      "x": 180,
+      "y": 4,
+      "width": 120,
+      "height": 20
+    },
+    {
+      "type": "TypingLabel",
+      "name": "status",
+      "style": "background",
+      "text": "Offer items, then both confirm.",
+      "x": 10,
+      "y": 28,
+      "width": 460,
+      "height": 18
+    },
+    {
+      "type": "TypingLabel",
+      "name": "youOffer",
+      "style": "background",
+      "text": "You offer:",
+      "x": 10,
+      "y": 52,
+      "width": 220,
+      "height": 120
+    },
+    {
+      "type": "TypingLabel",
+      "name": "theyOffer",
+      "style": "background",
+      "text": "They offer:",
+      "x": 250,
+      "y": 52,
+      "width": 220,
+      "height": 120
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "addGold",
+      "text": "[%90]+Gold",
+      "binding": "Status",
+      "x": 10,
+      "y": 180,
+      "width": 70,
+      "height": 22
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "addMaterial",
+      "text": "[%90]+Mat",
+      "x": 85,
+      "y": 180,
+      "width": 70,
+      "height": 22
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "addItem",
+      "text": "[%90]+Item",
+      "x": 160,
+      "y": 180,
+      "width": 70,
+      "height": 22
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "clearOffer",
+      "text": "[%90]Clear",
+      "x": 235,
+      "y": 180,
+      "width": 70,
+      "height": 22
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "confirm",
+      "text": "Confirm",
+      "binding": "Use",
+      "x": 180,
+      "y": 220,
+      "width": 90,
+      "height": 28
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "cancel",
+      "text": "Cancel",
+      "binding": "Back",
+      "x": 280,
+      "y": 220,
+      "width": 90,
+      "height": 28
+    },
+    {
+      "type": "Label",
+      "name": "hints",
+      "text": "[%70]A Confirm  B Cancel  Y +Gold  LB/RB cycle bag  DPAD move",
+      "x": 10,
+      "y": 250,
+      "width": 460,
+      "height": 16
+    }
+  ]
+}

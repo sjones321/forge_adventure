@@ -1,0 +1,125 @@
+{
+  "width": 270,
+  "height": 480,
+  "yDown": true,
+  "elements": [
+    {
+      "type": "Image",
+      "image": "ui/spellsmith.png",
+      "width": 270,
+      "height": 480
+    },
+    {
+      "type": "Label",
+      "name": "title",
+      "style": "background",
+      "text": "Trade",
+      "x": 90,
+      "y": 8,
+      "width": 90,
+      "height": 20
+    },
+    {
+      "type": "TypingLabel",
+      "name": "status",
+      "style": "background",
+      "text": "Offer, then both confirm.",
+      "x": 8,
+      "y": 36,
+      "width": 254,
+      "height": 24
+    },
+    {
+      "type": "TypingLabel",
+      "name": "youOffer",
+      "style": "background",
+      "text": "You offer:",
+      "x": 8,
+      "y": 70,
+      "width": 254,
+      "height": 120
+    },
+    {
+      "type": "TypingLabel",
+      "name": "theyOffer",
+      "style": "background",
+      "text": "They offer:",
+      "x": 8,
+      "y": 200,
+      "width": 254,
+      "height": 120
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "addGold",
+      "text": "+Gold",
+      "binding": "Status",
+      "x": 8,
+      "y": 340,
+      "width": 60,
+      "height": 28
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "addMaterial",
+      "text": "+Mat",
+      "x": 72,
+      "y": 340,
+      "width": 60,
+      "height": 28
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "addItem",
+      "text": "+Item",
+      "x": 136,
+      "y": 340,
+      "width": 60,
+      "height": 28
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "clearOffer",
+      "text": "Clear",
+      "x": 200,
+      "y": 340,
+      "width": 60,
+      "height": 28
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "confirm",
+      "text": "Confirm",
+      "binding": "Use",
+      "x": 40,
+      "y": 390,
+      "width": 90,
+      "height": 32
+    },
+    {
+      "type": "TextButton",
+      "selectable": true,
+      "name": "cancel",
+      "text": "Cancel",
+      "binding": "Back",
+      "x": 140,
+      "y": 390,
+      "width": 90,
+      "height": 32
+    },
+    {
+      "type": "Label",
+      "name": "hints",
+      "text": "[%65]A Confirm  B Cancel  Y +Gold",
+      "x": 8,
+      "y": 440,
+      "width": 254,
+      "height": 24
+    }
+  ]
+}

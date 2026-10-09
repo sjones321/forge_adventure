@@ -41,6 +41,21 @@ public class WireClassFilterTest {
             "forge.gamemodes.net.event.coop.CoopGatherRequestEvent",
             "forge.gamemodes.net.event.coop.CoopNodeStateEvent",
             "forge.gamemodes.net.event.coop.CoopLocationInviteEvent",
+            // TR1 player trading (forward-only escrow) — match WireClassFilter.ALLOWED_EXACT
+            "forge.gamemodes.net.event.coop.CoopTradeRequestEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeInviteEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeResponseEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeOfferEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeConfirmEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeCancelEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeEscrowedEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeDeliveredEvent",
+            "forge.gamemodes.net.event.coop.CoopTradeReconcileEvent",
+            "forge.gamemodes.net.coop.CoopTradeOffer",
+            "forge.gamemodes.net.coop.CoopTradeOffer$Line",
+            "forge.gamemodes.net.coop.CoopTradeOffer$CardLine",
+            "forge.gamemodes.net.coop.CoopTradeRole",
+            "forge.gamemodes.net.coop.CoopTradeLog$Phase",
     };
 
     private static final String[] REJECTED = {
