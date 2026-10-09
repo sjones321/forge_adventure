@@ -436,20 +436,6 @@ public class ConfigData {
      */
     public boolean en1LogFallbacks = true;
 
-<<<<<<< HEAD
-    // ---- Ascendant K: formats per plane ----
-
-    /**
-     * Default format for planes (and old saves) with none set. Canonical tokens:
-     * {@code Standard} (Bellwarden), {@code Historic}, {@code Pauper}, {@code Commander}.
-     */
-    public String kDefaultPlaneFormat = "Standard";
-    /**
-     * When true, ordinary overworld fights also require a deck legal in the plane's
-     * format. Default false — only gyms, League and tournaments enforce legality.
-     */
-    public boolean kStrictOverworldLegalDecks = false;
-=======
     // ---- Ascendant EN2: co-op enemy partners ----
 
     /**
@@ -473,6 +459,18 @@ public class ConfigData {
      * Default 1 so a pair is not worth double; tunable.
      */
     public int coopDuelPartnerLootRollsPerPlayer = 1;
->>>>>>> origin/feature/set-start
+
+    // ---- Ascendant K: formats per plane ----
+
+    /**
+     * Default format for planes (and old saves) with none set. Canonical tokens:
+     * {@code Standard} (Bellwarden), {@code Historic}, {@code Pauper}, {@code Commander}.
+     */
+    public String kDefaultPlaneFormat = "Standard";
+    /**
+     * When true, ordinary overworld fights also require a deck legal in the plane's
+     * format. Default false — only gyms, League and tournaments enforce legality.
+     */
+    public boolean kStrictOverworldLegalDecks = false;
 
 }
