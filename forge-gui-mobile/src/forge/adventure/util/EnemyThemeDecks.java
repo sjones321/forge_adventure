@@ -1009,8 +1009,9 @@ public final class EnemyThemeDecks {
                 || theme.creatureTypes.length == 0)
             return false;
         String id = theme.id;
-        // Strict tribal lists + the two creature-type specialty themes.
-        return id.contains("tribal") || "spirit_tempo".equals(id) || "kraken_leviathan".equals(id);
+        // Strict tribal lists + creature-type specialty themes (EN1/EN2).
+        return id.contains("tribal") || "spirit_tempo".equals(id) || "merfolk_tempo".equals(id)
+                || "kraken_leviathan".equals(id) || "serpent_leviathan".equals(id);
     }
 
     public static int countNonLandsAll(Deck deck) {

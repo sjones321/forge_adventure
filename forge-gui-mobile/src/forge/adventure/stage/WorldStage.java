@@ -50,8 +50,37 @@ public class WorldStage extends GameStage implements SaveFileContent {
     /**
      * EN2: how many times to roll {@link EnemySprite#getRewards()} on a win.
      * Default 1; co-op partner kills use the tunable so a pair is not worth double.
+     * {@code 0} is valid. Cleared on win (consume) and on loss.
      */
-    private int pendingLootRolls = 1;
+    private final PendingLootRolls pendingLootRolls = new PendingLootRolls();
+
+    /**
+     * EN2 loot-roll bookkeeping used by {@link #setWinner}. Package-visible shape so
+     * headless tests can exercise the same win/loss rules without constructing a Stage.
+     */
+    public static final class PendingLootRolls {
+        private int pending = 1;
+
+        public void set(final int rolls) {
+            pending = Math.max(0, Math.min(rolls, 8));
+        }
+
+        public int get() {
+            return pending;
+        }
+
+        /** Read and reset to 1. Returns the rolls to apply (0 allowed). */
+        public int consume() {
+            final int rolls = Math.max(0, Math.min(pending, 8));
+            pending = 1;
+            return rolls;
+        }
+
+        /** Loss path: drop any pending co-op loot rolls. */
+        public void clearOnLoss() {
+            pending = 1;
+        }
+    }
     protected Random rand = MyRandom.getRandom();
     WorldBackground background;
     private float spawnDelay = 0;
@@ -449,16 +478,27 @@ public class WorldStage extends GameStage implements SaveFileContent {
         return currentMob;
     }
 
-    /** CO3: pin the encounter enemy before a deferred co-op result path runs. */
-    /** EN2: set loot rolls for the next {@link #setWinner} win path; resets after use. */
+    /**
+     * EN2: set loot rolls for the next {@link #setWinner} win path.
+     * {@code 0} is valid (no loot). Cleared after win or loss.
+     */
     public void setPendingLootRolls(final int rolls) {
-        pendingLootRolls = Math.max(0, Math.min(rolls, 8));
+        pendingLootRolls.set(rolls);
     }
 
     public int getPendingLootRolls() {
-        return pendingLootRolls;
+        return pendingLootRolls.get();
     }
 
+    /**
+     * EN2: read and clear pending loot rolls (0 allowed). Used by the win path;
+     * also callable from tests that exercise the WorldStage loot path without GL.
+     */
+    public int consumePendingLootRolls() {
+        return pendingLootRolls.consume();
+    }
+
+    /** CO3: pin the encounter enemy before a deferred co-op result path runs. */
     public void setCurrentMob(final EnemySprite mob) {
         currentMob = mob;
     }
@@ -495,8 +535,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
                     currentMob.resetCollisionHeight();
                     float deathDuration = currentMob.getActionAnimationDuration(CharacterSprite.AnimationTypes.Death, 0.3f);
                     startPause(deathDuration, () -> {
-                        final int rolls = Math.max(1, pendingLootRolls);
-                        pendingLootRolls = 1;
+                        final int rolls = consumePendingLootRolls();
                         final com.badlogic.gdx.utils.Array<Reward> loot = new com.badlogic.gdx.utils.Array<>();
                         for (int r = 0; r < rolls; r++) {
                             final com.badlogic.gdx.utils.Array<Reward> one = currentMob.getRewards();
@@ -514,6 +553,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
                 }
             }, attackDuration);
         } else {
+            // EN2: clear any pending loot rolls on a loss too.
+            pendingLootRolls.clearOnLoss();
             currentMob.clearCollisionHeight();
             player.setAnimation(CharacterSprite.AnimationTypes.Hit);
             currentMob.setAnimation(CharacterSprite.AnimationTypes.Attack);

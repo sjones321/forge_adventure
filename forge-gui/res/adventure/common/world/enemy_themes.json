@@ -20,14 +20,14 @@
     {
       "id": "merfolk_tempo",
       "tags": ["Merfolk"],
-      "colors": ["blue"],
+      "colors": ["blue", "green"],
       "creatureTypes": ["Merfolk"],
       "preferredCommanders": ["Hakbal of the Surging Soul", "Kumena, Tyrant of Orazca", "Tishana, Voice of Thunder"],
       "keyCards": ["Merfolk Trickster", "Tidebinder Mage", "Silvergill Adept"],
       "mechanics": ["flash", "bounce", "tempo"],
       "standardRecipe": {
         "count": 60,
-        "colors": ["Blue"],
+        "colors": ["Blue", "Green"],
         "tribe": "Merfolk",
         "rares": 0.15,
         "keyCards": ["Merfolk Trickster"],
@@ -55,7 +55,7 @@
       "id": "serpent_leviathan",
       "tags": ["Kraken", "Leviathan", "Octopus", "Serpent", "Sea Monster"],
       "colors": ["blue", "green"],
-      "creatureTypes": ["Serpent", "Leviathan"],
+      "creatureTypes": ["Kraken", "Leviathan", "Octopus", "Serpent"],
       "preferredCommanders": ["Kenessos, Priest of Thassa", "Arixmethes, Slumbering Isle", "Archelos, Lagoon Mystic"],
       "keyCards": ["Serpent of Yawning Depths", "Stormtide Leviathan", "Whelming Wave"],
       "mechanics": ["serpent", "leviathan"],
@@ -65,7 +65,7 @@
         "tribe": "Serpent",
         "rares": 0.2,
         "keyCards": [],
-        "mechanics": ["serpent", "leviathan"]
+        "mechanics": ["serpent", "leviathan", "kraken", "octopus"]
       }
     },
     {

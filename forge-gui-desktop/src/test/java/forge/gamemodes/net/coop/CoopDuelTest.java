@@ -4,6 +4,7 @@ import forge.deck.Deck;
 import forge.gamemodes.net.WireClassFilter;
 import forge.gamemodes.net.event.coop.CoopDuelInviteEvent;
 import forge.gamemodes.net.event.coop.CoopDuelResponseEvent;
+import forge.gamemodes.net.event.coop.CoopDuelResultEvent;
 import forge.gamemodes.net.event.coop.CoopEnemyEncounterRequestEvent;
 import forge.gamemodes.net.event.coop.CoopFightRequestResultEvent;
 import forge.localinstance.properties.ForgePreferences.FPref;
@@ -23,10 +24,10 @@ import java.util.function.Predicate;
 public class CoopDuelTest {
 
     @Test
-    public void protocolVersionIsExactlyEightForMv2() {
-        // CO2=5; CO3=6; MV1=7; MV2=8. Exact equality only — TR1 will move to 9 on rebase;
-        // do not use >= 8 or that collision can pass silently.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 8);
+    public void protocolVersionIsExactlyElevenForEn2LootRolls() {
+        // CO2=5; CO3=6; MV1=7; MV2=8; #40 gate sync=9; #45 CO5=10; EN2 lootRolls=11.
+        // Exact equality only — do not use >= or collisions pass silently.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
     }
 
     @Test
@@ -125,7 +126,19 @@ public class CoopDuelTest {
         Assert.assertEquals(CoopDuelScaling.effectiveLifeFactor(false, 1.0f, 1.5f), 1.5f);
         Assert.assertEquals(CoopDuelScaling.effectiveExtraCards(false, 0, 1), 1);
         Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(true, 1), 1);
+        Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(true, 0), 0);
         Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(false, 5), 1);
+    }
+
+    @Test
+    public void resultEventCarriesHostAuthoritativeLootRolls() {
+        final CoopDuelResultEvent zero = new CoopDuelResultEvent(1L, 0, 9L, "Merfolk", 0);
+        Assert.assertEquals(zero.getLootRolls(), 0);
+        Assert.assertTrue(zero.isTeamWon());
+        final CoopDuelResultEvent one = new CoopDuelResultEvent(2L, 0, 9L, "Merfolk", 1);
+        Assert.assertEquals(one.getLootRolls(), 1);
+        // Legacy 4-arg ctor defaults to 1.
+        Assert.assertEquals(new CoopDuelResultEvent(3L, 1, 0L, "x").getLootRolls(), 1);
     }
 
     @Test

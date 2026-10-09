@@ -745,40 +745,12 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             final ConfigData cfg = Config.instance().getConfigData();
             final int baseFreeMulligans = cfg.adventureFreeMulligans;
 
-            final List<CoopDuelMatchPlan.EnemySpec> enemies = new ArrayList<>();
-            EnemyData current = mob.getData();
-            // EN2: attach a same-type different-theme partner when eligible (not boss/gym/nextEnemy).
-            final long encounterSeed = EnemyCoopPartners.encounterSeed(enemyId, current);
-            final EnemyCoopPartners.PartnerPlan partnerPlan = EnemyCoopPartners.planPartner(
-                    current, currentBiomeEnemies(), encounterSeed);
-            pendingPartnerLootRolls = partnerPlan.lootRollsPerPlayer;
-            final float lifeFactor = partnerPlan.lifeFactor;
-            final int extraCards = partnerPlan.extraCards;
-
-            for (int i = 0; i < 8 && current != null; i++) {
-                final Deck enemyDeck = current.copyPlayerDeck
-                        ? hostDeck
-                        : current.generateDeck(advPlayer.isFantasyMode(), false);
-                enemies.add(new CoopDuelMatchPlan.EnemySpec(
-                        current.getName() != null ? current.getName() : "Enemy",
-                        "enemy-" + i,
-                        enemyDeck != null ? enemyDeck : hostDeck,
-                        current.life,
-                        baseFreeMulligans));
-                current = current.nextEnemy;
-            }
-            if (partnerPlan.partnerBuilt && partnerPlan.partner != null && enemies.size() == 1) {
-                final EnemyData partner = partnerPlan.partner;
-                final Deck partnerDeck = partner.copyPlayerDeck
-                        ? hostDeck
-                        : partner.generateDeck(advPlayer.isFantasyMode(), false);
-                enemies.add(new CoopDuelMatchPlan.EnemySpec(
-                        partner.getName() != null ? partner.getName() : "Enemy Partner",
-                        "enemy-partner",
-                        partnerDeck != null ? partnerDeck : hostDeck,
-                        partner.life,
-                        baseFreeMulligans));
-            }
+            // EN2: nextEnemy walk + same-type partner (distinct names) — shared with tests.
+            final HostedCoopEnemyBuild enemyBuild = buildHostedCoopEnemies(
+                    mob.getData(), enemyId, currentBiomeEnemies(), hostDeck,
+                    advPlayer.isFantasyMode(), baseFreeMulligans);
+            pendingPartnerLootRolls = enemyBuild.lootRollsPerPlayer;
+            final List<CoopDuelMatchPlan.EnemySpec> enemies = enemyBuild.enemies;
 
             final CoopDuelMatchPlan plan = CoopDuelMatchPlan.build(
                     CoopDuelIdentity.normalizeUsername(advPlayer.getName()),
@@ -791,8 +763,8 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                     pendingGuestLoadout,
                     pendingGuestDeck,
                     enemies,
-                    lifeFactor,
-                    extraCards);
+                    enemyBuild.lifeFactor,
+                    enemyBuild.extraCards);
 
             final int playerCount = plan.getSeats().size();
             final Set<GameType> variants = EnumSet.of(GameType.Adventure);
@@ -947,7 +919,9 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         }
         final boolean teamWon = winningTeam == 0;
         final String encounterId = mob != null && mob.getData() != null ? mob.getData().getName() : "";
-        final CoopDuelResultEvent result = new CoopDuelResultEvent(duelId, winningTeam, enemyId, encounterId);
+        // EN2: host-authoritative loot rolls (guest must not recompute).
+        final CoopDuelResultEvent result = new CoopDuelResultEvent(
+                duelId, winningTeam, enemyId, encounterId, pendingPartnerLootRolls);
         CoopSession.get().send(result);
 
         // Local DuelScene / WorldStage result path (loot, removeEnemy, XP, penalties).
@@ -1006,17 +980,8 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         }
         if (mob != null) {
             WorldStage.getInstance().setCurrentMob(mob);
-            // Recompute EN2 loot rolls from the encounter (deterministic; no wire field).
-            int rolls = 1;
-            try {
-                final EnemyData data = mob.getData();
-                final long seed = EnemyCoopPartners.encounterSeed(event.getEnemyId(), data);
-                final EnemyCoopPartners.PartnerPlan plan =
-                        EnemyCoopPartners.planPartner(data, currentBiomeEnemies(), seed);
-                rolls = plan.lootRollsPerPlayer;
-            } catch (final Exception ignored) {
-            }
-            WorldStage.getInstance().setPendingLootRolls(rolls);
+            // EN2: use host-authoritative loot rolls from the result event (0 allowed).
+            WorldStage.getInstance().setPendingLootRolls(event.getLootRolls());
             WorldStage.getInstance().setWinner(teamWon, false);
         } else {
             if (teamWon) {
@@ -1496,6 +1461,68 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 }
             });
         }
+    }
+
+    /**
+     * Result of the enemy-seat build used by {@link #startHostedCoopMatch}.
+     * Exposed for EN2 tests that exercise the same path without a live FServerManager.
+     */
+    public static final class HostedCoopEnemyBuild {
+        public final List<CoopDuelMatchPlan.EnemySpec> enemies;
+        public final boolean partnerBuilt;
+        public final float lifeFactor;
+        public final int extraCards;
+        public final int lootRollsPerPlayer;
+
+        HostedCoopEnemyBuild(final List<CoopDuelMatchPlan.EnemySpec> enemies, final boolean partnerBuilt,
+                             final float lifeFactor, final int extraCards, final int lootRollsPerPlayer) {
+            this.enemies = enemies;
+            this.partnerBuilt = partnerBuilt;
+            this.lifeFactor = lifeFactor;
+            this.extraCards = extraCards;
+            this.lootRollsPerPlayer = lootRollsPerPlayer;
+        }
+    }
+
+    /**
+     * Same nextEnemy walk + EN2 partner attach as {@link #startHostedCoopMatch}.
+     * Partner seats get distinct display names (e.g. "Merfolk Tidecaller").
+     */
+    public static HostedCoopEnemyBuild buildHostedCoopEnemies(final EnemyData primary, final long enemyId,
+                                                             final List<EnemyData> biomeEnemies,
+                                                             final Deck hostDeck, final boolean fantasyMode,
+                                                             final int freeMulligans) {
+        final List<CoopDuelMatchPlan.EnemySpec> enemies = new ArrayList<>();
+        final long encounterSeed = EnemyCoopPartners.encounterSeed(enemyId, primary);
+        final EnemyCoopPartners.PartnerPlan partnerPlan = EnemyCoopPartners.planPartner(
+                primary, biomeEnemies, encounterSeed);
+        EnemyData current = primary;
+        for (int i = 0; i < 8 && current != null; i++) {
+            final Deck enemyDeck = current.copyPlayerDeck
+                    ? hostDeck
+                    : current.generateDeck(fantasyMode, false);
+            enemies.add(new CoopDuelMatchPlan.EnemySpec(
+                    current.getName() != null ? current.getName() : "Enemy",
+                    "enemy-" + i,
+                    enemyDeck != null ? enemyDeck : hostDeck,
+                    current.life,
+                    freeMulligans));
+            current = current.nextEnemy;
+        }
+        if (partnerPlan.partnerBuilt && partnerPlan.partner != null && enemies.size() == 1) {
+            final EnemyData partner = partnerPlan.partner;
+            final Deck partnerDeck = partner.copyPlayerDeck
+                    ? hostDeck
+                    : partner.generateDeck(fantasyMode, false);
+            enemies.add(new CoopDuelMatchPlan.EnemySpec(
+                    partner.getName() != null ? partner.getName() : "Enemy Partner",
+                    "enemy-partner",
+                    partnerDeck != null ? partnerDeck : hostDeck,
+                    partner.life,
+                    freeMulligans));
+        }
+        return new HostedCoopEnemyBuild(enemies, partnerPlan.partnerBuilt, partnerPlan.lifeFactor,
+                partnerPlan.extraCards, partnerPlan.lootRollsPerPlayer);
     }
 
     /**

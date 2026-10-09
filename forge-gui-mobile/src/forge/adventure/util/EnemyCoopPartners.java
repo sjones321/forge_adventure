@@ -195,6 +195,11 @@ public final class EnemyCoopPartners {
         }
         Collections.sort(themeOptions);
         copy.themeId = themeOptions.get(floorMod(encounterSeed, themeOptions.size()));
+        // Distinct seat name when the biome pick shares the primary's display name.
+        final String primaryLabel = primary.getName();
+        if (primaryLabel != null && primaryLabel.equals(copy.getName())) {
+            copy.nameOverride = partnerDisplayName(primaryLabel, copy.themeId);
+        }
         return copy;
     }
 
@@ -287,7 +292,41 @@ public final class EnemyCoopPartners {
         partner.themeId = partnerThemeId;
         partner.teamNumber = 1;
         partner.boss = false;
+        partner.nameOverride = partnerDisplayName(primary.getName(), partnerThemeId);
         return partner;
+    }
+
+    /**
+     * Distinct seat label for the partner (e.g. "Merfolk" → "Merfolk Tidecaller")
+     * so the two enemy seats are not identical in the match UI.
+     */
+    public static String partnerDisplayName(final String primaryName, final String partnerThemeId) {
+        final String base = primaryName != null && !primaryName.isEmpty() ? primaryName : "Enemy";
+        if (partnerThemeId == null || partnerThemeId.isEmpty()) {
+            return base + " Ally";
+        }
+        if (partnerThemeId.contains("tempo") || partnerThemeId.contains("mill")) {
+            return base + " Tidecaller";
+        }
+        if (partnerThemeId.contains("serpent")) {
+            return base + " Serpentcaller";
+        }
+        if (partnerThemeId.contains("burn")) {
+            return base + " Pyromancer";
+        }
+        if (partnerThemeId.contains("ramp")) {
+            return base + " Channeler";
+        }
+        if (partnerThemeId.contains("drain") || partnerThemeId.contains("aristocrat")) {
+            return base + " Bloodletter";
+        }
+        // Theme id suffix after the underscore, title-cased when present.
+        final int us = partnerThemeId.lastIndexOf('_');
+        if (us >= 0 && us + 1 < partnerThemeId.length()) {
+            final String suffix = partnerThemeId.substring(us + 1);
+            return base + " " + Character.toUpperCase(suffix.charAt(0)) + suffix.substring(1);
+        }
+        return base + " Ally";
     }
 
     /**

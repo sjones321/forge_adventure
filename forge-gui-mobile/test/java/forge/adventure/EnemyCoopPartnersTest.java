@@ -186,6 +186,7 @@ public class EnemyCoopPartnersTest {
     public void lootRollsPerPlayerNotDoubleForPair() {
         Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(true, 1), 1);
         Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(true, 2), 2);
+        Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(true, 0), 0);
         Assert.assertEquals(CoopDuelRewards.lootRollsPerPlayer(false, 2), 1);
 
         final EnemyData primary = merfolkEnemy("merfolk_tribal");
@@ -226,6 +227,9 @@ public class EnemyCoopPartnersTest {
         Assert.assertNull(partner.nextEnemy);
         Assert.assertEquals(partner.teamNumber, 1);
         Assert.assertFalse(partner.boss);
+        Assert.assertEquals(partner.getName(), "Merfolk Tidecaller");
+        Assert.assertEquals(EnemyCoopPartners.partnerDisplayName("Merfolk", "merfolk_tempo"),
+                "Merfolk Tidecaller");
     }
 
     @Test

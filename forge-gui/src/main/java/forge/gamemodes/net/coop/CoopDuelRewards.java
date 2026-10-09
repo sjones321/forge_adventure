@@ -116,14 +116,18 @@ public final class CoopDuelRewards {
 
     /**
      * EN2: how many loot rolls each player applies for a co-op win.
-     * With a partner, use the tunable (default 1) so a pair is not worth double.
-     * Without a partner, always one roll (same as a solo kill).
+     * With a partner, use the tunable so a pair is not worth double — {@code 0} is
+     * valid (no loot). Without a partner, always one roll (same as a solo kill).
      */
     public static int lootRollsPerPlayer(final boolean partnerBuilt, final int partnerLootRolls) {
         if (!partnerBuilt) {
             return 1;
         }
-        return Math.max(0, Math.min(partnerLootRolls > 0 ? partnerLootRolls : DEFAULT_PARTNER_LOOT_ROLLS, 8));
+        // Explicit 0 must work; only fall back to the default when the tunable is negative.
+        if (partnerLootRolls < 0) {
+            return DEFAULT_PARTNER_LOOT_ROLLS;
+        }
+        return Math.max(0, Math.min(partnerLootRolls, 8));
     }
 
     /**
