@@ -39,12 +39,19 @@ public class PointOfInterestData implements Serializable {
     private static Array<PointOfInterestData> pointOfInterestList;
     public static Array<PointOfInterestData> getAllPointOfInterest() {
         if (pointOfInterestList == null) {
-            Json json = new Json();
-            FileHandle handle = Config.instance().getFile(Paths.POINTS_OF_INTEREST);
-            if (handle.exists()) {
-                pointOfInterestList = json.fromJson(Array.class, PointOfInterestData.class, handle);
+            try {
+                Json json = new Json();
+                FileHandle handle = Config.instance().getFile(Paths.POINTS_OF_INTEREST);
+                if (handle != null && handle.exists()) {
+                    pointOfInterestList = json.fromJson(Array.class, PointOfInterestData.class, handle);
+                }
+            } catch (Throwable t) {
+                // Headless tests / missing Config — keep a mutable runtime list.
+                pointOfInterestList = null;
             }
-
+            if (pointOfInterestList == null) {
+                pointOfInterestList = new Array<>();
+            }
         }
         return pointOfInterestList;
     }
@@ -68,9 +75,23 @@ public class PointOfInterestData implements Serializable {
         }
         all.add(data);
     }
+
+    /** Test helper: reset the cached POI list (headless registration). */
+    public static void clearRuntimeCacheForTests() {
+        pointOfInterestList = null;
+    }
     public static PointOfInterestData getPointOfInterest(String name) {
-        for(PointOfInterestData data: new Array.ArrayIterator<>(getAllPointOfInterest())){
-            if(data.name.equals(name)) return data;
+        if (name == null) {
+            return null;
+        }
+        Array<PointOfInterestData> all = getAllPointOfInterest();
+        if (all == null) {
+            return null;
+        }
+        for (PointOfInterestData data : new Array.ArrayIterator<>(all)) {
+            if (data != null && name.equals(data.name)) {
+                return data;
+            }
         }
         return null;
     }

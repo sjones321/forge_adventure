@@ -222,6 +222,23 @@ public final class CoopSession {
     }
 
     /**
+     * Test hook: simulate a guest that has followed the host onto {@code planeId}.
+     * Clears with {@link #testClearGuestPlaneFollow()}.
+     */
+    public void testFollowHostPlane(final String planeId) {
+        role = CoopSessionRole.GUEST;
+        state = State.READY;
+        guestWorldPlaneId = planeId != null && !planeId.isEmpty() ? planeId : PlaneMeta.HOME_ID;
+    }
+
+    /** Test hook: restore idle co-op role after {@link #testFollowHostPlane(String)}. */
+    public void testClearGuestPlaneFollow() {
+        role = CoopSessionRole.NONE;
+        state = State.IDLE;
+        guestWorldPlaneId = PlaneMeta.HOME_ID;
+    }
+
+    /**
      * Host MV1: after a local plane switch, tell the guest to follow onto the
      * host's current plane (seed + world config + hash). World hash is computed
      * on the GL thread; the wire send runs off Netty afterward.

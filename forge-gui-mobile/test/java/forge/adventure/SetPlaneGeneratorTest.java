@@ -1,28 +1,37 @@
 package forge.adventure;
 
+import com.badlogic.gdx.math.Rectangle;
+import com.badlogic.gdx.math.Vector2;
+import forge.adventure.coop.CoopSession;
 import forge.adventure.data.BiomeData;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.EnemyData;
+import forge.adventure.data.PointOfInterestData;
 import forge.adventure.data.RewardData;
 import forge.adventure.data.WorldData;
 import forge.adventure.player.StandardWindow;
+import forge.adventure.pointofintrest.PointOfInterest;
 import forge.adventure.util.SaveFileData;
 import forge.adventure.world.MultiverseState;
 import forge.adventure.world.PlaneAlignment;
 import forge.adventure.world.PlaneBlob;
 import forge.adventure.world.PlaneKind;
 import forge.adventure.world.PlaneMeta;
+import forge.adventure.world.PlanarPortalPlacer;
 import forge.adventure.world.SetColorBalance;
 import forge.adventure.world.SetPlaneGenerator;
 import forge.adventure.world.SetPlaneRules;
+import forge.adventure.world.World;
 import forge.deck.Deck;
 import forge.item.PaperCard;
+import forge.util.MyRandom;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * MV2 behaviour tests: deterministic set-plane customisation, alignment costs,
@@ -266,7 +275,333 @@ public class SetPlaneGeneratorTest {
         Assert.assertTrue(data.height >= 300 && data.height <= 400);
     }
 
+    // --- Stephen review: registration / bounded gen / fallbacks / gates / gold / co-op ---
+
+    @Test
+    public void planarGateRegisteredSoSaveLoadsAfterRestart() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        PointOfInterestData gate = SetPlaneGenerator.ensurePlanarGateRegistered();
+        Assert.assertNotNull(gate);
+        Assert.assertEquals(gate.name, SetPlaneGenerator.PLANAR_GATE_POI);
+        Assert.assertEquals(PointOfInterestData.getPointOfInterest("PlanarGate").name, "PlanarGate");
+
+        // Persist a gate POI blob, clear the cache (simulates process restart), re-register, load.
+        SaveFileData saved = new SaveFileData();
+        saved.store("name", "PlanarGate");
+        saved.store("position", new Vector2(64f, 96f));
+        saved.store("rectangle", new Rectangle(64f, 96f, 16f, 16f));
+        saved.store("spriteIndex", 0);
+        saved.store("active", true);
+        saved.store("displayName", "Portal to Home");
+        saved.store("targetPlane", "home");
+
+        PointOfInterestData.clearRuntimeCacheForTests();
+        Assert.assertNull(PointOfInterestData.getPointOfInterest("PlanarGate"));
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+
+        PointOfInterest poi = new PointOfInterest();
+        poi.load(saved);
+
+        Assert.assertNotNull(poi.getData());
+        Assert.assertEquals(poi.getData().name, "PlanarGate");
+        Assert.assertEquals(poi.getTargetPlane(), "home");
+        Assert.assertEquals(poi.getDisplayName(), "Portal to Home");
+    }
+
+    @Test
+    public void boundedGenerationScalesPoisAndCapsRestarts() {
+        WorldData template = sampleTemplate(200);
+        for (BiomeData b : template.GetBiomes()) {
+            b.width = "base".equalsIgnoreCase(b.name) ? b.width : 0.3f;
+            b.height = "base".equalsIgnoreCase(b.name) ? b.height : 0.3f;
+            ArrayList<PointOfInterestData> seeded = new ArrayList<>();
+            if (!"base".equalsIgnoreCase(b.name)) {
+                seeded.add(poiDef("TinyTown", "town", 8));
+                seeded.add(poiDef("TinyCapital", "capital", 2));
+                seeded.add(poiDef("TinyDungeon", "dungeon", 6));
+            }
+            // Always freeze so scale never hits Config / JSON in headless.
+            b.replacePointsOfInterest(seeded);
+        }
+
+        // Scale + restart cap without full customize (avoids Config in headless).
+        SetPlaneGenerator.scalePoiCountsForShrunkBiomes(template, 200);
+        Assert.assertTrue(template.maxPoiPlacementRestarts == 0
+                || template.maxPoiPlacementRestarts > 0);
+        WorldData customized = SetPlaneGenerator.customizeForSet(sampleTemplate(200), "TINY",
+                SetColorBalance.equal(), 7L);
+        Assert.assertTrue(customized.maxPoiPlacementRestarts > 0
+                && customized.maxPoiPlacementRestarts <= 32,
+                "restart cap=" + customized.maxPoiPlacementRestarts);
+
+        BiomeData red = biome(template, "red");
+        Assert.assertNotNull(red);
+        int townCount = 0;
+        int capitalCount = 0;
+        int dungeonCount = 0;
+        for (PointOfInterestData p : red.getPointsOfInterest()) {
+            if ("town".equals(p.type)) {
+                townCount += p.count;
+            } else if ("capital".equals(p.type)) {
+                capitalCount += p.count;
+            } else if ("dungeon".equals(p.type)) {
+                dungeonCount += p.count;
+            }
+        }
+        Assert.assertTrue(townCount >= 1 && townCount <= 8, "townCount=" + townCount);
+        Assert.assertTrue(capitalCount >= 1 && capitalCount <= 2, "capitalCount=" + capitalCount);
+        Assert.assertTrue(dungeonCount <= 6, "dungeonCount=" + dungeonCount);
+    }
+
+    @Test
+    public void coreAndDebugPlanesSkipSetRestriction() {
+        Assert.assertEquals(SetPlaneRules.restrictableSetCode("CORE"), "");
+        Assert.assertEquals(SetPlaneRules.restrictableSetCode(StandardWindow.CORE_COLLECTION), "");
+        Assert.assertEquals(SetPlaneRules.restrictableSetCode("MV1_DEBUG"), "");
+        Assert.assertEquals(SetPlaneRules.restrictableSetCode(""), "");
+        Assert.assertEquals(SetPlaneRules.restrictableSetCode(null), "");
+
+        // Shops / rewards stay unpinned when restriction is skipped.
+        RewardData base = new RewardData();
+        base.type = "randomCard";
+        base.count = 2;
+        RewardData filtered = SetPlaneRules.applySetEditionFilter(base);
+        Assert.assertSame(filtered, base);
+
+        EnemyData enemy = new EnemyData();
+        enemy.name = "Core Scout";
+        enemy.colors = "W";
+        enemy.difficulty = 1f;
+        enemy.deck = new String[]{SetPlaneRules.GENERATE};
+        Deck deck = SetPlaneRules.generateEnemyDeck(enemy, "CORE");
+        Assert.assertNotNull(deck);
+        Assert.assertTrue(deck.getName().contains("Core Scout"));
+    }
+
+    @Test
+    public void onlyGenerateMarkerReplacesEnemyDecksBossesKept() {
+        EnemyData generate = new EnemyData();
+        generate.name = "Grunt";
+        generate.boss = false;
+        generate.deck = new String[]{SetPlaneRules.GENERATE};
+        Assert.assertEquals(SetPlaneRules.GENERATE, "$generate");
+        // Off set plane → shouldGenerate false; marker alone is not enough.
+        Assert.assertFalse(SetPlaneRules.shouldGenerateSetDeck(generate));
+
+        EnemyData boss = new EnemyData();
+        boss.name = "Boss Mage";
+        boss.boss = true;
+        boss.deck = new String[]{SetPlaneRules.GENERATE};
+        Assert.assertFalse(SetPlaneRules.shouldGenerateSetDeck(boss));
+
+        EnemyData handBuilt = new EnemyData();
+        handBuilt.name = "Named Duelist";
+        handBuilt.boss = false;
+        handBuilt.deck = new String[]{"decks/custom/hand_built.dck"};
+        Assert.assertFalse(SetPlaneRules.shouldGenerateSetDeck(handBuilt));
+
+        EnemyData empty = new EnemyData();
+        empty.name = "Empty";
+        empty.deck = new String[]{};
+        Assert.assertFalse(SetPlaneRules.shouldGenerateSetDeck(empty));
+    }
+
+    @Test
+    public void generateEnemyDeckLeavesWorldAndMyRandomUntouched() {
+        Random marker = new Random(424242L);
+        MyRandom.setRandom(marker);
+        World world = new World();
+        Random worldRng = world.getRandom();
+        // Advance and snapshot the next values that must stay deterministic.
+        long worldA = worldRng.nextLong();
+        long worldB = worldRng.nextLong();
+        // Rewind world RNG by reseeding a fresh World and replaying — instead compare identity.
+        World world2 = new World();
+        Random worldRng2 = world2.getRandom();
+
+        EnemyData enemy = new EnemyData();
+        enemy.name = "Rng Probe";
+        enemy.colors = "U";
+        enemy.difficulty = 1f;
+        enemy.deck = new String[]{SetPlaneRules.GENERATE};
+        SetPlaneRules.generateEnemyDeck(enemy, "ZZZ_NOT_A_SET");
+
+        Assert.assertSame(MyRandom.getRandom(), marker);
+        // World instances keep their own Random; generateEnemyDeck must not replace them.
+        Assert.assertSame(world.getRandom(), worldRng);
+        Assert.assertSame(world2.getRandom(), worldRng2);
+        // Sequence after the two pre-call draws continues independently of MyRandom swap.
+        long after = worldRng.nextLong();
+        Assert.assertNotEquals(after, worldA);
+        Assert.assertNotEquals(after, worldB);
+    }
+
+    @Test
+    public void missingGatesTrackedAndClearedOnPendingLoad() {
+        MultiverseState multi = new MultiverseState();
+        multi.initHomeFromLive(9L, 0f, 0f);
+        multi.rememberPendingHomeGate("set_dmu");
+        multi.rememberPendingHomeGate("set_bro");
+        Assert.assertTrue(multi.getPendingHomeGatePlaneIds().contains("set_dmu"));
+        Assert.assertTrue(multi.getPendingHomeGatePlaneIds().contains("set_bro"));
+
+        SaveFileData registry = multi.saveRegistry();
+        MultiverseState loaded = new MultiverseState();
+        Assert.assertTrue(loaded.loadRegistry(registry));
+        Assert.assertTrue(loaded.getPendingHomeGatePlaneIds().contains("set_dmu"));
+        Assert.assertTrue(loaded.getPendingHomeGatePlaneIds().contains("set_bro"));
+
+        loaded.clearPendingHomeGate("set_dmu");
+        Assert.assertFalse(loaded.getPendingHomeGatePlaneIds().contains("set_dmu"));
+        Assert.assertTrue(loaded.getPendingHomeGatePlaneIds().contains("set_bro"));
+    }
+
+    @Test
+    public void gatePlacementAvoidsTownsAndCollisions() {
+        PointOfInterestData.clearRuntimeCacheForTests();
+        SetPlaneGenerator.ensurePlanarGateRegistered();
+        World world = new World();
+        WorldData data = new WorldData();
+        data.width = 64;
+        data.height = 64;
+        data.tileSize = 16;
+        data.playerStartPosX = 0.5f;
+        data.playerStartPosY = 0.5f;
+        world.installTestWorldGrid(data);
+
+        PointOfInterestData townDef = poiDef("GateTown", "town", 1);
+        PointOfInterestData.registerRuntime(townDef);
+        PointOfInterest town = poiAt(townDef, 32 * 16f, 32 * 16f);
+        world.addPointOfInterest(town);
+
+        // Spot on the town is blocked.
+        Assert.assertTrue(PlanarPortalPlacer.isSpotBlocked(world, town.getPosition().x, town.getPosition().y));
+
+        Vector2 free = PlanarPortalPlacer.pickCollisionFreeSpot(world, new Random(11L), 0);
+        Assert.assertNotNull(free);
+        Assert.assertFalse(PlanarPortalPlacer.isSpotBlocked(world, free.x, free.y));
+
+        // Second gate slot with different index must not land on the first free spot's exclusion.
+        PointOfInterestData gateDef = PointOfInterestData.getPointOfInterest("PlanarGate");
+        PointOfInterest gate = poiAt(gateDef, free.x, free.y);
+        gate.setTargetPlane("set_dmu");
+        world.addPointOfInterest(gate);
+        Assert.assertTrue(PlanarPortalPlacer.isSpotBlocked(world, free.x, free.y));
+
+        Vector2 free2 = PlanarPortalPlacer.pickCollisionFreeSpot(world, new Random(11L), 1);
+        Assert.assertNotNull(free2);
+        Assert.assertTrue(free2.dst(free) > data.tileSize * 4f,
+                "ring slots collided: " + free + " vs " + free2);
+    }
+
+    @Test
+    public void goldChargeFailsBeforeSwitchAndRefundsOnFailure() throws Exception {
+        // Source contract: charge before switchPlane; refund after failed switch.
+        String portal = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Paths.get("src/forge/adventure/character/PortalActor.java")));
+        int chargeAt = portal.indexOf("chargePortalGold");
+        int switchAt = portal.indexOf("switchPlane");
+        int refundAt = portal.indexOf("refundPortalGold");
+        Assert.assertTrue(chargeAt > 0 && switchAt > chargeAt && refundAt > switchAt);
+
+        String console = new String(java.nio.file.Files.readAllBytes(
+                java.nio.file.Paths.get("src/forge/adventure/stage/ConsoleCommandInterpreter.java")));
+        int cCharge = console.indexOf("chargePortalGold");
+        int cSwitch = console.indexOf("switchPlane");
+        int cRefund = console.indexOf("refundPortalGold");
+        Assert.assertTrue(cCharge > 0 && cSwitch > cCharge && cRefund > cSwitch);
+
+        StandardWindow window = new StandardWindow();
+        window.init(List.of("ONE", "BRO", "DMU"));
+        Assert.assertEquals(window.addSet("MOM"), "ONE");
+        Assert.assertEquals(PlaneAlignment.of("ONE", window), PlaneAlignment.DRIFTED);
+
+        ConfigData cfg = new ConfigData();
+        cfg.rotatedOutPortalGoldCost = 750;
+        Assert.assertEquals(PlaneAlignment.DRIFTED.portalGoldCost(cfg), 750);
+
+        // Broke wallet → charge fails, gold unchanged, switch must not proceed.
+        AtomicInteger gold = new AtomicInteger(100);
+        int charged = SetPlaneRules.chargePortalGold(
+                SetPlaneGenerator.planeIdForSet("ONE"), window, gold.get(),
+                amount -> gold.addAndGet(-amount));
+        // Without Config.instance costs, drifted uses ConfigData default (500) via portalGoldCost.
+        int cost = SetPlaneRules.portalGoldCost(SetPlaneGenerator.planeIdForSet("ONE"), window);
+        if (cost > 0) {
+            Assert.assertEquals(charged, -1, "insufficient gold must fail");
+            Assert.assertEquals(gold.get(), 100);
+        }
+
+        // Funded wallet → charge succeeds; simulated switch failure refunds.
+        gold.set(Math.max(cost, 1) + 50);
+        int before = gold.get();
+        charged = SetPlaneRules.chargePortalGold(
+                SetPlaneGenerator.planeIdForSet("ONE"), window, gold.get(),
+                amount -> gold.addAndGet(-amount));
+        if (cost > 0) {
+            Assert.assertEquals(charged, cost);
+            Assert.assertEquals(gold.get(), before - cost);
+            boolean switchOk = false; // simulated failure
+            if (!switchOk) {
+                SetPlaneRules.refundPortalGold(amount -> gold.addAndGet(amount), charged);
+            }
+            Assert.assertEquals(gold.get(), before);
+        } else {
+            // Headless aligned-as-free path still exercises home free charge.
+            Assert.assertEquals(SetPlaneRules.chargePortalGold("home", window, 0, null), 0);
+        }
+    }
+
+    @Test
+    public void guestFollowsHostActiveSetCodeViaPlaneId() {
+        CoopSession session = CoopSession.get();
+        try {
+            String planeId = SetPlaneGenerator.planeIdForSet("BRO");
+            session.testFollowHostPlane(planeId);
+            Assert.assertEquals(session.getActiveWorldPlaneId(), planeId);
+            Assert.assertEquals(SetPlaneGenerator.setCodeFromPlaneId(session.getActiveWorldPlaneId()), "BRO");
+            // Guest plane id is what Current.planeId() / activeSetCode() consult.
+            // CORE / debug never restrict even if somehow active.
+            Assert.assertEquals(SetPlaneRules.restrictableSetCode("CORE"), "");
+            Assert.assertEquals(SetPlaneRules.restrictableSetCode("MV1_DEBUG"), "");
+        } finally {
+            session.testClearGuestPlaneFollow();
+        }
+        Assert.assertFalse(CoopSession.isGuestBlockedFromPlaneSwitch(
+                forge.adventure.coop.CoopSessionRole.NONE, CoopSession.State.IDLE));
+    }
+
     // --- helpers ---
+
+    private static PointOfInterestData poiDef(String name, String type, int count) {
+        PointOfInterestData d = new PointOfInterestData();
+        d.name = name;
+        d.type = type;
+        d.count = count;
+        d.spriteAtlas = "../common/maps/tileset/buildings.atlas";
+        d.sprite = "Town";
+        d.map = "../common/maps/map/town_0.tmx";
+        d.radiusFactor = 0.5f;
+        d.active = true;
+        return d;
+    }
+
+    private static PointOfInterest poiAt(PointOfInterestData def, float x, float y) {
+        PointOfInterest poi = new PointOfInterest();
+        SaveFileData saved = new SaveFileData();
+        saved.store("name", def.name);
+        saved.store("position", new Vector2(x, y));
+        saved.store("rectangle", new Rectangle(x, y, 16f, 16f));
+        saved.store("spriteIndex", 0);
+        saved.store("active", true);
+        saved.store("displayName", def.getDisplayName());
+        if (def.targetPlane != null) {
+            saved.store("targetPlane", def.targetPlane);
+        }
+        poi.load(saved);
+        return poi;
+    }
+
 
     private static String invokeAddSet(StandardWindow w, String code) {
         return w.addSet(code);

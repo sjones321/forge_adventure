@@ -73,7 +73,11 @@ public class BiomeData implements Serializable {
             if (pointsOfInterest == null)
                 return pointOfInterestList;
             Array<PointOfInterestData> allTowns = PointOfInterestData.getAllPointOfInterest();
+            if (allTowns == null)
+                return pointOfInterestList;
             for (PointOfInterestData data : new Array.ArrayIterator<>(allTowns)) {
+                if (data == null || data.name == null)
+                    continue;
                 for (String poiName : pointsOfInterest) {
                     if (data.name.equals(poiName)) {
                         pointOfInterestList.add(data);
@@ -145,5 +149,50 @@ public class BiomeData implements Serializable {
     /** MV2: replace the town-name pool (set-themed names on set planes). */
     public void replaceTownNames(ArrayList<String> names) {
         unusedTownNames = names != null ? new ArrayList<>(names) : new ArrayList<>();
+    }
+
+    /**
+     * MV2: freeze a scaled copy of this biome's POI list so set-plane generation
+     * does not mutate the shared JSON definitions. Capitals keep at least 1 when
+     * the original had any; other types may drop to 0.
+     */
+    public void scaleAndFreezePois(float factor) {
+        float f = Math.max(0.15f, Math.min(1.5f, factor));
+        ArrayList<PointOfInterestData> scaled = new ArrayList<>();
+        ArrayList<PointOfInterestData> source;
+        try {
+            source = getPointsOfInterest();
+        } catch (Throwable t) {
+            return;
+        }
+        if (source == null) {
+            return;
+        }
+        for (PointOfInterestData src : source) {
+            if (src == null) {
+                continue;
+            }
+            PointOfInterestData copy = new PointOfInterestData(src);
+            boolean capital = "capital".equals(src.type);
+            boolean town = "town".equals(src.type);
+            int next = Math.round(src.count * f);
+            if (capital && src.count > 0) {
+                next = Math.max(1, next);
+            } else if (town && src.count > 0) {
+                next = Math.max(1, Math.min(src.count, next));
+            } else {
+                next = Math.max(0, next);
+            }
+            copy.count = next;
+            if (copy.count > 0) {
+                scaled.add(copy);
+            }
+        }
+        pointOfInterestList = scaled;
+    }
+
+    /** MV2 / tests: install a frozen POI list without reading JSON. */
+    public void replacePointsOfInterest(ArrayList<PointOfInterestData> list) {
+        pointOfInterestList = list != null ? new ArrayList<>(list) : new ArrayList<>();
     }
 }

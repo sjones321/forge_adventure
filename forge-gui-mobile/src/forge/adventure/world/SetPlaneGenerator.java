@@ -107,13 +107,44 @@ public final class SetPlaneGenerator {
 
         SetColorBalance bal = balance != null ? balance : SetColorBalance.equal();
         applyBiomeMix(data, bal);
+        try {
+            scalePoiCountsForShrunkBiomes(data, size);
+        } catch (Throwable t) {
+            // Headless / missing POI JSON — size and biome mix still apply.
+        }
         applyThemedTownNames(data, setCode, rng);
+        int maxRestarts = cfg != null ? Math.max(1, cfg.setPlaneMaxPlacementRestarts) : 8;
+        data.maxPoiPlacementRestarts = maxRestarts;
         try {
             injectPlanarGatePoi(data, PlaneMeta.HOME_ID, "Portal to Home");
         } catch (Throwable t) {
             // Headless / missing Config — biome mix and town names still apply.
         }
         return data;
+    }
+
+    /**
+     * Scale town/capital/dungeon counts with biome footprint and map size so
+     * shrunken set planes do not try to place a full-size POI budget.
+     */
+    public static void scalePoiCountsForShrunkBiomes(WorldData data, int mapSize) {
+        if (data == null) {
+            return;
+        }
+        float mapFactor = (mapSize * (float) mapSize) / (350f * 350f);
+        mapFactor = Math.max(0.2f, Math.min(1.2f, mapFactor));
+        List<BiomeData> biomes = data.GetBiomes();
+        if (biomes == null) {
+            return;
+        }
+        for (BiomeData biome : biomes) {
+            if (biome == null) {
+                continue;
+            }
+            float area = Math.max(0.05f, biome.width * biome.height);
+            float factor = (float) Math.sqrt(area * mapFactor);
+            biome.scaleAndFreezePois(factor);
+        }
     }
 
     /** Size in {@code [min, max]}; keeps template size when already in range. */
@@ -237,17 +268,32 @@ public final class SetPlaneGenerator {
     }
 
     /**
+     * Ensure the PlanarGate definition is registered (JSON and/or runtime) so
+     * saves that contain gates load after a restart. Call from Ascendant Config
+     * startup and before any gate placement.
+     */
+    public static PointOfInterestData ensurePlanarGateRegistered() {
+        return ensurePlanarGateData(PlaneMeta.HOME_ID, "Planar Gate");
+    }
+
+    /**
      * Register / refresh the PlanarGate {@link PointOfInterestData} entry used by
-     * world gen. Safe to call repeatedly.
+     * world gen and save load. Safe to call repeatedly.
      */
     public static PointOfInterestData ensurePlanarGateData(String targetPlaneId, String displayName) {
         PointOfInterestData existing = PointOfInterestData.getPointOfInterest(PLANAR_GATE_POI);
         if (existing != null) {
-            if (targetPlaneId != null && !targetPlaneId.isEmpty()) {
-                existing.targetPlane = targetPlaneId;
-            }
-            if (displayName != null && !displayName.isEmpty()) {
+            // Do not overwrite per-instance targetPlane on the shared definition
+            // when only registering; placement copies set their own target.
+            if (displayName != null && !displayName.isEmpty()
+                    && (existing.displayName == null || existing.displayName.isEmpty())) {
                 existing.displayName = displayName;
+            }
+            if (existing.map == null || existing.map.isEmpty()) {
+                existing.map = "../common/maps/map/ascendant/planar_gate.tmx";
+            }
+            if (existing.type == null || existing.type.isEmpty()) {
+                existing.type = "planar_gate";
             }
             return existing;
         }
@@ -286,6 +332,7 @@ public final class SetPlaneGenerator {
         d.biomesSprites = src.biomesSprites;
         d.maxRoadDistance = src.maxRoadDistance;
         d.minTownSpacing = src.minTownSpacing;
+        d.maxPoiPlacementRestarts = src.maxPoiPlacementRestarts;
         d.biomesNames = src.biomesNames != null ? src.biomesNames.clone() : null;
         // Force biome reload from names, then deep-customise copies.
         List<BiomeData> loaded = src.GetBiomes();

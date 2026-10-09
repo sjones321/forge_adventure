@@ -22,36 +22,79 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * MV2 runtime rules for set planes: active set code, enemy {@code $generate} decks
- * restricted to that set, shop/reward edition filters, and portal reachability.
+ * MV2 runtime rules for set planes: active set code (host + co-op guest),
+ * enemy {@code $generate} decks restricted to that set, shop/reward filters,
+ * and portal reachability / gold costs.
  */
 public final class SetPlaneRules {
     public static final String GENERATE = GymUtil.GENERATE;
+    /** Minimum non-land cards before a set pool is considered usable. */
+    public static final int MIN_SET_POOL_SIZE = 12;
 
     private SetPlaneRules() {
     }
 
-    /** Set code for the live plane, or empty when on home / non-Ascendant / unknown. */
+    /**
+     * Set code for the live overworld plane (guest-aware via {@link Current#planeId()}).
+     * Empty on home, non-Ascendant, CORE / non-edition codes, or debug planes.
+     */
     public static String activeSetCode() {
         try {
             if (!Config.ascendant()) {
                 return "";
             }
-            WorldSave save = WorldSave.getCurrentSave();
-            if (save == null) {
+            // Guest follows the host's plane id (Current.planeId → CoopSession).
+            String planeId = Current.planeId();
+            if (planeId == null || planeId.isEmpty() || PlaneMeta.HOME_ID.equalsIgnoreCase(planeId)) {
                 return "";
             }
-            PlaneMeta meta = save.getMultiverse().getCurrentMeta();
-            if (meta == null || meta.getKind() != PlaneKind.SET) {
-                return "";
+            String code = "";
+            try {
+                WorldSave save = WorldSave.getCurrentSave();
+                if (save != null) {
+                    PlaneMeta meta = save.getMultiverse().getMeta(planeId);
+                    if (meta != null && meta.getSetCode() != null && !meta.getSetCode().isEmpty()) {
+                        code = meta.getSetCode();
+                    }
+                }
+            } catch (Throwable ignored) {
+                // fall through to plane-id parse
             }
-            String code = meta.getSetCode();
-            if (code != null && !code.isEmpty()) {
-                return code;
+            if (code.isEmpty()) {
+                code = SetPlaneGenerator.setCodeFromPlaneId(planeId);
             }
-            return SetPlaneGenerator.setCodeFromPlaneId(meta.getId());
+            return restrictableSetCode(code);
         } catch (Throwable t) {
             return "";
+        }
+    }
+
+    /**
+     * Returns {@code setCode} only when it is a real CardEdition that shops/decks
+     * can draw from. CORE, empty, and unknown/debug codes → empty (no restriction).
+     */
+    public static String restrictableSetCode(String setCode) {
+        if (setCode == null || setCode.isEmpty()) {
+            return "";
+        }
+        if (StandardWindow.CORE_COLLECTION.equalsIgnoreCase(setCode)) {
+            return "";
+        }
+        if (!isKnownEdition(setCode)) {
+            return "";
+        }
+        return setCode;
+    }
+
+    public static boolean isKnownEdition(String code) {
+        if (code == null || code.isEmpty()) {
+            return false;
+        }
+        try {
+            return FModel.getMagicDb() != null
+                    && FModel.getMagicDb().getEditions().get(code) != null;
+        } catch (Throwable t) {
+            return false;
         }
     }
 
@@ -79,9 +122,33 @@ public final class SetPlaneRules {
         return PlaneAlignment.of(code, window);
     }
 
+    /** Portal gold cost for {@code planeId} (0 when free / home). -1 when locked. */
+    public static int portalGoldCost(String planeId, AdventurePlayer player) {
+        StandardWindow window = player != null ? player.getStandardWindow() : null;
+        return portalGoldCost(planeId, window);
+    }
+
+    /** Portal gold cost using an explicit Standard window (host or guest). */
+    public static int portalGoldCost(String planeId, StandardWindow window) {
+        if (planeId == null || planeId.isEmpty() || PlaneMeta.HOME_ID.equalsIgnoreCase(planeId)) {
+            return 0;
+        }
+        PlaneAlignment align = alignmentForPlane(planeId, window);
+        if (!align.isReachable()) {
+            return -1;
+        }
+        ConfigData cfg;
+        try {
+            cfg = Config.instance().getConfigData();
+        } catch (Throwable ignored) {
+            cfg = new ConfigData();
+        }
+        return align.portalGoldCost(cfg);
+    }
+
     /**
-     * Preflight + gold cost for traveling to {@code planeId}. Returns null when allowed
-     * (cost already applied if {@code charge} is true), or an error message.
+     * Preflight for travel. When {@code charge} is true, deducts gold.
+     * Returns null when allowed, or an error message. Does not switch planes.
      */
     public static String checkTravel(String planeId, AdventurePlayer player, boolean charge) {
         try {
@@ -89,7 +156,7 @@ public final class SetPlaneRules {
                 return "Multi-plane requires Ascendant";
             }
         } catch (Throwable t) {
-            // Headless tests: still evaluate alignment without Ascendant config.
+            // Headless tests: still evaluate alignment.
         }
         if (planeId == null || planeId.isEmpty()) {
             return "Missing plane id";
@@ -97,20 +164,9 @@ public final class SetPlaneRules {
         if (PlaneMeta.HOME_ID.equalsIgnoreCase(planeId)) {
             return null;
         }
-        StandardWindow window = player != null ? player.getStandardWindow() : null;
-        PlaneAlignment align = alignmentForPlane(planeId, window);
-        if (!align.isReachable()) {
-            return "That plane is out of alignment — master sets to unlock new planes.";
-        }
-        ConfigData cfg = null;
-        try {
-            cfg = Config.instance().getConfigData();
-        } catch (Throwable ignored) {
-            cfg = new ConfigData();
-        }
-        int cost = align.portalGoldCost(cfg);
+        int cost = portalGoldCost(planeId, player);
         if (cost < 0) {
-            return "That plane is out of alignment.";
+            return "That plane is out of alignment — master sets to unlock new planes.";
         }
         if (cost > 0) {
             if (player == null || player.getGold() < cost) {
@@ -124,16 +180,67 @@ public final class SetPlaneRules {
         return null;
     }
 
-    /** Build a {@code $generate} enemy deck restricted to {@code setCode}. */
+    /**
+     * Charge portal gold for {@code planeId}. Returns the amount charged (0 if free),
+     * or -1 if payment failed (insufficient gold / locked). Caller must not persist
+     * a plane switch when this returns -1.
+     */
+    public static int chargePortalGold(String planeId, AdventurePlayer player) {
+        if (player == null) {
+            int cost = portalGoldCost(planeId, (StandardWindow) null);
+            return cost == 0 ? 0 : -1;
+        }
+        return chargePortalGold(planeId, player.getStandardWindow(), player.getGold(), player::takeGold);
+    }
+
+    /**
+     * Charge portal gold against an explicit wallet. Returns charged amount or -1.
+     * Used by portals and headless tests — never persists a plane switch on failure.
+     */
+    public static int chargePortalGold(String planeId, StandardWindow window, int gold,
+                                       java.util.function.IntConsumer takeGold) {
+        int cost = portalGoldCost(planeId, window);
+        if (cost < 0) {
+            return -1;
+        }
+        if (cost == 0) {
+            return 0;
+        }
+        if (gold < cost || takeGold == null) {
+            return -1;
+        }
+        takeGold.accept(cost);
+        return cost;
+    }
+
+    public static void refundPortalGold(AdventurePlayer player, int charged) {
+        if (player != null && charged > 0) {
+            player.giveGold(charged);
+        }
+    }
+
+    public static void refundPortalGold(java.util.function.IntConsumer giveGold, int charged) {
+        if (giveGold != null && charged > 0) {
+            giveGold.accept(charged);
+        }
+    }
+
+    /**
+     * Build a {@code $generate} enemy deck restricted to {@code setCode}.
+     * Uses a local {@link Random} and temporarily swaps {@link MyRandom} only —
+     * never reseeds the shared world RNG.
+     */
     public static Deck generateEnemyDeck(EnemyData enemy, String setCode) {
         if (enemy == null) {
             return new Deck("Empty");
         }
-        String code = setCode != null ? setCode : activeSetCode();
-        String deckName = (enemy.getName() != null ? enemy.getName() : "Enemy") + " (" + code + ")";
+        String requested = setCode != null ? setCode : activeSetCode();
+        String code = restrictableSetCode(requested);
+        String deckName = (enemy.getName() != null ? enemy.getName() : "Enemy")
+                + (code.isEmpty() ? "" : " (" + code + ")");
         CardEdition edition = null;
         try {
-            if (code != null && !code.isEmpty() && FModel.getMagicDb() != null) {
+            if (!code.isEmpty() && FModel.getMagicDb() != null) {
                 edition = FModel.getMagicDb().getEditions().get(code);
             }
         } catch (Throwable ignored) {
@@ -150,16 +257,11 @@ public final class SetPlaneRules {
         }
         seed ^= (enemy.getName() != null ? enemy.getName().hashCode() : 0)
                 ^ (code != null ? code.hashCode() : 0);
+
         Random previous = MyRandom.getRandom();
         try {
+            // Local RNG via MyRandom only — do not touch World.getRandom().
             MyRandom.setRandom(new Random(seed));
-            try {
-                if (WorldSave.getCurrentSave() != null && WorldSave.getCurrentSave().getWorld() != null) {
-                    WorldSave.getCurrentSave().getWorld().getRandom().setSeed(seed);
-                }
-            } catch (Throwable ignored) {
-                // headless
-            }
 
             GeneratedDeckData data = new GeneratedDeckData();
             data.name = deckName;
@@ -178,26 +280,29 @@ public final class SetPlaneRules {
             if (deck == null) {
                 deck = new Deck(data.name);
             }
-            // Drop any non-set cards that slipped through (basics may be from other sets — OK).
             if (edition != null) {
                 sanitizeToSet(deck, code);
             }
-            return deck;
+            // Tiny / empty set → fall back to unrestricted generate so decks stay playable.
+            if (deck.getMain().countAll() < MIN_SET_POOL_SIZE && edition != null) {
+                try {
+                    deck = CardUtil.generateDeck(data, null, true);
+                } catch (Throwable e) {
+                    // keep sanitized / empty
+                }
+            }
+            return deck != null ? deck : new Deck(deckName);
         } catch (Throwable t) {
             return new Deck(deckName);
         } finally {
             MyRandom.setRandom(previous);
-            try {
-                if (WorldSave.getCurrentSave() != null && WorldSave.getCurrentSave().getWorld() != null) {
-                    WorldSave.getCurrentSave().getWorld().getRandom().setSeed(System.nanoTime());
-                }
-            } catch (Throwable ignored) {
-                // headless
-            }
         }
     }
 
-    /** True when this enemy should use set-restricted $generate on the current plane. */
+    /**
+     * True only when the enemy uses an explicit {@code $generate} deck marker
+     * on a set plane. Bosses and hand-built {@code .dck} lists are left alone.
+     */
     public static boolean shouldGenerateSetDeck(EnemyData enemy) {
         try {
             if (!Config.ascendant() || !isOnSetPlane()) {
@@ -206,25 +311,23 @@ public final class SetPlaneRules {
         } catch (Throwable t) {
             return false;
         }
-        if (enemy == null) {
+        if (enemy == null || enemy.boss) {
             return false;
         }
-        // Honour explicit $generate markers; also override stock .dck lists on set planes
-        // so every overworld fight draws from the plane's set.
         if (enemy.deck == null || enemy.deck.length == 0) {
-            return true;
+            return false;
         }
         for (String path : enemy.deck) {
             if (path != null && (GENERATE.equals(path) || path.contains("$generate"))) {
                 return true;
             }
         }
-        return true;
+        return false;
     }
 
     /**
-     * Apply set-plane edition restriction to a reward filter copy.
-     * Returns {@code filter} unchanged when not on a set plane.
+     * Apply set-plane edition restriction when the active set has a usable pool.
+     * Returns {@code filter} unchanged when not on a restrictable set plane.
      */
     public static RewardData applySetEditionFilter(RewardData filter) {
         if (filter == null || !isOnSetPlane()) {
@@ -239,7 +342,31 @@ public final class SetPlaneRules {
         return copy;
     }
 
-    /** Filter a card pool to printings of the active set (or {@code setCode}). */
+    /** True when the set has enough non-land cards for shops / rewards. */
+    public static boolean setPoolIsUsable(Iterable<PaperCard> pool, String setCode) {
+        if (pool == null || setCode == null || setCode.isEmpty()) {
+            return false;
+        }
+        int n = 0;
+        for (PaperCard pc : pool) {
+            if (pc == null) {
+                continue;
+            }
+            if (!setCode.equalsIgnoreCase(pc.getEdition())) {
+                continue;
+            }
+            if (pc.getRules() != null && pc.getRules().getType().isBasicLand()) {
+                continue;
+            }
+            n++;
+            if (n >= MIN_SET_POOL_SIZE) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Filter a card pool to printings of {@code setCode}. */
     public static List<PaperCard> cardsFromSet(Iterable<PaperCard> pool, String setCode) {
         List<PaperCard> out = new ArrayList<>();
         if (pool == null || setCode == null || setCode.isEmpty()) {
@@ -253,7 +380,6 @@ public final class SetPlaneRules {
                 out.add(pc);
                 continue;
             }
-            // Accept any printing whose name exists in the set (basics / reprints).
             if (pc.getRules() != null && pc.getRules().getType().isBasicLand()) {
                 out.add(pc);
             }

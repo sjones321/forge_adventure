@@ -106,6 +106,7 @@
   "alignedPortalGoldCost": 0,
   "rotatedOutPortalGoldCost": 500,
   "masteryUnlocksSetPlane": true,
+  "setPlaneMaxPlacementRestarts": 8,
   "screenWidth": 480,
   "screenHeight": 270,
   "skin": "skin/ui_skin.json",

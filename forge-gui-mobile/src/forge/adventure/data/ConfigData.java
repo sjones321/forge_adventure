@@ -380,5 +380,10 @@ public class ConfigData {
      * places a Planar Gate on the home plane.
      */
     public boolean masteryUnlocksSetPlane = true;
+    /**
+     * Max full POI-placement restarts when generating a set plane. After this,
+     * unplaceable instances are skipped so generation always finishes.
+     */
+    public int setPlaneMaxPlacementRestarts = 8;
 
 }

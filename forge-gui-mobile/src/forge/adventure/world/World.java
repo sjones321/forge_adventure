@@ -150,12 +150,24 @@ public class World implements Disposable, SaveFileContent {
         worldDataLoaded = true;
     }
 
-    /** MV2: add a POI after generation (planar gates on home / set planes). */
+    /**
+     * MV2: add a POI after generation (planar gates on home / set planes).
+     * Canonical owner of this helper — keep stable across parallel packages
+     * (FT1 drops any duplicate).
+     */
     public void addPointOfInterest(PointOfInterest poi) {
         if (poi == null || mapPoiIds == null) {
             return;
         }
         mapPoiIds.add(poi);
+    }
+
+    /** MV2: clear collision/terrain around a world-pixel position (planar gates). */
+    public void clearTerrainAroundWorld(float worldX, float worldY, int size) {
+        if (data == null || data.tileSize <= 0) {
+            return;
+        }
+        clearTerrain((int) (worldX / data.tileSize), (int) (worldY / data.tileSize), size);
     }
 
     @Override
@@ -599,6 +611,10 @@ public class World implements Disposable, SaveFileContent {
                 }
             }
 
+            // MV2 / small set planes: cap full-map restarts so generation cannot loop forever.
+            final int maxRestarts = data.maxPoiPlacementRestarts > 0
+                    ? data.maxPoiPlacementRestarts : Integer.MAX_VALUE;
+            int restartCount = 0;
             boolean running = true;
             here:
             while (running) {
@@ -666,8 +682,16 @@ public class World implements Disposable, SaveFileContent {
                                                     + "...Skipping instance.\n");
                                             break;
                                         }
+                                        // MV2: when restart budget is exhausted, skip this instance
+                                        // instead of looping forever on a tiny set plane.
+                                        if (restartCount >= maxRestarts) {
+                                            System.err.print("Can not place POI " + poi.name
+                                                    + "...Skipping after " + restartCount + " restarts.\n");
+                                            break;
+                                        }
                                         System.err.print("Can not place POI " + poi.name + "...Rerunning..\n");
                                         running = true;
+                                        restartCount++;
                                         towns.clear();
                                         notTowns.clear();
                                         otherPoints.clear();
@@ -1127,8 +1151,31 @@ public class World implements Disposable, SaveFileContent {
         return mapPoiIds.findPointsOfInterest(name);
     }
 
-    public List<PointOfInterest> getAllPointOfInterest(){
+    public List<PointOfInterest> getAllPointOfInterest() {
+        if (mapPoiIds == null) {
+            return java.util.Collections.emptyList();
+        }
         return mapPoiIds.getAllPointOfInterest();
+    }
+
+    /**
+     * MV2 / tests: install an empty POI map and world grid so gate placement helpers
+     * can run without a full generate. No-op when {@code worldData} is null.
+     */
+    public void installTestWorldGrid(WorldData worldData) {
+        if (worldData == null) {
+            return;
+        }
+        this.data = worldData;
+        this.width = worldData.width;
+        this.height = worldData.height;
+        this.terrainMap = new int[Math.max(1, width)][Math.max(1, height)];
+        int chunk = Math.max(1, worldData.tileSize > 0 ? 16 : 16);
+        int chunksX = Math.max(1, width / chunk);
+        int chunksY = Math.max(1, height / chunk);
+        this.mapPoiIds = new PointOfInterestMap(chunk, worldData.tileSize > 0 ? worldData.tileSize : 16,
+                chunksX, chunksY);
+        this.worldDataLoaded = true;
     }
 
     public int getChunkSize() {

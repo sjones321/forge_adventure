@@ -21,22 +21,23 @@ public class PointOfInterest implements Serializable, SaveFileContent {
     @Override
     public void load(SaveFileData saveFileData) {
         position.set(saveFileData.readVector2("position"));
-        data=PointOfInterestData.getPointOfInterest(saveFileData.readString("name"));
+        String poiName = saveFileData.readString("name");
+        // MV2: PlanarGate (and other runtime POIs) must resolve after restart.
+        if (poiName != null && "PlanarGate".equals(poiName)) {
+            forge.adventure.world.SetPlaneGenerator.ensurePlanarGateRegistered();
+        }
+        data = PointOfInterestData.getPointOfInterest(poiName);
         rectangle.set(saveFileData.readRectangle("rectangle"));
-        spriteIndex=saveFileData.readInt("spriteIndex");
-        if (saveFileData.containsKey("active")){
+        spriteIndex = saveFileData.readInt("spriteIndex");
+        if (saveFileData.containsKey("active")) {
             active = saveFileData.readBool("active");
+        } else {
+            active = data == null || data.active;
         }
-        else
-        {
-            active = data.active;
-        }
-        if (saveFileData.containsKey("displayName")){
+        if (saveFileData.containsKey("displayName")) {
             displayName = saveFileData.readString("displayName");
-        }
-        else
-        {
-            displayName = data==null?"":data.getDisplayName();
+        } else {
+            displayName = data == null ? "" : data.getDisplayName();
         }
         if (saveFileData.containsKey("targetPlane")) {
             targetPlane = saveFileData.readString("targetPlane");
@@ -46,9 +47,17 @@ public class PointOfInterest implements Serializable, SaveFileContent {
             targetPlane = "";
         }
 
-        oldMapId="";
-        Array<Sprite> textureAtlas = Config.instance().getPOISprites(this.data);
-        sprite = textureAtlas.get(spriteIndex%textureAtlas.size);
+        oldMapId = "";
+        try {
+            if (this.data != null) {
+                Array<Sprite> textureAtlas = Config.instance().getPOISprites(this.data);
+                if (textureAtlas != null && textureAtlas.size > 0) {
+                    sprite = textureAtlas.get(spriteIndex % textureAtlas.size);
+                }
+            }
+        } catch (Throwable t) {
+            // Headless tests / missing atlas — position, name, and targetPlane still load.
+        }
     }
 
     @Override

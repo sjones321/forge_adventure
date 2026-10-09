@@ -32,6 +32,11 @@ public final class MultiverseState {
     private final LinkedHashSet<String> inactivePlaneIds = new LinkedHashSet<>();
     /** Compressed payloads — never held as live {@link World} / inflated SaveFileData. */
     private final LinkedHashMap<String, byte[]> compressedBlobs = new LinkedHashMap<>();
+    /**
+     * MV2: plane ids whose Planar Gate should be placed on home when next loaded
+     * (mastery unlocked while the player was on another plane).
+     */
+    private final LinkedHashSet<String> pendingHomeGatePlaneIds = new LinkedHashSet<>();
     private boolean multiPlaneFormat;
 
     public String getCurrentPlaneId() {
@@ -127,11 +132,29 @@ public final class MultiverseState {
         metas.clear();
         inactivePlaneIds.clear();
         compressedBlobs.clear();
+        pendingHomeGatePlaneIds.clear();
         PlaneMeta home = PlaneMeta.home(seed);
         home.setPlayerPos(posX, posY);
         metas.put(home.getId(), home);
         currentPlaneId = home.getId();
         multiPlaneFormat = true;
+    }
+
+    public void rememberPendingHomeGate(String planeId) {
+        if (planeId != null && !planeId.isEmpty() && !PlaneMeta.HOME_ID.equals(planeId)) {
+            pendingHomeGatePlaneIds.add(planeId);
+            multiPlaneFormat = true;
+        }
+    }
+
+    public void clearPendingHomeGate(String planeId) {
+        if (planeId != null) {
+            pendingHomeGatePlaneIds.remove(planeId);
+        }
+    }
+
+    public Set<String> getPendingHomeGatePlaneIds() {
+        return Collections.unmodifiableSet(new LinkedHashSet<>(pendingHomeGatePlaneIds));
     }
 
     public void migrateLegacyHome(long seed, float posX, float posY) {
@@ -250,6 +273,7 @@ public final class MultiverseState {
                 data.storeObject("cz_" + planeId, compressed);
             }
         }
+        data.storeObject("pendingHomeGatePlaneIds", new ArrayList<>(pendingHomeGatePlaneIds));
         return data;
     }
 
@@ -265,6 +289,7 @@ public final class MultiverseState {
         metas.clear();
         inactivePlaneIds.clear();
         compressedBlobs.clear();
+        pendingHomeGatePlaneIds.clear();
         if (data == null || !data.containsKey("currentPlaneId")) {
             // Do not force-rename here — leave field alone for migrateLegacyHome.
             multiPlaneFormat = false;
@@ -310,6 +335,15 @@ public final class MultiverseState {
                 if (raw instanceof byte[] compressed && CompressedPlaneBlob.isCompressedPayload(compressed)) {
                     compressedBlobs.put(planeId, compressed);
                     inactivePlaneIds.add(planeId);
+                }
+            }
+        }
+        @SuppressWarnings("unchecked")
+        List<String> pendingGates = (List<String>) data.readObject("pendingHomeGatePlaneIds");
+        if (pendingGates != null) {
+            for (String planeId : pendingGates) {
+                if (planeId != null && !planeId.isEmpty()) {
+                    pendingHomeGatePlaneIds.add(planeId);
                 }
             }
         }

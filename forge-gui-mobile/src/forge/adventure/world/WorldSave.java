@@ -157,6 +157,13 @@ public class WorldSave {
                                 currentSave.player.getWorldPosX(),
                                 currentSave.player.getWorldPosY());
                     }
+                    // MV2: PlanarGate definition + any missing home/set gates.
+                    try {
+                        SetPlaneGenerator.ensurePlanarGateRegistered();
+                        PlanarPortalPlacer.ensureMissingGatesOnLoad(currentSave);
+                    } catch (Exception ignored) {
+                        // Gate placement must not block load.
+                    }
                 } else {
                     currentSave.multiverse.initHomeFromLive(
                             currentSave.world.getSeed(),
@@ -510,15 +517,18 @@ public class WorldSave {
     }
 
     /**
-     * Create a set plane (MV1/MV2) if missing. MV2 customises the Ascendant
-     * set-plane template from the set's color balance when a set code can be
-     * inferred from {@code planeId}. Does not switch to it. Generation uses a
-     * temporary {@link World} and never clears the live {@link WorldStage}.
+     * Create a set plane (MV1/MV2) if missing. When {@code materializeNow} is true,
+     * generates immediately (console / first travel). When false, only registers
+     * meta so generation is deferred until first travel (mastery unlock).
      *
-     * <p>If the plane is registered but its compressed blob is missing, this
-     * reports an error — it never silently regenerates with a new seed.
+     * <p>Generation uses a temporary {@link World} and never clears the live
+     * {@link WorldStage}. Must run on the GL thread when materializing (textures).
      */
     public PlaneMeta ensureSetPlane(String planeId, String displayName) {
+        return ensureSetPlane(planeId, displayName, true);
+    }
+
+    public PlaneMeta ensureSetPlane(String planeId, String displayName, boolean materializeNow) {
         if (!Config.ascendant()) {
             throw new IllegalStateException("Multi-plane saves require Ascendant");
         }
@@ -533,8 +543,11 @@ public class WorldSave {
             if (multiverse.hasCompressedBlob(planeId)) {
                 return existing;
             }
-            throw new IllegalStateException(
-                    "Plane " + planeId + " is registered but its saved data is missing");
+            // Pending MV2 registration (no blob yet) — materialize on demand.
+            if (materializeNow) {
+                return materializeSetPlane(planeId);
+            }
+            return existing;
         }
         ConfigData cfg = Config.instance().getConfigData();
         int max = cfg != null ? Math.max(1, cfg.maxPlanesPerSave) : 16;
@@ -552,29 +565,79 @@ public class WorldSave {
                 : (setCode.isEmpty() ? planeId : SetPlaneGenerator.displayNameForSet(setCode));
         long seed = System.nanoTime() ^ planeId.hashCode() ^ world.getSeed();
         if (!setCode.isEmpty()) {
-            // Deterministic seed from world + set so re-creates (shouldn't happen) stay stable.
             seed = world.getSeed() ^ ((long) setCode.hashCode() << 32) ^ planeId.hashCode();
         }
         PlaneMeta meta = multiverse.registerSetPlane(planeId, seed, template, label);
         if (!setCode.isEmpty()) {
             meta.setSetCode(setCode);
         }
+        if (!materializeNow) {
+            return meta;
+        }
+        return materializeSetPlane(planeId);
+    }
 
-        // Temporary World — must not touch the live stage.
+    /**
+     * MV2: register a set plane without generating the world grid (deferred until
+     * first portal travel). Safe to call from mastery on any plane.
+     */
+    public PlaneMeta registerSetPlanePending(String setCode) {
+        if (setCode == null || setCode.isEmpty()) {
+            throw new IllegalArgumentException("setCode required");
+        }
+        String planeId = SetPlaneGenerator.planeIdForSet(setCode);
+        return ensureSetPlane(planeId, SetPlaneGenerator.displayNameForSet(setCode), false);
+    }
+
+    /**
+     * Generate (or no-op if already present) the compressed blob for a registered
+     * set plane. Call on the GL thread / via a loading screen before switchPlane.
+     */
+    public PlaneMeta materializeSetPlane(String planeId) {
+        if (!Config.ascendant()) {
+            throw new IllegalStateException("Multi-plane saves require Ascendant");
+        }
+        PlaneMeta meta = multiverse.getMeta(planeId);
+        if (meta == null) {
+            throw new IllegalStateException("Unknown plane: " + planeId);
+        }
+        if (planeId.equals(multiverse.getCurrentPlaneId()) || multiverse.hasCompressedBlob(planeId)) {
+            return meta;
+        }
+        ConfigData cfg = Config.instance().getConfigData();
+        String template = meta.getWorldConfigPath();
+        if (template == null || template.isEmpty()) {
+            template = cfg != null && cfg.setPlaneWorldConfig != null && !cfg.setPlaneWorldConfig.isEmpty()
+                    ? cfg.setPlaneWorldConfig : "world/set_plane_world.json";
+        }
+        if (!PlaneConfigPaths.isAllowed(template, multiverse)) {
+            throw new IllegalStateException("Disallowed set-plane template: " + template);
+        }
+        String setCode = meta.getSetCode();
+        if (setCode == null || setCode.isEmpty()) {
+            setCode = SetPlaneGenerator.setCodeFromPlaneId(planeId);
+            if (!setCode.isEmpty()) {
+                meta.setSetCode(setCode);
+            }
+        }
+        long seed = meta.getSeed() != 0 ? meta.getSeed()
+                : (world.getSeed() ^ ((long) planeId.hashCode() << 32));
+
+        // Temporary World — must not touch the live stage. Caller must be on GL thread.
         World generated = new World();
-        if (!setCode.isEmpty()) {
+        if (setCode != null && !setCode.isEmpty() && SetPlaneRules.isKnownEdition(setCode)) {
             try {
                 forge.adventure.data.WorldData custom = SetPlaneGenerator.prepareSetPlaneData(setCode, seed);
                 generated.overrideWorldData(custom);
             } catch (Exception e) {
-                // Fall back to plain template if customisation fails (missing files in tests).
                 System.err.println("MV2 set-plane customise failed for " + setCode + ": " + e.getMessage());
             }
         }
         if (!generated.generateNew(seed, template, false)) {
+            Forge.safeDispose(generated);
             throw new IllegalStateException("Failed to generate set plane " + planeId);
         }
-        if (!setCode.isEmpty()) {
+        if (setCode != null && !setCode.isEmpty()) {
             PlanarPortalPlacer.ensureReturnPortal(generated, setCode, seed);
         }
         meta.setSeed(generated.getSeed());
@@ -595,13 +658,9 @@ public class WorldSave {
         return meta;
     }
 
-    /** MV2: ensure a set plane for {@code setCode} ({@code set_<code>} id). */
+    /** MV2: ensure a set plane for {@code setCode} (registers pending; materializes on travel). */
     public PlaneMeta ensureSetPlaneForSet(String setCode) {
-        if (setCode == null || setCode.isEmpty()) {
-            throw new IllegalArgumentException("setCode required");
-        }
-        String planeId = SetPlaneGenerator.planeIdForSet(setCode);
-        return ensureSetPlane(planeId, SetPlaneGenerator.displayNameForSet(setCode));
+        return registerSetPlanePending(setCode);
     }
 
     /**
@@ -641,8 +700,15 @@ public class WorldSave {
             return false;
         }
         if (!multiverse.hasCompressedBlob(planeId)) {
-            lastPlaneSwitchError = "No saved data for plane " + planeId;
-            return false;
+            // Pending MV2 plane: travelable once materialized (auto-create / first portal).
+            ConfigData cfg = Config.instance().getConfigData();
+            PlaneMeta meta = multiverse.getMeta(planeId);
+            boolean canMaterialize = cfg != null && cfg.planarPortalAutoCreate
+                    && meta != null && !PlaneMeta.HOME_ID.equals(planeId);
+            if (!canMaterialize) {
+                lastPlaneSwitchError = "No saved data for plane " + planeId;
+                return false;
+            }
         }
         return true;
     }
@@ -685,6 +751,16 @@ public class WorldSave {
         final String fromId = multiverse.getCurrentPlaneId();
         multiverse.rememberCurrentPosition(player.getWorldPosX(), player.getWorldPosY());
         multiverse.updateCurrentSeed(world.getSeed());
+
+        // MV2 deferred gen: materialize pending set planes on the GL path before swap.
+        if (!multiverse.hasCompressedBlob(planeId)) {
+            try {
+                materializeSetPlane(planeId);
+            } catch (Exception e) {
+                lastPlaneSwitchError = "Cannot create plane data: " + e.getMessage();
+                return false;
+            }
+        }
 
         SaveFileData targetBlob;
         try {
@@ -763,6 +839,12 @@ public class WorldSave {
             multiverse.rememberCurrentPosition(px, py);
             multiverse.updateCurrentSeed(world.getSeed());
             CardUtil.clearPriceCache();
+            // MV2: place any missing Planar Gates on the plane we just entered.
+            try {
+                PlanarPortalPlacer.ensureMissingGatesOnLoad(this);
+            } catch (Exception ignored) {
+                // Gate placement must not fail the switch.
+            }
             onLoadList.emit();
             enterGameSceneOnceAfterSwitch();
             notifyCoopPlaneSwitch();

@@ -1,5 +1,20 @@
 [
 	{
+		"name": "PlanarGate",
+		"displayName": "Planar Gate",
+		"type": "planar_gate",
+		"count": 1,
+		"spriteAtlas": "../common/maps/tileset/buildings.atlas",
+		"sprite": "MageTowerBlack",
+		"map": "../common/maps/map/ascendant/planar_gate.tmx",
+		"radiusFactor": 0.5,
+		"active": true,
+		"targetPlane": "home",
+		"questTags": [
+			"PlanarGate"
+		]
+	},
+	{
 		"name": "Aerie",
 		"displayName": "Aerie",
 		"type": "dungeon",

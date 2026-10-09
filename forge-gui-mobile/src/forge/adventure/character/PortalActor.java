@@ -109,7 +109,7 @@ public class PortalActor extends EntryActor {
             return false;
         }
         try {
-            // MV2: alignment + gold cost before create/travel (no charge yet).
+            // MV2: alignment check before any mutation (no charge yet).
             String alignErr = forge.adventure.world.SetPlaneRules.checkTravel(id, Current.player(), false);
             if (alignErr != null) {
                 notifyPortal(alignErr);
@@ -118,28 +118,44 @@ public class PortalActor extends EntryActor {
             if (!save.getMultiverse().hasPlane(id)) {
                 ConfigData cfg = Config.instance().getConfigData();
                 if (cfg != null && cfg.planarPortalAutoCreate && !PlaneMeta.HOME_ID.equals(id)) {
-                    save.ensureSetPlane(id, id);
+                    // Register only; materialize below on the GL/UI path with loading feel.
+                    save.ensureSetPlane(id, id, false);
                 } else {
                     notifyPortal("Unknown plane: " + id);
                     return false;
                 }
             }
-            // Fail before POI eject when the registered plane has no compressed blob.
             if (!save.canTravelToPlane(id)) {
                 String err = save.getLastPlaneSwitchError();
                 notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
+                return false;
+            }
+            // Deferred MV2 gen: build the plane blob now (GL thread) before leaving the POI.
+            if (!save.getMultiverse().hasCompressedBlob(id)
+                    && !id.equals(save.getMultiverse().getCurrentPlaneId())) {
+                try {
+                    notifyPortal("Opening a portal…");
+                    save.materializeSetPlane(id);
+                } catch (Exception e) {
+                    notifyPortal("Could not create plane: " + e.getMessage());
+                    return false;
+                }
+            }
+            // Charge before persisting the switch; refund if switch fails.
+            int charged = forge.adventure.world.SetPlaneRules.chargePortalGold(id, Current.player());
+            if (charged < 0) {
+                notifyPortal(forge.adventure.world.SetPlaneRules.checkTravel(id, Current.player(), false));
                 return false;
             }
             if (stage != null && stage.isInMap()) {
                 stage.exitDungeon(false, false);
             }
             if (!save.switchPlane(id)) {
+                forge.adventure.world.SetPlaneRules.refundPortalGold(Current.player(), charged);
                 String err = save.getLastPlaneSwitchError();
                 notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
                 return false;
             }
-            // MV2: charge drifted-plane cost only after a successful switch.
-            forge.adventure.world.SetPlaneRules.checkTravel(id, Current.player(), true);
             // GameScene.enter() happens exactly once inside switchPlane.
             notifyPortal("Planeswalked to " + save.getMultiverse().getCurrentMeta().getDisplayName());
             return true;
