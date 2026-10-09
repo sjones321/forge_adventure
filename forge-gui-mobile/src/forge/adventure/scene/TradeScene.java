@@ -21,8 +21,8 @@ import java.util.Map;
 
 /**
  * Ascendant TR1 face-to-face trade window. Controller-first (INV1-style bindings):
- * A confirms, B cancels, Y adds gold, DPAD moves focus, LB/RB cycle add targets.
- * Stock play never opens this scene ({@link Config#ascendant()}).
+ * A confirms, B cancels (only before Execute), Y adds gold, DPAD moves focus,
+ * LB/RB cycle add targets. Stock play never opens this scene ({@link Config#ascendant()}).
  */
 public class TradeScene extends UIScene {
     private static TradeScene object;
@@ -86,9 +86,12 @@ public class TradeScene extends UIScene {
     public void refreshFromState() {
         final CoopTradeState st = CoopTradeRuntime.get().getState();
         if (status != null) {
-            final String conf = (st.isLocalConfirmed() ? "You ✓" : "You …")
+            String conf = (st.isLocalConfirmed() ? "You ✓" : "You …")
                     + "  |  "
                     + (st.isPeerConfirmed() ? "Partner ✓" : "Partner …");
+            if (!st.isCancelAllowed()) {
+                conf += "  |  Commit…";
+            }
             status.setText(CoopTradeWireLimits.clampText(conf));
             status.skipToTheEnd();
         }
@@ -142,6 +145,10 @@ public class TradeScene extends UIScene {
     }
 
     private void cancel() {
+        if (!CoopTradeRuntime.get().getState().isCancelAllowed()) {
+            // Cancel disabled after Execute (protocol + UI).
+            return;
+        }
         CoopTradeRuntime.get().cancelTrade("cancelled");
         open = false;
         Forge.switchScene(GameScene.instance());

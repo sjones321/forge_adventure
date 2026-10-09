@@ -85,12 +85,13 @@ public final class CoopTradeApply {
 
     /**
      * Apply one side's give/receive against a single bag (guest or host local apply).
-     * Caller keeps {@code snap} for two-phase rollback until the peer commits.
+     * On mid-apply failure the optional {@code snap} restores the bag; post-ack
+     * rollback uses {@link #reverseLocal} (line-only) instead of a full snapshot.
      */
     public static Result applyLocal(final CoopTradeBag bag, final CoopTradeOffer give,
                                     final CoopTradeOffer receive, final CoopTradeBag.Snapshot snap) {
-        if (bag == null || snap == null) {
-            return Result.fail("null bag/snap");
+        if (bag == null) {
+            return Result.fail("null bag");
         }
         final CoopTradeOffer out = give != null ? give : CoopTradeOffer.empty();
         final CoopTradeOffer in = receive != null ? receive : CoopTradeOffer.empty();
@@ -98,31 +99,38 @@ public final class CoopTradeApply {
         if (!check.ok()) {
             return Result.fail(check.reason + ":" + check.detail);
         }
-        // Overflow-safe: refuse if the RECEIVER (this bag) cannot accept the gold.
         final CoopTradeValidator.Result recvGold = CoopTradeValidator.validateReceiverGold(in, bag);
         if (!recvGold.ok()) {
             return Result.fail(recvGold.reason + ":" + recvGold.detail);
         }
         try {
             if (!removeOffer(bag, out)) {
-                bag.restore(snap);
+                if (snap != null) {
+                    bag.restore(snap);
+                }
                 return Result.fail("remove");
             }
             if (!grantOffer(bag, in)) {
-                bag.restore(snap);
+                if (snap != null) {
+                    bag.restore(snap);
+                } else {
+                    // Best-effort undo of the remove when no snap.
+                    grantOffer(bag, out);
+                }
                 return Result.fail("grant");
             }
             return Result.ok();
         } catch (final RuntimeException ex) {
-            bag.restore(snap);
+            if (snap != null) {
+                bag.restore(snap);
+            }
             return Result.fail("exception:" + ex.getMessage());
         }
     }
 
     /**
      * Idempotent local apply keyed by trade id. If {@code log} already records a
-     * local apply for {@code role}, returns ok without mutating the bag. The
-     * caller records the phase via {@link CoopTradeState} after success.
+     * local apply for {@code role}, returns ok without mutating the bag.
      */
     public static Result applyLocalIdempotent(final long tradeId, final CoopTradeRole role,
                                               final CoopTradeLog log, final CoopTradeBag bag,
@@ -132,6 +140,32 @@ public final class CoopTradeApply {
             return Result.ok();
         }
         return applyLocal(bag, give, receive, snap);
+    }
+
+    /**
+     * Line-only undo of {@link #applyLocal}: take back what was received and
+     * return what was given. Unrelated bag changes since the apply survive.
+     */
+    public static Result reverseLocal(final CoopTradeBag bag, final CoopTradeOffer give,
+                                      final CoopTradeOffer receive) {
+        if (bag == null) {
+            return Result.fail("null bag");
+        }
+        final CoopTradeOffer out = give != null ? give : CoopTradeOffer.empty();
+        final CoopTradeOffer in = receive != null ? receive : CoopTradeOffer.empty();
+        try {
+            if (!removeOffer(bag, in)) {
+                return Result.fail("reverse remove received");
+            }
+            if (!grantOffer(bag, out)) {
+                // Re-grant what we just took so we don't strand the bag.
+                grantOffer(bag, in);
+                return Result.fail("reverse grant given");
+            }
+            return Result.ok();
+        } catch (final RuntimeException ex) {
+            return Result.fail("exception:" + ex.getMessage());
+        }
     }
 
     public static boolean removeOffer(final CoopTradeBag bag, final CoopTradeOffer offer) {
