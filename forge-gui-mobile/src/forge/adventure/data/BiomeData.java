@@ -141,4 +141,9 @@ public class BiomeData implements Serializable {
         }
         return unusedTownNames;
     }
+
+    /** MV2: replace the town-name pool (set-themed names on set planes). */
+    public void replaceTownNames(ArrayList<String> names) {
+        unusedTownNames = names != null ? new ArrayList<>(names) : new ArrayList<>();
+    }
 }

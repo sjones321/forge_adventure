@@ -56,6 +56,8 @@ public class World implements Disposable, SaveFileContent {
     private String worldConfigPath = Paths.WORLD;
     /** Test/observe: whether the last {@link #generateNew} cleared the live WorldStage. */
     private boolean clearedLiveStageOnLastGenerate;
+    /** MV2: optional in-memory world.json override applied once by {@link #loadWorldData()}. */
+    private WorldData pendingWorldDataOverride;
 
     public Random getRandom() {
         return random;
@@ -114,13 +116,27 @@ public class World implements Disposable, SaveFileContent {
         return false;
     }
 
+    /**
+     * MV2: use a pre-customised {@link WorldData} on the next generate/load instead of
+     * reading world.json. Cleared after {@link #loadWorldData()} consumes it.
+     */
+    public void overrideWorldData(WorldData worldData) {
+        pendingWorldDataOverride = worldData;
+        worldDataLoaded = false;
+    }
+
     public void loadWorldData() {
         if (worldDataLoaded)
             return;
 
-        FileHandle handle = Config.instance().getFile(getWorldConfigPath());
-        String rawJson = handle.readString();
-        this.data = (new Json()).fromJson(WorldData.class, rawJson);
+        if (pendingWorldDataOverride != null) {
+            this.data = pendingWorldDataOverride;
+            pendingWorldDataOverride = null;
+        } else {
+            FileHandle handle = Config.instance().getFile(getWorldConfigPath());
+            String rawJson = handle.readString();
+            this.data = (new Json()).fromJson(WorldData.class, rawJson);
+        }
         disposeBiomeTexturesAsync();
         biomeTexture = new BiomeTexture[data.GetBiomes().size() + 1];
 
@@ -132,6 +148,14 @@ public class World implements Disposable, SaveFileContent {
         }
         biomeTexture[biomeIndex] = new BiomeTexture(data.roadTileset, data.tileSize);
         worldDataLoaded = true;
+    }
+
+    /** MV2: add a POI after generation (planar gates on home / set planes). */
+    public void addPointOfInterest(PointOfInterest poi) {
+        if (poi == null || mapPoiIds == null) {
+            return;
+        }
+        mapPoiIds.add(poi);
     }
 
     @Override

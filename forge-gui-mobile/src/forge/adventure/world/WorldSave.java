@@ -266,6 +266,15 @@ public class WorldSave {
         currentSave.player.create(name, starterDeck, male, race, avatarIndex, false, false, diff, AdventureModes.Sealed);
         currentSave.player.getStandardWindow().init(coreCode == null ? List.of(setCode) : List.of(coreCode, setCode));
         RewardData.invalidateCardPool();
+        // MV2: Planar Gates on the home plane for the starting Standard window.
+        try {
+            if (Config.ascendant() && currentSave.world != null) {
+                PlanarPortalPlacer.ensureHomePortals(currentSave.world,
+                        currentSave.player.getStandardWindow(), currentSave.world.getSeed());
+            }
+        } catch (Exception ignored) {
+            // Portal placement must not break New Game.
+        }
 
         // create() already put the deck's cards in the collection; add the opened cards that didn't make the deck
         List<PaperCard> leftovers = new ArrayList<>(pool);
@@ -501,8 +510,9 @@ public class WorldSave {
     }
 
     /**
-     * Create a set plane (MV1) if missing, generated from the Ascendant set-plane
-     * template and a unique seed. Does not switch to it. Generation uses a
+     * Create a set plane (MV1/MV2) if missing. MV2 customises the Ascendant
+     * set-plane template from the set's color balance when a set code can be
+     * inferred from {@code planeId}. Does not switch to it. Generation uses a
      * temporary {@link World} and never clears the live {@link WorldStage}.
      *
      * <p>If the plane is registered but its compressed blob is missing, this
@@ -536,14 +546,36 @@ public class WorldSave {
         if (!PlaneConfigPaths.isAllowed(template, multiverse)) {
             throw new IllegalStateException("Disallowed set-plane template: " + template);
         }
+        String setCode = SetPlaneGenerator.setCodeFromPlaneId(planeId);
+        String label = displayName != null && !displayName.isEmpty()
+                ? displayName
+                : (setCode.isEmpty() ? planeId : SetPlaneGenerator.displayNameForSet(setCode));
         long seed = System.nanoTime() ^ planeId.hashCode() ^ world.getSeed();
-        PlaneMeta meta = multiverse.registerSetPlane(planeId, seed, template,
-                displayName != null ? displayName : planeId);
+        if (!setCode.isEmpty()) {
+            // Deterministic seed from world + set so re-creates (shouldn't happen) stay stable.
+            seed = world.getSeed() ^ ((long) setCode.hashCode() << 32) ^ planeId.hashCode();
+        }
+        PlaneMeta meta = multiverse.registerSetPlane(planeId, seed, template, label);
+        if (!setCode.isEmpty()) {
+            meta.setSetCode(setCode);
+        }
 
         // Temporary World — must not touch the live stage.
         World generated = new World();
+        if (!setCode.isEmpty()) {
+            try {
+                forge.adventure.data.WorldData custom = SetPlaneGenerator.prepareSetPlaneData(setCode, seed);
+                generated.overrideWorldData(custom);
+            } catch (Exception e) {
+                // Fall back to plain template if customisation fails (missing files in tests).
+                System.err.println("MV2 set-plane customise failed for " + setCode + ": " + e.getMessage());
+            }
+        }
         if (!generated.generateNew(seed, template, false)) {
             throw new IllegalStateException("Failed to generate set plane " + planeId);
+        }
+        if (!setCode.isEmpty()) {
+            PlanarPortalPlacer.ensureReturnPortal(generated, setCode, seed);
         }
         meta.setSeed(generated.getSeed());
         float startX = (float) (generated.getData().playerStartPosX * generated.getData().width
@@ -561,6 +593,15 @@ public class WorldSave {
         }
         Forge.safeDispose(generated);
         return meta;
+    }
+
+    /** MV2: ensure a set plane for {@code setCode} ({@code set_<code>} id). */
+    public PlaneMeta ensureSetPlaneForSet(String setCode) {
+        if (setCode == null || setCode.isEmpty()) {
+            throw new IllegalArgumentException("setCode required");
+        }
+        String planeId = SetPlaneGenerator.planeIdForSet(setCode);
+        return ensureSetPlane(planeId, SetPlaneGenerator.displayNameForSet(setCode));
     }
 
     /**
@@ -591,6 +632,12 @@ public class WorldSave {
         }
         if (!forge.adventure.coop.CoopSession.get().canInitiatePlaneSwitch()) {
             lastPlaneSwitchError = "Guests cannot initiate plane switches — follow the host.";
+            return false;
+        }
+        // MV2 alignment (no gold charge on preflight).
+        String alignErr = SetPlaneRules.checkTravel(planeId, player, false);
+        if (alignErr != null) {
+            lastPlaneSwitchError = alignErr;
             return false;
         }
         if (!multiverse.hasCompressedBlob(planeId)) {

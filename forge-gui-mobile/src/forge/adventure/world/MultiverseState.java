@@ -170,6 +170,11 @@ public final class MultiverseState {
         }
         PlaneMeta meta = new PlaneMeta(planeId, PlaneKind.SET, seed, path,
                 displayName != null && !displayName.isEmpty() ? displayName : planeId);
+        // MV2: stamp set code when the plane id encodes one (set_dmu → DMU).
+        String code = SetPlaneGenerator.setCodeFromPlaneId(planeId);
+        if (!code.isEmpty()) {
+            meta.setSetCode(code);
+        }
         metas.put(planeId, meta);
         multiPlaneFormat = true;
         return meta;

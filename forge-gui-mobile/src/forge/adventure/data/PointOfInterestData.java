@@ -27,6 +27,11 @@ public class PointOfInterestData implements Serializable {
     public String[] questTags = new String[0];
     public DialogData.ActionData.QuestFlag[] questFlagsToActivate = new DialogData.ActionData.QuestFlag[0];
     public String displayName;
+    /**
+     * MV2: when set, portals inside this POI's map travel to this plane id
+     * (e.g. {@code home}, {@code set_dmu}). Optional in JSON.
+     */
+    public String targetPlane;
 
 
 
@@ -42,6 +47,26 @@ public class PointOfInterestData implements Serializable {
 
         }
         return pointOfInterestList;
+    }
+
+    /** MV2: register a runtime POI definition (Planar Gate) if missing from JSON. */
+    public static void registerRuntime(PointOfInterestData data) {
+        if (data == null || data.name == null) {
+            return;
+        }
+        Array<PointOfInterestData> all = getAllPointOfInterest();
+        if (all == null) {
+            pointOfInterestList = new Array<>();
+            all = pointOfInterestList;
+        }
+        for (int i = 0; i < all.size; i++) {
+            PointOfInterestData existing = all.get(i);
+            if (existing != null && data.name.equals(existing.name)) {
+                all.set(i, data);
+                return;
+            }
+        }
+        all.add(data);
     }
     public static PointOfInterestData getPointOfInterest(String name) {
         for(PointOfInterestData data: new Array.ArrayIterator<>(getAllPointOfInterest())){
@@ -68,6 +93,7 @@ public class PointOfInterestData implements Serializable {
         questTags = other.questTags.clone();
         displayName= other.displayName;
         questFlagsToActivate = other.questFlagsToActivate;
+        targetPlane = other.targetPlane;
     }
 
     public String getDisplayName() {

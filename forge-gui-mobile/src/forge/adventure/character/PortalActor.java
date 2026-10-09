@@ -109,6 +109,12 @@ public class PortalActor extends EntryActor {
             return false;
         }
         try {
+            // MV2: alignment + gold cost before create/travel (no charge yet).
+            String alignErr = forge.adventure.world.SetPlaneRules.checkTravel(id, Current.player(), false);
+            if (alignErr != null) {
+                notifyPortal(alignErr);
+                return false;
+            }
             if (!save.getMultiverse().hasPlane(id)) {
                 ConfigData cfg = Config.instance().getConfigData();
                 if (cfg != null && cfg.planarPortalAutoCreate && !PlaneMeta.HOME_ID.equals(id)) {
@@ -132,6 +138,8 @@ public class PortalActor extends EntryActor {
                 notifyPortal(err != null && !err.isEmpty() ? err : "Could not travel to " + id);
                 return false;
             }
+            // MV2: charge drifted-plane cost only after a successful switch.
+            forge.adventure.world.SetPlaneRules.checkTravel(id, Current.player(), true);
             // GameScene.enter() happens exactly once inside switchPlane.
             notifyPortal("Planeswalked to " + save.getMultiverse().getCurrentMeta().getDisplayName());
             return true;

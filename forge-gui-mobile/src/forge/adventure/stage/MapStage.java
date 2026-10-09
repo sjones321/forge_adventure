@@ -461,10 +461,25 @@ public class MapStage extends GameStage {
                         Object directionProp = prop.get("direction");
                         String portalDirection = directionProp == null ? "down" : directionProp.toString();
                         PortalActor portal = new PortalActor(this, id, portalTargetMap, px, py, pw, ph, portalDirection, currentMap, portalTargetId, portalSpriteToUse);
-                        // MV1: optional targetPlane switches WorldSave planes (Ascendant only).
-                        if (Config.ascendant() && prop.containsKey("targetPlane") && prop.get("targetPlane") != null) {
-                            String planeTarget = prop.get("targetPlane").toString().trim();
-                            if (!planeTarget.isEmpty()) {
+                        // MV1/MV2: targetPlane switches WorldSave planes (Ascendant only).
+                        // TMX property wins; otherwise the root POI's MV2 targetPlane (Planar Gate).
+                        if (Config.ascendant()) {
+                            String planeTarget = "";
+                            if (prop.containsKey("targetPlane") && prop.get("targetPlane") != null) {
+                                planeTarget = prop.get("targetPlane").toString().trim();
+                            }
+                            if (planeTarget.isEmpty()) {
+                                try {
+                                    forge.adventure.pointofintrest.PointOfInterest root =
+                                            forge.adventure.scene.TileMapScene.instance().rootPoint;
+                                    if (root != null) {
+                                        planeTarget = root.getTargetPlane();
+                                    }
+                                } catch (Exception ignored) {
+                                    // TileMapScene may be unavailable
+                                }
+                            }
+                            if (planeTarget != null && !planeTarget.isEmpty()) {
                                 portal.setTargetPlane(planeTarget);
                             }
                         }

@@ -112,4 +112,9 @@ public class WorldData implements Serializable {
         return biomes;
     }
 
+    /** MV2: install a pre-customised biome list (skips JSON reload). */
+    public void replaceBiomes(List<BiomeData> replacement) {
+        biomes = replacement != null ? new ArrayList<>(replacement) : new ArrayList<>();
+    }
+
 }

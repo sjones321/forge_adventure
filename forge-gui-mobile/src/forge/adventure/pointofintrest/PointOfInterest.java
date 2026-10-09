@@ -38,6 +38,13 @@ public class PointOfInterest implements Serializable, SaveFileContent {
         {
             displayName = data==null?"":data.getDisplayName();
         }
+        if (saveFileData.containsKey("targetPlane")) {
+            targetPlane = saveFileData.readString("targetPlane");
+        } else if (data != null && data.targetPlane != null) {
+            targetPlane = data.targetPlane;
+        } else {
+            targetPlane = "";
+        }
 
         oldMapId="";
         Array<Sprite> textureAtlas = Config.instance().getPOISprites(this.data);
@@ -53,6 +60,7 @@ public class PointOfInterest implements Serializable, SaveFileContent {
         data.store("spriteIndex",spriteIndex);
         data.store("active",active);
         data.store("displayName",getDisplayName());
+        data.store("targetPlane", getTargetPlane());
         data.storeObject("questFlagsToActivate", questFlagsToActivate);
 
         return data;
@@ -66,6 +74,8 @@ public class PointOfInterest implements Serializable, SaveFileContent {
     String oldMapId="";
     boolean active = true;
     private String displayName;
+    /** MV2: plane id for portals inside this POI (overrides TMX when set). */
+    private String targetPlane = "";
     public ArrayList<DialogData.ActionData.QuestFlag> questFlagsToActivate=new ArrayList<>();
     public PointOfInterest() {
     }
@@ -78,6 +88,7 @@ public class PointOfInterest implements Serializable, SaveFileContent {
         sprite = textureAtlas.get(spriteIndex);
         data = d;
         active = d.active;
+        targetPlane = d.targetPlane != null ? d.targetPlane : "";
         position.set(pos);
         questFlagsToActivate.addAll(Arrays.asList(data.questFlagsToActivate));
 
@@ -151,5 +162,19 @@ public class PointOfInterest implements Serializable, SaveFileContent {
 
     public boolean hasDisplayName(){
         return displayName!= null && !displayName.isEmpty();
+    }
+
+    public String getTargetPlane() {
+        if (targetPlane != null && !targetPlane.isEmpty()) {
+            return targetPlane;
+        }
+        if (data != null && data.targetPlane != null) {
+            return data.targetPlane;
+        }
+        return "";
+    }
+
+    public void setTargetPlane(String planeId) {
+        targetPlane = planeId != null ? planeId : "";
     }
 }
