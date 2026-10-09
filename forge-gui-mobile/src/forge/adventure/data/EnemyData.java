@@ -104,10 +104,18 @@ public class EnemyData implements Serializable {
         if (preparedDeck != null)
             return preparedDeck;
 
+        // MV2: on a set plane, build a $generate deck restricted to that set.
+        try {
+            if (forge.adventure.world.SetPlaneRules.shouldGenerateSetDeck(this)) {
+                return forge.adventure.world.SetPlaneRules.generateEnemyDeck(this,
+                        forge.adventure.world.SetPlaneRules.activeSetCode());
+            }
+        } catch (Throwable ignored) {
+            // Fall through when MV2 helpers are unavailable.
+        }
+
         // EN1: themed format decks for ordinary overworld enemies (Ascendant).
-        // Gyms/League set preparedDeck above. MV2 set-plane $generate should hook
-        // before this block when that PR merges — leave themeId unset on set planes
-        // that use $generate so the hooks stay separate.
+        // Gyms/League set preparedDeck above. Set-plane $generate leaves themeId unset.
         if (themeId != null && !themeId.isEmpty()
                 && forge.adventure.util.EnemyThemeDecks.isEnabled()) {
             return forge.adventure.util.EnemyThemeDecks.resolveDeck(this, isFantasyMode, useGeneticAI);
