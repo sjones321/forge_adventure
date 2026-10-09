@@ -527,31 +527,34 @@ public class CoopDuelServerE2ETest {
         assertTrue(netCtrl instanceof NetGameController,
                 "guest seat must be NetGameController, was " + netCtrl.getClass().getName());
 
-        // Wait for opening hand sync on the client view.
+        // Wait for opening hand sync on the client GameView (local PlayerView can lag).
+        CardView castCard = null;
         final long handDeadline = System.currentTimeMillis() + 60_000;
-        boolean hasHand = false;
-        while (System.currentTimeMillis() < handDeadline && !hasHand) {
+        while (System.currentTimeMillis() < handDeadline && castCard == null) {
             answerHost(hostRemote, hostGui, false);
-            if (guestView.getHand() != null) {
-                for (final CardView c : guestView.getHand()) {
-                    if (c != null) {
-                        hasHand = true;
+            final GameView ggv = guestLocalGui.getGameView();
+            if (ggv != null && ggv.getPlayers() != null) {
+                for (final PlayerView p : ggv.getPlayers()) {
+                    if (p == null || p.getName() == null
+                            || !p.getName().equalsIgnoreCase(guestName)
+                            || p.getHand() == null) {
+                        continue;
+                    }
+                    for (final CardView c : p.getHand()) {
+                        if (c != null) {
+                            castCard = c;
+                            guestView = p;
+                            break;
+                        }
+                    }
+                    if (castCard != null) {
                         break;
                     }
                 }
             }
             Thread.sleep(50);
         }
-        assertTrue(hasHand, "guest hand synced over loopback");
-
-        CardView castCard = null;
-        for (final CardView c : guestView.getHand()) {
-            if (c != null) {
-                castCard = c;
-                break;
-            }
-        }
-        assertNotNull(castCard, "guest hand card for modern cast over loopback");
+        assertNotNull(castCard, "guest hand card synced over loopback");
 
         // Count selectCard on the real FGameClient wire (modern cast uses this path).
         final AtomicInteger selectCardSends = new AtomicInteger();
