@@ -208,6 +208,8 @@ public enum TrackableProperty {
     AvatarLifeDifference(TrackableTypes.IntegerType, FreezeMode.IgnoresFreeze),
     HasLost(TrackableTypes.BooleanType),
     HasAvailableActions(TrackableTypes.BooleanType),
+    /** DS4: this player may take back their last land/spell/ability. */
+    CanTakeBack(TrackableTypes.BooleanType, FreezeMode.IgnoresFreeze),
 
     //SpellAbility
     HostCard(TrackableTypes.CardViewType),

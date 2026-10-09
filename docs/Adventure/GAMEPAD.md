@@ -89,4 +89,12 @@ Controls:
   | Phase stops | **X** when neither peek nor mana applies → phase mode on your rail; **DPAD Left/Right** cycle phases; **A** toggles stop on/off. Tap on a phase label is touch input. |
   | Target spells / abilities | During a selection prompt, **DPAD** to the target; amber arrow from the prompt source follows focus **after the pad has been used** (never at match start before input); **A** confirms (stock select). No pick-up. Touch clears stale pad focus so arrows follow the touched source. |
   | Zoom card | **Y** (controller). Touch: **double-tap** a card to zoom — the first tap is deferred so it does not select/activate; only the double-tap zooms (hand long-press peeks). |
+  | Take back last action (DS4) | **Start**, or **Ctrl+Z** / gamepad **Z**, when a Take back snapshot is available. Button appears on the prompt only while eligible. Unlimited uses until a draw, shuffle, reveal, random choice, opponent/partner action, resolved trigger or phase/priority change locks it. Stock mana Undo on Cancel is unchanged. |
   | Zone tabs / player panels / prompts | **R1** / **L1** / triggers (unchanged) |
+
+- Match/Battle — Take back (DS4; Bellwarden: Planes of Nothing / Ascendant adventure duels)
+
+  | Action | Binding |
+  | --- | --- |
+  | Take back last land / spell / ability | Prompt **Take back** button (only when a snapshot succeeded), **Ctrl+Z**, or controller **Start** / **Z** |
+  | Stock mana undo | Cancel button when it shows Undo (unchanged) |

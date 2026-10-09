@@ -473,4 +473,13 @@ public class ConfigData {
      */
     public boolean kStrictOverworldLegalDecks = false;
 
+    // ---- Ascendant duel take-back (Package DS4): snapshot undo of last own action. ----
+
+    /**
+     * When true (Ascendant default), adventure duels enable Take back of the player's
+     * last land, spell or ability via {@code GameSnapshot} while nothing new has happened.
+     * Unlimited uses; no turn restart. Old saves omit this key and keep the default.
+     */
+    public boolean duelTakeBackEnabled = true;
+
 }

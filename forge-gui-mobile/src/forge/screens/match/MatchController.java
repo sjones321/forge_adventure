@@ -279,6 +279,12 @@ public class MatchController extends NetworkGuiGame {
         btn2.setText(label2);
         btn1.setEnabled(enable1);
         btn2.setEnabled(enable2);
+        // DS4: refresh Take back visibility whenever prompt buttons update.
+        prompt.refreshTakeBackButton();
+        final VPrompt active = view.getActivePrompt();
+        if (active != null && active != prompt) {
+            active.refreshTakeBackButton();
+        }
     }
 
     @Override

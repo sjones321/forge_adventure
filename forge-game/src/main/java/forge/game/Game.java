@@ -103,8 +103,18 @@ public class Game {
     public boolean EXPERIMENTAL_RESTORE_SNAPSHOT = false;
     // While this is false here, its really set by the Match/Preferences
 
+    /**
+     * DS4 Ascendant take-back: when true, a successful land/spell/ability retains the
+     * pre-action {@link #previousGameState} so the acting player can restore it while
+     * nothing new has happened. Requires {@link #EXPERIMENTAL_RESTORE_SNAPSHOT}.
+     */
+    public boolean TAKE_BACK_ENABLED = false;
+
     // If this merges with LKI In the future, it will need to change forms
     private GameSnapshot previousGameState = null;
+    /** Retained pre-action snapshot for DS4 take-back (not overwritten by cancel-path stash). */
+    private GameSnapshot takeBackSnapshot = null;
+    private Player takeBackOwner = null;
     private CardCollection lastStateBattlefield = new CardCollection();
     private CardCollection lastStateGraveyard = new CardCollection();
 
@@ -215,6 +225,79 @@ public class Game {
 
         previousGameState.restoreGameState(this);
         return true;
+    }
+
+    /**
+     * After a successful land/spell/ability, keep the cancel-path stash as a take-back
+     * snapshot for {@code actor}. Call before the next {@link #stashGameState()} overwrites it.
+     */
+    public void retainTakeBackSnapshot(final Player actor) {
+        if (!TAKE_BACK_ENABLED || !EXPERIMENTAL_RESTORE_SNAPSHOT || actor == null
+                || previousGameState == null) {
+            return;
+        }
+        takeBackSnapshot = previousGameState;
+        takeBackOwner = actor;
+        updateTakeBackViews();
+    }
+
+    /** Clear take-back eligibility (draw, reveal, opponent, trigger, phase, pass, etc.). */
+    public void invalidateTakeBack() {
+        if (takeBackSnapshot == null && takeBackOwner == null) {
+            return;
+        }
+        takeBackSnapshot = null;
+        takeBackOwner = null;
+        updateTakeBackViews();
+    }
+
+    public Player getTakeBackOwner() {
+        return takeBackOwner;
+    }
+
+    public boolean canTakeBack(final Player player) {
+        return TAKE_BACK_ENABLED && EXPERIMENTAL_RESTORE_SNAPSHOT
+                && takeBackSnapshot != null && takeBackOwner != null
+                && player != null && takeBackOwner.equals(player);
+    }
+
+    /**
+     * Restore the retained take-back snapshot for {@code player}.
+     * On failure the board is left unchanged (current state is re-applied from a backup).
+     */
+    public TakeBackResult takeBack(final Player player) {
+        if (!canTakeBack(player)) {
+            return TakeBackResult.NOT_AVAILABLE;
+        }
+        final GameSnapshot toRestore = takeBackSnapshot;
+        GameSnapshot backup = null;
+        try {
+            backup = new GameSnapshot(this);
+            backup.makeCopy();
+        } catch (final RuntimeException e) {
+            return TakeBackResult.RESTORE_FAILED;
+        }
+        try {
+            toRestore.restoreGameState(this);
+            invalidateTakeBack();
+            getStack().clearUndoStack();
+            return TakeBackResult.SUCCESS;
+        } catch (final RuntimeException e) {
+            try {
+                if (backup != null) {
+                    backup.restoreGameState(this);
+                }
+            } catch (final RuntimeException ignored) {
+                // Best effort: leave whatever state we have rather than throw.
+            }
+            return TakeBackResult.RESTORE_FAILED;
+        }
+    }
+
+    private void updateTakeBackViews() {
+        for (final Player p : getPlayers()) {
+            p.updateTakeBackAvailable(canTakeBack(p));
+        }
     }
 
     public void copyLastState() {

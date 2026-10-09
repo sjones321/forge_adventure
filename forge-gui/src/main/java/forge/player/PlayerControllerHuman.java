@@ -2775,6 +2775,53 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
     }
 
     @Override
+    public boolean canTakeBackLastAction() {
+        return player != null && getGame().canTakeBack(player);
+    }
+
+    @Override
+    public void takeBackLastAction() {
+        tryTakeBackLastAction();
+    }
+
+    /**
+     * DS4: restore the retained snapshot for this player. On failure shows a message
+     * and leaves the board unchanged. Net games request a full-state resync after success.
+     */
+    public boolean tryTakeBackLastAction() {
+        if (!canTakeBackLastAction()) {
+            return false;
+        }
+        final TakeBackResult result = getGame().takeBack(player);
+        if (result == TakeBackResult.SUCCESS) {
+            final Input currentInput = inputQueue.getInput();
+            if (currentInput instanceof InputPassPriority) {
+                currentInput.showMessageInitial();
+            }
+            // Snapshot restore may not emit a complete delta — mark every
+            // ProtocolGuiGame peer for a full state push on the next update.
+            boolean anyNet = false;
+            for (final Player p : getGame().getPlayers()) {
+                if (p.getController() instanceof PlayerControllerHuman pch
+                        && pch.getGui() instanceof forge.gamemodes.net.ProtocolGuiGame pgg) {
+                    pgg.setResyncPending();
+                    pgg.updateGameView();
+                    anyNet = true;
+                }
+            }
+            if (anyNet || (getGui() != null && getGui().isNetGame())) {
+                inputQueue.updateObservers();
+            }
+            return true;
+        }
+        if (result == TakeBackResult.RESTORE_FAILED && getGui() != null) {
+            getGui().showPromptMessage(PlayerView.get(player),
+                    Localizer.getInstance().getMessage("lblTakeBackFailed"));
+        }
+        return false;
+    }
+
+    @Override
     public void selectButtonOk() {
         inputProxy.selectButtonOK();
     }

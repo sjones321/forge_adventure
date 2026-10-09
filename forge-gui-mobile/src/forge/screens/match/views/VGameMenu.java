@@ -10,6 +10,7 @@ import forge.menu.FDropDownMenu;
 import forge.menu.FMenuItem;
 import forge.model.FModel;
 import forge.screens.match.MatchController;
+import forge.screens.match.TakeBackActions;
 import forge.screens.settings.SettingsScreen;
 import forge.toolbox.FEvent;
 import forge.toolbox.FEvent.FEventHandler;
@@ -21,6 +22,12 @@ public class VGameMenu extends FDropDownMenu {
 
     @Override
     protected void buildMenu() {
+        if (TakeBackActions.featureEnabled()) {
+            final FMenuItem takeBack = new FMenuItem(TakeBackActions.buttonLabel(), FSkinImage.DELETE, e ->
+                    ThreadUtil.invokeInGameThread(TakeBackActions::takeBack));
+            takeBack.setEnabled(TakeBackActions.canTakeBack());
+            addItem(takeBack);
+        }
         addItem(new FMenuItem(MatchController.instance.getConcedeCaption(), FSkinImage.CONCEDE, e ->
                 ThreadUtil.invokeInGameThread(MatchController.instance::concede)
         ));

@@ -627,6 +627,12 @@ public class DuelScene extends ForgeScene {
         guiMap.put(humanPlayer, MatchController.instance);
 
         hostedMatch = MatchController.hostMatch();
+        // DS4: Ascendant adventure duels enable snapshot take-back (tunable).
+        if (Config.ascendant()) {
+            final boolean takeBack = Config.instance().getConfigData() == null
+                    || Config.instance().getConfigData().duelTakeBackEnabled;
+            hostedMatch.setTakeBackEnabled(takeBack);
+        }
 
         GameRules rules;
 

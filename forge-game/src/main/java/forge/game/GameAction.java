@@ -2227,6 +2227,8 @@ public class GameAction {
         for (final Player p : to) {
             p.getController().reveal(cards, zone, owner, messagePrefix, addSuffix);
         }
+        // DS4: looking at / revealing hidden cards locks take-back.
+        game.invalidateTakeBack();
     }
 
     public void reveal(CardCollectionView cards, Player cardOwner) {
@@ -2255,6 +2257,10 @@ public class GameAction {
                 continue;
             }
             p.getController().reveal(cards, zt, cardOwner, messagePrefix, msgAddSuffix);
+        }
+        // DS4: revealing cards locks take-back.
+        if (cards != null && !cards.isEmpty()) {
+            game.invalidateTakeBack();
         }
     }
 

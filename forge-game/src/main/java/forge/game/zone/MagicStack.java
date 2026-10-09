@@ -593,6 +593,8 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
     }
 
     public final void resolveStack() {
+        // DS4: a resolved spell/ability/trigger locks take-back of the prior action.
+        game.invalidateTakeBack();
         // freeze the stack while we're in the middle of resolving
         freezeStack(null);
         setResolving(true);

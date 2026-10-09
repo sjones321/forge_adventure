@@ -962,6 +962,14 @@ public final class CoopSession {
                 l.onDuelStart((CoopDuelStartEvent) event);
                 l.onDuelMessage(event);
             }
+        } else if (event instanceof forge.gamemodes.net.event.coop.CoopTakeBackRequestEvent) {
+            for (final CoopHooks.DuelListener l : duelListeners) {
+                l.onTakeBackRequest((forge.gamemodes.net.event.coop.CoopTakeBackRequestEvent) event);
+            }
+        } else if (event instanceof forge.gamemodes.net.event.coop.CoopTakeBackResultEvent) {
+            for (final CoopHooks.DuelListener l : duelListeners) {
+                l.onTakeBackResult((forge.gamemodes.net.event.coop.CoopTakeBackResultEvent) event);
+            }
         } else if (event instanceof CoopDuelResultEvent) {
             for (final CoopHooks.DuelListener l : duelListeners) {
                 l.onDuelResult((CoopDuelResultEvent) event);

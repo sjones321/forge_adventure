@@ -93,7 +93,10 @@ public final class WireClassFilter implements IHasForgeLog {
             "forge.gamemodes.net.event.coop.CoopFightLoadoutEvent",
             "forge.gamemodes.net.event.coop.CoopDuelStartEvent",
             "forge.gamemodes.net.event.coop.CoopDuelResultEvent",
-            "forge.gamemodes.net.coop.CoopFightLoadout");
+            "forge.gamemodes.net.coop.CoopFightLoadout",
+            // DS4 take-back (plain-data request/result; host restores locally + resyncs)
+            "forge.gamemodes.net.event.coop.CoopTakeBackRequestEvent",
+            "forge.gamemodes.net.event.coop.CoopTakeBackResultEvent");
 
     private static final String JAVA_LANG = "java.lang.";
     private static final String PRIMITIVE_DESCRIPTORS = "BCDFIJSZ";

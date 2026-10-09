@@ -152,6 +152,7 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
         boolean turnEnded = false;
 
         game.getStack().clearUndoStack(); //can't undo action from previous phase
+        game.invalidateTakeBack(); // DS4: phase change locks the last action
 
         if (bRepeatCleanup) { // for when Cleanup needs to repeat itself
             bRepeatCleanup = false;
@@ -1064,6 +1065,8 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                 }
 
                 if (chosenSa == null) {
+                    // DS4: passing priority locks take-back (priority has moved on).
+                    game.invalidateTakeBack();
                     break; // that means 'I pass'
                 }
                 if (DEBUG_PHASES) {
@@ -1080,6 +1083,14 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                         // 117.3c If a player has priority when they cast a spell, activate an ability, [play a land]
                         // that player receives priority afterward.
                         pFirstPriority = pPlayerPriority; // all opponents have to pass before stack is allowed to resolve
+                        // DS4: another player's action locks any prior take-back; then retain for the actor.
+                        if (game.TAKE_BACK_ENABLED) {
+                            final Player priorOwner = game.getTakeBackOwner();
+                            if (priorOwner != null && !priorOwner.equals(pPlayerPriority)) {
+                                game.invalidateTakeBack();
+                            }
+                            game.retainTakeBackSnapshot(pPlayerPriority);
+                        }
                     } else if (game.EXPERIMENTAL_RESTORE_SNAPSHOT) {
                         rollback = true;
                     }

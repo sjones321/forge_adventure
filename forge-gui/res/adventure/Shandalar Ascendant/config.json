@@ -126,6 +126,7 @@
   "coopDuelPartnerLootRollsPerPlayer": 1,
   "kDefaultPlaneFormat": "Standard",
   "kStrictOverworldLegalDecks": false,
+  "duelTakeBackEnabled": true,
   "screenWidth": 480,
   "screenHeight": 270,
   "skin": "skin/ui_skin.json",

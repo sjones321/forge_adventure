@@ -23,6 +23,8 @@ import forge.gamemodes.net.event.coop.CoopPartyInviteEvent;
 import forge.gamemodes.net.event.coop.CoopPartyResponseEvent;
 import forge.gamemodes.net.event.coop.CoopPlayerMoveEvent;
 import forge.gamemodes.net.event.coop.CoopPoiChangeEvent;
+import forge.gamemodes.net.event.coop.CoopTakeBackRequestEvent;
+import forge.gamemodes.net.event.coop.CoopTakeBackResultEvent;
 
 /**
  * Extension points for CO2 (shared overworld) and CO3 (co-op duels).
@@ -114,6 +116,14 @@ public final class CoopHooks {
         }
 
         default void onDuelResult(CoopDuelResultEvent event) {
+        }
+
+        /** DS4: guest → host take-back request during an active co-op duel. */
+        default void onTakeBackRequest(CoopTakeBackRequestEvent event) {
+        }
+
+        /** DS4: host → guest take-back result. */
+        default void onTakeBackResult(CoopTakeBackResultEvent event) {
         }
 
         default void onDuelMessage(NetEvent event) {

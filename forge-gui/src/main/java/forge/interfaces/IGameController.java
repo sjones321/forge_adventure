@@ -39,6 +39,21 @@ public interface IGameController {
 
     void undoLastAction();
 
+    /**
+     * DS4: whether this controller's player may take back their last land/spell/ability.
+     * Default false for watchers / stubs.
+     */
+    default boolean canTakeBackLastAction() {
+        return false;
+    }
+
+    /**
+     * DS4: restore the retained pre-action snapshot for this controller's player.
+     * No-op when {@link #canTakeBackLastAction()} is false. Host-authoritative in net games.
+     */
+    default void takeBackLastAction() {
+    }
+
     IDevModeCheats cheat();
 
     IMacroSystem macros();

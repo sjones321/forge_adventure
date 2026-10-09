@@ -43,6 +43,7 @@ import forge.gamemodes.net.coop.CoopFightLoadoutValidator;
 import forge.gamemodes.net.coop.CoopFightRequestValidator;
 import forge.gamemodes.net.coop.CoopPartyProximity;
 import forge.gamemodes.net.coop.CoopPorts;
+import forge.gamemodes.net.coop.CoopTakeBackAuthority;
 import forge.gamemodes.net.event.coop.CoopDuelInviteEvent;
 import forge.gamemodes.net.event.coop.CoopDuelResponseEvent;
 import forge.gamemodes.net.event.coop.CoopDuelResultEvent;
@@ -50,6 +51,8 @@ import forge.gamemodes.net.event.coop.CoopDuelStartEvent;
 import forge.gamemodes.net.event.coop.CoopEnemyEncounterRequestEvent;
 import forge.gamemodes.net.event.coop.CoopFightLoadoutEvent;
 import forge.gamemodes.net.event.coop.CoopFightRequestResultEvent;
+import forge.gamemodes.net.event.coop.CoopTakeBackRequestEvent;
+import forge.gamemodes.net.event.coop.CoopTakeBackResultEvent;
 import forge.gamemodes.net.server.FServerManager;
 import forge.gamemodes.net.server.ServerGameLobby;
 import forge.gui.FThreads;
@@ -106,6 +109,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             CoopDuelRateLimiter.perSecond(CoopDuelWireLimits.MAX_DUEL_REQUESTS_PER_SECOND);
     private final AtomicLong duelSeq = new AtomicLong(1L);
     private final AtomicLong localEnemySeq = new AtomicLong(1L);
+    private final AtomicLong takeBackSeq = new AtomicLong(1L);
     private final Map<Long, EnemySprite> enemyById = new ConcurrentHashMap<>();
     private final Set<Long> processedResultDuelIds = ConcurrentHashMap.newKeySet();
     private volatile ScheduledExecutorService timers = newTimerExecutor();
@@ -443,6 +447,51 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             return;
         }
         postGl(() -> applyGuestLocalResult(event));
+    }
+
+    /** True while a co-op HostedMatch is live (used by DS4 take-back UI). */
+    public boolean isDuelActive() {
+        return activeHostedMatch != null && activeHostedMatch.getGame() != null;
+    }
+
+    /**
+     * DS4: guest asks the host to take back {@code playerId}'s last action.
+     */
+    public void requestTakeBack(final int playerId) {
+        final CoopTakeBackRequestEvent req = new CoopTakeBackRequestEvent(
+                takeBackSeq.getAndIncrement(), playerId, System.currentTimeMillis());
+        CoopSession.get().send(req);
+    }
+
+    @Override
+    public void onTakeBackRequest(final CoopTakeBackRequestEvent event) {
+        if (event == null || CoopSession.get().getRole() != CoopSessionRole.HOST) {
+            return;
+        }
+        final HostedMatch match = activeHostedMatch;
+        final forge.game.Game game = match != null ? match.getGame() : null;
+        // Wire requests are from the guest peer.
+        final String requester = CoopSession.get().getPeerName();
+        final CoopTakeBackResultEvent result = CoopTakeBackAuthority.handle(game, event, requester);
+        CoopSession.get().send(result);
+        if (!result.isAccepted() && "restore failed".equals(result.getReason())) {
+            notifyHud(Localizer.getInstance().getMessage("lblTakeBackFailed"));
+        }
+    }
+
+    @Override
+    public void onTakeBackResult(final CoopTakeBackResultEvent event) {
+        if (event == null || CoopSession.get().getRole() != CoopSessionRole.GUEST) {
+            return;
+        }
+        if (!event.isAccepted()) {
+            final String reason = event.getReason();
+            if ("restore failed".equals(reason)) {
+                notifyHud(Localizer.getInstance().getMessage("lblTakeBackFailed"));
+            }
+            // Eligibility / partner-acted refusals: button simply stays hidden / grey.
+        }
+        // Accepted: host already restored and resynced game state over the game port.
     }
 
     /** Session peer disconnected — host continues (guest concedes), guest abandons. */
@@ -803,6 +852,12 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
 
             final HostedMatch hostedMatch = MatchController.hostMatch();
             activeHostedMatch = hostedMatch;
+            // DS4: Ascendant co-op duels enable snapshot take-back (tunable).
+            if (Config.ascendant()) {
+                final boolean takeBack = Config.instance().getConfigData() == null
+                        || Config.instance().getConfigData().duelTakeBackEnabled;
+                hostedMatch.setTakeBackEnabled(takeBack);
+            }
             guestRegisteredPlayer = guestRp;
             final GameRules rules = new GameRules(GameType.Adventure);
             rules.setGamesPerMatch(mob.getData() != null ? mob.getData().gamesPerMatch : 1);
