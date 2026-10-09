@@ -642,13 +642,13 @@ public class CoopDuelInProcessTest {
         match.startMatch(rules, EnumSet.of(GameType.Constructed),
                 List.of(host, guest, enemy), guis, null);
 
-        // Warm until both seats are live and the guest has a hand card.
+        // Warm with OK-only (no tryPlayLand) — land selects stall MAIN1 in headless runs.
         final long warm = System.currentTimeMillis() + 60_000;
         while (System.currentTimeMillis() < warm
                 && (hostRemote.myPlayers == null || guestRemote.myPlayers == null
                 || guestGui.getGameView() == null)) {
-            answerOne(hostRemote, hostGui, true, false);
-            answerOne(guestRemote, guestGui, true, false);
+            answerOne(hostRemote, hostGui, false, false);
+            answerOne(guestRemote, guestGui, false, false);
         }
         assertNotNull(guestRemote.myPlayers, "guest openView");
 
@@ -672,8 +672,8 @@ public class CoopDuelInProcessTest {
         // If hand not yet synced, keep driving briefly.
         final long handWait = System.currentTimeMillis() + 30_000;
         while (handCard == null && System.currentTimeMillis() < handWait) {
-            answerOne(hostRemote, hostGui, true, false);
-            answerOne(guestRemote, guestGui, true, false);
+            answerOne(hostRemote, hostGui, false, false);
+            answerOne(guestRemote, guestGui, false, false);
             for (final PlayerView p : guestRemote.myPlayers) {
                 if (p == null || p.getHand() == null) {
                     continue;
@@ -729,7 +729,7 @@ public class CoopDuelInProcessTest {
         int handBefore = 0;
         final long mainWait = System.currentTimeMillis() + 90_000;
         while (System.currentTimeMillis() < mainWait && castCard == null) {
-            answerOne(hostRemote, hostGui, true, false);
+            answerOne(hostRemote, hostGui, false, false);
             flushEdt();
             final forge.game.Game game = match.getGame();
             final boolean guestMain1 = game != null
@@ -773,7 +773,7 @@ public class CoopDuelInProcessTest {
         boolean applied = false;
         final int handBeforeFinal = handBefore;
         while (System.currentTimeMillis() < settle) {
-            answerOne(hostRemote, hostGui, true, false);
+            answerOne(hostRemote, hostGui, false, false);
             // Do not OK the guest while we wait for the land to resolve.
             flushEdt();
             final boolean stillInHand = guestView.getHand() != null
