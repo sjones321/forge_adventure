@@ -16,8 +16,7 @@ import forge.adventure.util.AtomicJsonFiles;
 import forge.adventure.util.Config;
 import forge.adventure.util.Paths;
 import forge.item.PaperCard;
-import forge.localinstance.properties.ForgeProfileProperties;
-import forge.gui.GuiBase;
+import forge.localinstance.properties.ForgeConstants;
 import forge.util.IterableUtil;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
@@ -26,6 +25,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,8 +44,10 @@ import java.util.function.Predicate;
  * counters, USER_ADVENTURE_DIR/account path + migration, stock statistic.json,
  * pending CS1 grants, plus unlock/persist/toast/corrupt recovery.
  *
- * <p>Isolation: {@link AdventureTestUserDir} + {@code forge.test.userDir} (CO1 #38)
- * so account/settings/saves never touch the real OS user dir.
+ * <p>Isolation: suite-wide {@code forge.test.userDir} → {@code test-user-home}
+ * via Surefire + {@link AdventureTestBootstrapListener} (CO1 #38), plus
+ * {@link AccountStore} adventure-root override so {@code get()} never mkdirs
+ * under the real OS adventure dir.
  */
 @Test(singleThreaded = true)
 public class AchievementsAc1Test {
@@ -84,21 +86,14 @@ public class AchievementsAc1Test {
 
     @BeforeClass
     public void isolateUserDir() throws Exception {
-        // Snapshot real OS user dir BEFORE ForgeConstants / profile load can touch it.
+        // Surefire sets forge.test.userDir → test-user-home before any class loads.
+        tempUserDir = AdventureTestUserDir.configuredTestUserDir();
         realUserDir = AdventureTestUserDir.defaultRealUserDir();
         realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
-        tempUserDir = ensureIsolatedUserDir();
-        // Belt-and-suspenders: AccountStore never mkdirs/migrates under the real adventure dir.
-        AccountStore.setAdventureRootOverrideForTest(tempUserDir.toFile());
-
-        final String assets = Files.exists(Path.of("./forge-gui"))
-                ? "./forge-gui/"
-                : Files.exists(Path.of("../forge-gui")) ? "../forge-gui/" : "./";
-        if (GuiBase.getInterface() == null) {
-            GuiBase.setInterface(new MinimalHeadlessGui(assets));
-        }
-        // First ForgeConstants touch resolves USER_* from forge.test.userDir.
-        AdventureTestUserDir.assertConstantsUse(tempUserDir);
+        // Suite listener installs GuiBase + Localizer; re-check isolation here.
+        AdventureTestUserDir.requireIsolatedUserDir();
+        // AccountStore override (Steve r5): never mkdirs/migrate under the real adventure dir.
+        AccountStore.setAdventureRootOverrideForTest(new File(ForgeConstants.USER_ADVENTURE_DIR));
     }
 
     @AfterClass(alwaysRun = true)
@@ -111,69 +106,6 @@ public class AchievementsAc1Test {
         } finally {
             AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot, "AchievementsAc1Test");
         }
-    }
-
-    /** Surefire sets {@code forge.test.userDir}; IDE runs fall back to a fresh temp. */
-    static Path ensureIsolatedUserDir() throws Exception {
-        final String prop = System.getProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
-        if (prop != null && !prop.isBlank()) {
-            Path p = Path.of(prop).toAbsolutePath().normalize();
-            Files.createDirectories(p);
-            return p;
-        }
-        return AdventureTestUserDir.installTempUserDir();
-    }
-
-    /** Minimal GuiBase so ForgeConstants.ASSETS_DIR resolves (same role as CO1's headless GUI). */
-    private static final class MinimalHeadlessGui implements forge.gui.interfaces.IGuiBase {
-        private final String assetsDir;
-        private MinimalHeadlessGui(String assets) {
-            this.assetsDir = assets.endsWith("/") || assets.endsWith("\\") ? assets : assets + "/";
-        }
-        @Override public boolean isRunningOnDesktop() { return true; }
-        @Override public boolean isLibgdxPort() { return false; }
-        @Override public String getCurrentVersion() { return "ac1-test"; }
-        @Override public void invokeInEdtNow(Runnable r) { r.run(); }
-        @Override public void invokeInEdtLater(Runnable r) { r.run(); }
-        @Override public void invokeInEdtAndWait(Runnable r) { r.run(); }
-        @Override public void runBackgroundTask(String m, Runnable t) { t.run(); }
-        @Override public boolean isGuiThread() { return true; }
-        @Override public String getAssetsDir() { return assetsDir; }
-        @Override public forge.util.ImageFetcher getImageFetcher() { return null; }
-        @Override public forge.localinstance.skin.ISkinImage getSkinIcon(forge.localinstance.skin.FSkinProp p) { return null; }
-        @Override public forge.localinstance.skin.ISkinImage getUnskinnedIcon(String path) { return null; }
-        @Override public forge.localinstance.skin.ISkinImage getCardArt(forge.item.PaperCard c, boolean b) { return null; }
-        @Override public forge.localinstance.skin.ISkinImage createLayeredImage(forge.item.PaperCard c, forge.localinstance.skin.FSkinProp bg, String o, float op) { return null; }
-        @Override public void clearImageCache() { }
-        @Override public String encodeSymbols(String str, boolean f) { return str; }
-        @Override public int getAvatarCount() { return 0; }
-        @Override public int getSleevesCount() { return 0; }
-        @Override public float getScreenScale() { return 1f; }
-        @Override public void preventSystemSleep(boolean p) { }
-        @Override public void download(forge.gui.download.GuiDownloadService s, java.util.function.Consumer<Boolean> c) { c.accept(false); }
-        @Override public void copyToClipboard(String t) { }
-        @Override public void browseToUrl(String u) { }
-        @Override public void showCardList(String t, String m, java.util.List<forge.item.PaperCard> l) { }
-        @Override public boolean showBoxedProduct(String t, String m, java.util.List<forge.item.PaperCard> l) { return false; }
-        @Override public void showBugReportDialog(String t, String x, boolean e) { }
-        @Override public void showImageDialog(forge.localinstance.skin.ISkinImage i, String m, String t) { }
-        @Override public int showOptionDialog(String m, String t, forge.localinstance.skin.FSkinProp i, java.util.List<String> o, int d) { return d; }
-        @Override public String showInputDialog(String m, String t, forge.localinstance.skin.FSkinProp i, String init, java.util.List<String> opts, boolean n) { return init; }
-        @Override public String showFileDialog(String t, String d) { return d; }
-        @Override public java.io.File getSaveFile(java.io.File d) { return d; }
-        @Override public <T> java.util.List<T> order(String t, String top, int min, int max, java.util.List<T> src, java.util.List<T> dest) { return dest; }
-        @Override public <T> java.util.List<T> getChoices(String m, int min, int max, java.util.Collection<T> c, java.util.Collection<T> s, forge.util.FSerializableFunction<T, String> d) { return new java.util.ArrayList<>(s); }
-        @Override public forge.item.PaperCard chooseCard(String t, String m, java.util.List<forge.item.PaperCard> l) { return l.isEmpty() ? null : l.get(0); }
-        @Override public boolean isSupportedAudioFormat(java.io.File f) { return false; }
-        @Override public forge.sound.IAudioClip createAudioClip(String f) { return null; }
-        @Override public forge.sound.IAudioMusic createAudioMusic(String f) { return null; }
-        @Override public void startAltSoundSystem(String f, boolean s) { }
-        @Override public void showSpellShop() { }
-        @Override public void showBazaar() { }
-        @Override public forge.gui.interfaces.IGuiGame getNewGuiGame() { return null; }
-        @Override public forge.gamemodes.match.HostedMatch hostMatch() { return null; }
-        @Override public org.jupnp.UpnpServiceConfiguration getUpnpPlatformService() { return null; }
-        @Override public boolean hasNetGame() { return false; }
     }
 
     @BeforeMethod
@@ -210,8 +142,7 @@ public class AchievementsAc1Test {
             AchievementService.resetInstance();
             HallOfFame.resetInstance();
             AchievementListData.clear();
-            AccountStore.setAdventureRootOverrideForTest(
-                    tempUserDir != null ? tempUserDir.toFile() : null);
+            AccountStore.setAdventureRootOverrideForTest(new File(ForgeConstants.USER_ADVENTURE_DIR));
             if (tempDir != null && Files.isDirectory(tempDir)) {
                 try (var walk = Files.walk(tempDir)) {
                     walk.sorted((a, b) -> b.compareTo(a)).forEach(p -> {

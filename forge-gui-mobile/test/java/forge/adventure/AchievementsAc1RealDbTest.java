@@ -10,40 +10,24 @@ import forge.adventure.data.RewardData;
 import forge.adventure.player.AccountStore;
 import forge.adventure.player.AchievementSetTracker;
 import forge.adventure.util.Config;
-import forge.gui.GuiBase;
-import forge.gui.interfaces.IGuiBase;
 import forge.item.PaperCard;
-import forge.localinstance.skin.FSkinProp;
-import forge.localinstance.skin.ISkinImage;
-import forge.sound.IAudioClip;
-import forge.sound.IAudioMusic;
-import forge.util.FSerializableFunction;
-import forge.util.ImageFetcher;
+import forge.localinstance.properties.ForgeConstants;
 import forge.util.IterableUtil;
 import forge.util.Lang;
 import forge.util.Localizer;
-import forge.gamemodes.match.HostedMatch;
-import forge.gui.download.GuiDownloadService;
-import forge.gui.interfaces.IGuiGame;
-import org.jupnp.UpnpServiceConfiguration;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.io.File;
-import java.io.IOException;
 import java.lang.reflect.Field;
-import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 /**
@@ -51,8 +35,9 @@ import java.util.function.Predicate;
  * ZEN keeps every main-list card under Ascendant filters; LEA excludes Black Lotus
  * and the Moxen via {@code restrictedCards}.
  *
- * <p>Isolation: {@link AdventureTestUserDir} + {@code forge.test.userDir} (CO1 #38)
- * so reward-filter / Config touches cannot rewrite the real user dir.
+ * <p>Isolation: suite-wide {@code forge.test.userDir} / {@code test-user-home}
+ * + {@link AdventureTestBootstrapListener} (CO1 #38), plus {@link AccountStore}
+ * adventure-root override.
  */
 public class AchievementsAc1RealDbTest {
 
@@ -66,22 +51,17 @@ public class AchievementsAc1RealDbTest {
     @BeforeClass
     public void loadRealCardDb() {
         try {
+            tempUserDir = AdventureTestUserDir.configuredTestUserDir();
             realUserDir = AdventureTestUserDir.defaultRealUserDir();
             realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
-            tempUserDir = AchievementsAc1Test.ensureIsolatedUserDir();
-            AccountStore.setAdventureRootOverrideForTest(tempUserDir.toFile());
+            AdventureTestUserDir.requireIsolatedUserDir();
+            AccountStore.setAdventureRootOverrideForTest(new File(ForgeConstants.USER_ADVENTURE_DIR));
 
             Path forgeGuiDir = resolveForgeGuiDir();
             Assert.assertTrue(Files.isDirectory(forgeGuiDir.resolve("res/editions")),
                     "editions dir missing under " + forgeGuiDir);
             Assert.assertTrue(Files.isDirectory(forgeGuiDir.resolve("res/cardsfolder")),
                     "cardsfolder missing under " + forgeGuiDir);
-
-            // GuiBase before ForgeConstants clinit (ASSETS_DIR).
-            if (GuiBase.getInterface() == null) {
-                GuiBase.setInterface(new HeadlessAssetsGui(forgeGuiDir));
-            }
-            AdventureTestUserDir.assertConstantsUse(tempUserDir);
 
             Lang.createInstance("en-US");
             String langDir = forgeGuiDir.resolve("res/languages").toAbsolutePath().normalize()
@@ -137,10 +117,10 @@ public class AchievementsAc1RealDbTest {
     @AfterClass(alwaysRun = true)
     public void resetPinnedStateAndAssertRealUserDirUntouched() throws Exception {
         try {
+            // Reset AC1 pins; leave suite GuiBase to AdventureTestBootstrapListener.
             RewardData.invalidateRewardFilterCache();
             AchievementSetTracker.setMagicDbForTest(null);
             pinStaticData(null);
-            GuiBase.setInterface(null);
             AccountStore.resetAdventureRootOverrideForTest();
             Config.resetInstanceForTest();
         } finally {
@@ -223,63 +203,5 @@ public class AchievementsAc1RealDbTest {
             }
         }
         throw new IllegalStateException("Could not locate forge-gui/res/editions from " + Path.of(".").toAbsolutePath());
-    }
-
-    /** Minimal GuiBase so ForgeConstants.ASSETS_DIR points at forge-gui/ if touched. */
-    private static final class HeadlessAssetsGui implements IGuiBase {
-        private final String assetsDir;
-
-        private HeadlessAssetsGui(Path forgeGui) {
-            String abs = forgeGui.toAbsolutePath().normalize().toString();
-            if (!abs.endsWith(File.separator)) {
-                abs = abs + File.separator;
-            }
-            this.assetsDir = abs;
-        }
-
-        @Override public boolean isRunningOnDesktop() { return true; }
-        @Override public boolean isLibgdxPort() { return false; }
-        @Override public String getCurrentVersion() { return "ac1-test"; }
-        @Override public void invokeInEdtNow(Runnable runnable) { runnable.run(); }
-        @Override public void invokeInEdtLater(Runnable runnable) { runnable.run(); }
-        @Override public void invokeInEdtAndWait(Runnable proc) { proc.run(); }
-        @Override public void runBackgroundTask(String message, Runnable task) { task.run(); }
-        @Override public boolean isGuiThread() { return true; }
-        @Override public String getAssetsDir() { return assetsDir; }
-        @Override public ImageFetcher getImageFetcher() { return null; }
-        @Override public ISkinImage getSkinIcon(FSkinProp skinProp) { return null; }
-        @Override public ISkinImage getUnskinnedIcon(String path) { return null; }
-        @Override public ISkinImage getCardArt(PaperCard card, boolean backFace) { return null; }
-        @Override public ISkinImage createLayeredImage(PaperCard card, FSkinProp background, String overlayFilename, float opacity) { return null; }
-        @Override public void clearImageCache() { }
-        @Override public String encodeSymbols(String str, boolean formatReminderText) { return str; }
-        @Override public int getAvatarCount() { return 0; }
-        @Override public int getSleevesCount() { return 0; }
-        @Override public float getScreenScale() { return 1f; }
-        @Override public void preventSystemSleep(boolean preventSleep) { }
-        @Override public void download(GuiDownloadService service, Consumer<Boolean> callback) { callback.accept(false); }
-        @Override public void copyToClipboard(String text) { }
-        @Override public void browseToUrl(String url) throws IOException, URISyntaxException { }
-        @Override public void showCardList(String title, String message, List<PaperCard> list) { }
-        @Override public boolean showBoxedProduct(String title, String message, List<PaperCard> list) { return false; }
-        @Override public void showBugReportDialog(String title, String text, boolean showExitAppBtn) { }
-        @Override public void showImageDialog(ISkinImage image, String message, String title) { }
-        @Override public int showOptionDialog(String message, String title, FSkinProp icon, List<String> options, int defaultOption) { return defaultOption; }
-        @Override public String showInputDialog(String message, String title, FSkinProp icon, String initialInput, List<String> inputOptions, boolean isNumeric) { return initialInput; }
-        @Override public String showFileDialog(String title, String defaultDir) { return defaultDir; }
-        @Override public File getSaveFile(File defaultFile) { return defaultFile; }
-        @Override public <T> List<T> order(String title, String top, int remainingObjectsMin, int remainingObjectsMax, List<T> sourceChoices, List<T> destChoices) { return destChoices; }
-        @Override public <T> List<T> getChoices(String message, int min, int max, Collection<T> choices, Collection<T> selected, FSerializableFunction<T, String> display) { return new ArrayList<>(selected); }
-        @Override public PaperCard chooseCard(String title, String message, List<PaperCard> list) { return list.isEmpty() ? null : list.get(0); }
-        @Override public boolean isSupportedAudioFormat(File file) { return false; }
-        @Override public IAudioClip createAudioClip(String filename) { return null; }
-        @Override public IAudioMusic createAudioMusic(String filename) { return null; }
-        @Override public void startAltSoundSystem(String filename, boolean isSynchronized) { }
-        @Override public void showSpellShop() { }
-        @Override public void showBazaar() { }
-        @Override public IGuiGame getNewGuiGame() { return null; }
-        @Override public HostedMatch hostMatch() { return null; }
-        @Override public UpnpServiceConfiguration getUpnpPlatformService() { return null; }
-        @Override public boolean hasNetGame() { return false; }
     }
 }

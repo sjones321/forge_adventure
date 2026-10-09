@@ -16,16 +16,19 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Test-only helper: point Forge's user / adventure dirs at a fresh temp folder
- * via {@link ForgeProfileProperties#TEST_USER_DIR_PROPERTY} <em>before</em>
- * {@link ForgeConstants} class-init, and assert the real OS user dir was not
- * written. MV2's suite listener can reuse the same property when it merges.
+ * Test-only helper for Forge user-dir isolation.
+ *
+ * <p>{@code forge.test.userDir} must be set by Surefire
+ * ({@code ${project.build.directory}/test-user-home}) before any test class
+ * loads {@link ForgeConstants}. This class snapshots the real OS user dir and
+ * fail-fast checks that {@link ForgeConstants#USER_DIR} is under the test dir.
+ * MV2 should reuse the same Surefire property rather than a second mechanism.
  */
 public final class AdventureTestUserDir {
     private AdventureTestUserDir() {
     }
 
-    /** Linux/macOS default userDir used for the "real dir" snapshot (pre-ForgeConstants). */
+    /** Linux/macOS/Windows default userDir for the "real dir" snapshot. */
     public static Path defaultRealUserDir() {
         final String home = System.getProperty("user.home");
         final String os = System.getProperty("os.name", "");
@@ -42,22 +45,31 @@ public final class AdventureTestUserDir {
     }
 
     /**
-     * Create a temp user dir and set {@code forge.test.userDir} so the next
-     * {@link ForgeConstants} / {@link ForgeProfileProperties#load} uses it.
-     * Call before GuiBase touches {@code ForgeConstants}.
+     * Surefire-configured test user dir ({@code forge.test.userDir}).
+     * Fails fast if the property is missing (order-dependent @BeforeClass install is not enough).
      */
-    public static Path installTempUserDir() throws IOException {
-        final Path temp = Files.createTempDirectory("forge-test-user-");
-        System.setProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY, temp.toAbsolutePath().toString());
-        return temp;
+    public static Path configuredTestUserDir() {
+        final String prop = System.getProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
+        if (prop == null || prop.isBlank()) {
+            throw new IllegalStateException(
+                    ForgeProfileProperties.TEST_USER_DIR_PROPERTY
+                            + " must be set by Surefire systemPropertyVariables before ForgeConstants loads"
+                            + " (expected ${project.build.directory}/test-user-home)");
+        }
+        return Paths.get(prop).toAbsolutePath().normalize();
     }
 
-    public static void clearTempUserDirProperty() {
-        System.clearProperty(ForgeProfileProperties.TEST_USER_DIR_PROPERTY);
-        System.clearProperty(ForgeProfileProperties.TEST_CACHE_DIR_PROPERTY);
+    /**
+     * Fail fast: property set and {@link ForgeConstants#USER_DIR} / adventure dir
+     * resolve under the Surefire test user home. Call after GuiBase is installed
+     * (so ForgeConstants can initialize).
+     */
+    public static void requireIsolatedUserDir() {
+        final Path expected = configuredTestUserDir();
+        assertConstantsUse(expected);
     }
 
-    /** Snapshot every file under {@code root}: relative path → size + mtimeNanos. */
+    /** Snapshot every file under {@code root}: relative path → size + mtime. */
     public static Map<String, FileStamp> snapshot(final Path root) throws IOException {
         final Map<String, FileStamp> out = new LinkedHashMap<>();
         if (root == null || !Files.exists(root)) {
@@ -90,15 +102,16 @@ public final class AdventureTestUserDir {
                 context + ": real Forge user dir was modified.\nBefore=" + before + "\nAfter=" + after);
     }
 
-    /** Confirm production constants land inside the installed temp user dir. */
-    public static void assertConstantsUse(final Path tempUserDir) {
-        final String temp = tempUserDir.toAbsolutePath().normalize().toString();
+    /** Confirm production constants land inside the Surefire test user dir. */
+    public static void assertConstantsUse(final Path testUserDir) {
+        final String expected = testUserDir.toAbsolutePath().normalize().toString();
         final String user = Paths.get(ForgeConstants.USER_DIR).toAbsolutePath().normalize().toString();
         final String adventure = Paths.get(ForgeConstants.USER_ADVENTURE_DIR).toAbsolutePath().normalize().toString();
-        Assert.assertTrue(user.startsWith(temp),
-                "USER_DIR must be under temp user dir: " + user + " vs " + temp);
-        Assert.assertTrue(adventure.startsWith(temp),
-                "USER_ADVENTURE_DIR must be under temp user dir: " + adventure + " vs " + temp);
+        Assert.assertTrue(user.startsWith(expected),
+                "USER_DIR must be under forge.test.userDir: " + user + " vs " + expected
+                        + " (ForgeConstants likely loaded before Surefire set the property)");
+        Assert.assertTrue(adventure.startsWith(expected),
+                "USER_ADVENTURE_DIR must be under forge.test.userDir: " + adventure + " vs " + expected);
         Assert.assertEquals(ForgeProfileProperties.getUserDir(), ForgeConstants.USER_DIR);
     }
 
