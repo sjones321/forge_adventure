@@ -565,7 +565,8 @@ public class CoopTradeEscrowE2ETest {
         }
 
         void drainUntil(final java.util.function.BooleanSupplier done) throws InterruptedException {
-            for (int i = 0; i < 200; i++) {
+            // ~4s budget: suite load can delay Netty deliver/confirm under shared JVM.
+            for (int i = 0; i < 800; i++) {
                 if (done.getAsBoolean()) {
                     return;
                 }
@@ -593,12 +594,16 @@ public class CoopTradeEscrowE2ETest {
                     }
                 });
             }
-            drainAll();
+            // Wait for Netty round-trip under suite load (drainAll alone can return early).
+            drainUntil(() -> hostRt.getState().getStatus() == CoopTradeState.Status.INVITE_SENT
+                    && guestRt.getState().getStatus() == CoopTradeState.Status.INVITE_RECEIVED
+                    && hostRt.getState().getTradeId() != 0L);
             Assert.assertEquals(hostRt.getState().getStatus(), CoopTradeState.Status.INVITE_SENT);
             Assert.assertTrue(hostRt.getState().getTradeId() != 0L);
             Assert.assertEquals(guestRt.getState().getStatus(), CoopTradeState.Status.INVITE_RECEIVED);
             guestRt.acceptTradeInvite();
-            drainAll();
+            drainUntil(() -> hostRt.getState().getStatus() == CoopTradeState.Status.OPEN
+                    && guestRt.getState().getStatus() == CoopTradeState.Status.OPEN);
             Assert.assertEquals(hostRt.getState().getStatus(), CoopTradeState.Status.OPEN);
             Assert.assertEquals(guestRt.getState().getStatus(), CoopTradeState.Status.OPEN);
             Assert.assertEquals(guestRt.getState().getTradeId(), hostRt.getState().getTradeId());
