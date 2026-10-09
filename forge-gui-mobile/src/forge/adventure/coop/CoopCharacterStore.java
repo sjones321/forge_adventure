@@ -150,6 +150,39 @@ public final class CoopCharacterStore {
         }
     }
 
+    /**
+     * Package-visible test helper: write a raw {@code .chr} payload using the same
+     * atomic temp+move path as {@link #savePlayer}.
+     */
+    static void writeRawForTests(final String characterName, final SaveFileData data)
+            throws IOException {
+        if (data == null) {
+            return;
+        }
+        final File file = characterFile(characterName);
+        final File parent = file.getParentFile();
+        if (parent != null) {
+            //noinspection ResultOfMethodCallIgnored
+            parent.mkdirs();
+        }
+        final File tmp = new File(parent != null ? parent : new File("."),
+                file.getName() + ".tmp");
+        try (FileOutputStream fos = new FileOutputStream(tmp);
+             DeflaterOutputStream def = new DeflaterOutputStream(fos);
+             ObjectOutputStream oos = new ObjectOutputStream(def)) {
+            oos.writeObject(data);
+        }
+        try {
+            Files.move(tmp.toPath(), file.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (final AtomicMoveNotSupportedException e) {
+            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            tmp.delete();
+        }
+    }
+
     private static String sanitize(final String name) {
         if (name == null || name.isEmpty()) {
             return "player";

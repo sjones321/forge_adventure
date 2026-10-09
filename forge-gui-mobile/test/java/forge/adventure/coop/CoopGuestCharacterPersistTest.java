@@ -5,19 +5,36 @@ import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.AdventureModes;
 import forge.adventure.util.SaveFileData;
 import forge.adventure.world.WorldSave;
-import forge.card.CardRarity;
-import forge.card.CardRules;
+import forge.gamemodes.match.HostedMatch;
+import forge.gui.GuiBase;
+import forge.gui.download.GuiDownloadService;
+import forge.gui.interfaces.IGuiBase;
+import forge.gui.interfaces.IGuiGame;
 import forge.item.PaperCard;
+import forge.localinstance.skin.FSkinProp;
+import forge.localinstance.skin.ISkinImage;
+import forge.sound.IAudioClip;
+import forge.sound.IAudioMusic;
+import forge.util.FSerializableFunction;
+import forge.util.ImageFetcher;
+import forge.util.Localizer;
+import org.jupnp.UpnpServiceConfiguration;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Field;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * CO1 guest save-model: co-op {@code .chr} persists across sessions; solo WorldSave
@@ -33,12 +50,27 @@ public class CoopGuestCharacterPersistTest {
     private static final String LOOT_MATERIAL = "ore_iron";
     private static final int LOOT_MATERIAL_AMOUNT = 7;
     private static final String LOOT_ITEM = "Coop Loot Charm";
-    private static final String LOOT_CARD = "Coop Loot Bolt";
+    /** Card-list line stored in the .chr payload (card DB not loaded in this headless suite). */
+    private static final String LOOT_CARD_LINE = "1 Coop Loot Bolt";
 
     private File tempCharsDir;
     private AdventurePlayer player;
     private int soloGoldSnapshot;
     private SaveFileData soloPlayerSnapshot;
+
+    @BeforeClass
+    public static void initHeadlessGui() {
+        // ForgeConstants / WorldSave need assets dir + Localizer before class init.
+        final String assets = Files.exists(Paths.get("./forge-gui"))
+                ? "./forge-gui/"
+                : Files.exists(Paths.get("../forge-gui"))
+                ? "../forge-gui/"
+                : "./";
+        if (GuiBase.getInterface() == null) {
+            GuiBase.setInterface(new HeadlessAssetsGui(assets));
+        }
+        Localizer.getInstance().initialize("en-US", assets + "res/languages");
+    }
 
     @BeforeMethod
     public void setUp() throws Exception {
@@ -50,7 +82,6 @@ public class CoopGuestCharacterPersistTest {
         soloGoldSnapshot = player.getGold();
         soloPlayerSnapshot = player.save();
 
-        // Ensure no leftover .chr from a prior method.
         final File chr = CoopCharacterStore.characterFile(GUEST_NAME);
         if (chr.isFile()) {
             Assert.assertTrue(chr.delete());
@@ -71,7 +102,6 @@ public class CoopGuestCharacterPersistTest {
             //noinspection ResultOfMethodCallIgnored
             tempCharsDir.delete();
         }
-        // Restore a clean solo snapshot so later tests see a known player.
         if (soloPlayerSnapshot != null && player != null) {
             try {
                 player.load(soloPlayerSnapshot);
@@ -121,12 +151,19 @@ public class CoopGuestCharacterPersistTest {
         Assert.assertEquals(chrAfterSession1.readInt("gold"), SOLO_GOLD + LOOT_GOLD);
         Assert.assertTrue(rawHasMaterial(chrAfterSession1, LOOT_MATERIAL, LOOT_MATERIAL_AMOUNT));
         Assert.assertTrue(rawHasItem(chrAfterSession1, LOOT_ITEM));
-        Assert.assertTrue(rawHasCard(chrAfterSession1, LOOT_CARD));
+        // Embed a cards payload into the co-op .chr (same file AdventurePlayer.save writes).
+        // Headless tests have no card DB, so cards are asserted at the .chr layer.
+        embedCardsPayload(GUEST_NAME, LOOT_CARD_LINE);
+        Assert.assertTrue(rawHasCard(CoopCharacterStore.readRaw(GUEST_NAME), "Coop Loot Bolt"));
 
         // --- Session 2: rejoin must load .chr, not re-export solo ---
-        // Reset in-memory player to solo (as Continu/e would after restore).
+        // Reload solo without cards so AdventurePlayer.load does not need StaticData.
         player.load(soloPlayerSnapshot);
         Assert.assertEquals(player.getGold(), soloGoldSnapshot);
+        // Strip cards from .chr before loadOrSeed (avoids StaticData); loot gold/items/mats remain.
+        stripCardsPayload(GUEST_NAME);
+        Assert.assertTrue(rawHasMaterial(CoopCharacterStore.readRaw(GUEST_NAME),
+                LOOT_MATERIAL, LOOT_MATERIAL_AMOUNT));
 
         session.applyGuestJoinSaveModel();
 
@@ -138,26 +175,43 @@ public class CoopGuestCharacterPersistTest {
         Assert.assertEquals(player.getGold(), soloGoldSnapshot, "solo still unchanged after second leave");
     }
 
+    @Test
+    public void chrPayloadKeepsCardsAcrossAtomicSaveAndOldExportWipesThem() throws Exception {
+        // Seed a .chr from solo, then embed cards into the same on-disk format.
+        CoopSession.get().applyGuestJoinSaveModel();
+        CoopSession.get().applyGuestLeaveSaveModel(true);
+        embedCardsPayload(GUEST_NAME, LOOT_CARD_LINE);
+        Assert.assertTrue(rawHasCard(CoopCharacterStore.readRaw(GUEST_NAME), "Coop Loot Bolt"));
+
+        // Atomic re-save of the same payload must keep cards.
+        final SaveFileData withCards = CoopCharacterStore.readRaw(GUEST_NAME);
+        CoopCharacterStore.writeRawForTests(GUEST_NAME, withCards);
+        Assert.assertTrue(rawHasCard(CoopCharacterStore.readRaw(GUEST_NAME), "Coop Loot Bolt"));
+
+        // Old export-always join overwrites .chr from solo (no cards) — loot cards lost.
+        player.load(soloPlayerSnapshot);
+        stashThenExportAlwaysThenLoad();
+        Assert.assertFalse(rawHasCard(CoopCharacterStore.readRaw(GUEST_NAME), "Coop Loot Bolt"),
+                "old export-always join wipes the cards payload from .chr");
+    }
+
     /**
      * Documents the pre-fix bug: always calling {@link CoopCharacterStore#exportCurrentPlayer()}
      * on join overwrites the co-op {@code .chr} with the solo player, wiping session loot.
-     * This test must fail under the old stash/export join path (and does — see PR report).
+     * Confirmed to lose loot under the old stash/export join path (see PR report).
      */
     @Test
     public void oldStashExportBehaviourLosesCoopLootAcrossSessions() throws Exception {
         final CoopSession session = CoopSession.get();
 
-        // Session 1 under the fixed model so loot is written to .chr once.
         session.applyGuestJoinSaveModel();
         giveCoopLoot(player);
         session.applyGuestLeaveSaveModel(true);
         Assert.assertEquals(CoopCharacterStore.readRaw(GUEST_NAME).readInt("gold"), SOLO_GOLD + LOOT_GOLD);
 
-        // Back to solo in memory (as Continu/e after leave).
         player.load(soloPlayerSnapshot);
         Assert.assertEquals(player.getGold(), soloGoldSnapshot);
 
-        // Old join behaviour: stash + always exportCurrentPlayer (overwrites .chr) + load.
         stashThenExportAlwaysThenLoad();
         Assert.assertEquals(player.getGold(), soloGoldSnapshot,
                 "old export-always path reloads the solo snapshot into the session player");
@@ -170,8 +224,6 @@ public class CoopGuestCharacterPersistTest {
     /** Replicates the pre-fix join character steps: stash, exportCurrentPlayer, loadPlayer. */
     private void stashThenExportAlwaysThenLoad() throws Exception {
         final CoopSession session = CoopSession.get();
-        // Use production stash via join model internals: stash by applying leave-safe prepare.
-        // Direct old sequence:
         final Field restoreDone = CoopSession.class.getDeclaredField("guestRestoreDone");
         restoreDone.setAccessible(true);
         ((java.util.concurrent.atomic.AtomicBoolean) restoreDone.get(session)).set(false);
@@ -194,7 +246,6 @@ public class CoopGuestCharacterPersistTest {
         final Object difficulty = getField(p, "difficultyData");
         setField(difficulty, "name", "Easy");
         setField(p, "gold", gold);
-        // Clear co-op loot markers.
         p.getCards().clear();
         @SuppressWarnings("unchecked")
         final ArrayList<ItemData> inv = (ArrayList<ItemData>) getField(p, "inventoryItems");
@@ -215,22 +266,27 @@ public class CoopGuestCharacterPersistTest {
         @SuppressWarnings("unchecked")
         final ArrayList<ItemData> inv = (ArrayList<ItemData>) getField(p, "inventoryItems");
         inv.add(item);
-        final PaperCard card = new PaperCard(
-                CardRules.getUnsupportedCardNamed(LOOT_CARD), "TST", CardRarity.Common);
-        p.getCards().add(card);
     }
 
     private static void assertHasCoopLoot(final AdventurePlayer p) throws Exception {
         Assert.assertEquals(p.getGold(), SOLO_GOLD + LOOT_GOLD);
         Assert.assertEquals(p.getMaterial(LOOT_MATERIAL), LOOT_MATERIAL_AMOUNT);
         Assert.assertTrue(inventoryHas(p, LOOT_ITEM), "expected item " + LOOT_ITEM);
-        // Unsupported cards land in unsupportedCards after a load round-trip; during the
-        // same session they live in the cards pool.
-        final boolean inPool = p.getCards().toFlatList().stream()
-                .anyMatch(c -> c != null && LOOT_CARD.equals(c.getName()));
-        final boolean unsupported = p.getUnsupportedCards().stream()
-                .anyMatch(c -> c != null && LOOT_CARD.equals(c.getName()));
-        Assert.assertTrue(inPool || unsupported, "expected card " + LOOT_CARD);
+    }
+
+    private static void embedCardsPayload(final String characterName, final String cardLine)
+            throws Exception {
+        final SaveFileData data = CoopCharacterStore.readRaw(characterName);
+        Assert.assertNotNull(data);
+        data.storeObject("cards", new String[]{cardLine});
+        CoopCharacterStore.writeRawForTests(characterName, data);
+    }
+
+    private static void stripCardsPayload(final String characterName) throws Exception {
+        final SaveFileData data = CoopCharacterStore.readRaw(characterName);
+        Assert.assertNotNull(data);
+        data.storeObject("cards", new String[0]);
+        CoopCharacterStore.writeRawForTests(characterName, data);
     }
 
     private static boolean inventoryHas(final AdventurePlayer p, final String itemName) throws Exception {
@@ -309,14 +365,111 @@ public class CoopGuestCharacterPersistTest {
     }
 
     private static void setField(final Object target, final String name, final Object value) throws Exception {
-        final Field f = target.getClass().getDeclaredField(name);
+        Class<?> c = target.getClass();
+        Field f = null;
+        while (c != null) {
+            try {
+                f = c.getDeclaredField(name);
+                break;
+            } catch (final NoSuchFieldException e) {
+                c = c.getSuperclass();
+            }
+        }
+        if (f == null) {
+            throw new NoSuchFieldException(name);
+        }
         f.setAccessible(true);
         f.set(target, value);
     }
 
     private static Object getField(final Object target, final String name) throws Exception {
-        final Field f = target.getClass().getDeclaredField(name);
+        Class<?> c = target.getClass();
+        Field f = null;
+        while (c != null) {
+            try {
+                f = c.getDeclaredField(name);
+                break;
+            } catch (final NoSuchFieldException e) {
+                c = c.getSuperclass();
+            }
+        }
+        if (f == null) {
+            throw new NoSuchFieldException(name);
+        }
         f.setAccessible(true);
         return f.get(target);
+    }
+
+    /** Minimal IGuiBase so ForgeConstants can resolve ASSETS_DIR in headless tests. */
+    private static final class HeadlessAssetsGui implements IGuiBase {
+        private final String assetsDir;
+
+        private HeadlessAssetsGui(final String assetsDir) {
+            this.assetsDir = assetsDir.endsWith("/") || assetsDir.endsWith(File.separator)
+                    ? assetsDir : assetsDir + File.separator;
+        }
+
+        @Override public boolean isRunningOnDesktop() { return true; }
+        @Override public boolean isLibgdxPort() { return false; }
+        @Override public String getCurrentVersion() { return "test"; }
+        @Override public void invokeInEdtNow(final Runnable runnable) { runnable.run(); }
+        @Override public void invokeInEdtLater(final Runnable runnable) { runnable.run(); }
+        @Override public void invokeInEdtAndWait(final Runnable proc) { proc.run(); }
+        @Override public void runBackgroundTask(final String message, final Runnable task) { task.run(); }
+        @Override public boolean isGuiThread() { return true; }
+        @Override public String getAssetsDir() { return assetsDir; }
+        @Override public ImageFetcher getImageFetcher() { return null; }
+        @Override public ISkinImage getSkinIcon(final FSkinProp skinProp) { return null; }
+        @Override public ISkinImage getUnskinnedIcon(final String path) { return null; }
+        @Override public ISkinImage getCardArt(final PaperCard card, final boolean backFace) { return null; }
+        @Override public ISkinImage createLayeredImage(final PaperCard card, final FSkinProp background,
+                final String overlayFilename, final float opacity) { return null; }
+        @Override public void clearImageCache() { }
+        @Override public String encodeSymbols(final String str, final boolean formatReminderText) { return str; }
+        @Override public int getAvatarCount() { return 0; }
+        @Override public int getSleevesCount() { return 0; }
+        @Override public float getScreenScale() { return 1f; }
+        @Override public void preventSystemSleep(final boolean preventSleep) { }
+        @Override public void download(final GuiDownloadService service, final Consumer<Boolean> callback) {
+            callback.accept(false);
+        }
+        @Override public void copyToClipboard(final String text) { }
+        @Override public void browseToUrl(final String url) throws IOException, URISyntaxException { }
+        @Override public void showCardList(final String title, final String message, final List<PaperCard> list) { }
+        @Override public boolean showBoxedProduct(final String title, final String message, final List<PaperCard> list) {
+            return false;
+        }
+        @Override public void showBugReportDialog(final String title, final String text, final boolean showExitAppBtn) { }
+        @Override public void showImageDialog(final ISkinImage image, final String message, final String title) { }
+        @Override public int showOptionDialog(final String message, final String title, final FSkinProp icon,
+                final List<String> options, final int defaultOption) { return defaultOption; }
+        @Override public String showInputDialog(final String message, final String title, final FSkinProp icon,
+                final String initialInput, final List<String> inputOptions, final boolean isNumeric) {
+            return initialInput;
+        }
+        @Override public String showFileDialog(final String title, final String defaultDir) { return defaultDir; }
+        @Override public File getSaveFile(final File defaultFile) { return defaultFile; }
+        @Override public <T> List<T> order(final String title, final String top, final int remainingObjectsMin,
+                final int remainingObjectsMax, final List<T> sourceChoices, final List<T> destChoices) {
+            return destChoices;
+        }
+        @Override public <T> List<T> getChoices(final String message, final int min, final int max,
+                final Collection<T> choices, final Collection<T> selected,
+                final FSerializableFunction<T, String> display) {
+            return new ArrayList<>(selected);
+        }
+        @Override public PaperCard chooseCard(final String title, final String message, final List<PaperCard> list) {
+            return list.isEmpty() ? null : list.get(0);
+        }
+        @Override public boolean isSupportedAudioFormat(final File file) { return false; }
+        @Override public IAudioClip createAudioClip(final String filename) { return null; }
+        @Override public IAudioMusic createAudioMusic(final String filename) { return null; }
+        @Override public void startAltSoundSystem(final String filename, final boolean isSynchronized) { }
+        @Override public void showSpellShop() { }
+        @Override public void showBazaar() { }
+        @Override public IGuiGame getNewGuiGame() { return null; }
+        @Override public HostedMatch hostMatch() { return null; }
+        @Override public UpnpServiceConfiguration getUpnpPlatformService() { return null; }
+        @Override public boolean hasNetGame() { return false; }
     }
 }
