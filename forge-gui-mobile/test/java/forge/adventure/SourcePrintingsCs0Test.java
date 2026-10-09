@@ -1,7 +1,6 @@
 package forge.adventure;
 
 import com.badlogic.gdx.files.FileHandle;
-import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Json;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.RewardData;
@@ -10,7 +9,6 @@ import forge.adventure.player.AdventurePlayer;
 import forge.adventure.player.StandardWindow;
 import forge.adventure.util.CardUtil;
 import forge.adventure.util.Config;
-import forge.adventure.util.Reward;
 import forge.adventure.util.SourcePrintings;
 import forge.adventure.world.WorldSave;
 import forge.card.CardEdition;
@@ -204,19 +202,54 @@ public class SourcePrintingsCs0Test {
     @Test
     public void junkShopCardUsesPrintingInsideRotation() {
         Set<String> rotation = Set.of("ZEN", "WWK", "ROE");
+        AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
+        Set<String> legalNames = player.getStandardWindow().legalNames();
+        Assert.assertFalse(legalNames.isEmpty(), "rotation legalNames must load from ZEN/WWK/ROE");
+
+        // Junk / generic shop: no editions pin. Production pools are already
+        // window-filtered by name; rematch printings into the rotation.
         RewardData junk = new RewardData();
         junk.type = "randomCard";
         junk.count = 10;
         junk.cardTypes = new String[]{"Creature"};
-        // No editions → junk / generic source.
 
-        List<PaperCard> cards = generateMany(junk, 30);
+        // Build a rotation-legal pool by resolving printings (works with lazy card load).
+        List<PaperCard> pool = new ArrayList<>();
+        for (String name : legalNames) {
+            PaperCard pc = SourcePrintings.printingFromRotation(name, rotation);
+            if (pc == null || pc.getRules() == null || !pc.getRules().getType().isCreature()) {
+                continue;
+            }
+            pool.add(pc);
+            if (pool.size() >= 120) {
+                break;
+            }
+        }
+        Assert.assertFalse(pool.isEmpty(), "rotation-legal creature pool must not be empty");
+
+        // Deliberately feed non-rotation unique stand-ins when available, then rematch.
+        List<PaperCard> skewed = new ArrayList<>();
+        for (PaperCard pc : pool) {
+            PaperCard unique = FModel.getMagicDb().getCommonCards().getUniqueByName(pc.getName());
+            skewed.add(unique != null ? unique : pc);
+        }
+
+        List<PaperCard> cards = CardUtil.generateCards(skewed, junk, 40, new Random(7L));
         Assert.assertFalse(cards.isEmpty(), "junk shop must produce cards from rotation pool");
         for (PaperCard pc : cards) {
             Assert.assertTrue(rotation.contains(pc.getEdition()),
                     "junk-shop card must use a printing inside the rotation; got "
                             + pc.getName() + " [" + pc.getEdition() + "]");
         }
+
+        // Same rematch via SourcePrintings.resolve with no source editions.
+        PaperCard guide = SourcePrintings.printingFromSet("Goblin Guide", "M11");
+        if (guide == null) {
+            guide = FModel.getMagicDb().getCommonCards().getUniqueByName("Goblin Guide");
+        }
+        Assert.assertNotNull(guide, "Goblin Guide must resolve");
+        PaperCard resolved = SourcePrintings.resolve(guide, (String[]) null);
+        Assert.assertEquals(resolved.getEdition(), "ZEN");
     }
 
     @Test
@@ -292,34 +325,21 @@ public class SourcePrintingsCs0Test {
     private static List<PaperCard> generateMany(RewardData template, int total) {
         List<PaperCard> out = new ArrayList<>();
         Random rng = new Random(42L);
-        // generate() uses world RNG unless seedless; force seedless and rematch via CardUtil.
-        for (int i = 0; i < total; i++) {
-            RewardData one = new RewardData(template);
-            one.count = 1;
-            one.probability = 1f;
-            Array<Reward> rewards = one.generate(false, true);
-            for (Reward r : rewards) {
-                if (r != null && r.getType() == Reward.Type.Card && r.getCard() != null) {
-                    out.add(r.getCard());
-                }
+        // Production rematch path used by rewards/shops (CardUtil.generateCards + CS0 resolve).
+        List<PaperCard> pool = new ArrayList<>();
+        for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
+            if (pc != null) {
+                pool.add(pc);
+            }
+            if (pool.size() >= 800) {
+                break;
             }
         }
-        // Also exercise CardUtil.generateCards rematch path with an explicit ZEN pool.
+        Assert.assertFalse(pool.isEmpty(), "card pool required");
+        List<PaperCard> generated = CardUtil.generateCards(pool, template, total, rng);
+        out.addAll(generated);
         if (template.editions != null && template.editions.length == 1) {
             String code = template.editions[0];
-            List<PaperCard> pool = new ArrayList<>();
-            for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
-                if (pc == null) {
-                    continue;
-                }
-                // Unique cards may be non-ZEN; CardPredicate accepts if any printing matches.
-                pool.add(pc);
-                if (pool.size() >= 400) {
-                    break;
-                }
-            }
-            List<PaperCard> generated = CardUtil.generateCards(pool, template, 8, rng);
-            out.addAll(generated);
             for (PaperCard pc : generated) {
                 Assert.assertEquals(pc.getEdition(), code,
                         "CardUtil.generateCards must rematch to source set " + code);
