@@ -1,6 +1,7 @@
 package forge.adventure.player;
 
-import com.badlogic.gdx.utils.Json;
+import com.badlogic.gdx.utils.JsonReader;
+import com.badlogic.gdx.utils.JsonValue;
 import forge.adventure.data.AchievementConditionData;
 import forge.adventure.data.AchievementData;
 import forge.adventure.data.AchievementListData;
@@ -18,7 +19,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -156,19 +156,63 @@ public final class AchievementService {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    static AchievementProgress parseProgress(String text) {
+    /**
+     * Parse account progress JSON. Returns {@code null} when the text is present
+     * but corrupt (so callers can fall back to {@code .bak}). Empty/missing text
+     * returns a fresh empty progress.
+     */
+    public static AchievementProgress parseProgress(String text) {
         if (text == null || text.trim().isEmpty()) {
             return new AchievementProgress();
         }
         try {
-            Json json = new Json();
-            json.setIgnoreUnknownFields(true);
-            Map<?, ?> map = json.fromJson(LinkedHashMap.class, text);
-            if (map == null) {
+            JsonValue root = new JsonReader().parse(text);
+            if (root == null || !root.isObject()) {
                 return null;
             }
-            return AchievementProgress.fromMap(map);
+            AchievementProgress p = new AchievementProgress();
+            p.setVersion(root.getInt("version", AchievementProgress.VERSION));
+            JsonValue unlocked = root.get("unlocked");
+            if (unlocked != null && unlocked.isObject()) {
+                for (JsonValue child = unlocked.child; child != null; child = child.next) {
+                    if (child.name != null) {
+                        p.unlock(child.name, child.asLong());
+                    }
+                }
+            }
+            JsonValue sets = root.get("completedSets");
+            if (sets != null && sets.isArray()) {
+                for (JsonValue child = sets.child; child != null; child = child.next) {
+                    p.addCompletedSet(child.asString());
+                }
+            }
+            JsonValue titles = root.get("titles");
+            if (titles != null && titles.isArray()) {
+                for (JsonValue child = titles.child; child != null; child = child.next) {
+                    p.addTitle(child.asString());
+                }
+            }
+            JsonValue trophies = root.get("trophies");
+            if (trophies != null && trophies.isArray()) {
+                for (JsonValue child = trophies.child; child != null; child = child.next) {
+                    p.addTrophy(child.asString());
+                }
+            }
+            JsonValue styles = root.get("cardStyles");
+            if (styles != null && styles.isArray()) {
+                for (JsonValue child = styles.child; child != null; child = child.next) {
+                    p.addCardStyle(child.asString());
+                }
+            }
+            JsonValue counters = root.get("counters");
+            if (counters != null && counters.isObject()) {
+                for (JsonValue child = counters.child; child != null; child = child.next) {
+                    if (child.name != null) {
+                        p.setCounter(child.name, child.asInt());
+                    }
+                }
+            }
+            return p;
         } catch (Throwable t) {
             return null;
         }
@@ -188,7 +232,7 @@ public final class AchievementService {
     }
 
     /** Plain-data JSON (no class names, UTF-8, no BOM). */
-    static String toJson(AchievementProgress p) {
+    public static String toJson(AchievementProgress p) {
         StringBuilder sb = new StringBuilder(256);
         sb.append("{\n");
         sb.append("  \"version\": ").append(p.getVersion()).append(",\n");
