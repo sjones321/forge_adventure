@@ -242,11 +242,12 @@ public class CoopDuelServerE2ETest {
         }
         assertNotNull(remoteGui, "FServerManager.getGui(1) after FGameClient connect");
 
-        final RegisteredPlayer hostRp = new RegisteredPlayer(landDeck("Host", "Drifting Meadow"))
+        // Plains avoids cycling prompts (e.g. Drifting Meadow) that stall headless runs.
+        final RegisteredPlayer hostRp = new RegisteredPlayer(landDeck("Host", "Plains"))
                 .setPlayer(new LobbyPlayerHuman("Host"));
         hostRp.setTeamNumber(0);
         hostRp.setStartingLife(20);
-        final RegisteredPlayer guestRp = new RegisteredPlayer(landDeck("Guest", "Drifting Meadow"))
+        final RegisteredPlayer guestRp = new RegisteredPlayer(landDeck("Guest", "Plains"))
                 .setPlayer(new LobbyPlayerHuman(guestName));
         guestRp.setTeamNumber(0);
         guestRp.setStartingLife(20);
@@ -315,6 +316,13 @@ public class CoopDuelServerE2ETest {
         match.startMatch(rules, EnumSet.of(GameType.Constructed),
                 List.of(hostRp, guestRp, enemyRp), guis, null);
 
+        // HostedMatch was started outside GameLobby's start runnable, so lobby
+        // gameControllers are empty and FServerManager.getController(slot) returns
+        // null — guest selectPlayer/selectCard over Netty are ignored and the match
+        // never deals hands. Bind human controllers to lobby slots (same bookkeeping
+        // GameLobby performs after startMatch).
+        bindLobbyControllers(lobby, match);
+
         // Warm until host openView, answer start-player / mulligan prompts, then
         // concede both humans on the server (guest also auto-OKs over the socket).
         final long warmDeadline = System.currentTimeMillis() + 30_000;
@@ -333,7 +341,7 @@ public class CoopDuelServerE2ETest {
         }
         // DS1: while the loopback match is live, prove the guest modern-cast path —
         // NetGameController.selectCard over the real FGameClient wire.
-        assertGuestModernCastOverLoopback(guestName, hostRemote, hostGui);
+        assertGuestModernCastOverLoopback(guestName, hostRemote, hostGui, match);
 
         final long deadline = System.currentTimeMillis() + 45_000;
         int answered = warmed;
@@ -423,18 +431,29 @@ public class CoopDuelServerE2ETest {
     /**
      * DS1: on a live FServerManager + FGameClient match, send a modern-cast
      * {@code selectCard} through {@link NetGameController} and assert it hits the wire.
+     * Fails hard when the guest hand/view never syncs (no soft-skip).
      */
     private void assertGuestModernCastOverLoopback(
             final String guestName,
             final CoopDuelInProcessTest.RecordingRemote hostRemote,
-            final ProtocolGuiGame hostGui) throws Exception {
+            final ProtocolGuiGame hostGui,
+            final HostedMatch match) throws Exception {
         PlayerView guestView = null;
         IGameController netCtrl = null;
         CardView castCard = null;
+        boolean hostSawGuestHand = false;
         final long readyDeadline = System.currentTimeMillis() + 60_000;
         while (System.currentTimeMillis() < readyDeadline
                 && (netCtrl == null || castCard == null)) {
             answerHost(hostRemote, hostGui, false);
+            try {
+                forge.gui.GuiBase.getInterface().invokeInEdtAndWait(() -> { });
+            } catch (final Exception ignored) {
+            }
+            final GameView matchGv = match.getGameView();
+            if (matchGv != null && matchGv.isGameOver()) {
+                break;
+            }
             if (netCtrl == null) {
                 for (final PlayerView p : guestLocalGui.getLocalPlayers()) {
                     if (p == null) {
@@ -449,33 +468,33 @@ public class CoopDuelServerE2ETest {
                 }
             }
             if (castCard == null) {
-                // Prefer GameView players; also accept local seat hand.
-                final java.util.List<PlayerView> candidates = new java.util.ArrayList<>();
-                final GameView ggv = guestLocalGui.getGameView();
-                if (ggv != null && ggv.getPlayers() != null) {
-                    for (final PlayerView p : ggv.getPlayers()) {
-                        candidates.add(p);
-                    }
+                castCard = findSyncedGuestHandCard(guestName);
+                if (castCard != null) {
+                    guestView = castCard.getController() != null
+                            ? castCard.getController() : guestView;
                 }
-                candidates.addAll(guestLocalGui.getLocalPlayers());
-                for (final PlayerView p : candidates) {
-                    if (p == null || p.getHand() == null) {
-                        continue;
-                    }
-                    if (p.getName() != null && !p.getName().equalsIgnoreCase(guestName)
-                            && !guestLocalGui.isLocalPlayer(p)) {
+            }
+            if (!hostSawGuestHand && matchGv != null && matchGv.getPlayers() != null) {
+                for (final PlayerView p : matchGv.getPlayers()) {
+                    if (p == null || p.getName() == null
+                            || !p.getName().equalsIgnoreCase(guestName)
+                            || p.getHand() == null) {
                         continue;
                     }
                     for (final CardView c : p.getHand()) {
                         if (c != null) {
-                            castCard = c;
-                            guestView = p;
+                            hostSawGuestHand = true;
                             break;
                         }
                     }
-                    if (castCard != null) {
-                        break;
-                    }
+                }
+            }
+            // Host already dealt the guest hand — resolve the same card id on the
+            // guest tracker (Hand zone prop can lag behind object sync).
+            if (castCard == null && hostSawGuestHand && matchGv != null) {
+                castCard = resolveGuestHandFromHostView(guestName, matchGv);
+                if (castCard != null && castCard.getController() != null) {
+                    guestView = castCard.getController();
                 }
             }
             Thread.sleep(50);
@@ -486,7 +505,8 @@ public class CoopDuelServerE2ETest {
         // Must FAIL when the match is not synced — do not soft-skip. A missing hand
         // or guest view means the loopback wire assert cannot prove modern cast.
         assertNotNull(castCard,
-                "guest hand must sync a card for modern cast over loopback");
+                "guest hand must sync a card for modern cast over loopback"
+                        + (hostSawGuestHand ? " (host saw guest hand; client never synced)" : ""));
         assertNotNull(guestView,
                 "guest PlayerView must sync for modern cast over loopback");
 
@@ -527,6 +547,95 @@ public class CoopDuelServerE2ETest {
         assertNotNull(sentCard.get());
         assertEquals(sentCard.get().getId(), toCast.getId(),
                 "loopback selectCard carried the hand card id");
+    }
+
+    /**
+     * Wire {@link HostedMatch} human controllers into {@link ServerGameLobby} slots
+     * so {@link FServerManager#getController} can dispatch guest Netty input.
+     */
+    @SuppressWarnings("unchecked")
+    private static void bindLobbyControllers(final ServerGameLobby lobby, final HostedMatch match)
+            throws Exception {
+        final java.lang.reflect.Field f = forge.gamemodes.match.GameLobby.class
+                .getDeclaredField("gameControllers");
+        f.setAccessible(true);
+        final java.util.HashMap<forge.gamemodes.match.LobbySlot, IGameController> lobbyCtrls =
+                (java.util.HashMap<forge.gamemodes.match.LobbySlot, IGameController>) f.get(lobby);
+        for (final forge.player.PlayerControllerHuman hc : match.getHumanControllers()) {
+            if (hc == null || hc.getGui() == null) {
+                continue;
+            }
+            if (hc.getGui() instanceof forge.gamemodes.net.server.RemoteClientGuiGame) {
+                lobbyCtrls.put(lobby.getSlot(1), hc);
+            } else {
+                lobbyCtrls.put(lobby.getSlot(0), hc);
+            }
+        }
+        match.gameControllers = lobbyCtrls;
+    }
+
+    /** Guest-local hand card from GameView / local seat (proves client sync). */
+    private CardView findSyncedGuestHandCard(final String guestName) {
+        final java.util.List<PlayerView> candidates = new java.util.ArrayList<>();
+        final GameView ggv = guestLocalGui.getGameView();
+        if (ggv != null && ggv.getPlayers() != null) {
+            for (final PlayerView p : ggv.getPlayers()) {
+                candidates.add(p);
+            }
+        }
+        candidates.addAll(guestLocalGui.getLocalPlayers());
+        for (final PlayerView p : candidates) {
+            if (p == null || p.getHand() == null) {
+                continue;
+            }
+            if (p.getName() != null && !p.getName().equalsIgnoreCase(guestName)
+                    && !guestLocalGui.isLocalPlayer(p)) {
+                continue;
+            }
+            for (final CardView c : p.getHand()) {
+                if (c != null) {
+                    return c;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * When the host GameView already has the guest hand, resolve the same card id
+     * on the guest client tracker (object sync without waiting on Hand zone prop).
+     */
+    private CardView resolveGuestHandFromHostView(final String guestName, final GameView matchGv) {
+        if (matchGv == null || matchGv.getPlayers() == null) {
+            return null;
+        }
+        final GameView ggv = guestLocalGui.getGameView();
+        final forge.trackable.Tracker guestTracker = ggv != null ? ggv.getTracker() : null;
+        for (final PlayerView p : matchGv.getPlayers()) {
+            if (p == null || p.getName() == null
+                    || !p.getName().equalsIgnoreCase(guestName)
+                    || p.getHand() == null) {
+                continue;
+            }
+            for (final CardView hostCard : p.getHand()) {
+                if (hostCard == null) {
+                    continue;
+                }
+                if (guestTracker != null) {
+                    final CardView local = guestTracker.getObj(
+                            forge.trackable.TrackableTypes.CardViewType, hostCard.getId());
+                    if (local != null) {
+                        return local;
+                    }
+                }
+                // Client GameView players may already hold the same id in hand.
+                final CardView fromClient = findSyncedGuestHandCard(guestName);
+                if (fromClient != null) {
+                    return fromClient;
+                }
+            }
+        }
+        return null;
     }
 
     /** Answer one host updateButtons prompt (incl. multiplayer start-player pick). */

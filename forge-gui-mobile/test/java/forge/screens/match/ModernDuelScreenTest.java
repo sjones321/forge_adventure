@@ -247,9 +247,12 @@ public class ModernDuelScreenTest {
         final CardView untappedLand = battlefieldLand(tracker, 61, false);
         final CardView tappedLand = battlefieldLand(tracker, 62, true);
         final CardView creature = zoneCard(ZoneType.Battlefield, 63);
-        controller.set(forge.trackable.TrackableProperty.Battlefield,
-                new forge.util.collect.FCollection<>(java.util.List.of(
-                        untappedLand, tappedLand, creature)));
+        final forge.trackable.TrackableCollection<CardView> bf =
+                new forge.trackable.TrackableCollection<>();
+        bf.add(untappedLand);
+        bf.add(tappedLand);
+        bf.add(creature);
+        controller.set(forge.trackable.TrackableProperty.Battlefield, bf);
         Assert.assertEquals(ModernDuelActions.countUntappedLands(controller), 1,
                 "only untapped lands count as available mana sources");
         Assert.assertEquals(ModernDuelActions.countUntappedLands(null), 0);
