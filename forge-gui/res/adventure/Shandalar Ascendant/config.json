@@ -101,7 +101,7 @@
   "setPlaneWorldConfig": "world/set_plane_world.json",
   "maxPlanesPerSave": 16,
   "planarPortalAutoCreate": true,
-"setPlaneMinTiles": 300,
+  "setPlaneMinTiles": 300,
   "setPlaneMaxTiles": 400,
   "alignedPortalGoldCost": 0,
   "rotatedOutPortalGoldCost": 500,
