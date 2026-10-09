@@ -8,7 +8,6 @@ import com.badlogic.gdx.utils.Timer;
 import com.badlogic.gdx.utils.Timer.Task;
 
 import forge.Forge;
-import forge.assets.FSkin;
 import forge.haptic.HapticEngine;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.util.Utils;
@@ -83,9 +82,18 @@ public abstract class FGestureAdapter extends InputAdapter {
     public boolean touchDown(int x, int y, int pointer, int button) {
         return touchDown((float)x, (float)y, pointer, button);
     }
-    private boolean touchDown(float x, float y, int pointer, int button) {
+    /** Package-visible for DS3 input-path tests (real adapter, not flag-setting). */
+    boolean touchDown(float x, float y, int pointer, int button) {
         if (button == Input.Buttons.RIGHT) {
-            //catch right click
+            // Track a tap so duel/shop cards can open CardZoom. Do not start
+            // press/long-press, and never toggle the hover magnifier here (M / Shift+M).
+            pointer1.set(x, y);
+            tracker.start(x, y, eventTimeNanos());
+            inTapSquare = true;
+            panning = false;
+            pinching = false;
+            tapSquareCenterX = x;
+            tapSquareCenterY = y;
             return true;
         }
         if (pointer > 1) { return false; }
@@ -94,7 +102,7 @@ public abstract class FGestureAdapter extends InputAdapter {
             pointer1.set(x, y);
             if (!Gdx.input.isTouched(1)) {
                 // handle single finger press
-                tracker.start(x, y, Gdx.input.getCurrentEventTime());
+                tracker.start(x, y, eventTimeNanos());
                 inTapSquare = true;
                 panning = false;
                 pinching = false;
@@ -148,7 +156,7 @@ public abstract class FGestureAdapter extends InputAdapter {
         }
 
         // update tracker
-        tracker.update(x, y, Gdx.input.getCurrentEventTime());
+                tracker.update(x, y, eventTimeNanos());
 
         // check if we are still tapping.
         if (inTapSquare && !isWithinTapSquare(x, y, tapSquareCenterX, tapSquareCenterY)) {
@@ -165,6 +173,14 @@ public abstract class FGestureAdapter extends InputAdapter {
         return false;
     }
 
+    /** Event time for tap counting; falls back when Gdx.input is unavailable (tests). */
+    private static long eventTimeNanos() {
+        if (Gdx.input != null) {
+            return Gdx.input.getCurrentEventTime();
+        }
+        return System.nanoTime();
+    }
+
     @Override
     public boolean touchCancelled(int x, int y, int pointer, int button) {
         return touchUp((float)x, (float)y, pointer, button);
@@ -174,18 +190,18 @@ public abstract class FGestureAdapter extends InputAdapter {
     public boolean touchUp(int x, int y, int pointer, int button) {
         return touchUp((float)x, (float)y, pointer, button);
     }
-    private boolean touchUp(float x, float y, int pointer, int button) {
+    /** Package-visible for DS3 input-path tests (real adapter, not flag-setting). */
+    boolean touchUp(float x, float y, int pointer, int button) {
         if (button == Input.Buttons.RIGHT) {
-            //catch right click and set toggle magnify
-            if (inTapSquare) {
-                // handle taps
-                long time = Gdx.input.getCurrentEventTime();
+            // DS3: right-click fires tap (CardZoom on duel cards). Magnifier
+            // on/off and details are keyboard-only (M / Shift+M) — never here.
+            if (inTapSquare && isWithinTapSquare(x, y, tapSquareCenterX, tapSquareCenterY)) {
+                long time = eventTimeNanos();
                 if (tapCount == 2 //treat 3rd tap as a first tap, and 4th as a double tap
                         || lastTapButton != button
                         || lastTapPointer != pointer
                         || time - lastTapTime > tapCountInterval
                         || !isWithinTapSquare(x, y, lastTapX, lastTapY)) {
-                    Forge.magnifyShowDetails = !Forge.magnifyShowDetails;
                     tapCount = 0;
                 }
                 tapCount++;
@@ -194,14 +210,10 @@ public abstract class FGestureAdapter extends InputAdapter {
                 lastTapY = y;
                 lastTapButton = button;
                 lastTapPointer = pointer;
-                Forge.magnifyToggle = !Forge.magnifyToggle;
-                Forge.magnify = Forge.magnifyToggle;
-                if (Forge.magnifyToggle) {
-                    Forge.setCursor(FSkin.getCursor().get(1), "1");
-                } else {
-                    Forge.setCursor(FSkin.getCursor().get(2), "2");
-                }
+                inTapSquare = false;
+                return tap(x, y, tapCount);
             }
+            inTapSquare = false;
             return false;
         }
         if (pointer > 1) { return false; }
@@ -224,7 +236,7 @@ public abstract class FGestureAdapter extends InputAdapter {
 
         if (inTapSquare) {
             // handle taps
-            long time = Gdx.input.getCurrentEventTime();
+            long time = eventTimeNanos();
             if (tapCount == 2 //treat 3rd tap as a first tap, and 4th as a double tap
                     || lastTapButton != button
                     || lastTapPointer != pointer
@@ -257,7 +269,7 @@ public abstract class FGestureAdapter extends InputAdapter {
         if (wasPanning) { // handle no longer panning
             handled = panStop(x, y);
 
-            long time = Gdx.input.getCurrentEventTime();
+            long time = eventTimeNanos();
             if (time - tracker.lastTime < flingDelay) { // handle flick/fling if needed
                 tracker.update(x, y, time);
                 float velocityX = tracker.getVelocityX();

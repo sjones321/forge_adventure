@@ -66,6 +66,7 @@ Controls:
   - Button B - Cancel/Hide
   - Button Y - Show Zoom
   - Button Back - Show Menu Tabs
+  - Desktop keyboard (DS3): **right-click** a card opens CardZoom (picture + oracle text; Space/Tab toggles). **M** toggles hover preview on/off; **Shift+M** toggles hover-preview details. Both show a short HUD note ("Hover preview on/off") and persist locally — they are never toggled by right-click. Controller and touch are unchanged.
 
 - Match/Battle — modern duel screen (Auto = Adventure duels in Bellwarden: Planes of Nothing only; or Settings → Modern duel screen = Always)
 
@@ -88,5 +89,6 @@ Controls:
   | Floating mana (while paying) | **X** when mana pips are showing (and hand is not focused) → mana mode; **DPAD Left/Right** cycle pips; **A** spends the focused pip. Tap on a pip is touch input. |
   | Phase stops | **X** when neither peek nor mana applies → phase mode on your rail; **DPAD Left/Right** cycle phases; **A** toggles stop on/off. Tap on a phase label is touch input. |
   | Target spells / abilities | During a selection prompt, **DPAD** to the target; amber arrow from the prompt source follows focus **after the pad has been used** (never at match start before input); **A** confirms (stock select). No pick-up. Touch clears stale pad focus so arrows follow the touched source. |
-  | Zoom card | **Y** (controller). Touch: **double-tap** a card to zoom — the first tap is deferred so it does not select/activate; only the double-tap zooms (hand long-press peeks). |
+  | Zoom card | **Y** (controller). Touch: **double-tap** a card to zoom — the first tap is deferred so it does not select/activate; only the double-tap zooms (hand long-press peeks). Desktop: **right-click** opens CardZoom (same as rewards/shop). |
+  | Hover preview (desktop) | **M** on/off; **Shift+M** details — HUD note + local prefs; not toggled by right-click |
   | Zone tabs / player panels / prompts | **R1** / **L1** / triggers (unchanged) |

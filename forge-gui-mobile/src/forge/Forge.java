@@ -240,6 +240,10 @@ public class Forge implements ApplicationListener {
 
         textureFiltering = getForgePreferences().getPrefBoolean(FPref.UI_LIBGDX_TEXTURE_FILTERING);
         showFPS = getForgePreferences().getPrefBoolean(FPref.UI_SHOW_FPS);
+        // DS3: restore local hover-preview on/off + details (not networked).
+        magnifyToggle = getForgePreferences().getPrefBoolean(FPref.UI_MAGNIFIER_TOGGLE);
+        magnifyShowDetails = getForgePreferences().getPrefBoolean(FPref.UI_MAGNIFIER_SHOW_DETAILS);
+        magnify = magnifyToggle;
         reversedPrompt = getForgePreferences().getPrefBoolean(FPref.UI_REVERSE_PROMPT_BUTTON);
         autoAIDeckSelection = getForgePreferences().getPrefBoolean(FPref.UI_AUTO_AIDECK_SELECTION);
         altPlayerLayout = getForgePreferences().getPrefBoolean(FPref.UI_ALT_PLAYERINFOLAYOUT);

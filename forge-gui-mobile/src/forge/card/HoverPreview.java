@@ -13,7 +13,8 @@ import forge.toolbox.FCardPanel;
  * Mouse-hover card preview for card lists (deck editor, collection, shops) on desktop.
  * Views report the card under the mouse while drawing; the preview is drawn on top of
  * everything at the end of the frame, on the side of the screen away from the mouse.
- * Shares the battle magnifier's setting and right-click toggle.
+ * Shares the battle magnifier setting ({@link Forge#magnifyToggle}); toggle with {@code M}
+ * (details with {@code Shift+M}) via {@link CardMagnifierControls} — not right-click.
  */
 public final class HoverPreview {
     private static PaperCard hoveredCard;
