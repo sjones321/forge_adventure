@@ -8,12 +8,17 @@ import forge.adventure.data.EnemyThemeData;
 import forge.adventure.data.RewardData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.player.StandardWindow;
+import forge.adventure.stage.WorldStage;
 import forge.adventure.world.SetPlaneRules;
 import forge.deck.CardPool;
+import forge.deck.Deck;
 import forge.item.PaperCard;
+import forge.item.PaperCardPredicates;
 import forge.model.FModel;
+import forge.card.CardRulesPredicates;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
@@ -139,6 +144,36 @@ public final class FightRewards {
     }
 
     /**
+     * EN2 + RW1: which enemy a peer is credited with for loot.
+     * Host → primary; guest → partner when one was built; otherwise primary.
+     */
+    public static EnemyData creditedLootEnemy(EnemyData primary, EnemyData partner, boolean localIsHost) {
+        if (localIsHost || partner == null) {
+            return primary;
+        }
+        return partner;
+    }
+
+    /**
+     * EN2 loot path used by {@link WorldStage} pending rolls: consume {@code rolls}
+     * (host-authoritative, 0 allowed) and generate RW1 rewards for the credited enemy.
+     * Mirrors {@code WorldStage#setWinner} bookkeeping via {@link WorldStage.PendingLootRolls}.
+     */
+    public static Array<Reward> rollViaPendingLootRolls(EnemyData credited, Iterable<PaperCard> playedDeck,
+            int rolls) {
+        Array<Reward> loot = new Array<>();
+        WorldStage.PendingLootRolls pending = new WorldStage.PendingLootRolls();
+        pending.set(rolls);
+        int n = pending.consume();
+        for (int i = 0; i < n; i++) {
+            if (applies(credited)) {
+                loot.addAll(generate(credited, null, playedDeck, true));
+            }
+        }
+        return loot;
+    }
+
+    /**
      * Build themed-fight rewards for {@code enemy}: signature card(s), then each
      * {@link RewardData} entry (card rows rewritten to the current set / share;
      * gold/items/etc. unchanged). {@code extraRewards} is the sprite-level bonus
@@ -155,6 +190,8 @@ public final class FightRewards {
                 : forge.adventure.world.WorldSave.getCurrentSave().getWorld().getRandom();
         List<PaperCard> deckList = flatList(deckCards);
         String setCode = currentSetCode();
+        // Remaining set cards exclude the theme core so the signature stays the only core card.
+        Set<String> coreExclude = new HashSet<>(coreNames(enemy.themeId));
 
         // 1) Guaranteed signature(s) from theme core ∩ played deck.
         int sigWanted = signatureCount();
@@ -170,12 +207,12 @@ public final class FightRewards {
         // 2) Enemy JSON rewards + sprite extras.
         if (enemy.rewards != null) {
             for (RewardData rdata : enemy.rewards) {
-                appendRewardRow(out, rdata, deckList, setCode, rng, useSeedlessRandom);
+                appendRewardRow(out, rdata, deckList, setCode, coreExclude, rng, useSeedlessRandom);
             }
         }
         if (extraRewards != null) {
             for (RewardData rdata : extraRewards) {
-                appendRewardRow(out, rdata, deckList, setCode, rng, useSeedlessRandom);
+                appendRewardRow(out, rdata, deckList, setCode, coreExclude, rng, useSeedlessRandom);
             }
         }
         return out;
@@ -191,13 +228,13 @@ public final class FightRewards {
     }
 
     private static void appendRewardRow(Array<Reward> out, RewardData rdata, List<PaperCard> deckList,
-            String setCode, Random rng, boolean useSeedlessRandom) {
+            String setCode, Set<String> coreExclude, Random rng, boolean useSeedlessRandom) {
         if (rdata == null) {
             return;
         }
         String type = rdata.type == null || rdata.type.isEmpty() ? "randomCard" : rdata.type;
         if (isCardRewardType(type)) {
-            appendCardRewards(out, rdata, deckList, setCode, rng);
+            appendCardRewards(out, rdata, deckList, setCode, coreExclude, rng);
             return;
         }
         // Gold, shards, items, materials, life, packs — unchanged tables.
@@ -213,7 +250,7 @@ public final class FightRewards {
      * from the current set (share) or the enemy deck (remainder).
      */
     private static void appendCardRewards(Array<Reward> out, RewardData rdata, List<PaperCard> deckList,
-            String setCode, Random rng) {
+            String setCode, Set<String> coreExclude, Random rng) {
         if (rdata.probability != 0 && rng.nextFloat() > rdata.probability) {
             return;
         }
@@ -236,7 +273,7 @@ public final class FightRewards {
         int fromDeck = total - fromSet;
 
         if (fromSet > 0) {
-            List<PaperCard> setPicks = generateFromCurrentSet(rdata, setCode, fromSet, rng);
+            List<PaperCard> setPicks = generateFromCurrentSet(rdata, setCode, fromSet, coreExclude, rng);
             for (PaperCard pc : setPicks) {
                 if (pc != null) {
                     out.add(new Reward(pc));
@@ -287,12 +324,25 @@ public final class FightRewards {
      * {@link CardUtil.CardPredicate} treats {@code editions} as "has a printing in
      * this set", so a unique-card pool would accept off-set preferred printings.
      */
-    static List<PaperCard> generateFromCurrentSet(RewardData filter, String setCode, int count, Random rng) {
+    static List<PaperCard> generateFromCurrentSet(RewardData filter, String setCode, int count,
+            Set<String> coreExclude, Random rng) {
         List<PaperCard> out = new ArrayList<>();
         if (filter == null || setCode == null || setCode.isEmpty() || count <= 0) {
             return out;
         }
         List<PaperCard> setPool = printingsInSet(setCode);
+        if (coreExclude != null && !coreExclude.isEmpty() && !setPool.isEmpty()) {
+            List<PaperCard> filtered = new ArrayList<>();
+            for (PaperCard pc : setPool) {
+                if (pc != null && !coreExclude.contains(pc.getName())) {
+                    filtered.add(pc);
+                }
+            }
+            // Keep the full set pool only when exclusion would empty a usable pool.
+            if (filtered.size() >= 12) {
+                setPool = filtered;
+            }
+        }
         if (setPool.isEmpty()) {
             return out;
         }
@@ -318,6 +368,26 @@ public final class FightRewards {
             }
         }
         return out;
+    }
+
+    /** Non-basic flat list from a played deck (same filter as {@code EnemySprite#getRewards}). */
+    public static List<PaperCard> deckCardsForRewards(Deck deck) {
+        if (deck == null || deck.getMain() == null) {
+            return Collections.emptyList();
+        }
+        try {
+            String[] restricted = Config.instance().getConfigData() != null
+                    ? Config.instance().getConfigData().restrictedEditions : null;
+            CardPool pool = deck.getMain();
+            if (restricted != null && restricted.length > 0) {
+                pool = pool.getFilteredPool(
+                        PaperCardPredicates.onlyPrintedInEditions(restricted).negate());
+            }
+            pool = pool.getFilteredPool(PaperCardPredicates.fromRules(CardRulesPredicates.NOT_BASIC_LAND));
+            return flatList(pool.toFlatList());
+        } catch (Throwable t) {
+            return flatList(deck.getMain().toFlatList());
+        }
     }
 
     /** Every common-card printing from {@code setCode} (basics included). */

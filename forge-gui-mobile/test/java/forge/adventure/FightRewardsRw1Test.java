@@ -12,12 +12,17 @@ import forge.adventure.data.EnemyThemeRecipeData;
 import forge.adventure.data.GymRewardData;
 import forge.adventure.data.RewardData;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.coop.CoopDuelRuntime;
+import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
+import forge.adventure.util.EnemyCoopPartners;
 import forge.adventure.util.EnemyThemeDecks;
 import forge.adventure.util.FightRewards;
 import forge.adventure.util.GymUtil;
 import forge.adventure.util.Reward;
 import forge.adventure.world.WorldSave;
+import forge.deck.Deck;
+import forge.gamemodes.net.coop.CoopDuelRewards;
 import forge.item.PaperCard;
 import forge.model.FModel;
 import org.testng.Assert;
@@ -30,6 +35,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -59,6 +65,7 @@ public class FightRewardsRw1Test {
         EnemyThemeDecks.clearCache();
         EnemyThemeDecks.setEnabledForTests(true);
         EnemyThemeDecks.loadCatalogForTests(merfolkCatalog());
+        EnemyCoopPartners.setEnabledForTests(true);
 
         Path cfgPath = resolveAscendantConfig();
         ascendantConfig = new Json().fromJson(ConfigData.class, new FileHandle(cfgPath.toFile()));
@@ -87,6 +94,7 @@ public class FightRewardsRw1Test {
             FightRewards.clearTestOverrides();
             EnemyThemeDecks.clearCache();
             EnemyThemeDecks.setEnabledForTests(null);
+            EnemyCoopPartners.setEnabledForTests(null);
             Config.resetInstanceForTest();
         } finally {
             if (realUserDirSnapshot != null) {
@@ -115,27 +123,33 @@ public class FightRewardsRw1Test {
     }
 
     @Test
-    public void signatureFromThemeCorePlusZenOnSetPlane() {
+    public void merfolkTribalWinOnZenGivesExactlyOneCorePlusZenCards() {
+        // Spec: merfolk_tribal on a ZEN plane → exactly one merfolk core card plus ZEN cards.
         assumeCardDb();
         FightRewards.setCurrentSetCodeForTest("ZEN");
 
         EnemyData enemy = merfolkEnemy();
-        List<PaperCard> deck = deckWithCoreCards();
+        Assert.assertEquals(enemy.themeId, "merfolk_tribal");
+        List<PaperCard> deck = deckWithCoreCards("merfolk_tribal");
         Assert.assertFalse(deck.isEmpty(), "need resolvable merfolk core cards in DB");
 
         Array<Reward> rewards = RewardData.generateThemedFightRewards(enemy, null, deck, true);
         List<PaperCard> cards = cardRewards(rewards);
-        // 1 signature + 2 deckCard rows (addMaxCount 0) under share=100%.
         Assert.assertTrue(cards.size() >= 3, "expected signature + set cards; got " + names(cards));
 
         Set<String> core = new HashSet<>(FightRewards.coreNames("merfolk_tribal"));
-        Assert.assertTrue(cards.stream().anyMatch(c -> core.contains(c.getName())),
-                "at least one signature from merfolk core; cards=" + names(cards));
+        long coreCount = cards.stream().filter(c -> core.contains(c.getName())).count();
+        Assert.assertEquals(coreCount, 1L,
+                "exactly one merfolk core card; cards=" + names(cards));
 
-        long zenCards = cards.stream().filter(c -> FightRewards.isEdition(c, "ZEN")).count();
-        // Remaining card rewards are ZEN; signature may also resolve to ZEN via rotation.
-        Assert.assertTrue(zenCards >= 2,
-                "current-set share must yield ZEN printings; editions=" + editions(cards));
+        long zenNonCore = cards.stream()
+                .filter(c -> !core.contains(c.getName()))
+                .filter(c -> FightRewards.isEdition(c, "ZEN"))
+                .count();
+        long nonCore = cards.stream().filter(c -> !core.contains(c.getName())).count();
+        Assert.assertTrue(nonCore >= 2, "plus ZEN cards; " + names(cards));
+        Assert.assertEquals(zenNonCore, nonCore,
+                "every non-signature card is a ZEN printing; editions=" + editions(cards));
     }
 
     @Test
@@ -146,16 +160,20 @@ public class FightRewardsRw1Test {
         Assert.assertEquals(FightRewards.currentSetCode(), "ZEN");
 
         EnemyData enemy = merfolkEnemy();
-        List<PaperCard> deck = deckWithCoreCards();
+        List<PaperCard> deck = deckWithCoreCards("merfolk_tribal");
         Array<Reward> rewards = RewardData.generateThemedFightRewards(enemy, null, deck, true);
         List<PaperCard> cards = cardRewards(rewards);
         Assert.assertTrue(cards.size() >= 3, "home plane: signature + newest-set cards; " + names(cards));
 
         Set<String> core = new HashSet<>(FightRewards.coreNames("merfolk_tribal"));
-        Assert.assertTrue(cards.stream().anyMatch(c -> core.contains(c.getName())),
-                "signature from core on home plane");
-        long zenCards = cards.stream().filter(c -> FightRewards.isEdition(c, "ZEN")).count();
-        Assert.assertTrue(zenCards >= 2,
+        Assert.assertEquals(cards.stream().filter(c -> core.contains(c.getName())).count(), 1L,
+                "exactly one core signature on home plane; " + names(cards));
+        long zenNonCore = cards.stream()
+                .filter(c -> !core.contains(c.getName()))
+                .filter(c -> FightRewards.isEdition(c, "ZEN"))
+                .count();
+        long nonCore = cards.stream().filter(c -> !core.contains(c.getName())).count();
+        Assert.assertEquals(zenNonCore, nonCore,
                 "home plane remaining cards from newest rotation set ZEN; editions=" + editions(cards));
     }
 
@@ -184,34 +202,81 @@ public class FightRewardsRw1Test {
     }
 
     @Test
-    public void coopEachPlayerRollsOwnRewards() {
+    public void en2PairEachPlayerGetsSignatureFromCreditedEnemyCorePlusZen() {
+        // Two players beat an EN2 pair: host credited with primary (merfolk_tribal),
+        // guest with partner (merfolk_tempo). Each rolls via pending lootRolls.
         assumeCardDb();
         FightRewards.setCurrentSetCodeForTest("ZEN");
-        EnemyData enemy = merfolkEnemy();
-        List<PaperCard> deck = deckWithCoreCards();
 
-        // Host-authoritative roll count (EN2) still means each peer calls generate locally.
-        Array<Reward> host = RewardData.generateThemedFightRewards(enemy, null, deck, true);
-        Array<Reward> guest = RewardData.generateThemedFightRewards(enemy, null, deck, true);
+        EnemyData primary = merfolkEnemy();
+        primary.questTags = new String[]{"Merfolk"};
+        final long enemyId = 42L;
+        CoopDuelRuntime.HostedCoopEnemyBuild build = CoopDuelRuntime.buildHostedCoopEnemies(
+                primary, enemyId, Collections.emptyList(), new Deck("Host"), false, 0);
+        Assert.assertTrue(build.partnerBuilt, "EN2 pair must build a partner");
+        Assert.assertNotNull(build.partner);
+        Assert.assertEquals(build.lootRollsPerPlayer, CoopDuelRewards.DEFAULT_PARTNER_LOOT_ROLLS);
+        Assert.assertNotEquals(build.partner.themeId, primary.themeId);
 
-        List<PaperCard> hostCards = cardRewards(host);
-        List<PaperCard> guestCards = cardRewards(guest);
-        Assert.assertFalse(hostCards.isEmpty());
-        Assert.assertFalse(guestCards.isEmpty());
+        EnemyData hostCredit = FightRewards.creditedLootEnemy(primary, build.partner, true);
+        EnemyData guestCredit = FightRewards.creditedLootEnemy(primary, build.partner, false);
+        Assert.assertEquals(hostCredit.themeId, "merfolk_tribal");
+        Assert.assertEquals(guestCredit.themeId, build.partner.themeId);
 
-        Set<String> core = new HashSet<>(FightRewards.coreNames("merfolk_tribal"));
-        Assert.assertTrue(hostCards.stream().anyMatch(c -> core.contains(c.getName())),
-                "host signature");
-        Assert.assertTrue(guestCards.stream().anyMatch(c -> core.contains(c.getName())),
-                "guest signature");
+        List<PaperCard> hostDeck = deckWithCoreCards(hostCredit.themeId);
+        List<PaperCard> guestDeck = deckWithCoreCards(guestCredit.themeId);
+        Assert.assertFalse(hostDeck.isEmpty());
+        Assert.assertFalse(guestDeck.isEmpty());
 
-        // Independent seedless rolls — each peer gets a full RW1 package (signature + set cards).
-        Assert.assertTrue(hostCards.size() >= 3, "host RW1 package; " + names(hostCards));
-        Assert.assertTrue(guestCards.size() >= 3, "guest RW1 package; " + names(guestCards));
-        Assert.assertTrue(hostCards.stream().anyMatch(c -> FightRewards.isEdition(c, "ZEN")),
-                "host current-set cards; " + editions(hostCards));
-        Assert.assertTrue(guestCards.stream().anyMatch(c -> FightRewards.isEdition(c, "ZEN")),
-                "guest current-set cards; " + editions(guestCards));
+        // Same bookkeeping WorldStage.setWinner uses: set → consume → N× getRewards/RW1.
+        WorldStage.PendingLootRolls hostPending = new WorldStage.PendingLootRolls();
+        hostPending.set(build.lootRollsPerPlayer);
+        int hostRolls = hostPending.consume();
+        Assert.assertEquals(hostRolls, 1);
+        Array<Reward> hostLoot = new Array<>();
+        for (int i = 0; i < hostRolls; i++) {
+            hostLoot.addAll(RewardData.generateThemedFightRewards(hostCredit, null, hostDeck, true));
+        }
+
+        WorldStage.PendingLootRolls guestPending = new WorldStage.PendingLootRolls();
+        guestPending.set(build.lootRollsPerPlayer);
+        int guestRolls = guestPending.consume();
+        Assert.assertEquals(guestRolls, 1);
+        Array<Reward> guestLoot = FightRewards.rollViaPendingLootRolls(
+                guestCredit, guestDeck, build.lootRollsPerPlayer);
+
+        List<PaperCard> hostCards = cardRewards(hostLoot);
+        List<PaperCard> guestCards = cardRewards(guestLoot);
+        Set<String> tribalCore = new HashSet<>(FightRewards.coreNames("merfolk_tribal"));
+        Set<String> partnerCore = new HashSet<>(FightRewards.coreNames(guestCredit.themeId));
+
+        Assert.assertEquals(hostCards.stream().filter(c -> tribalCore.contains(c.getName())).count(), 1L,
+                "host: exactly one signature from credited primary core; " + names(hostCards));
+        Assert.assertEquals(guestCards.stream().filter(c -> partnerCore.contains(c.getName())).count(), 1L,
+                "guest: exactly one signature from credited partner core; " + names(guestCards));
+
+        // Guest signature must come from the partner theme, not merely "any merfolk".
+        Assert.assertTrue(guestCards.stream().anyMatch(c -> partnerCore.contains(c.getName())),
+                "guest signature in partner core " + guestCredit.themeId);
+
+        long hostZen = hostCards.stream()
+                .filter(c -> !tribalCore.contains(c.getName()))
+                .filter(c -> FightRewards.isEdition(c, "ZEN")).count();
+        long hostRest = hostCards.stream().filter(c -> !tribalCore.contains(c.getName())).count();
+        Assert.assertEquals(hostZen, hostRest, "host current-set cards are ZEN; " + editions(hostCards));
+
+        long guestZen = guestCards.stream()
+                .filter(c -> !partnerCore.contains(c.getName()))
+                .filter(c -> FightRewards.isEdition(c, "ZEN")).count();
+        long guestRest = guestCards.stream().filter(c -> !partnerCore.contains(c.getName())).count();
+        Assert.assertEquals(guestZen, guestRest, "guest current-set cards are ZEN; " + editions(guestCards));
+
+        // WorldStage credit routing: guest credit (different theme) uses FightRewards path.
+        Array<Reward> routed = WorldStage.rollLootForCredit(null, guestCredit,
+                deckFromCards(guestDeck));
+        Assert.assertEquals(cardRewards(routed).stream()
+                        .filter(c -> partnerCore.contains(c.getName())).count(), 1L,
+                "rollLootForCredit credits partner theme");
     }
 
     @Test
@@ -228,7 +293,7 @@ public class FightRewardsRw1Test {
             }
         }
         Array<Reward> rewards = RewardData.generateThemedFightRewards(
-                enemy, null, deckWithCoreCards(), true);
+                enemy, null, deckWithCoreCards("merfolk_tribal"), true);
         boolean gold = false;
         for (int i = 0; i < rewards.size; i++) {
             if (rewards.get(i).getType() == Reward.Type.Gold) {
@@ -277,7 +342,7 @@ public class FightRewardsRw1Test {
     @Test
     public void pickSignaturesIntersectsCoreAndDeck() {
         assumeCardDb();
-        List<PaperCard> deck = deckWithCoreCards();
+        List<PaperCard> deck = deckWithCoreCards("merfolk_tribal");
         List<String> core = FightRewards.coreNames("merfolk_tribal");
         Assert.assertFalse(core.isEmpty());
 
@@ -334,9 +399,9 @@ public class FightRewardsRw1Test {
         return r;
     }
 
-    private static List<PaperCard> deckWithCoreCards() {
+    private static List<PaperCard> deckWithCoreCards(String themeId) {
         List<PaperCard> out = new ArrayList<>();
-        for (String name : FightRewards.coreNames("merfolk_tribal")) {
+        for (String name : FightRewards.coreNames(themeId)) {
             PaperCard pc = forge.adventure.util.CardUtil.getCardByName(name);
             if (pc != null) {
                 out.add(pc);
@@ -353,6 +418,16 @@ public class FightRewardsRw1Test {
             }
         }
         return out;
+    }
+
+    private static Deck deckFromCards(List<PaperCard> cards) {
+        Deck d = new Deck("credit");
+        for (PaperCard pc : cards) {
+            if (pc != null) {
+                d.getMain().add(pc);
+            }
+        }
+        return d;
     }
 
     private static List<PaperCard> cardRewards(Array<Reward> rewards) {
@@ -384,19 +459,25 @@ public class FightRewardsRw1Test {
 
     private static EnemyThemeCatalogData merfolkCatalog() {
         EnemyThemeCatalogData cat = new EnemyThemeCatalogData();
+        cat.themes = new EnemyThemeData[]{
+                themeWithCore("merfolk_tribal", "Merfolk"),
+                themeWithCore("merfolk_tempo", "Merfolk")
+        };
+        return cat;
+    }
+
+    private static EnemyThemeData themeWithCore(String id, String tag) {
         EnemyThemeData t = new EnemyThemeData();
-        t.id = "merfolk_tribal";
-        t.tags = new String[]{"Merfolk"};
+        t.id = id;
+        t.tags = new String[]{tag};
         t.colors = new String[]{"blue"};
-        t.creatureTypes = new String[]{"Merfolk"};
+        t.creatureTypes = new String[]{tag};
         t.standardRecipe = new EnemyThemeRecipeData();
         t.standardRecipe.count = 60;
         t.standardRecipe.colors = new String[]{"Blue"};
-        t.standardRecipe.tribe = "Merfolk";
-        // Load real core from disk so signature tests match production content.
-        t.core = loadCoreCards("merfolk_tribal");
-        cat.themes = new EnemyThemeData[]{t};
-        return cat;
+        t.standardRecipe.tribe = tag;
+        t.core = loadCoreCards(id);
+        return t;
     }
 
     private static String[] loadCoreCards(String themeId) {

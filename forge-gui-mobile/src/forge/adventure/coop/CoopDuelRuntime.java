@@ -115,6 +115,10 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private volatile long pendingEnemyId;
     /** EN2: loot rolls for the active co-op duel (default 1). */
     private volatile int pendingPartnerLootRolls = 1;
+    /** EN2: partner enemy for RW1 loot credit (guest rolls this theme's signature). */
+    private volatile EnemyData pendingPartnerForLoot;
+    /** Played deck for {@link #pendingPartnerForLoot}, when built. */
+    private volatile Deck pendingPartnerLootDeck;
     private volatile boolean gameServerStartedByUs;
     private volatile FGameClient guestClient;
     private volatile CoopFightLoadout pendingGuestLoadout;
@@ -750,6 +754,8 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                     mob.getData(), enemyId, currentBiomeEnemies(), hostDeck,
                     advPlayer.isFantasyMode(), baseFreeMulligans);
             pendingPartnerLootRolls = enemyBuild.lootRollsPerPlayer;
+            pendingPartnerForLoot = enemyBuild.partner;
+            pendingPartnerLootDeck = enemyBuild.partnerDeck;
             final List<CoopDuelMatchPlan.EnemySpec> enemies = enemyBuild.enemies;
 
             final CoopDuelMatchPlan plan = CoopDuelMatchPlan.build(
@@ -943,7 +949,13 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (mob != null) {
             WorldStage.getInstance().setCurrentMob(mob);
             WorldStage.getInstance().setPendingLootRolls(pendingPartnerLootRolls);
+            // RW1: host is credited with the primary (overworld) enemy.
+            final EnemyData credit = forge.adventure.util.FightRewards.creditedLootEnemy(
+                    mob.getData(), pendingPartnerForLoot, true);
+            WorldStage.getInstance().setPendingLootCredit(credit, null);
             pendingPartnerLootRolls = 1;
+            pendingPartnerForLoot = null;
+            pendingPartnerLootDeck = null;
             // setWinner also calls CoopOverworldRuntime.onHostDuelEnded().
             WorldStage.getInstance().setWinner(teamWon, false);
             return;
@@ -982,6 +994,8 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             WorldStage.getInstance().setCurrentMob(mob);
             // EN2: use host-authoritative loot rolls from the result event (0 allowed).
             WorldStage.getInstance().setPendingLootRolls(event.getLootRolls());
+            // RW1: guest is credited with the EN2 partner (deterministic rebuild; no wire bump).
+            applyGuestLootCredit(mob.getData(), event.getEnemyId());
             WorldStage.getInstance().setWinner(teamWon, false);
         } else {
             if (teamWon) {
@@ -1473,14 +1487,21 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         public final float lifeFactor;
         public final int extraCards;
         public final int lootRollsPerPlayer;
+        /** EN2 partner EnemyData for RW1 guest loot credit; null when no partner. */
+        public final EnemyData partner;
+        /** Deck the partner seat played; null when no partner. */
+        public final Deck partnerDeck;
 
         HostedCoopEnemyBuild(final List<CoopDuelMatchPlan.EnemySpec> enemies, final boolean partnerBuilt,
-                             final float lifeFactor, final int extraCards, final int lootRollsPerPlayer) {
+                             final float lifeFactor, final int extraCards, final int lootRollsPerPlayer,
+                             final EnemyData partner, final Deck partnerDeck) {
             this.enemies = enemies;
             this.partnerBuilt = partnerBuilt;
             this.lifeFactor = lifeFactor;
             this.extraCards = extraCards;
             this.lootRollsPerPlayer = lootRollsPerPlayer;
+            this.partner = partner;
+            this.partnerDeck = partnerDeck;
         }
     }
 
@@ -1509,20 +1530,51 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                     freeMulligans));
             current = current.nextEnemy;
         }
+        EnemyData partnerData = null;
+        Deck partnerDeckOut = null;
         if (partnerPlan.partnerBuilt && partnerPlan.partner != null && enemies.size() == 1) {
             final EnemyData partner = partnerPlan.partner;
             final Deck partnerDeck = partner.copyPlayerDeck
                     ? hostDeck
                     : partner.generateDeck(fantasyMode, false);
+            partnerData = partner;
+            partnerDeckOut = partnerDeck != null ? partnerDeck : hostDeck;
             enemies.add(new CoopDuelMatchPlan.EnemySpec(
                     partner.getName() != null ? partner.getName() : "Enemy Partner",
                     "enemy-partner",
-                    partnerDeck != null ? partnerDeck : hostDeck,
+                    partnerDeckOut,
                     partner.life,
                     freeMulligans));
         }
         return new HostedCoopEnemyBuild(enemies, partnerPlan.partnerBuilt, partnerPlan.lifeFactor,
-                partnerPlan.extraCards, partnerPlan.lootRollsPerPlayer);
+                partnerPlan.extraCards, partnerPlan.lootRollsPerPlayer, partnerData, partnerDeckOut);
+    }
+
+    /**
+     * RW1: guest rebuilds the EN2 partner deterministically (same seed as host) and
+     * credits that enemy for signature loot. No wire change — pairing is already
+     * host/guest agreed via {@link EnemyCoopPartners#encounterSeed}.
+     */
+    private void applyGuestLootCredit(final EnemyData primary, final long enemyId) {
+        try {
+            final long seed = EnemyCoopPartners.encounterSeed(enemyId, primary);
+            final EnemyCoopPartners.PartnerPlan plan = EnemyCoopPartners.planPartner(
+                    primary, currentBiomeEnemies(), seed);
+            final EnemyData credit = forge.adventure.util.FightRewards.creditedLootEnemy(
+                    primary, plan.partner, false);
+            Deck creditDeck = null;
+            if (credit != null && plan.partnerBuilt && credit == plan.partner) {
+                try {
+                    creditDeck = credit.generateDeck(
+                            Current.player() != null && Current.player().isFantasyMode(), false);
+                } catch (final Exception ignored) {
+                    creditDeck = null;
+                }
+            }
+            WorldStage.getInstance().setPendingLootCredit(credit, creditDeck);
+        } catch (final Exception ignored) {
+            WorldStage.getInstance().setPendingLootCredit(primary, null);
+        }
     }
 
     /**
