@@ -508,14 +508,16 @@ public final class MaterialListData {
     /**
      * Migrates {@code nodeMaterialIds} inside a world-stage {@link SaveFileData} (live or
      * inactive plane blob). Safe to call repeatedly: already-new ids are unchanged.
+     *
+     * @return true when any id changed
      */
     @SuppressWarnings("unchecked")
-    public static void migrateWorldStageNodeMaterialIds(SaveFileData stage) {
+    public static boolean migrateWorldStageNodeMaterialIds(SaveFileData stage) {
         if (stage == null || !stage.containsKey("nodeMaterialIds"))
-            return;
+            return false;
         Object raw = stage.readObject("nodeMaterialIds");
         if (!(raw instanceof List))
-            return;
+            return false;
         List<String> mats = (List<String>) raw;
         boolean changed = false;
         for (int i = 0; i < mats.size(); i++) {
@@ -528,6 +530,51 @@ public final class MaterialListData {
         }
         if (changed)
             stage.storeObject("nodeMaterialIds", mats);
+        return changed;
+    }
+
+    /**
+     * Renames a saved item instance for schema 3 without rebuilding it from the catalog.
+     * Preserves per-instance state ({@code effect}, {@code isCracked}, {@code isEquipped},
+     * {@code longID}, dialogs, usability flags). Catalog fields (icon, description, tool
+     * tier/family, cost) are refreshed from the renamed definition when the item catalog
+     * is available; lookup failures (headless / Config not ready) leave those fields as-is.
+     */
+    public static void migrateOreLineItemInstance(ItemData item) {
+        if (item == null || item.name == null || item.name.isEmpty())
+            return;
+        String migrated = migrateOreLineItemName(item.name);
+        if (migrated.equals(item.name))
+            return;
+        item.name = migrated;
+        ItemData canonical;
+        try {
+            canonical = ItemListData.getItem(migrated);
+        } catch (Throwable t) {
+            // Catalog/Config may be unavailable in headless tests; rename alone is enough.
+            return;
+        }
+        if (canonical == null)
+            return;
+        if (canonical.iconName != null)
+            item.iconName = canonical.iconName;
+        if (canonical.description != null)
+            item.description = canonical.description;
+        if (canonical.toolFamily != null)
+            item.toolFamily = canonical.toolFamily;
+        if (canonical.toolTier > 0)
+            item.toolTier = canonical.toolTier;
+        if (canonical.equipmentSlot != null)
+            item.equipmentSlot = canonical.equipmentSlot;
+        item.cost = canonical.cost;
+        item.questItem = canonical.questItem;
+        item.stackable = canonical.stackable;
+        if (canonical.currencyId != null)
+            item.currencyId = canonical.currencyId;
+        if (canonical.bagUpgrade != null)
+            item.bagUpgrade = canonical.bagUpgrade;
+        item.bagBonusSlots = canonical.bagBonusSlots;
+        item.bagBonusStack = canonical.bagBonusStack;
     }
 
     /** Unmodifiable view of the schema-3 ore id table (tests / docs). */

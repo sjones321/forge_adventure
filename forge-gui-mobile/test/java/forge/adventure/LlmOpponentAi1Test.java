@@ -17,11 +17,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * AI1 behaviour tests: local key storage, redaction, disable/timeout/malformed fallback,
@@ -47,6 +54,7 @@ public class LlmOpponentAi1Test {
     @AfterMethod
     public void tearDown() {
         LlmOpponent.deactivateForTests();
+        LlmSettings.setBeforeWriteForTests(null);
         if (server != null) {
             server.stop(0);
             server = null;
@@ -372,6 +380,157 @@ public class LlmOpponentAi1Test {
             // Non-POSIX FS: best-effort File.setReadable/setWritable was applied; at least readable to us.
             Assert.assertTrue(Files.isReadable(props));
         }
+    }
+
+    @Test
+    public void redactBeforeTruncateHidesKeyStraddlingCutPoint() throws Exception {
+        // Key starts near index 290 so truncate-then-redact would leave a 10-char key prefix.
+        final String pad = "P".repeat(290);
+        final String keyPrefix = SECRET_KEY.substring(0, 12);
+        startServer((exchange, body) -> {
+            hits.incrementAndGet();
+            writeJson(exchange, 500, pad + SECRET_KEY + " trailing-error-detail");
+        });
+
+        LlmSettings s = new LlmSettings();
+        s.setEnabled(true);
+        s.setBaseUrl(baseUrl);
+        s.setModel("mock-model");
+        s.setApiKey(SECRET_KEY);
+        s.setTimeoutSeconds(5);
+
+        LlmOpponent.TestResult result = LlmOpponent.testConnection(s);
+        Assert.assertFalse(result.isSuccess());
+        Assert.assertTrue(result.getMessage().startsWith("HTTP 500:"), result.getMessage());
+        Assert.assertFalse(result.getMessage().contains(SECRET_KEY),
+                "full key must not appear: " + result.getMessage());
+        Assert.assertFalse(result.getMessage().contains(keyPrefix),
+                "partial key surviving truncate-before-redact must not appear: " + result.getMessage());
+        Assert.assertTrue(result.getMessage().contains("***"),
+                "redaction marker expected: " + result.getMessage());
+        Assert.assertTrue(result.getMessage().length() <= 320,
+                "message should be truncated after redaction, len=" + result.getMessage().length());
+
+        Path log = tempDir.resolve("llm_decisions.log");
+        if (Files.isRegularFile(log)) {
+            Assert.assertFalse(Files.readString(log).contains(SECRET_KEY), "log must not contain the key");
+            Assert.assertFalse(Files.readString(log).contains(keyPrefix), "log must not contain key prefix");
+        }
+    }
+
+    @Test
+    public void permissionsAppliedBeforeKeyContentIsWritten() throws Exception {
+        Path props = tempDir.resolve("perms-before-write.properties");
+        AtomicBoolean keyPresentBeforeWrite = new AtomicBoolean(true);
+        AtomicReference<Set<PosixFilePermission>> permsBeforeWrite = new AtomicReference<>();
+        AtomicBoolean posixSupported = new AtomicBoolean(true);
+
+        LlmSettings.setBeforeWriteForTests(() -> {
+            try {
+                Assert.assertTrue(Files.isRegularFile(props), "file must exist before key write");
+                String content = Files.readString(props);
+                keyPresentBeforeWrite.set(content.contains(SECRET_KEY));
+                try {
+                    permsBeforeWrite.set(Files.getPosixFilePermissions(props));
+                } catch (UnsupportedOperationException e) {
+                    posixSupported.set(false);
+                }
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        LlmSettings s = new LlmSettings();
+        s.setEnabled(true);
+        s.setBaseUrl("http://localhost:11434/v1");
+        s.setModel("m");
+        s.setApiKey(SECRET_KEY);
+        s.save(props.toFile());
+
+        Assert.assertFalse(keyPresentBeforeWrite.get(), "API key must not be on disk before restrict+write");
+        if (posixSupported.get()) {
+            Assert.assertEquals(permsBeforeWrite.get(),
+                    EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE),
+                    "POSIX 600 must be applied before key content is written");
+        }
+        String after = Files.readString(props);
+        Assert.assertTrue(after.contains(SECRET_KEY), "key is stored after the restricted write");
+        Assert.assertFalse(after.isBlank());
+    }
+
+    @Test
+    public void concurrentSavesAndFlushesProduceConsistentFile() throws Exception {
+        Path props = tempDir.resolve("concurrent.properties");
+        LlmSettings s = new LlmSettings();
+        s.setEnabled(true);
+        s.setBaseUrl("http://localhost:11434/v1");
+        s.setModel("model-0");
+        s.setApiKey(SECRET_KEY);
+        s.setTimeoutSeconds(15);
+
+        LlmSettingsPersistence persistence = new LlmSettingsPersistence(s, props.toFile(), 30L);
+        int threads = 8;
+        int opsPerThread = 20;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threads);
+        List<Throwable> errors = new ArrayList<>();
+        try {
+            for (int t = 0; t < threads; t++) {
+                final int threadId = t;
+                pool.submit(() -> {
+                    try {
+                        start.await(5, TimeUnit.SECONDS);
+                        for (int i = 0; i < opsPerThread; i++) {
+                            String model = "model-" + threadId + "-" + i;
+                            synchronized (s) {
+                                s.setModel(model);
+                                s.setApiKey(SECRET_KEY);
+                                s.setTimeoutSeconds(10 + ((threadId + i) % 5));
+                            }
+                            persistence.scheduleSave();
+                            if ((i % 4) == 0) {
+                                persistence.flush();
+                            }
+                        }
+                    } catch (Throwable e) {
+                        synchronized (errors) {
+                            errors.add(e);
+                        }
+                    } finally {
+                        done.countDown();
+                    }
+                });
+            }
+            start.countDown();
+            Assert.assertTrue(done.await(30, TimeUnit.SECONDS), "workers finished");
+            persistence.flush();
+        } finally {
+            persistence.close();
+            pool.shutdownNow();
+        }
+
+        Assert.assertTrue(errors.isEmpty(), "worker errors: " + errors);
+        Assert.assertTrue(Files.isRegularFile(props));
+        String fileText = Files.readString(props);
+        Assert.assertFalse(fileText.contains("\0"), "file must not contain NUL tears");
+        Assert.assertTrue(fileText.contains(SECRET_KEY), "final file retains the key");
+
+        Properties parsed = new Properties();
+        try (var in = Files.newInputStream(props)) {
+            parsed.load(in);
+        }
+        Assert.assertEquals(parsed.getProperty(LlmSettings.PROP_API_KEY), SECRET_KEY);
+        Assert.assertEquals(parsed.getProperty(LlmSettings.PROP_ENABLED), "true");
+        String model = parsed.getProperty(LlmSettings.PROP_MODEL);
+        Assert.assertNotNull(model);
+        Assert.assertTrue(model.startsWith("model-"), "model must be a complete value, got: " + model);
+        Assert.assertFalse(model.contains("model-model-"), "model value must not be interleaved garbage");
+
+        LlmSettings loaded = LlmSettings.load(props.toFile());
+        Assert.assertEquals(loaded.getApiKey(), SECRET_KEY);
+        Assert.assertTrue(loaded.getModel().startsWith("model-"));
+        Assert.assertTrue(loaded.isEnabled());
     }
 
     @Test

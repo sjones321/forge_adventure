@@ -15,7 +15,9 @@
       "amount": 1
     },
     "nodeType": "tree",
-    "color": ""
+    "color": "",
+    "nodeAtlas": "maps/tileset/resource_nodes_tall.atlas",
+    "nodeRegion": "tree_oak"
   },
   {
     "id": "willow",
@@ -33,7 +35,9 @@
       "amount": 1
     },
     "nodeType": "tree",
-    "color": ""
+    "color": "",
+    "nodeAtlas": "maps/tileset/resource_nodes_tall.atlas",
+    "nodeRegion": "tree_willow"
   },
   {
     "id": "yew",
@@ -51,7 +55,9 @@
       "amount": 1
     },
     "nodeType": "tree",
-    "color": ""
+    "color": "",
+    "nodeAtlas": "maps/tileset/resource_nodes_tall.atlas",
+    "nodeRegion": "tree_yew"
   },
   {
     "id": "ironwood",
@@ -69,7 +75,9 @@
       "amount": 1
     },
     "nodeType": "tree",
-    "color": ""
+    "color": "",
+    "nodeAtlas": "maps/tileset/resource_nodes_tall.atlas",
+    "nodeRegion": "tree_ironwood"
   },
   {
     "id": "ore_iron",

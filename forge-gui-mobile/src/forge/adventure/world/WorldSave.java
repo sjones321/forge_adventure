@@ -158,6 +158,18 @@ public class WorldSave {
                                 currentSave.player.getWorldPosX(),
                                 currentSave.player.getWorldPosY());
                     }
+                    // Schema 3 ore-line: migrate inactive plane node ids only when the player
+                    // save is still below schema 3. Schema-3 loads keep compressed blobs as-is.
+                    boolean needOreMigrate = currentSave.player.getLoadedMaterialSchema()
+                            < forge.adventure.data.MaterialListData.MATERIAL_SCHEMA_ORE_LINE;
+                    currentSave.multiverse.setOreLineInactiveMigrationNeeded(needOreMigrate);
+                    if (needOreMigrate) {
+                        try {
+                            currentSave.multiverse.migrateInactivePlanesForOreLineIfNeeded();
+                        } catch (IOException ignored) {
+                            // Leave blobs as stored; live-plane WorldStage.load still migrates nodes.
+                        }
+                    }
                 } else {
                     currentSave.multiverse.initHomeFromLive(
                             currentSave.world.getSeed(),

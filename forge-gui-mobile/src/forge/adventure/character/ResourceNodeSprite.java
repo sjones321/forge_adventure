@@ -1,5 +1,6 @@
 package forge.adventure.character;
 
+import com.badlogic.gdx.graphics.Camera;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
@@ -9,6 +10,7 @@ import com.badlogic.gdx.graphics.g2d.ParticleEmitter;
 import com.badlogic.gdx.graphics.g2d.TextureAtlas;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.math.MathUtils;
+import com.badlogic.gdx.scenes.scene2d.Stage;
 import com.badlogic.gdx.utils.Array;
 import forge.adventure.data.MaterialData;
 import forge.adventure.util.Config;
@@ -35,24 +37,29 @@ public class ResourceNodeSprite extends CharacterSprite {
 
     private TextureRegion nodeRegion;
     private boolean useNodeArt;
+    /** True when drawing a multi-tile-tall sprite; collision uses the bottom tile only. */
+    private boolean tallNode;
+    private static final float TALL_COLLISION_TILE_PX = 16f;
     private ParticleEffect ambientA;
     private ParticleEffect ambientB;
     private Array<ParticleEffect> poolA;
     private Array<ParticleEffect> poolB;
     private boolean ambientActive;
     private float sparkleTimer;
-    private boolean wasVisible;
+    private boolean wasOnScreen;
 
     public ResourceNodeSprite(MaterialData material) {
         super(DEFAULT_ATLAS);
         setMaterial(material);
-        collisionHeight = 1f;
+        if (!tallNode)
+            collisionHeight = 1f;
     }
 
     public void setMaterial(MaterialData material) {
         this.material = material;
         useNodeArt = false;
         nodeRegion = null;
+        tallNode = false;
         if (material != null && material.nodeAtlas != null && !material.nodeAtlas.isEmpty()
                 && material.nodeRegion != null && !material.nodeRegion.isEmpty()
                 && Config.ascendant()) {
@@ -66,6 +73,9 @@ public class ResourceNodeSprite extends CharacterSprite {
                         setColor(Color.WHITE);
                         setWidth(region.getRegionWidth());
                         setHeight(region.getRegionHeight());
+                        // Tall trees (32px): only the bottom 16px tile is solid.
+                        collisionHeight = collisionHeightForRegion(region.getRegionHeight());
+                        tallNode = collisionHeight < 1f;
                         releaseAmbient();
                         return;
                     }
@@ -74,8 +84,14 @@ public class ResourceNodeSprite extends CharacterSprite {
                 // Fall back to tinted treasure sprite.
             }
         }
+        collisionHeight = 1f;
         setColor(tintForFamily(material != null ? material.family : null));
         releaseAmbient();
+    }
+
+    /** Test/helper: true when this node uses bottom-tile-only collision. */
+    public boolean isTallNode() {
+        return tallNode;
     }
 
     public MaterialData getMaterial() {
@@ -112,14 +128,15 @@ public class ResourceNodeSprite extends CharacterSprite {
             releaseAmbient();
             return;
         }
-        boolean visible = isVisible() && getStage() != null && getParent() != null;
-        if (!visible) {
-            if (wasVisible)
+        // Cheap: only run pooled emitters for nodes inside the camera view.
+        boolean onScreen = isOnScreen();
+        if (!onScreen) {
+            if (wasOnScreen)
                 releaseAmbient();
-            wasVisible = false;
+            wasOnScreen = false;
             return;
         }
-        wasVisible = true;
+        wasOnScreen = true;
         String nodeType = material.nodeType != null ? material.nodeType : "";
         String family = material.family != null ? material.family : "";
         boolean ashVent = "vent".equalsIgnoreCase(nodeType) || "ash".equalsIgnoreCase(family);
@@ -142,6 +159,55 @@ public class ResourceNodeSprite extends CharacterSprite {
         } else if (ambientActive) {
             releaseAmbient();
         }
+    }
+
+    /**
+     * True when this node's bounds overlap the stage camera (with a small margin).
+     * Used to gate ambient particles — off-screen nodes release pooled effects.
+     */
+    boolean isOnScreen() {
+        if (!isVisible() || getParent() == null)
+            return false;
+        Stage stage = getStage();
+        if (stage == null)
+            return false;
+        Camera cam = stage.getCamera();
+        if (cam == null)
+            return false;
+        float zoom = 1f;
+        if (cam instanceof com.badlogic.gdx.graphics.OrthographicCamera)
+            zoom = ((com.badlogic.gdx.graphics.OrthographicCamera) cam).zoom;
+        return overlapsCamera(getX(), getY(), getWidth(), getHeight(),
+                cam.position.x, cam.position.y, cam.viewportWidth, cam.viewportHeight, zoom, 32f);
+    }
+
+    /**
+     * Axis-aligned overlap of a node rect against a camera frustum (world units).
+     * Public for headless tests of the on-screen particle gate.
+     */
+    public static boolean overlapsCamera(float ax, float ay, float aw, float ah,
+                                         float camX, float camY, float viewportW, float viewportH,
+                                         float zoom, float margin) {
+        float z = zoom <= 0f ? 1f : zoom;
+        float halfW = viewportW * z * 0.5f;
+        float halfH = viewportH * z * 0.5f;
+        float left = camX - halfW - margin;
+        float right = camX + halfW + margin;
+        float bottom = camY - halfH - margin;
+        float top = camY + halfH + margin;
+        float w = Math.max(1f, aw);
+        float h = Math.max(1f, ah);
+        return ax + w >= left && ax <= right && ay + h >= bottom && ay <= top;
+    }
+
+    /**
+     * Collision height fraction for a sprite region: tall (&gt;16px) nodes use the bottom tile only.
+     * Public for headless tests.
+     */
+    public static float collisionHeightForRegion(float regionHeightPx) {
+        if (regionHeightPx > TALL_COLLISION_TILE_PX)
+            return TALL_COLLISION_TILE_PX / regionHeightPx;
+        return 1f;
     }
 
     private void ensureAshAmbient() {
@@ -261,7 +327,9 @@ public class ResourceNodeSprite extends CharacterSprite {
 
     @Override
     void updateBoundingRect() {
-        boundingRect.set(getX(), getY(), getWidth(), getHeight());
+        // Actor Y is the bottom of the sprite; tall trees collide only on the bottom tile.
+        float h = Math.max(1f, getHeight() * collisionHeight);
+        boundingRect.set(getX(), getY(), getWidth(), h);
     }
 
     @Override

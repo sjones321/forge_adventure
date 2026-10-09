@@ -69,11 +69,11 @@ Controls:
 
 - Match/Battle — modern duel screen (Auto = Adventure duels in Ascendant only; or Settings → Modern duel screen = Always)
 
-  Stock bindings above still apply when you are not in a modern pad mode. Modern modes use **X** as the mode key (unused in stock match) and **B** to back out of any modern mode. **A** on a **castable** hand card casts in **one press** (view-based castability — lands you can still play, or CMC ≤ mana in pool; the engine still validates). **A** picks up your creature while **InputAttack** / **InputBlock** is up for attack/block aiming. Otherwise **A** is stock tap/activate (mana, abilities, loyalty, uncastable hand).
+  Stock bindings above still apply when you are not in a modern pad mode. Modern modes use **X** as the mode key (unused in stock match) and **B** to back out of any modern mode. **A** on a **castable** hand card **picks it up** (view-based castability — lands you can still play, or CMC ≤ mana in pool **plus untapped lands**; the engine still validates). A second **A** on the **same** hand card or while aimed at the board **casts**; a second **A** on a **different** hand card **reorders**. **A** picks up your creature while **InputAttack** / **InputBlock** is up for attack/block aiming. Otherwise **A** is stock tap/activate (mana, abilities, loyalty, uncastable hand).
 
   | Action | Binding |
   | --- | --- |
-  | Cast / play from hand | **A** on a castable hand card — **one press** (no pick-up). Touch: drag onto the board. |
+  | Cast / play from hand | **A** to pick up a castable hand card, aim with **DPAD**, **A** again to cast (or **A** again on the same card to confirm). Touch: drag onto the board. |
   | Attack / block (two-press aim) | **A** to pick up your creature during InputAttack/InputBlock, aim with **DPAD**, **A** to drop on the target |
   | Stock tap / activate (no drag / not castable) | **A** (unchanged — pays mana, abilities, loyalty; uncastable hand cards) |
   | Attack a player | Hold attacker with **A** (InputAttack only), focus opponent panel (no card), **A**. Dropping on the same defender again does not toggle the attacker off. |
@@ -84,9 +84,9 @@ Controls:
   | Lift peeked card to play | **DPAD Up** while peeking (then aim and **A**), or **A** while peeking to hold it |
   | Select peeked card when the engine is asking | **A** while peeking during a selection prompt |
   | Close peek | **X** or **B** |
-  | Reorder hand | Touch: drag within the hand. (Controller castable cards cast on **A**; reorder is touch.) |
+  | Reorder hand | Touch: drag within the hand. Controller: **A** to pick up a castable hand card, focus another hand card, **A** to drop/reorder. |
   | Floating mana (while paying) | **X** when mana pips are showing (and hand is not focused) → mana mode; **DPAD Left/Right** cycle pips; **A** spends the focused pip. Tap on a pip is touch input. |
   | Phase stops | **X** when neither peek nor mana applies → phase mode on your rail; **DPAD Left/Right** cycle phases; **A** toggles stop on/off. Tap on a phase label is touch input. |
   | Target spells / abilities | During a selection prompt, **DPAD** to the target; amber arrow from the prompt source follows focus **after the pad has been used** (never at match start before input); **A** confirms (stock select). No pick-up. Touch clears stale pad focus so arrows follow the touched source. |
-  | Zoom card | **Y** (controller). Touch: **double-tap** a card to zoom (hand long-press peeks; double-tap still zooms hand cards). |
+  | Zoom card | **Y** (controller). Touch: **double-tap** a card to zoom — the first tap is deferred so it does not select/activate; only the double-tap zooms (hand long-press peeks). |
   | Zone tabs / player panels / prompts | **R1** / **L1** / triggers (unchanged) |

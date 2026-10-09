@@ -13,6 +13,7 @@ import com.badlogic.gdx.Input;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.utils.Timer;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -351,6 +352,7 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
         public static void resetForNewGame() {
             if (allCardPanels != null) {
                 for (CardAreaPanel cardPanel : allCardPanels.values()) {
+                    cardPanel.cancelDeferredSingleTap();
                     cardPanel.displayArea = null;
                     cardPanel.attachedToPanel = null;
                     cardPanel.attachedPanels.clear();
@@ -372,6 +374,8 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
         private CardAreaPanel attachedToPanel;
         private List<CardAreaPanel> attachedPanels = new ArrayList<>();
         private CardAreaPanel nextPanelInStack, prevPanelInStack;
+        /** Deferred single-tap so the first tap of a double-tap does not select/activate. */
+        private Timer.Task deferredSingleTap;
 
         // CASTABLE = a prepared spell (tap to cast); INFO = a card exiled until this permanent leaves (inspect only)
         public enum GhostKind { NONE, CASTABLE, INFO }
@@ -560,10 +564,35 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
             return super.release(x, y);
         }
 
+        private void cancelDeferredSingleTap() {
+            if (deferredSingleTap != null) {
+                deferredSingleTap.cancel();
+                deferredSingleTap = null;
+            }
+        }
+
+        private void runSingleTapAction() {
+            //must invoke in game thread in case a dialog needs to be shown
+            ThreadUtil.invokeInGameThread(() -> {
+                if (GuiBase.getInterface().isRunningOnDesktop() && Forge.mouseButtonID == Input.Buttons.RIGHT) {
+                    FThreads.invokeInEdtLater(CardAreaPanel.this::showZoom);
+                } else if (!selectCard(false)) {
+                    //if no cards in stack can be selected, just show zoom/details for card
+                    if (!MatchController.instance.isSelecting())
+                        FThreads.invokeInEdtLater(CardAreaPanel.this::showZoom);
+                }
+            });
+        }
+
         @Override
         public boolean tap(float x, float y, int count) {
+            final boolean modern = ModernDuelScreen.enabled();
+            // Second tap in the window cancels any deferred single-tap (zoom only).
+            if (ModernDuelGestures.shouldCancelDeferredSingleTap(modern, count)) {
+                cancelDeferredSingleTap();
+            }
             // Modern: double-tap zooms (hand long-press peeks and would otherwise block zoom).
-            if (ModernDuelGestures.shouldZoomOnDoubleTap(ModernDuelScreen.enabled(), count)
+            if (ModernDuelGestures.shouldZoomOnDoubleTap(modern, count)
                     && renderedCardContains(x, y)) {
                 ModernDuelController.get().markTouchInput();
                 FThreads.invokeInEdtLater(CardAreaPanel.this::showZoom);
@@ -572,19 +601,24 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
             if (count > 1) //prevent double choice lists or activate handle
                 return false;
             if (renderedCardContains(x, y)) {
-                if (ModernDuelScreen.enabled()) {
+                if (modern) {
                     ModernDuelController.get().markTouchInput();
                 }
-                //must invoke in game thread in case a dialog needs to be shown
-                ThreadUtil.invokeInGameThread(() -> {
-                    if (GuiBase.getInterface().isRunningOnDesktop() && Forge.mouseButtonID == Input.Buttons.RIGHT) {
-                        FThreads.invokeInEdtLater(CardAreaPanel.this::showZoom);
-                    } else if (!selectCard(false)) {
-                        //if no cards in stack can be selected, just show zoom/details for card
-                        if (!MatchController.instance.isSelecting())
-                            FThreads.invokeInEdtLater(CardAreaPanel.this::showZoom);
-                    }
-                });
+                // Defer modern single-tap until the double-tap window passes so the
+                // first tap of a double-tap does not select/activate the card.
+                if (ModernDuelGestures.shouldDeferSingleTap(modern, count)) {
+                    cancelDeferredSingleTap();
+                    deferredSingleTap = new Timer.Task() {
+                        @Override
+                        public void run() {
+                            deferredSingleTap = null;
+                            runSingleTapAction();
+                        }
+                    };
+                    Timer.schedule(deferredSingleTap, ModernDuelGestures.DOUBLE_TAP_WINDOW_SEC);
+                    return true;
+                }
+                runSingleTapAction();
                 return true;
             }
             return false;
