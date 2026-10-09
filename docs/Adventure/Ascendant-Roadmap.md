@@ -237,6 +237,27 @@ perk layer with a tree per skill so more levels matter and builds differ:
   Pauper option in the deck format cycle.
 - The current plane's format is shown on the status screen and in the portal dialog.
 
+### EC1. Game-based card economy (Ascendant; replaces real-world prices)
+Card prices come from the game, not from real-world market data, so no card is a jackpot (an early Badlands is
+worth what its rarity and power say, not hundreds of dollars).
+- **Base value by rarity** (tunable table in the Ascendant config): common, uncommon, rare, mythic, special. Basic
+  lands are worth nothing.
+- **Power within its set** from Forge's own draft pick rankings (`forge-gui/res/draft/rankings`): a card ranked near
+  the top of its set is worth more than a weak card of the same rarity, so a strong common can outprice a bad rare.
+  Cards with no ranking use the rarity base. The multiplier range is tunable (e.g. 0.5x to 3x).
+- **Rotation**: cards legal in the current Standard window are worth more (demand); rotated (Historic-only) cards
+  less. With K, use the format of the plane the shop is on.
+- **Living local markets** (per world save): each town shop tracks supply per card. Selling copies there lowers its
+  price, buying raises it, and prices drift back toward the base over in-game days. Towns lean by color (a red
+  plane's town pays more for red cards). Bounded so prices never leave a tunable band around the base.
+- **Selling pays a fixed share** of the current local price (tunable, about 30%). Auto-sell and bulk sell use the same.
+- **One source of value**: dust refine and craft costs (A2), salvage yields and shop restock prices read the same
+  value function, so buying, crafting and salvaging stay consistent.
+- Replace `CardUtil.getCardPrice` usage in Ascendant with the new function; the stock world keeps real prices.
+- Tests: a ZEN common vs a ZEN rare by ranking; Badlands priced by rarity/power (no market data); selling five copies
+  in one town lowers that town's price and not another's; drift back over time; sale share applied; stock world
+  unchanged.
+
 ### L. Tournaments and lifetime stats (depends on K)
 - **Tournament ring**: inns run small events (the existing inn event code: draft, jumpstart, sealed) plus
   constructed events in the run format.
@@ -641,6 +662,16 @@ All input still goes through `getGameController().selectCard/selectPlayer`, so i
 - **Controller**: every action above also has a controller path (focus cursor, A to pick up/drop, B cancel).
 - Works in solo and co-op duels and in stock Forge matches on the mobile/libGDX client; gate anything that changes
   stock behaviour behind a preference defaulting to the new UI only in Ascendant until it's proven.
+
+### DS2. Clear counter and fizzle banner (small; Ascendant duel screen and the classic one)
+- When a spell or ability **you** control is countered, show a banner in the middle of the duel screen with both
+  cards side by side: "Your Lightning Bolt was countered by Cancel". Same banner when your spell or ability fizzles
+  because its target became illegal ("Your Lightning Bolt fizzled: its target is gone"), and when an opponent's
+  spell is countered by yours (shorter, quieter).
+- Stays about 3 seconds or until clicked/tapped; never blocks input; queued if several happen at once.
+- Driven by Forge's game events (countered/fizzled), not by parsing the log. Works for the LLM opponent and in co-op
+  (each player sees banners for their own spells).
+- Tests: a countered spell and a fizzled spell each raise exactly one banner event for the right player.
 
 ## AI opponent: bring your own
 

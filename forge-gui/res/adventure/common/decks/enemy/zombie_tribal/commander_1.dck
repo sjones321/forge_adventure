@@ -1,6 +1,7 @@
 [metadata]
 Name=zombie_tribal Commander
 [Main]
+1 Abattoir Ghoul|DDQ|[50]
 1 Accursed Horde|GN2|[26]
 1 Bone Splinters|DMU|[83]
 1 Cemetery Reaper|DRC|[87]
@@ -54,9 +55,8 @@ Name=zombie_tribal Commander
 1 Relentless Dead|SLD|[850]
 1 Rictus Robber|OTJ|[102]
 1 Scheming Silvertongue|SOS|[99]
-1 Shamble Back|SOI|[134]
 1 Shambling Ghoul|J22|[465]
-35 Swamp|FRA|[285]
+35 Swamp|FDN|[276]
 1 Swiftfoot Boots|MSC|[216]
 1 Tattered Mummy|GN2|[34]
 1 Tormod, the Desecrator|CMR|[155]
