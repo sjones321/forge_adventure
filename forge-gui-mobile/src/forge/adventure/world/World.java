@@ -1107,13 +1107,6 @@ public class World implements Disposable, SaveFileContent {
         return mapPoiIds.getAllPointOfInterest();
     }
 
-    /** FT1: plant a runtime fortress (or other) POI onto this plane's overworld. */
-    public void addPointOfInterest(PointOfInterest poi) {
-        if (poi == null || mapPoiIds == null)
-            return;
-        mapPoiIds.add(poi);
-    }
-
     public int getChunkSize() {
         return (Math.max(Scene.getIntendedWidth(), Scene.getIntendedHeight())) / data.tileSize;
     }

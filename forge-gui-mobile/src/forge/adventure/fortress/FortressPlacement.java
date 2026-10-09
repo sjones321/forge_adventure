@@ -19,7 +19,8 @@ public final class FortressPlacement {
         NOT_WALKABLE,
         TOO_CLOSE_TO_POI,
         PLANE_AT_CAP,
-        MISSING_TEMPLATE
+        MISSING_TEMPLATE,
+        NO_BANNER
     }
 
     /**
@@ -79,6 +80,8 @@ public final class FortressPlacement {
                 return "This plane already has a fortress.";
             case MISSING_TEMPLATE:
                 return "Fortress template missing from points_of_interest.";
+            case NO_BANNER:
+                return "You need a Fortress Banner to claim a site.";
             default:
                 return "Cannot plant banner here.";
         }

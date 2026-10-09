@@ -514,7 +514,7 @@ public class WorldSave {
                 player.getWorldPosX(),
                 player.getWorldPosY());
         world.setWorldConfigPath(Paths.WORLD);
-        FortressService.get().clear();
+        FortressService.get().clear(true); // warn: fortress storage wiped on NG+
     }
 
     /**

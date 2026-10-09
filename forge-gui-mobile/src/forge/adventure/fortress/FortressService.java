@@ -13,6 +13,9 @@ import forge.adventure.player.FortressStorageHook;
 import forge.adventure.player.InventoryBagType;
 import forge.adventure.player.PlayerSkills;
 import forge.adventure.pointofintrest.PointOfInterest;
+import forge.adventure.scene.TileMapScene;
+import forge.adventure.stage.GameHUD;
+import forge.adventure.stage.MapStage;
 import forge.adventure.stage.PointOfInterestMapSprite;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
@@ -23,18 +26,27 @@ import forge.adventure.world.WorldSave;
 import forge.util.MyRandom;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Live FT1 fortress orchestration: claim site, persist per-plane, build/demolish,
- * INV1 storage hook. All public entry points are Ascendant-gated.
+ * INV1 material-only storage hook (shed required; no retrieval UI yet ⇒ overflow
+ * gear is never swallowed). All public entry points are Ascendant-gated.
+ *
+ * <p>Co-op (simpler correct option, no protocol bump): guests are kept out of the
+ * host's fortress with a clear message. Structure sync is deferred to CO4.
  */
 public final class FortressService {
+    public static final String BANNER_ITEM = "Fortress Banner";
+
     private static final FortressService INSTANCE = new FortressService();
 
     private FortressInstance current;
     private final FortressBuildMode buildMode = new FortressBuildMode();
+    /** Optional listener so MapStage can refresh collision/sprites after place/demolish. */
+    private Runnable structureChangeListener;
 
     public static FortressService get() {
         return INSTANCE;
@@ -55,10 +67,29 @@ public final class FortressService {
         return buildMode;
     }
 
+    public void setStructureChangeListener(Runnable listener) {
+        structureChangeListener = listener;
+    }
+
     public void clear() {
+        clear(false);
+    }
+
+    /**
+     * @param warnNgPlus when true, notify that fortress storage was wiped (NG+).
+     */
+    public void clear(boolean warnNgPlus) {
+        boolean hadStorage = current != null && !current.getStorage().isEmpty();
         buildMode.close();
         current = null;
-        detachStorageHook();
+        refreshStorageHook();
+        if (warnNgPlus && hadStorage) {
+            try {
+                GameHUD.getInstance().addNotification(
+                        "NG+: fortress storage cleared (no retrieval UI yet — materials were wiped).");
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     public SaveFileData saveCurrent() {
@@ -71,20 +102,19 @@ public final class FortressService {
         buildMode.close();
         if (data == null) {
             current = null;
-            detachStorageHook();
+            refreshStorageHook();
             return;
         }
         FortressInstance inst = new FortressInstance();
         inst.load(data);
         current = inst.isClaimed() ? inst : null;
-        attachStorageHook();
+        refreshStorageHook();
     }
 
-    /** Swap live fortress when switching planes (null = target plane has none). */
     public void replaceCurrent(FortressInstance next) {
         buildMode.close();
         current = next;
-        attachStorageHook();
+        refreshStorageHook();
     }
 
     public static FortressInstance fromSave(SaveFileData data) {
@@ -96,17 +126,57 @@ public final class FortressService {
     }
 
     public boolean guestForbidden() {
-        return forge.adventure.coop.CoopSession.get().getRole() == CoopSessionRole.GUEST;
+        return isGuestRole(forge.adventure.coop.CoopSession.get().getRole());
+    }
+
+    /** Pure helper for tests and co-op gates. */
+    public static boolean isGuestRole(CoopSessionRole role) {
+        return role == CoopSessionRole.GUEST;
     }
 
     public boolean canModifyWorld() {
-        // Solo (no READY session) may always modify; in co-op only the host.
         return !CoopHooks.isOverworldReady() || CoopHooks.isWorldAuthority();
     }
 
     /**
-     * Plant the Fortress Banner at the player's overworld tile.
-     * @return status message for HUD / console
+     * Guests may not enter a fortress POI (no structure sync without a protocol bump).
+     */
+    public boolean guestMayEnterFortress() {
+        return guestMayEnterFortress(forge.adventure.coop.CoopSession.get().getRole());
+    }
+
+    public static boolean guestMayEnterFortress(CoopSessionRole role) {
+        return !isGuestRole(role);
+    }
+
+    public String guestFortressDeniedMessage() {
+        return "Guests cannot enter the host's fortress yet (no structure sync). "
+                + "Co-op fortress visits come in CO4.";
+    }
+
+    public static boolean isFortressPoi(PointOfInterest poi) {
+        return poi != null && poi.getData() != null
+                && "fortress".equalsIgnoreCase(poi.getData().type);
+    }
+
+    public static boolean isInsideFortressMap() {
+        try {
+            if (!MapStage.getInstance().isInMap())
+                return false;
+            TileMapScene scene = TileMapScene.instance();
+            return scene != null && isFortressPoi(scene.rootPoint);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public boolean playerHasBanner(AdventurePlayer player) {
+        return player != null && player.hasItem(BANNER_ITEM);
+    }
+
+    /**
+     * Plant the Fortress Banner. Requires the banner item (console included).
+     * POI is offset off the player's tile.
      */
     public String plantBanner() {
         if (!Config.ascendant())
@@ -119,11 +189,18 @@ public final class FortressService {
         AdventurePlayer player = save.getPlayer();
         ConfigData config = cfg();
 
-        float px = player.getWorldPosX();
-        float py = player.getWorldPosY();
+        if (!playerHasBanner(player))
+            return FortressPlacement.message(FortressPlacement.RejectReason.NO_BANNER, config);
+
+        float playerX = player.getWorldPosX();
+        float playerY = player.getWorldPosY();
+        Vector2 plantPos = FortressWorldHelper.poiPosAwayFromPlayer(world, playerX, playerY);
+        if (FortressWorldHelper.sameTile(plantPos.x, plantPos.y, playerX, playerY, world.getTileSize()))
+            return "Cannot plant the fortress on your tile.";
+
         int tileSize = world.getTileSize();
-        int tileX = (int) (px / tileSize);
-        int tileY = (int) (py / tileSize);
+        int tileX = (int) (plantPos.x / tileSize);
+        int tileY = (int) (plantPos.y / tileSize);
 
         boolean walkable = !world.isColliding(tileX, tileY);
         List<int[]> poiTiles = collectPoiTiles(world, tileSize);
@@ -141,37 +218,29 @@ public final class FortressService {
             return FortressPlacement.message(FortressPlacement.RejectReason.MISSING_TEMPLATE, config);
 
         PointOfInterestData data = new PointOfInterestData(template);
-        PointOfInterest poi = new PointOfInterest(data, new Vector2(px, py), MyRandom.getRandom());
+        PointOfInterest poi = new PointOfInterest(data, plantPos, MyRandom.getRandom());
         poi.setDisplayName("Fortress");
-        world.addPointOfInterest(poi);
+        if (!FortressWorldHelper.plantPoi(world, poi))
+            return "Could not plant fortress POI (chunk out of bounds).";
+
+        // Consume banner before committing instance state.
+        player.removeItem(BANNER_ITEM);
 
         FortressInstance inst = new FortressInstance();
         inst.setPlaneId(save.getCurrentPlaneId());
         inst.setPoiId(poi.getID());
-        inst.setWorldPos(px, py);
+        inst.setWorldPos(plantPos.x, plantPos.y);
         inst.setBuildableZone(config.fortressBuildableOriginX, config.fortressBuildableOriginY,
                 config.fortressBuildableWidth, config.fortressBuildableHeight);
         current = inst;
-        attachStorageHook();
+        refreshStorageHook();
 
-        // Refresh overworld sprite for the current chunk.
         try {
             WorldStage.getInstance().getSpriteGroup().addActor(new PointOfInterestMapSprite(poi));
         } catch (Throwable ignored) {
-            // Headless / stage not ready.
         }
-
-        // Consume one banner if the player has the item.
-        consumeBanner(player);
 
         return FortressPlacement.message(FortressPlacement.RejectReason.OK, config);
-    }
-
-    private void consumeBanner(AdventurePlayer player) {
-        try {
-            player.removeItem("Fortress Banner");
-        } catch (Throwable ignored) {
-        }
     }
 
     public static List<int[]> collectPoiTiles(World world, int tileSize) {
@@ -203,6 +272,8 @@ public final class FortressService {
             return "Fortresses require Shandalar Ascendant.";
         if (!canModifyWorld() || guestForbidden())
             return "Guests cannot build in the host's fortress.";
+        if (!isInsideFortressMap())
+            return "Build mode only works inside your fortress.";
         if (!hasFortress())
             return "No fortress claimed on this plane.";
         int level = Current.player().getSkills().getLevel(PlayerSkills.Skill.CONSTRUCTION);
@@ -215,35 +286,47 @@ public final class FortressService {
         return "Left build mode.";
     }
 
-    /**
-     * Attempt to place the currently selected structure at the cursor.
-     */
     public String tryPlaceAtCursor() {
         if (!buildMode.isActive())
             return "Build mode is not active.";
         if (!canModifyWorld() || guestForbidden())
             return "Guests cannot build in the host's fortress.";
+        if (!isInsideFortressMap())
+            return "Build mode only works inside your fortress.";
         FortressStructureData def = buildMode.selectedStructure();
         if (def == null)
             return "No structures loaded.";
         AdventurePlayer player = Current.player();
         int level = player.getSkills().getLevel(PlayerSkills.Skill.CONSTRUCTION);
+
+        int[] playerTile = playerGridInFortress();
         FortressBuildGrid.PlaceReject reject = FortressBuildGrid.canPlace(
                 current, def, buildMode.getCursorX(), buildMode.getCursorY(),
-                buildMode.getRotationDeg(), level);
+                buildMode.getRotationDeg(), level,
+                playerTile[0], playerTile[1],
+                current.getEntryGridX(), current.getEntryGridY(),
+                current.getMapWidthTiles(), current.getMapHeightTiles());
         if (reject != FortressBuildGrid.PlaceReject.OK)
             return placeRejectMessage(reject, def);
 
-        String costBlock = checkAndPayCost(player, def);
+        Map<String, Integer> paid = FortressBuildGrid.catalogCost(def);
+        String costBlock = checkAndPayCost(player, def, paid);
         if (costBlock != null)
             return costBlock;
 
         if (!FortressBuildGrid.place(current, def, buildMode.getCursorX(), buildMode.getCursorY(),
-                buildMode.getRotationDeg(), level))
+                buildMode.getRotationDeg(), level, paid, def.gold,
+                playerTile[0], playerTile[1],
+                current.getEntryGridX(), current.getEntryGridY(),
+                current.getMapWidthTiles(), current.getMapHeightTiles()))
             return "Could not place structure.";
 
+        // XP only on successful place — never on demolish.
         if (def.xp > 0)
             player.getSkills().addXp(PlayerSkills.Skill.CONSTRUCTION, def.xp);
+
+        refreshStorageHook();
+        notifyStructureChanged();
         return "Built " + def.displayName() + ".";
     }
 
@@ -255,14 +338,46 @@ public final class FortressService {
         int idx = FortressBuildGrid.structureAt(current, buildMode.getCursorX(), buildMode.getCursorY());
         if (idx < 0)
             return "No structure here.";
+        // Demolish grants no XP; refund from paid snapshot.
         Map<String, Integer> refund = FortressBuildGrid.demolish(current, idx, cfg());
         AdventurePlayer player = Current.player();
         for (Map.Entry<String, Integer> e : refund.entrySet())
             player.addMaterial(e.getKey(), e.getValue());
-        return "Demolished (refund " + (int) cfg().fortressDemolishRefundPercent + "%).";
+        refreshStorageHook();
+        notifyStructureChanged();
+        return "Demolished (refund " + (int) cfg().fortressDemolishRefundPercent
+                + "% of paid materials).";
     }
 
-    private String checkAndPayCost(AdventurePlayer player, FortressStructureData def) {
+    private void notifyStructureChanged() {
+        if (structureChangeListener != null) {
+            try {
+                structureChangeListener.run();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** Player grid tile inside the fortress map, or MIN_VALUE when unavailable. */
+    public int[] playerGridInFortress() {
+        try {
+            float x = MapStage.getInstance().getPlayerSprite().getX();
+            float y = MapStage.getInstance().getPlayerSprite().getY();
+            float tw = 16f;
+            float th = 16f;
+            // MapStage exposes tile size via fortress fields; fall back to 16.
+            return new int[]{(int) (x / tw), (int) (y / th)};
+        } catch (Throwable t) {
+            return new int[]{Integer.MIN_VALUE, Integer.MIN_VALUE};
+        }
+    }
+
+    public int[] playerGridInFortress(float tileW, float tileH, float playerX, float playerY) {
+        return new int[]{(int) (playerX / Math.max(1f, tileW)), (int) (playerY / Math.max(1f, tileH))};
+    }
+
+    private String checkAndPayCost(AdventurePlayer player, FortressStructureData def,
+                                   Map<String, Integer> paidOut) {
         if (def.gold > 0 && player.getGold() < def.gold)
             return "Need " + def.gold + " gold.";
         if (def.materials != null) {
@@ -273,6 +388,7 @@ public final class FortressService {
                     return "Need more " + e.key + " (" + e.value + ").";
             }
         }
+        LinkedHashMap<String, Integer> paid = new LinkedHashMap<>();
         if (def.gold > 0)
             player.takeGold(def.gold);
         if (def.materials != null) {
@@ -280,7 +396,12 @@ public final class FortressService {
                 if (e.key == null || e.value == null || e.value <= 0)
                     continue;
                 player.takeMaterial(e.key, e.value);
+                paid.put(e.key, e.value);
             }
+        }
+        if (paidOut != null) {
+            paidOut.clear();
+            paidOut.putAll(paid);
         }
         return null;
     }
@@ -293,6 +414,10 @@ public final class FortressService {
                 return "Footprint blocked.";
             case LEVEL_TOO_LOW:
                 return "Construction level " + def.constructionLevel + " required.";
+            case ON_PLAYER:
+                return "Cannot build on your tile.";
+            case BLOCKS_PATH_TO_ENTRY:
+                return "That would block the path to the fortress entrance.";
             case UNKNOWN_STRUCTURE:
                 return "Unknown structure.";
             default:
@@ -300,7 +425,8 @@ public final class FortressService {
         }
     }
 
-    private void attachStorageHook() {
+    /** Attach materials-only hook when a shed exists; otherwise detach. Call after every build/demolish/load. */
+    public void refreshStorageHook() {
         try {
             AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
             if (player == null || player.getBags() == null)
@@ -310,27 +436,15 @@ public final class FortressService {
                 return;
             }
             final FortressInstance inst = current;
-            player.getBags().setFortressStorage(new FortressStorageHook() {
-                @Override
-                public boolean storeOverflow(InventoryBagType bag, String key, int amount) {
-                    if (key == null || amount <= 0)
-                        return false;
-                    // Materials only for FT1; gear/boosters wait for LG1 logistics.
-                    if (bag != InventoryBagType.MATERIALS && bag != InventoryBagType.OVERFLOW)
-                        return false;
-                    inst.addStored(key, amount);
-                    return true;
-                }
+            player.getBags().setFortressStorage((bag, key, amount) -> {
+                // Materials only — InventoryBags also gates by OverflowEntry.Kind.MATERIAL.
+                if (key == null || amount <= 0)
+                    return false;
+                if (bag != InventoryBagType.MATERIALS && bag != InventoryBagType.OVERFLOW)
+                    return false;
+                inst.addStored(key, amount);
+                return true;
             });
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private void detachStorageHook() {
-        try {
-            AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
-            if (player != null && player.getBags() != null)
-                player.getBags().setFortressStorage(FortressStorageHook.NONE);
         } catch (Throwable ignored) {
         }
     }

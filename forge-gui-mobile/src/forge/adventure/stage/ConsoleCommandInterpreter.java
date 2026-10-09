@@ -718,10 +718,12 @@ public class ConsoleCommandInterpreter {
         registerCommand(new String[]{"fortress", "build"}, s -> {
             if (!Config.ascendant())
                 return "Fortresses are Ascendant-only";
-            String msg = forge.adventure.fortress.FortressService.get().openBuildMode();
-            if (forge.adventure.fortress.FortressService.get().getBuildMode().isActive())
-                MapStage.getInstance().setFortressBuildMode(true);
-            return msg;
+            if (!forge.adventure.fortress.FortressService.isInsideFortressMap())
+                return "Build mode only works inside your fortress.";
+            MapStage.getInstance().setFortressBuildMode(true);
+            if (!MapStage.getInstance().isFortressBuildMode())
+                return forge.adventure.fortress.FortressService.get().openBuildMode();
+            return "Build mode — arrows move, R rotate, Enter place, Del demolish, Esc exit.";
         });
         registerCommand(new String[]{"fortress", "status"}, s -> {
             if (!Config.ascendant())

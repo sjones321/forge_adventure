@@ -623,7 +623,11 @@ public class InventoryBags implements Serializable {
             setMsg(r.message);
             return r;
         }
-        if (fortressStorage.storeOverflow(InventoryBagType.OVERFLOW, entry.key, entry.amount)) {
+        // FT1: fortress storage may accept materials only (and only when a shed exists —
+        // the hook itself is attached/detached by FortressService). Never swallow gear /
+        // boosters / currency from Overflow until there is a retrieval UI.
+        if (entry.kind == OverflowEntry.Kind.MATERIAL
+                && fortressStorage.storeOverflow(InventoryBagType.MATERIALS, entry.key, entry.amount)) {
             GrantResult r = GrantResult.overflow();
             r.message = "Bag full — sent to fortress storage";
             setMsg(r.message);

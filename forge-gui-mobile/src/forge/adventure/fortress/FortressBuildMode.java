@@ -100,8 +100,14 @@ public final class FortressBuildMode {
     }
 
     public boolean previewValid() {
+        return previewValid(Integer.MIN_VALUE, Integer.MIN_VALUE, -1, -1, 0, 0);
+    }
+
+    public boolean previewValid(int playerGridX, int playerGridY,
+                                int entryGridX, int entryGridY, int mapW, int mapH) {
         return FortressBuildGrid.isValidPreview(instance, selectedStructure(),
-                cursorX, cursorY, rotationDeg, constructionLevel);
+                cursorX, cursorY, rotationDeg, constructionLevel,
+                playerGridX, playerGridY, entryGridX, entryGridY, mapW, mapH);
     }
 
     /**

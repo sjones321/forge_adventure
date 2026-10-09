@@ -546,6 +546,14 @@ public class WorldStage extends GameStage implements SaveFileContent {
 
     /** @return true if the POI map loaded and became the active scene. */
     public boolean loadPOI(PointOfInterest poi) {
+        // FT1 co-op: guests are kept out of the host's fortress (no structure sync /
+        // protocol bump). Simpler correct option until CO4.
+        if (forge.adventure.fortress.FortressService.isFortressPoi(poi)
+                && !forge.adventure.fortress.FortressService.get().guestMayEnterFortress()) {
+            GameHUD.getInstance().addNotification(
+                    forge.adventure.fortress.FortressService.get().guestFortressDeniedMessage());
+            return false;
+        }
         try {
             stop();
             TileMapScene.instance().load(poi);
