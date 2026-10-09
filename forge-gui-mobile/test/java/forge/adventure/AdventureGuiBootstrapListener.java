@@ -3,7 +3,6 @@ package forge.adventure;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.utils.Json;
 import com.badlogic.gdx.utils.JsonWriter;
-import forge.GuiMobile;
 import forge.adventure.data.SettingData;
 import forge.gui.GuiBase;
 import forge.localinstance.properties.ForgeConstants;
@@ -14,20 +13,16 @@ import org.testng.ISuite;
 import org.testng.ISuiteListener;
 
 import java.io.File;
-import java.nio.file.Files;
 import java.nio.file.Paths;
 
 /**
- * Installs {@link GuiMobile} + {@link Localizer} + {@link FModel} before any
- * adventure test touches {@code Config} / {@code WorldSave} / {@code CardUtil}.
- * Without this, early {@code SetPlaneRules.generateEnemyDeck} poisons
- * {@code CardUtil} via {@code FModel.getFormats()} before editions load, and
- * {@code WorldSave} clinit NPEs on an uninitialized Localizer.
+ * After {@link AdventureTestBootstrapListener}: write Ascendant {@code settings.json}
+ * under the Surefire {@code test-user-home} tree and initialize {@link FModel}
+ * before any adventure test touches {@code Config} / {@code WorldSave} / {@code CardUtil}.
  *
- * <p>Must run <em>after</em> {@link AdventureTestBootstrapListener} so
- * Ascendant {@code settings.json} is written only under the Surefire
- * {@code test-user-home} {@link ForgeConstants#USER_ADVENTURE_DIR}, never the
- * developer's real profile.
+ * <p>Does <em>not</em> replace the headless GuiBase from the bootstrap listener —
+ * {@code GuiMobile} needs a device adapter and breaks CO1 gold/sound paths.
+ * GL tests install {@code GuiMobile} via {@link AdventureGlTestSupport}.
  */
 public final class AdventureGuiBootstrapListener implements ISuiteListener {
     @Override
@@ -41,12 +36,11 @@ public final class AdventureGuiBootstrapListener implements ISuiteListener {
                             + "Refusing to write settings to the real USER_DIR="
                             + ForgeConstants.USER_DIR);
         }
-        AdventureTestUserDir.assertConstantsUse(java.nio.file.Paths.get(testUser));
-        final String assets = Files.exists(Paths.get("./forge-gui")) ? "./forge-gui/"
-                : Files.exists(Paths.get("./res")) ? "./" : "../forge-gui/";
-        if (!(GuiBase.getInterface() instanceof GuiMobile)) {
-            GuiBase.setInterface(new GuiMobile(assets));
+        if (GuiBase.getInterface() == null) {
+            throw new IllegalStateException(
+                    "AdventureGuiBootstrapListener requires GuiBase from AdventureTestBootstrapListener");
         }
+        AdventureTestUserDir.assertConstantsUse(Paths.get(testUser));
         // Localizer before any WorldSave / AdventurePlayer construction.
         try {
             Localizer.getInstance().initialize("en-US", ForgeConstants.LANG_DIR);
