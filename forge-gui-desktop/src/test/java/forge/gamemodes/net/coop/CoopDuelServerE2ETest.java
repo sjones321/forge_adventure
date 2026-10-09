@@ -104,8 +104,11 @@ public class CoopDuelServerE2ETest {
     private static final class AutoRespondGuestGui extends HeadlessNetworkGuiGame {
         private final String username;
         private volatile IGameController gameController;
-        /** When true, skip auto-OK so a test can drive MAIN1 actions itself. */
-        private volatile boolean pauseAutoOk;
+        /**
+         * When true, skip auto-OK only during the local player's MAIN1 so the test
+         * can cast via {@link NetGameController}; other phases still auto-advance.
+         */
+        private volatile boolean holdLocalMain1;
         private final ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor(r -> {
             final Thread t = new Thread(r, "CoopE2E-GuestAuto");
             t.setDaemon(true);
@@ -117,11 +120,23 @@ public class CoopDuelServerE2ETest {
             this.username = username;
         }
 
-        void setPauseAutoOk(final boolean pause) {
-            pauseAutoOk = pause;
-            if (pause && pending != null) {
+        void setHoldLocalMain1(final boolean hold) {
+            holdLocalMain1 = hold;
+            if (hold && pending != null && isLocalMain1()) {
                 pending.cancel(false);
             }
+        }
+
+        private boolean isLocalMain1() {
+            if (!holdLocalMain1) {
+                return false;
+            }
+            final GameView gv = getGameView();
+            if (gv == null || gv.getPhase() != forge.game.phase.PhaseType.MAIN1
+                    || gv.getPlayerTurn() == null) {
+                return false;
+            }
+            return isLocalPlayer(gv.getPlayerTurn());
         }
 
         void shutdown() {
@@ -132,7 +147,7 @@ public class CoopDuelServerE2ETest {
         }
 
         private void schedule(final Runnable action, final long delayMs) {
-            if (pauseAutoOk) {
+            if (isLocalMain1()) {
                 return;
             }
             if (pending != null) {
@@ -140,7 +155,7 @@ public class CoopDuelServerE2ETest {
             }
             pending = exec.schedule(() -> {
                 try {
-                    if (gameController != null && !pauseAutoOk) {
+                    if (gameController != null && !isLocalMain1()) {
                         action.run();
                     }
                 } catch (final Exception ignored) {
@@ -191,7 +206,7 @@ public class CoopDuelServerE2ETest {
         @Override
         public void updateButtons(final PlayerView owner, final boolean okEnabled,
                                   final boolean cancelEnabled, final boolean focusOk) {
-            if (pauseAutoOk) {
+            if (isLocalMain1()) {
                 return;
             }
             if (gameController != null && okEnabled) {
@@ -202,7 +217,7 @@ public class CoopDuelServerE2ETest {
         @Override
         public void updateButtons(final PlayerView owner, final String label1, final String label2,
                                   final boolean enable1, final boolean enable2, final boolean focus1) {
-            if (pauseAutoOk || gameController == null) {
+            if (isLocalMain1() || gameController == null) {
                 return;
             }
             if (enable1) {
@@ -438,8 +453,8 @@ public class CoopDuelServerE2ETest {
         server.startServer(port, "127.0.0.1", Boolean.FALSE);
         assertTrue(HostingServer.isHosting(), "co-op duel game server hosting");
 
+        // Keep guest auto-OK on through setup; pause only for the MAIN1 cast window.
         guestLocalGui = new AutoRespondGuestGui(guestName);
-        guestLocalGui.setPauseAutoOk(true); // test drives MAIN1 cast itself
         guestClient = new FGameClient(guestName, guestLocalGui, "127.0.0.1", port, sessionCode);
         guestClient.connect();
 
@@ -481,79 +496,76 @@ public class CoopDuelServerE2ETest {
         match.startMatch(rules, EnumSet.of(GameType.Constructed),
                 List.of(hostRp, guestRp, enemyRp), guis, null);
 
-        // Warm: answer host prompts; guest auto-answers start/mulligan until we unpause.
-        guestLocalGui.setPauseAutoOk(false);
         final long warmDeadline = System.currentTimeMillis() + 45_000;
         while (System.currentTimeMillis() < warmDeadline && hostRemote.myPlayers == null) {
             answerHost(hostRemote, hostGui, false);
         }
         assertNotNull(hostRemote.myPlayers, "host openView");
 
-        // Find guest player + NetGameController on the client GUI.
+        // Wait until FGameClient has installed NetGameController for the guest seat.
         PlayerView guestView = null;
+        IGameController netCtrl = null;
         final long handDeadline = System.currentTimeMillis() + 60_000;
-        while (System.currentTimeMillis() < handDeadline && guestView == null) {
+        while (System.currentTimeMillis() < handDeadline && netCtrl == null) {
             answerHost(hostRemote, hostGui, false);
-            final GameView ggv = guestLocalGui.getGameView();
-            if (ggv != null && ggv.getPlayers() != null) {
-                for (final PlayerView p : ggv.getPlayers()) {
-                    if (p != null && p.getName() != null
-                            && p.getName().equalsIgnoreCase(guestName)
-                            && p.getHand() != null) {
-                        for (final CardView ignored : p.getHand()) {
-                            guestView = p;
-                            break;
-                        }
+            for (final PlayerView p : guestLocalGui.getLocalPlayers()) {
+                if (p == null) {
+                    continue;
+                }
+                final IGameController c = guestLocalGui.getGameController(p);
+                if (c instanceof NetGameController && p.getHand() != null) {
+                    for (final CardView ignored : p.getHand()) {
+                        guestView = p;
+                        netCtrl = c;
+                        break;
                     }
+                }
+                if (netCtrl != null) {
+                    break;
                 }
             }
             Thread.sleep(50);
         }
         assertNotNull(guestView, "guest player view with hand over loopback");
-
-        final IGameController netCtrl = guestLocalGui.getGameController(guestView);
         assertNotNull(netCtrl, "guest NetGameController from FGameClient");
         assertTrue(netCtrl instanceof NetGameController,
                 "guest seat must be NetGameController, was " + netCtrl.getClass().getName());
 
-        // Pause auto-OK so MAIN1 priority is not passed before we cast.
-        guestLocalGui.setPauseAutoOk(true);
+        // Hold auto-OK only on local MAIN1 so earlier phases still advance.
+        guestLocalGui.setHoldLocalMain1(true);
+        CardView castCard = null;
+        int handBefore = 0;
         final long mainDeadline = System.currentTimeMillis() + 90_000;
-        while (System.currentTimeMillis() < mainDeadline) {
+        while (System.currentTimeMillis() < mainDeadline && castCard == null) {
             answerHost(hostRemote, hostGui, false);
             final GameView gv = guestLocalGui.getGameView();
             if (gv != null && gv.getPhase() == forge.game.phase.PhaseType.MAIN1
                     && gv.getPlayerTurn() != null
-                    && gv.getPlayerTurn().getId() == guestView.getId()) {
-                break;
+                    && gv.getPlayerTurn().getId() == guestView.getId()
+                    && guestView.getHand() != null) {
+                for (final CardView c : guestView.getHand()) {
+                    if (c != null) {
+                        castCard = c;
+                        handBefore = guestView.getHand().size();
+                        break;
+                    }
+                }
             }
             Thread.sleep(50);
         }
-        final GameView atMain = guestLocalGui.getGameView();
-        assertNotNull(atMain);
-        assertEquals(atMain.getPhase(), forge.game.phase.PhaseType.MAIN1, "guest MAIN1 over loopback");
-        assertEquals(atMain.getPlayerTurn().getId(), guestView.getId());
+        assertNotNull(castCard, "guest MAIN1 hand card over loopback");
 
-        CardView handCard = null;
-        for (final CardView c : guestView.getHand()) {
-            if (c != null) {
-                handCard = c;
-                break;
-            }
-        }
-        assertNotNull(handCard, "guest hand card in MAIN1");
-        final int handBefore = guestView.getHand().size();
-        final CardView castCard = handCard;
+        final CardView toCast = castCard;
         final IGameController castCtrl = netCtrl;
-
         forge.gui.GuiBase.getInterface().invokeInEdtNow(
-                () -> castCtrl.selectCard(castCard, null, null));
+                () -> castCtrl.selectCard(toCast, null, null));
         try {
             forge.gui.GuiBase.getInterface().invokeInEdtAndWait(() -> { });
         } catch (final Exception ignored) {
         }
 
         boolean applied = false;
+        final int handBeforeFinal = handBefore;
         final long settle = System.currentTimeMillis() + 30_000;
         while (System.currentTimeMillis() < settle) {
             answerHost(hostRemote, hostGui, false);
@@ -563,14 +575,14 @@ public class CoopDuelServerE2ETest {
             }
             final boolean stillInHand = guestView.getHand() != null
                     && java.util.stream.StreamSupport.stream(guestView.getHand().spliterator(), false)
-                    .anyMatch(c -> c != null && c.getId() == castCard.getId());
-            if (!stillInHand || guestView.getHand().size() < handBefore) {
+                    .anyMatch(c -> c != null && c.getId() == toCast.getId());
+            if (!stillInHand || guestView.getHand().size() < handBeforeFinal) {
                 applied = true;
                 break;
             }
             if (guestView.getBattlefield() != null) {
                 for (final CardView c : guestView.getBattlefield()) {
-                    if (c != null && c.getId() == castCard.getId()) {
+                    if (c != null && c.getId() == toCast.getId()) {
                         applied = true;
                         break;
                     }
@@ -584,8 +596,8 @@ public class CoopDuelServerE2ETest {
         assertTrue(applied,
                 "guest modern cast via NetGameController over FServerManager loopback applied");
 
-        // Clean shutdown: unpause and concede.
-        guestLocalGui.setPauseAutoOk(false);
+        // Clean shutdown: release MAIN1 hold and concede.
+        guestLocalGui.setHoldLocalMain1(false);
         for (final forge.player.PlayerControllerHuman hc : match.getHumanControllers()) {
             if (hc != null && hc.getPlayer() != null
                     && !hc.getPlayer().hasLost() && !hc.getPlayer().conceded()) {

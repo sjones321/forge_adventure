@@ -692,34 +692,6 @@ public class CoopDuelInProcessTest {
         assertNotNull(handCard, "guest hand card available");
         assertNotNull(guestView);
 
-        // Wait until the guest seat is in MAIN1 so playing a land can apply.
-        final long mainWait = System.currentTimeMillis() + 60_000;
-        while (System.currentTimeMillis() < mainWait) {
-            final GameView gv = guestGui.getGameView();
-            if (gv != null && gv.getPhase() == PhaseType.MAIN1
-                    && gv.getPlayerTurn() != null
-                    && guestView.getId() == gv.getPlayerTurn().getId()) {
-                break;
-            }
-            answerOne(hostRemote, hostGui, true, false);
-            answerOne(guestRemote, guestGui, false, false);
-            flushEdt();
-        }
-        assertEquals(guestGui.getGameView().getPhase(), PhaseType.MAIN1,
-                "guest MAIN1 before modern cast");
-        assertEquals(guestGui.getGameView().getPlayerTurn().getId(), guestView.getId(),
-                "guest priority / turn for land play");
-
-        // Refresh hand card from current view (ids can churn across zone sync).
-        handCard = null;
-        for (final CardView c : guestView.getHand()) {
-            if (c != null) {
-                handCard = c;
-                break;
-            }
-        }
-        assertNotNull(handCard, "guest hand card in MAIN1");
-
         final IGameController seatController = guestGui.getGameController(guestView);
         assertNotNull(seatController, "guest seat controller");
 
@@ -749,36 +721,67 @@ public class CoopDuelInProcessTest {
         };
 
         final NetGameController netGuest = new NetGameController(bridge);
-        final CardView castCard = handCard;
-        final int handBefore = guestView.getHand().size();
+
+        // Drive until guest MAIN1, then cast via NetGameController before answering the guest OK.
+        // (Answering guest first would pass priority and skip the cast window.)
+        CardView castCard = null;
+        int handBefore = 0;
+        final long mainWait = System.currentTimeMillis() + 90_000;
+        while (System.currentTimeMillis() < mainWait && castCard == null) {
+            answerOne(hostRemote, hostGui, true, false);
+            flushEdt();
+            final GameView gv = guestGui.getGameView();
+            if (gv != null && gv.getPhase() == PhaseType.MAIN1
+                    && gv.getPlayerTurn() != null
+                    && guestView.getId() == gv.getPlayerTurn().getId()
+                    && guestView.getHand() != null) {
+                for (final CardView c : guestView.getHand()) {
+                    if (c != null) {
+                        castCard = c;
+                        handBefore = guestView.getHand().size();
+                        break;
+                    }
+                }
+                if (castCard != null) {
+                    break;
+                }
+            }
+            // Advance guest only when it is not their MAIN1 cast window.
+            answerOne(guestRemote, guestGui, false, false);
+            flushEdt();
+        }
+        assertNotNull(castCard, "guest MAIN1 hand card for modern cast");
+
+        final CardView toCast = castCard;
         // Same call modern one-press / drag-to-cast uses after ModernDuelActions.Kind.CAST.
         forge.gui.GuiBase.getInterface().invokeInEdtNow(
-                () -> netGuest.selectCard(castCard, null, null));
+                () -> netGuest.selectCard(toCast, null, null));
         flushEdt();
 
         assertEquals(selectCardSends.get(), 1,
                 "NetGameController guest sent selectCard once");
         assertNotNull(sentCard.get());
-        assertEquals(sentCard.get().getId(), castCard.getId(),
+        assertEquals(sentCard.get().getId(), toCast.getId(),
                 "selectCard carried the hand card id");
 
         // Allow the game thread to apply the play when legal (guest MAIN1).
         final long settle = System.currentTimeMillis() + 20_000;
         boolean applied = false;
+        final int handBeforeFinal = handBefore;
         while (System.currentTimeMillis() < settle) {
             answerOne(hostRemote, hostGui, true, false);
-            answerOne(guestRemote, guestGui, false, false);
+            // Do not OK the guest while we wait for the land to resolve.
             flushEdt();
             final boolean stillInHand = guestView.getHand() != null
                     && java.util.stream.StreamSupport.stream(guestView.getHand().spliterator(), false)
-                    .anyMatch(c -> c != null && c.getId() == castCard.getId());
-            if (!stillInHand || guestView.getHand().size() < handBefore) {
+                    .anyMatch(c -> c != null && c.getId() == toCast.getId());
+            if (!stillInHand || guestView.getHand().size() < handBeforeFinal) {
                 applied = true;
                 break;
             }
             if (guestView.getBattlefield() != null) {
                 for (final CardView c : guestView.getBattlefield()) {
-                    if (c != null && c.getId() == castCard.getId()) {
+                    if (c != null && c.getId() == toCast.getId()) {
                         applied = true;
                         break;
                     }
