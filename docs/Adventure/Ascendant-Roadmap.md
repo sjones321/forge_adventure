@@ -800,6 +800,23 @@ with him.
   (shared life) option per format comes with package K.
 - Rewards: each player rolls loot as for their own kill of one enemy (tunable), so a pair isn't worth double.
 
+### RW1. Fight rewards feed the current set (depends on EN1; uses CS0 printings)
+Today a win against a themed enemy gives cards from the enemy's own deck, which are often Historic or off-theme and do
+nothing for the player's current set progress.
+- **One guaranteed signature card** from the beaten enemy: picked from that theme's hand-picked core
+  (`world/enemy_cores/<theme>.json`) that appear in the deck it played, so it feels like *that* enemy's card. Weighted
+  toward cards the player doesn't own yet.
+- **The rest of the card rewards come from the current set**: the set plane the player is on, or on the home plane the
+  newest set in the current rotation. Same rarity rolls as today. These count toward set mastery and achievements.
+- Printings follow CS0 (the signature card uses a normal printing from the rotation if possible; set cards use that
+  set's printing).
+- Gold, dust, materials and item rewards unchanged. Gyms, League, bosses and quest rewards keep their own tables.
+- Co-op (EN2): each player gets their own signature card (from the enemy they're credited with) and their own
+  current-set cards.
+- Tunables: signature count (default 1), current-set share of the remaining card rewards (default 100%).
+- Tests: a win against a merfolk_tribal enemy on a ZEN plane gives exactly one merfolk core card plus ZEN cards; on the
+  home plane the extra cards come from the newest rotation set; stock world unchanged.
+
 ### AC1. Achievements (no hard dependency)
 - **Account-wide, stored outside the save** (next to the Hall of Fame and prestige data) and **kept through
   prestige**.

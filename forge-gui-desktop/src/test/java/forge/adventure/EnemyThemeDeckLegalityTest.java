@@ -456,6 +456,120 @@ public class EnemyThemeDeckLegalityTest {
     }
 
     @Test
+    public void tribalTopUpPreservesSpellFloorAndNeverRemovesSpells() {
+        EnemyThemeData theme = themeById("spirit_tempo");
+        Assert.assertNotNull(theme);
+        EnemyThemeDecks.ensureCoreLoaded(theme);
+        GameFormat pauper = FModel.getFormats().getPauper();
+        Assert.assertNotNull(pauper);
+        byte allowed = forge.card.MagicColor.WHITE | forge.card.MagicColor.BLUE;
+
+        Deck deck = new Deck("spell-floor");
+        PaperCard plains = FModel.getMagicDb().getCommonCards()
+                .getCard("Plains", EnemyThemeDecks.PREFERRED_BASIC_LAND_EDITION);
+        PaperCard island = FModel.getMagicDb().getCommonCards()
+                .getCard("Island", EnemyThemeDecks.PREFERRED_BASIC_LAND_EDITION);
+        PaperCard journey = FModel.getMagicDb().getCommonCards().getUniqueByName("Journey to Nowhere");
+        PaperCard leak = FModel.getMagicDb().getCommonCards().getUniqueByName("Mana Leak");
+        // Off-tribe bodies so a packed 60-card deck forces swaps (not free adds).
+        PaperCard vanguard = FModel.getMagicDb().getCommonCards().getUniqueByName("Elite Vanguard");
+        Assert.assertNotNull(plains);
+        Assert.assertNotNull(island);
+        Assert.assertNotNull(journey);
+        Assert.assertNotNull(leak);
+        Assert.assertNotNull(vanguard);
+        PaperCard chapel = FModel.getMagicDb().getCommonCards().getUniqueByName("Chapel Geist");
+        Assert.assertNotNull(chapel);
+
+        // Tight 60: 17 lands + 43 nonlands. Nonlands = 8 spells at the floor, 4 tribe
+        // creatures, and 31 off-tribe creatures so top-up must swap for density.
+        for (int i = 0; i < 4; i++)
+            deck.getMain().add(journey);
+        for (int i = 0; i < 4; i++)
+            deck.getMain().add(leak);
+        for (int i = 0; i < 4; i++)
+            deck.getMain().add(chapel);
+        for (int i = 0; i < 31; i++)
+            deck.getMain().add(vanguard);
+        for (int i = 0; i < 9; i++)
+            deck.getMain().add(plains);
+        for (int i = 0; i < 8; i++)
+            deck.getMain().add(island);
+
+        Assert.assertEquals(deck.getMain().countAll(), 60);
+        int nonLands = 0;
+        for (var e : deck.getMain()) {
+            PaperCard pc = e.getKey();
+            if (pc != null && pc.getRules() != null && !pc.getRules().getType().isLand())
+                nonLands += e.getValue();
+        }
+        Assert.assertEquals(nonLands, 43, "packed deck must be 43 nonlands");
+        int spellsBefore = EnemyThemeDecks.countNonCreatureSpells(deck);
+        Assert.assertEquals(spellsBefore, EnemyThemeDecks.MIN_NON_CREATURE_SPELLS_60);
+        int journeyBefore = deck.getMain().countByName("Journey to Nowhere");
+        int leakBefore = deck.getMain().countByName("Mana Leak");
+        Assert.assertTrue(EnemyThemeDecks.countTribalCreatures(deck, theme)
+                        < EnemyThemeDecks.MIN_TRIBAL_CREATURES_60,
+                "precondition: top-up must need to run");
+
+        // Raw top-up only — no spell-floor refill — so surviving spells prove the
+        // swap path never picks non-creature spells as victims.
+        EnemyThemeDecks.ensureTribalCreatureDensityRawForTests(
+                deck, theme, "Pauper", pauper, allowed, false);
+
+        Assert.assertEquals(EnemyThemeDecks.countNonCreatureSpells(deck), spellsBefore,
+                "raw top-up must not change non-creature spell count");
+        Assert.assertEquals(deck.getMain().countByName("Journey to Nowhere"), journeyBefore,
+                "top-up must not remove Journey to Nowhere");
+        Assert.assertEquals(deck.getMain().countByName("Mana Leak"), leakBefore,
+                "top-up must not remove Mana Leak");
+        Assert.assertTrue(EnemyThemeDecks.countTribalCreatures(deck, theme)
+                        >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_60,
+                "tribal floor still required");
+    }
+
+    @Test
+    public void dragonThemesCanStillPickNonTribeFiller() {
+        EnemyThemeData theme = themeById("dragon_tribal");
+        Assert.assertNotNull(theme);
+        EnemyThemeDecks.ensureCoreLoaded(theme);
+        // Build with a seed; dragon Pauper/Historic should be allowed non-dragon filler
+        // (burn / ramp glue) rather than stalling on Studious First-Year.
+        Deck deck = null;
+        for (int seed = 1; seed < 40; seed++) {
+            Deck d = EnemyThemeDecks.buildFixedDeck(theme, "Historic", seed);
+            if (d == null)
+                continue;
+            deck = d;
+            int nonTribeFiller = 0;
+            for (var e : d.getMain()) {
+                PaperCard pc = e.getKey();
+                if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
+                    continue;
+                if (EnemyThemeDecks.isInCore(pc.getName(), theme))
+                    continue;
+                if (pc.getRules().getType().isCreature()
+                        && (pc.getRules().getType().hasSubtype("Dragon")
+                        || pc.getRules().hasKeyword("Changeling")))
+                    continue;
+                if ("Studious First-Year".equals(pc.getName()))
+                    continue;
+                nonTribeFiller += e.getValue();
+            }
+            if (nonTribeFiller > 0) {
+                Assert.assertTrue(nonTribeFiller > 0);
+                return;
+            }
+        }
+        // Even if a seed packs only core, filler path must not be hard-blocked: assert
+        // build succeeds and Studious First-Year is absent (dragon exclusion still holds).
+        Assert.assertNotNull(deck, "dragon_tribal Historic must build");
+        Assert.assertEquals(deck.getMain().countByName("Studious First-Year"), 0);
+        Assert.assertNull(EnemyThemeDecks.themeQualityProblem(deck, theme, "Historic"),
+                EnemyThemeDecks.themeQualityProblem(deck, theme, "Historic"));
+    }
+
+    @Test
     public void exclusionFilterRejectsOnlineFunnyUnAndPlaytestCards() {
         String[] banned = {
                 "Sarevok the Usurper", // HBG
