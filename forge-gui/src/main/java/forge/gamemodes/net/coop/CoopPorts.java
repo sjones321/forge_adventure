@@ -14,14 +14,18 @@ public final class CoopPorts {
     /**
      * Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change.
      * CO2 (merged #18) is protocol 5; CO3 is 6.
-     * MV1 plane-follow = 7; MV2 live-world hash + gates = 8.
+     * MV1 {@code CoopPlaneSwitchEvent} = 7.
+     * MV2 = 8: live world hash + host gate list + {@code mv2SetCode} on offer/switch.
+     * EN2 (#44) = 9: host-authoritative {@code lootRolls} on {@code CoopDuelResultEvent}.
+     * <p>
      * Do not pre-assign numbers for open PRs: at review time, merge
      * {@code feature/set-start} and set this to that tip's value + 1.
      * CO5 world-bound partners ({@code CoopPartnerOfferEvent} /
      * {@code CoopPartnerCreateEvent} / {@code CoopPartnerSnapshotEvent} /
-     * {@code CoopPartnerSnapshotAckEvent}) + profile id on hello.
+     * {@code CoopPartnerSnapshotAckEvent}) + profile id on hello → tip 9 + 1 = 10.
+     * Merge order after EN1 follow-up #46: #44, then #40, #45 (this), #42.
      */
-    public static final int PROTOCOL_VERSION = 9;
+    public static final int PROTOCOL_VERSION = 10;
 
     /** Length of the short session code shown by the host. */
     public static final int SESSION_CODE_LENGTH = 8;

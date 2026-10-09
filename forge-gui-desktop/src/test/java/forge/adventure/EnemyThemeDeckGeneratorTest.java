@@ -17,8 +17,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Opt-in maintenance generator for EN1 fixed decks under
@@ -43,7 +45,7 @@ public class EnemyThemeDeckGeneratorTest {
         themes = loadThemes();
         for (EnemyThemeData t : themes)
             EnemyThemeDecks.ensureCoreLoaded(t);
-        Assert.assertEquals(themes.size(), 16, "expected 16 themes");
+        Assert.assertEquals(themes.size(), 18, "expected 18 themes");
         for (EnemyThemeData t : themes) {
             Assert.assertTrue(t.core != null && t.core.length >= EnemyThemeDecks.MIN_CORE_CARDS_IN_DECK,
                     t.id + " core too small");
@@ -58,9 +60,20 @@ public class EnemyThemeDeckGeneratorTest {
             System.out.println("EN1 generator skipped (pass -Den1.generate=true to rewrite res/)");
             return;
         }
+        // Optional filter: -Den1.generate.themes=merfolk_tempo,serpent_leviathan
+        final Set<String> onlyThemes = new HashSet<>();
+        final String filterProp = System.getProperty("en1.generate.themes", "").trim();
+        if (!filterProp.isEmpty()) {
+            for (String part : filterProp.split(",")) {
+                if (part != null && !part.trim().isEmpty())
+                    onlyThemes.add(part.trim());
+            }
+        }
         EnemyThemeDecks.setEnabledForTests(true);
         int wrote = 0;
         for (EnemyThemeData theme : themes) {
+            if (!onlyThemes.isEmpty() && !onlyThemes.contains(theme.id))
+                continue;
             EnemyThemeDecks.ensureCoreLoaded(theme);
             for (String format : new String[]{"Historic", "Pauper", "Commander"}) {
                 Path out = enemyDeckRoot.resolve(theme.id)
