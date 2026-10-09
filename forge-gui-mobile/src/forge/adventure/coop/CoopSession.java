@@ -33,6 +33,7 @@ import forge.gamemodes.net.event.coop.CoopFightLoadoutEvent;
 import forge.gamemodes.net.event.coop.CoopFightRequestResultEvent;
 import forge.gamemodes.net.event.coop.CoopGatherRequestEvent;
 import forge.gamemodes.net.event.coop.CoopGatherResultEvent;
+import forge.gamemodes.net.event.coop.CoopGateUpdateEvent;
 import forge.gamemodes.net.event.coop.CoopHelloEvent;
 import forge.gamemodes.net.event.coop.CoopHelloRejectEvent;
 import forge.gamemodes.net.event.coop.CoopHostPresenceEvent;
@@ -265,6 +266,52 @@ public final class CoopSession {
         } catch (final Exception ignored) {
             // Solo / early init
         }
+    }
+
+    /**
+     * Host: after any planar-gate change on the live world, refresh the cached
+     * hash/gates and push a {@link CoopGateUpdateEvent} to a connected guest.
+     * Safe to call when solo / not READY — then only the cache updates.
+     */
+    public void notifyGatesChanged() {
+        refreshHostLiveWorldHash();
+        pushGateUpdateToGuest();
+    }
+
+    /**
+     * Host: push the current capped gate list + live hash to the guest on the
+     * same plane. Runs hash collection on the GL thread; wire send off Netty.
+     * No-op unless {@link CoopSessionRole#HOST} and {@link State#READY}.
+     */
+    public void pushGateUpdateToGuest() {
+        if (role != CoopSessionRole.HOST || state != State.READY) {
+            return;
+        }
+        final String loadingMsg = Forge.getLocalizer() != null
+                ? Forge.getLocalizer().getMessage("lblLoadingWorld")
+                : "Updating gates…";
+        runWorldOpOnGl(loadingMsg, () -> {
+            final WorldSave save = WorldSave.getCurrentSave();
+            final World w = save.getWorld();
+            refreshHostLiveWorldHash();
+            final String worldPath = w.getWorldConfigPath();
+            if (!PlaneConfigPaths.isAllowed(worldPath, save.getMultiverse())) {
+                status("Refusing gate update — disallowed worldConfigPath " + worldPath);
+                return;
+            }
+            final CoopGateUpdateEvent update = new CoopGateUpdateEvent(
+                    save.getCurrentPlaneId(),
+                    worldPath,
+                    w.getSeed(),
+                    CoopWorldSync.hostMv2SetCode(save),
+                    worldHash,
+                    cachedGates);
+            runOffNetty(() -> {
+                send(update);
+                status("Pushed gate update (" + update.getGates().length + " gates) hash "
+                        + worldHash.substring(0, Math.min(8, worldHash.length())) + "…");
+            });
+        });
     }
 
     /**
@@ -1095,6 +1142,8 @@ public final class CoopSession {
                 onWorldOffer((CoopWorldOfferEvent) event);
             } else if (event instanceof CoopPlaneSwitchEvent) {
                 onPlaneSwitch((CoopPlaneSwitchEvent) event);
+            } else if (event instanceof CoopGateUpdateEvent) {
+                onGateUpdate((CoopGateUpdateEvent) event);
             } else if (event instanceof CoopDisconnectEvent) {
                 endGuestSession(((CoopDisconnectEvent) event).getReason(), true);
             } else {
@@ -1221,6 +1270,67 @@ public final class CoopSession {
                     } catch (final Exception ignored) {
                     }
                     status("Plane switch failed: " + e.getMessage());
+                }
+            });
+        }
+
+        /**
+         * Mid-session gate change on the current plane: rebuild + replay gates,
+         * verify host live hash. Keeps guest position (unlike plane switch).
+         */
+        private void onGateUpdate(final CoopGateUpdateEvent event) {
+            if (state != State.READY) {
+                return;
+            }
+            final String worldPath = event.getWorldConfigPath() != null && !event.getWorldConfigPath().isEmpty()
+                    ? event.getWorldConfigPath() : Paths.WORLD;
+            if (!PlaneConfigPaths.isAllowed(worldPath, WorldSave.getCurrentSave().getMultiverse())) {
+                status("Rejected gate update path: " + worldPath + " — sessionWorld unchanged");
+                return;
+            }
+            final String loadingMsg = Forge.getLocalizer() != null
+                    ? Forge.getLocalizer().getMessage("lblGeneratingWorld")
+                    : "Updating gates…";
+            runWorldOpOnGl(loadingMsg, () -> {
+                World staging = new World();
+                try {
+                    final String planeId = event.getWorldPlaneId() != null && !event.getWorldPlaneId().isEmpty()
+                            ? event.getWorldPlaneId() : PlaneMeta.HOME_ID;
+                    final String localHash = CoopWorldSync.rebuildFromSeed(
+                            staging, event.getWorldSeed(), worldPath, event.getMv2SetCode(),
+                            event.getGates());
+                    if (!CoopWorldHash.matches(localHash, event.getWorldHash())) {
+                        try {
+                            staging.dispose();
+                        } catch (final Exception ignored) {
+                        }
+                        // Detected divergence — do not silently accept a wrong world.
+                        status("Gate update hash mismatch — sessionWorld unchanged");
+                        return;
+                    }
+                    final World previous = sessionWorld;
+                    sessionWorld = staging;
+                    worldHash = localHash;
+                    guestWorldPlaneId = planeId;
+                    if (previous != null && previous != staging) {
+                        try {
+                            previous.dispose();
+                        } catch (final Exception ignored) {
+                        }
+                    }
+                    try {
+                        final AdventurePlayer ap = WorldSave.getCurrentSave().getPlayer();
+                        applyGuestSessionWorldRender(ap.getWorldPosX(), ap.getWorldPosY());
+                    } catch (final Exception stageEx) {
+                        status("Gates applied; stage rebuild partial: " + stageEx.getMessage());
+                    }
+                    status("Applied host gate update (" + event.getGates().length + " gates)");
+                } catch (final Exception e) {
+                    try {
+                        staging.dispose();
+                    } catch (final Exception ignored) {
+                    }
+                    status("Gate update failed: " + e.getMessage());
                 }
             });
         }

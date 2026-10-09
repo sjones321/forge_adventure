@@ -180,6 +180,19 @@ public final class CoopWorldSync {
     }
 
     /**
+     * Guest mid-session gate update: rebuild from seed, replay host gates, and
+     * report whether the local hash matches the host's live hash.
+     * Used by {@code CoopGateUpdateEvent} handling and non-GL unit tests.
+     */
+    public static boolean gateUpdateMatchesHost(final World target, final long seed,
+                                                final String worldConfigPath, final String mv2SetCode,
+                                                final CoopPlanarGateEntry[] gates,
+                                                final String hostLiveHash) {
+        final String local = rebuildFromSeed(target, seed, worldConfigPath, mv2SetCode, gates);
+        return CoopWorldHash.matches(local, hostLiveHash);
+    }
+
+    /**
      * Rebuild for co-op hash verification: generate from seed (+ optional MV2
      * customisation), replay host gates, return the live-equivalent hash.
      */

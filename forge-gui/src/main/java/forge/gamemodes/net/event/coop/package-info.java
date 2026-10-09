@@ -22,6 +22,7 @@
  * {@code FServerManager} / {@code FGameClient}, started only for co-op duels.
  *
  * <p>Protocol: CO2 is 5; CO3 is 6; MV1 plane-follow ({@link CoopPlaneSwitchEvent}) is 7;
- * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8.
+ * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8;
+ * TR1 trading is reserved for 9; MV2 mid-session gate-delta ({@link CoopGateUpdateEvent}) is 10.
  */
 package forge.gamemodes.net.event.coop;

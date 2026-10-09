@@ -198,10 +198,13 @@ public final class PlanarPortalPlacer {
         }
     }
 
-    /** After host gate placement: refresh co-op live-world hash if hosting. */
+    /**
+     * After host gate placement: refresh co-op live-world hash and, when a guest
+     * is connected, push a mid-session gate-delta so the guest re-hashes.
+     */
     private static void notifyCoopHashRefresh() {
         try {
-            forge.adventure.coop.CoopSession.get().refreshHostLiveWorldHash();
+            forge.adventure.coop.CoopSession.get().notifyGatesChanged();
         } catch (Throwable ignored) {
             // Co-op optional / headless
         }
