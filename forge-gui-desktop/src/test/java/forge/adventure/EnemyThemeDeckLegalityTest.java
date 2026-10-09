@@ -4,6 +4,7 @@ import forge.adventure.data.EnemyThemeCatalogData;
 import forge.adventure.data.EnemyThemeData;
 import forge.adventure.data.EnemyThemeRecipeData;
 import forge.adventure.player.StandardWindow;
+import forge.adventure.util.En1TestUserDir;
 import forge.adventure.util.EnemyThemeDecks;
 import forge.deck.Deck;
 import forge.deck.DeckFormat;
@@ -15,6 +16,7 @@ import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.model.FModel;
 import forge.net.TestUtils;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -34,20 +36,33 @@ import java.util.Set;
  * <p>
  * Lives in forge-gui-desktop so {@link TestUtils#ensureFModelInitialized()} / card DB
  * are available. Outside forge-gui-mobile by necessity.
+ * <p>
+ * Isolated temp Forge user dir — must not touch a real {@code USER_ADVENTURE_DIR}.
  */
 public class EnemyThemeDeckLegalityTest {
 
+    private static En1TestUserDir userDir;
     private static Path enemyDeckRoot;
     private static List<EnemyThemeData> themes;
 
     @BeforeClass
     public void init() throws Exception {
+        userDir = En1TestUserDir.install();
         TestUtils.ensureFModelInitialized();
         FModel.getPreferences().setPref(FPref.ENFORCE_DECK_LEGALITY, false);
 
         enemyDeckRoot = resolveEnemyDeckRoot();
         themes = loadThemesFromJson();
         Assert.assertFalse(themes.isEmpty(), "no themes loaded from enemy_themes.json");
+    }
+
+    @AfterClass(alwaysRun = true)
+    public void restoreUserDir() throws Exception {
+        if (userDir != null) {
+            userDir.assertRealUserDirUnchanged();
+            userDir.close();
+            userDir = null;
+        }
     }
 
     @Test
@@ -189,6 +204,12 @@ public class EnemyThemeDeckLegalityTest {
         Assert.assertTrue(problems.isEmpty(),
                 checked + " decks checked; quality/restricted/Alchemy problems:\n"
                         + String.join("\n", problems));
+    }
+
+    @Test
+    public void realForgeUserDirUnchanged() throws Exception {
+        Assert.assertNotNull(userDir);
+        userDir.assertRealUserDirUnchanged();
     }
 
     @Test
