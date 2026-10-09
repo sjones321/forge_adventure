@@ -115,7 +115,7 @@ public final class AdventureGlTestSupport {
         try {
             String assets = Files.exists(Paths.get("./forge-gui")) ? "./forge-gui/"
                     : Files.exists(Paths.get("./res")) ? "./" : "../forge-gui/";
-            // Suite listener should already have installed GuiMobile; reinforce here.
+            // Default suite keeps headless GuiBase (CO1); GL tests need GuiMobile.
             if (!(GuiBase.getInterface() instanceof GuiMobile)) {
                 GuiBase.setInterface(new GuiMobile(assets));
             }
