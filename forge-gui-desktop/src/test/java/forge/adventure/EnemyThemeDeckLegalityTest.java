@@ -257,6 +257,70 @@ public class EnemyThemeDeckLegalityTest {
     }
 
     @Test
+    public void noFixedDeckContainsEnemyBannedCards() {
+        Set<String> banned = loadEnemyBannedNames();
+        Assert.assertTrue(banned.size() >= 30, "enemy_banned.json too small: " + banned.size());
+        List<String> problems = new ArrayList<>();
+        int checked = 0;
+        for (EnemyThemeData theme : themes) {
+            for (String format : new String[]{"Historic", "Pauper", "Commander"}) {
+                for (Path deckPath : listFixedDecks(theme.id, format)) {
+                    checked++;
+                    Deck deck = DeckSerializer.fromFile(deckPath.toFile());
+                    if (deck == null) {
+                        problems.add(deckPath + ": failed to parse");
+                        continue;
+                    }
+                    deck.getMain();
+                    if (deck.has(DeckSection.Commander))
+                        deck.get(DeckSection.Commander);
+                    for (var e : deck.getAllCardsInASinglePool(true, false)) {
+                        PaperCard pc = e.getKey();
+                        if (pc != null && banned.contains(pc.getName()))
+                            problems.add(deckPath.getFileName() + " [" + format + "]: banned "
+                                    + pc.getName());
+                    }
+                }
+            }
+        }
+        Assert.assertTrue(checked >= themes.size() * 3, "expected fixed decks, checked " + checked);
+        Assert.assertTrue(problems.isEmpty(),
+                checked + " decks checked; enemy-banned cards:\n" + String.join("\n", problems));
+    }
+
+    @Test
+    public void noFixedDeckUsesUnreleasedOrPromoOnlyBasics() {
+        List<String> problems = new ArrayList<>();
+        int checked = 0;
+        for (EnemyThemeData theme : themes) {
+            for (String format : new String[]{"Historic", "Pauper", "Commander"}) {
+                for (Path deckPath : listFixedDecks(theme.id, format)) {
+                    checked++;
+                    Deck deck = DeckSerializer.fromFile(deckPath.toFile());
+                    if (deck == null) {
+                        problems.add(deckPath + ": failed to parse");
+                        continue;
+                    }
+                    for (var e : deck.getMain()) {
+                        PaperCard pc = e.getKey();
+                        if (pc == null || pc.getRules() == null || !pc.getRules().getType().isBasicLand())
+                            continue;
+                        String ed = pc.getEdition();
+                        if (EnemyThemeDecks.isUnreleasedOrPromoOnlyEdition(ed)
+                                || "TRK".equalsIgnoreCase(ed) || "PF27".equalsIgnoreCase(ed))
+                            problems.add(deckPath.getFileName() + " [" + format + "]: basic "
+                                    + pc.getName() + "|" + ed);
+                    }
+                }
+            }
+        }
+        Assert.assertTrue(checked >= themes.size() * 3, "expected fixed decks, checked " + checked);
+        Assert.assertTrue(problems.isEmpty(),
+                checked + " decks checked; unreleased/promo basics:\n"
+                        + String.join("\n", problems));
+    }
+
+    @Test
     public void exclusionFilterRejectsOnlineFunnyUnAndPlaytestCards() {
         String[] banned = {
                 "Sarevok the Usurper", // HBG
@@ -581,6 +645,37 @@ public class EnemyThemeDeckLegalityTest {
             }
         }
         return list;
+    }
+
+    private static Set<String> loadEnemyBannedNames() {
+        Path[] candidates = {
+                enemyDeckRoot.getParent().getParent().resolve("world/enemy_banned.json"),
+                Paths.get("forge-gui/res/adventure/common/world/enemy_banned.json"),
+                Paths.get("../forge-gui/res/adventure/common/world/enemy_banned.json")
+        };
+        Path json = null;
+        for (Path p : candidates) {
+            if (Files.isRegularFile(p)) {
+                json = p;
+                break;
+            }
+        }
+        Assert.assertNotNull(json, "enemy_banned.json not found");
+        Set<String> banned = new HashSet<>();
+        try {
+            for (String line : Files.readString(json, StandardCharsets.UTF_8).split("\n")) {
+                String t = line.trim();
+                if (t.startsWith("\"") && !t.startsWith("\"cards\"")) {
+                    int q1 = t.indexOf('"');
+                    int q2 = t.indexOf('"', q1 + 1);
+                    if (q1 >= 0 && q2 > q1)
+                        banned.add(t.substring(q1 + 1, q2));
+                }
+            }
+        } catch (Exception e) {
+            Assert.fail("failed to read enemy_banned.json: " + e);
+        }
+        return banned;
     }
 
     private static String jsonString(String line) {

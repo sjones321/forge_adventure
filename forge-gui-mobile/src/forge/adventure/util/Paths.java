@@ -23,6 +23,8 @@ public class Paths {
     public static final String ENEMY_THEMES = "world/enemy_themes.json";
     /** Per-theme hand-picked cores: {@code world/enemy_cores/<themeId>.json}. */
     public static final String ENEMY_CORES_DIR = "world/enemy_cores/";
+    /** EN1 overworld power-level ban list (tournament staples / shocklands). */
+    public static final String ENEMY_BANNED = "world/enemy_banned.json";
     public static final String QUESTS = "world/quests.json";
     public static final String SKIN = "skin/ui_skin.json";
     public static final String ITEMS_EQUIP = "skin/equip.png";

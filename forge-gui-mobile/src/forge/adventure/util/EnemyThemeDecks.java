@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -74,18 +75,22 @@ public final class EnemyThemeDecks {
     public static final int MAX_FILLER_NONLAND = 8;
     /** Maximum generated non-core non-land filler slots in a Commander fixed deck. */
     public static final int MAX_FILLER_COMMANDER = 10;
-    public static final int MIN_LANDS_60 = 15;
+    public static final int MIN_LANDS_60 = 16;
     public static final int MAX_LANDS_60 = 18;
     public static final int TARGET_LANDS_60 = 17;
     /** Commander mana-base band (total lands including fixing). */
-    public static final int MIN_LANDS_COMMANDER = 32;
-    public static final int MAX_LANDS_COMMANDER = 40;
+    public static final int MIN_LANDS_COMMANDER = 35;
+    public static final int MAX_LANDS_COMMANDER = 39;
     public static final int TARGET_LANDS_COMMANDER = 36;
     public static final int TARGET_LANDS_COMMANDER_RAMP = 37;
     /** Minimum non-land cards in a Commander fixed deck (main + commander). */
     public static final int MIN_NONLAND_COMMANDER = 58;
     /** Minimum Dragon creature cards in dragon_* Historic decks. */
     public static final int MIN_DRAGONS_HISTORIC = 12;
+    /** Minimum tribe creatures (incl. changelings) in 60-card tribal decks. */
+    public static final int MIN_TRIBAL_CREATURES_60 = 16;
+    /** Minimum tribe creatures (incl. changelings) in Commander tribal decks. */
+    public static final int MIN_TRIBAL_CREATURES_COMMANDER = 25;
     /** Minimum non-creature spells in a 60-card fixed deck. */
     public static final int MIN_NON_CREATURE_SPELLS_60 = 8;
     /** Max average CMC for non-ramp 60-card themes. */
@@ -111,6 +116,7 @@ public final class EnemyThemeDecks {
     private static final Map<String, List<PaperCard>> windowPoolCache = new HashMap<>();
     private static Set<String> cachedRestrictedNames;
     private static Set<String> cachedRestrictedEditions;
+    private static Set<String> cachedEnemyBannedNames;
 
     private EnemyThemeDecks() {
     }
@@ -127,6 +133,7 @@ public final class EnemyThemeDecks {
             windowPoolCache.clear();
             cachedRestrictedNames = null;
             cachedRestrictedEditions = null;
+            cachedEnemyBannedNames = null;
         }
     }
 
@@ -145,6 +152,7 @@ public final class EnemyThemeDecks {
             cachedWindowLegalNames = null;
             cachedRestrictedNames = null;
             cachedRestrictedEditions = null;
+            cachedEnemyBannedNames = null;
             if (catalog.themes == null)
                 return;
             for (EnemyThemeData t : catalog.themes) {
@@ -449,7 +457,8 @@ public final class EnemyThemeDecks {
                 for (String name : keys) {
                     if (name == null || name.isEmpty() || used.contains(name))
                         continue;
-                    if (isRestrictedCardName(name) || isAdventureBanned("standard", name))
+                    if (isRestrictedCardName(name) || isEnemyBanned(name)
+                            || isAdventureBanned("standard", name))
                         continue;
                     if (!windowLegalName(window, name))
                         continue;
@@ -575,8 +584,9 @@ public final class EnemyThemeDecks {
 
     /**
      * True when every printing of this card is unusable in Ascendant enemy decks:
-     * Alchemy/rebalanced, Online-only, Funny/Un-sets, or {@code restrictedEditions}.
-     * Cards that also have a normal paper printing are allowed.
+     * Alchemy/rebalanced, Online-only, Funny/Un-sets, {@code restrictedEditions},
+     * or the EN1 overworld power-level ban list ({@link Paths#ENEMY_BANNED}).
+     * Cards that also have a normal paper printing are allowed (unless name-banned).
      */
     public static boolean isExcludedFromAdventureDecks(PaperCard pc) {
         if (pc == null)
@@ -584,7 +594,7 @@ public final class EnemyThemeDecks {
         String name = pc.getName();
         if (name == null || name.isEmpty())
             return true;
-        if (isRestrictedCardName(name))
+        if (isRestrictedCardName(name) || isEnemyBanned(name))
             return true;
         try {
             if (pc.isRebalanced())
@@ -622,6 +632,13 @@ public final class EnemyThemeDecks {
         if (name == null || name.isEmpty())
             return false;
         return restrictedNames().contains(name);
+    }
+
+    /** True when {@code name} is on the EN1 overworld power-level ban list. */
+    public static boolean isEnemyBanned(String name) {
+        if (name == null || name.isEmpty())
+            return false;
+        return enemyBannedNames().contains(name);
     }
 
     /**
@@ -715,6 +732,9 @@ public final class EnemyThemeDecks {
         if (code == null || code.isEmpty())
             return true;
         String ed = code.trim();
+        // Not-yet-released / promo-fest codes must never appear in enemy decks.
+        if (ed.equalsIgnoreCase("TRK") || ed.equalsIgnoreCase("PF27"))
+            return true;
         if (ed.length() >= 2 && (ed.charAt(0) == 'Y' || ed.charAt(0) == 'y'))
             return true;
         if (ed.regionMatches(true, 0, "OM", 0, 2))
@@ -729,6 +749,31 @@ public final class EnemyThemeDecks {
             if (type == CardEdition.Type.ONLINE || type == CardEdition.Type.FUNNY)
                 return true;
             if (edition.getBorderColor() == CardEdition.BorderColor.SILVER)
+                return true;
+        } catch (Throwable e) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Basics must use ordinary printings from released non-promo sets.
+     * Unreleased dates, promo-only editions, TRK, and PF27 fail this check.
+     */
+    public static boolean isUnreleasedOrPromoOnlyEdition(String code) {
+        if (code == null || code.isEmpty())
+            return true;
+        String ed = code.trim();
+        if (ed.equalsIgnoreCase("TRK") || ed.equalsIgnoreCase("PF27"))
+            return true;
+        try {
+            CardEdition edition = FModel.getMagicDb().getEditions().get(ed);
+            if (edition == null)
+                return true;
+            if (edition.getType() == CardEdition.Type.PROMO)
+                return true;
+            Date date = edition.getDate();
+            if (date != null && date.after(new Date()))
                 return true;
         } catch (Throwable e) {
             return true;
@@ -805,7 +850,7 @@ public final class EnemyThemeDecks {
                             + " too high for non-ramp theme (max " + MAX_AVG_CMC_NON_RAMP + ")";
             }
             if (FORMAT_HISTORIC.equals(fmt) && theme.id != null && theme.id.contains("dragon")) {
-                int dragons = countCreatureType(deck, "Dragon");
+                int dragons = countTribalCreatures(deck, theme);
                 if (dragons < MIN_DRAGONS_HISTORIC)
                     return "only " + dragons + " Dragons (need " + MIN_DRAGONS_HISTORIC + ")";
                 int sprawl = 0;
@@ -822,16 +867,22 @@ public final class EnemyThemeDecks {
                 if (sprawl > forests)
                     return "Utopia Sprawl x" + sprawl + " with only " + forests + " Forests";
             }
+            String tribal = tribalCreatureCountProblem(deck, theme, fmt);
+            if (tribal != null)
+                return tribal;
         }
         if (FORMAT_COMMANDER.equals(fmt)) {
             int nonLand = countNonLandsAll(deck);
             if (nonLand < MIN_NONLAND_COMMANDER)
                 return "only " + nonLand + " nonland cards (need " + MIN_NONLAND_COMMANDER + ")";
+            String tribal = tribalCreatureCountProblem(deck, theme, fmt);
+            if (tribal != null)
+                return tribal;
         }
         return null;
     }
 
-    /** Land-count gate: 15–18 for 60-card; 32–40 for Commander. */
+    /** Land-count gate: 16–18 for 60-card; 35–39 for Commander. */
     public static String landCountProblem(Deck deck, String format) {
         if (deck == null)
             return "deck is null";
@@ -858,10 +909,70 @@ public final class EnemyThemeDecks {
             PaperCard pc = e.getKey();
             if (pc == null || pc.getRules() == null)
                 continue;
-            if (pc.getRules().getType().isCreature() && pc.getRules().getType().hasSubtype(type))
+            if (!pc.getRules().getType().isCreature())
+                continue;
+            boolean changeling = false;
+            try {
+                changeling = pc.getRules().hasKeyword("Changeling");
+            } catch (Throwable ignored) {
+            }
+            if (changeling || pc.getRules().getType().hasSubtype(type))
                 n += e.getValue();
         }
         return n;
+    }
+
+    /** Creatures matching any of {@code theme.creatureTypes}, counting changelings. */
+    public static int countTribalCreatures(Deck deck, EnemyThemeData theme) {
+        if (deck == null || theme == null || theme.creatureTypes == null
+                || theme.creatureTypes.length == 0)
+            return 0;
+        int n = 0;
+        for (var e : deck.getAllCardsInASinglePool(true, false)) {
+            PaperCard pc = e.getKey();
+            if (pc == null || pc.getRules() == null || !pc.getRules().getType().isCreature())
+                continue;
+            boolean changeling = false;
+            try {
+                changeling = pc.getRules().hasKeyword("Changeling");
+            } catch (Throwable ignored) {
+            }
+            if (changeling) {
+                n += e.getValue();
+                continue;
+            }
+            for (String t : theme.creatureTypes) {
+                if (t != null && !t.isEmpty() && pc.getRules().getType().hasSubtype(t)) {
+                    n += e.getValue();
+                    break;
+                }
+            }
+        }
+        return n;
+    }
+
+    /** Tribal themes need a real creature-type density, not merely core membership. */
+    public static String tribalCreatureCountProblem(Deck deck, EnemyThemeData theme, String format) {
+        if (deck == null || theme == null || !isTribalTheme(theme))
+            return null;
+        String fmt = normalizeFormat(format);
+        int have = countTribalCreatures(deck, theme);
+        int need = FORMAT_COMMANDER.equals(fmt) ? MIN_TRIBAL_CREATURES_COMMANDER
+                : MIN_TRIBAL_CREATURES_60;
+        if (have < need)
+            return "only " + have + " tribe creatures (need ~" + need + ")";
+        return null;
+    }
+
+    private static boolean isTribalTheme(EnemyThemeData theme) {
+        if (theme == null || theme.id == null || theme.creatureTypes == null
+                || theme.creatureTypes.length == 0)
+            return false;
+        String id = theme.id;
+        return id.contains("tribal") || id.contains("spirit") || id.contains("kraken")
+                || id.contains("goblin") || id.contains("zombie") || id.contains("elf")
+                || id.contains("vampire") || id.contains("dragon") || id.contains("soldier")
+                || id.contains("knight");
     }
 
     public static int countNonLandsAll(Deck deck) {
@@ -1383,8 +1494,51 @@ public final class EnemyThemeDecks {
             // Always block Un-/playtest / mystery-booster codes even without Config.
             Collections.addAll(set, "UST", "UGL", "UNH", "UND", "UNF", "PUST",
                     "CMB1", "CMB2", "MB2", "MBC", "HHO", "PCEL", "DA1", "PPC1",
-                    "HTR", "HTR17", "HTR18", "HTR19", "HTR20");
+                    "HTR", "HTR17", "HTR18", "HTR19", "HTR20", "TRK", "PF27");
             cachedRestrictedEditions = set;
+            return set;
+        }
+    }
+
+    private static Set<String> enemyBannedNames() {
+        synchronized (LOCK) {
+            if (cachedEnemyBannedNames != null)
+                return cachedEnemyBannedNames;
+            Set<String> set = new HashSet<>();
+            try {
+                FileHandle handle = Config.instance().getFile(Paths.ENEMY_BANNED);
+                if (handle == null || !handle.exists()) {
+                    java.nio.file.Path alt = java.nio.file.Paths.get(
+                            "forge-gui/res/adventure/common/world/enemy_banned.json");
+                    if (!Files.isRegularFile(alt))
+                        alt = java.nio.file.Paths.get(
+                                "../forge-gui/res/adventure/common/world/enemy_banned.json");
+                    if (Files.isRegularFile(alt))
+                        handle = new FileHandle(alt.toFile());
+                }
+                if (handle != null && handle.exists()) {
+                    EnemyThemeCoreData parsed = new Json().fromJson(EnemyThemeCoreData.class, handle);
+                    if (parsed != null && parsed.cards != null)
+                        Collections.addAll(set, parsed.cards);
+                }
+            } catch (Throwable e) {
+                LOG.log(Level.WARNING, "EN1: failed to load enemy_banned.json", e);
+            }
+            // Hard-coded fallback so tests still see the power-level list without Config.
+            if (set.isEmpty()) {
+                Collections.addAll(set,
+                        "Ragavan, Nimble Pilferer", "Dockside Extortionist", "Deflecting Swat",
+                        "Skullclamp", "Goblin Recruiter", "Necropotence", "Bolas's Citadel",
+                        "Sheoldred, the Apocalypse", "Aetherflux Reservoir", "Toxic Deluge",
+                        "Damnation", "Deadly Rollick", "Living Death", "Bitterblossom",
+                        "Phyrexian Altar", "Grave Pact", "Dictate of Erebos", "Rhystic Study",
+                        "Cyclonic Rift", "Mystic Remora", "Fierce Guardianship", "Thassa's Oracle",
+                        "The Scarab God", "Smothering Tithe", "Teferi's Protection", "Esper Sentinel",
+                        "Collected Company", "Chord of Calling", "Blood Crypt", "Breeding Pool",
+                        "Godless Shrine", "Hallowed Fountain", "Overgrown Tomb", "Sacred Foundry",
+                        "Steam Vents", "Stomping Ground", "Temple Garden", "Watery Grave");
+            }
+            cachedEnemyBannedNames = set;
             return set;
         }
     }
@@ -1446,7 +1600,7 @@ public final class EnemyThemeDecks {
                     continue;
                 if (!legal.contains(pc.getName()))
                     continue;
-                if (isAdventureBanned("standard", pc.getName()))
+                if (isEnemyBanned(pc.getName()) || isAdventureBanned("standard", pc.getName()))
                     continue;
                 if (tribe != null && !tribe.isEmpty()) {
                     boolean tribal = pc.getRules().getType().hasSubtype(tribe);
@@ -1704,15 +1858,27 @@ public final class EnemyThemeDecks {
             Collection<PaperCard> all = FModel.getMagicDb().getCommonCards().getAllCards(name);
             if (all != null) {
                 PaperCard any = null;
+                PaperCard good = null;
+                PaperCard released = null;
                 for (PaperCard p : all) {
                     if (p == null)
                         continue;
                     if (any == null)
                         any = p;
-                    // Prefer a paper / non-excluded printing for decklists.
-                    if (!isBadEditionCode(p.getEdition()))
-                        return p;
+                    if (isBadEditionCode(p.getEdition()))
+                        continue;
+                    if (good == null)
+                        good = p;
+                    // Basics: prefer ordinary released non-promo printings.
+                    if (!isUnreleasedOrPromoOnlyEdition(p.getEdition())) {
+                        released = p;
+                        break;
+                    }
                 }
+                if (released != null)
+                    return released;
+                if (good != null)
+                    return good;
                 // All printings excluded — still return one so callers can detect exclusion.
                 if (any != null)
                     return any;
@@ -1743,7 +1909,7 @@ public final class EnemyThemeDecks {
     /**
      * Builds a fixed-format deck for a theme (Historic, Pauper, or Commander).
      * Hand-picked {@link EnemyThemeData#core} first, then limited generated filler,
-     * then lands (15–18 for 60-card; ~35–38 for Commander with CI fixing).
+     * then lands (16–18 for 60-card; 35–39 for Commander with CI fixing).
      */
     public static Deck buildFixedDeck(EnemyThemeData theme, String format, long seed) {
         String fmt = normalizeFormat(format);
@@ -1823,6 +1989,22 @@ public final class EnemyThemeDecks {
                         remove = pc;
                         break;
                     }
+                }
+            }
+            if (remove == null)
+                break;
+            deck.getMain().remove(remove);
+        }
+        enforceFillerCap(deck, theme, maxFiller);
+        ensureTribalCreatureDensity(deck, theme, FORMAT_COMMANDER, null, ci, true);
+        rebuildCommanderManaBase(deck, ci, landBudget);
+        stripCommanderDuplicates(deck);
+        while (deck.getMain().countAll() > needMain) {
+            PaperCard remove = null;
+            for (PaperCard pc : deck.getMain().toFlatList()) {
+                if (pc.getRules().getType().isBasicLand()) {
+                    remove = pc;
+                    break;
                 }
             }
             if (remove == null)
@@ -1969,29 +2151,29 @@ public final class EnemyThemeDecks {
             return;
         CardPool main = deck.getOrCreate(DeckSection.Main);
         List<String> fixers = new ArrayList<>();
-        Collections.addAll(fixers, "Command Tower", "Path of Ancestry", "Exotic Orchard",
+        Collections.addAll(fixers, "Command Tower", "Exotic Orchard",
                 "Evolving Wilds", "Terramorphic Expanse", "Myriad Landscape", "Ash Barrens");
-        // Allied/enemy taps and common duals that stay within CI.
+        // Bounce / check lands within CI — no shocklands (EN1 power-level ban).
         if ((ci & MagicColor.WHITE) != 0 && (ci & MagicColor.BLUE) != 0)
-            Collections.addAll(fixers, "Azorius Chancery", "Glacial Fortress", "Hallowed Fountain");
+            Collections.addAll(fixers, "Azorius Chancery", "Glacial Fortress", "Tranquil Cove");
         if ((ci & MagicColor.BLUE) != 0 && (ci & MagicColor.BLACK) != 0)
-            Collections.addAll(fixers, "Dimir Aqueduct", "Drowned Catacomb", "Watery Grave");
+            Collections.addAll(fixers, "Dimir Aqueduct", "Drowned Catacomb", "Dismal Backwater");
         if ((ci & MagicColor.BLACK) != 0 && (ci & MagicColor.RED) != 0)
-            Collections.addAll(fixers, "Rakdos Carnarium", "Dragonskull Summit", "Blood Crypt");
+            Collections.addAll(fixers, "Rakdos Carnarium", "Dragonskull Summit", "Bloodfell Caves");
         if ((ci & MagicColor.RED) != 0 && (ci & MagicColor.GREEN) != 0)
-            Collections.addAll(fixers, "Gruul Turf", "Rootbound Crag", "Stomping Ground");
+            Collections.addAll(fixers, "Gruul Turf", "Rootbound Crag", "Rugged Highlands");
         if ((ci & MagicColor.GREEN) != 0 && (ci & MagicColor.WHITE) != 0)
-            Collections.addAll(fixers, "Selesnya Sanctuary", "Sunpetal Grove", "Temple Garden");
+            Collections.addAll(fixers, "Selesnya Sanctuary", "Sunpetal Grove", "Blossoming Sands");
         if ((ci & MagicColor.WHITE) != 0 && (ci & MagicColor.BLACK) != 0)
-            Collections.addAll(fixers, "Orzhov Basilica", "Isolated Chapel", "Godless Shrine");
+            Collections.addAll(fixers, "Orzhov Basilica", "Isolated Chapel", "Scoured Barrens");
         if ((ci & MagicColor.BLUE) != 0 && (ci & MagicColor.RED) != 0)
-            Collections.addAll(fixers, "Izzet Boilerworks", "Sulfur Falls", "Steam Vents");
+            Collections.addAll(fixers, "Izzet Boilerworks", "Sulfur Falls", "Swiftwater Cliffs");
         if ((ci & MagicColor.BLACK) != 0 && (ci & MagicColor.GREEN) != 0)
-            Collections.addAll(fixers, "Golgari Rot Farm", "Woodland Cemetery", "Overgrown Tomb");
+            Collections.addAll(fixers, "Golgari Rot Farm", "Woodland Cemetery", "Jungle Hollow");
         if ((ci & MagicColor.RED) != 0 && (ci & MagicColor.WHITE) != 0)
-            Collections.addAll(fixers, "Boros Garrison", "Clifftop Retreat", "Sacred Foundry");
+            Collections.addAll(fixers, "Boros Garrison", "Clifftop Retreat", "Wind-Scarred Crag");
         if ((ci & MagicColor.GREEN) != 0 && (ci & MagicColor.BLUE) != 0)
-            Collections.addAll(fixers, "Simic Growth Chamber", "Hinterland Harbor", "Breeding Pool");
+            Collections.addAll(fixers, "Simic Growth Chamber", "Hinterland Harbor", "Thornwood Falls");
         if (colors >= 3)
             Collections.addAll(fixers, "Cascading Cataracts", "Reliquary Tower", "Rogue's Passage");
 
@@ -2043,19 +2225,19 @@ public final class EnemyThemeDecks {
     }
 
     private static PaperCard pickCommander(EnemyThemeData theme, long seed) {
-        if (theme.preferredCommanders != null) {
-            for (String name : theme.preferredCommanders) {
-                if (isRestrictedCardName(name))
-                    continue;
-                PaperCard pc = cardByName(name);
-                if (pc != null && !isExcludedFromAdventureDecks(pc)
-                        && DeckFormat.Commander.isLegalCommander(pc.getRules()))
-                    return pc;
-            }
-        }
+        byte themeColors = colorMask(theme.colors);
+        // 1) Preferred commanders inside the theme's colors.
+        PaperCard inTheme = firstPreferredCommander(theme, themeColors, true);
+        if (inTheme != null)
+            return inTheme;
+        // 2) Preferred commanders that add colors (Ur-Dragon, Edgar, Millicent, …).
+        PaperCard anyPreferred = firstPreferredCommander(theme, themeColors, false);
+        if (anyPreferred != null)
+            return anyPreferred;
         String tribe = firstCreatureType(theme);
-        byte allowed = colorMask(theme.colors);
-        List<PaperCard> candidates = new ArrayList<>();
+        byte allowed = themeColors;
+        List<PaperCard> inColor = new ArrayList<>();
+        List<PaperCard> anyColor = new ArrayList<>();
         for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
             if (pc == null || pc.getRules() == null)
                 continue;
@@ -2067,14 +2249,39 @@ public final class EnemyThemeDecks {
             if (tribe != null && !tribe.isEmpty() && !rules.getType().hasSubtype(tribe)
                     && !rules.hasKeyword("Changeling"))
                 continue;
-            if (allowed != 0 && !rules.getColorIdentity().hasNoColorsExcept(allowed)
-                    && !rules.getColorIdentity().isColorless())
-                continue;
-            candidates.add(pc);
+            boolean within = allowed == 0
+                    || rules.getColorIdentity().hasNoColorsExcept(allowed)
+                    || rules.getColorIdentity().isColorless();
+            if (within)
+                inColor.add(pc);
+            else
+                anyColor.add(pc);
         }
+        List<PaperCard> candidates = !inColor.isEmpty() ? inColor : anyColor;
         if (candidates.isEmpty())
             return null;
         return candidates.get(new Random(seed).nextInt(candidates.size()));
+    }
+
+    private static PaperCard firstPreferredCommander(EnemyThemeData theme, byte themeColors,
+                                                     boolean requireWithinThemeColors) {
+        if (theme == null || theme.preferredCommanders == null)
+            return null;
+        for (String name : theme.preferredCommanders) {
+            if (isRestrictedCardName(name) || isEnemyBanned(name))
+                continue;
+            PaperCard pc = cardByName(name);
+            if (pc == null || isExcludedFromAdventureDecks(pc)
+                    || !DeckFormat.Commander.isLegalCommander(pc.getRules()))
+                continue;
+            if (requireWithinThemeColors && themeColors != 0) {
+                byte ci = pc.getRules().getColorIdentity().getColor();
+                if ((ci & ~themeColors) != 0 && !pc.getRules().getColorIdentity().isColorless())
+                    continue;
+            }
+            return pc;
+        }
+        return null;
     }
 
     private static Deck buildConstructedDeck(EnemyThemeData theme, String format, int target, long seed) {
@@ -2137,7 +2344,101 @@ public final class EnemyThemeDecks {
         enforceFillerCap(done, theme);
         if (FORMAT_HISTORIC.equals(format) && theme.id != null && theme.id.contains("dragon"))
             ensureHistoricDragonDensity(done, theme, forgeFormat, allowed);
+        ensureTribalCreatureDensity(done, theme, format, forgeFormat, allowed, false);
         return done;
+    }
+
+    /**
+     * Raise tribe creature count toward {@link #MIN_TRIBAL_CREATURES_60} /
+     * {@link #MIN_TRIBAL_CREATURES_COMMANDER} using core tribe creatures (changelings count).
+     */
+    private static void ensureTribalCreatureDensity(Deck deck, EnemyThemeData theme, String format,
+                                                    GameFormat forgeFormat, byte allowed,
+                                                    boolean singleton) {
+        if (deck == null || theme == null || !isTribalTheme(theme))
+            return;
+        String fmt = normalizeFormat(format);
+        int need = FORMAT_COMMANDER.equals(fmt) ? MIN_TRIBAL_CREATURES_COMMANDER
+                : MIN_TRIBAL_CREATURES_60;
+        if (countTribalCreatures(deck, theme) >= need)
+            return;
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        List<PaperCard> tribeCore = new ArrayList<>();
+        for (PaperCard pc : resolveCoreCards(theme, fmt, forgeFormat, allowed, singleton)) {
+            if (pc == null || pc.getRules() == null || !pc.getRules().getType().isCreature())
+                continue;
+            boolean changeling = false;
+            try {
+                changeling = pc.getRules().hasKeyword("Changeling");
+            } catch (Throwable ignored) {
+            }
+            boolean match = changeling;
+            if (!match && theme.creatureTypes != null) {
+                for (String t : theme.creatureTypes) {
+                    if (t != null && pc.getRules().getType().hasSubtype(t)) {
+                        match = true;
+                        break;
+                    }
+                }
+            }
+            if (match)
+                tribeCore.add(pc);
+        }
+        int perName = singleton ? 1 : 4;
+        int guard = 0;
+        while (countTribalCreatures(deck, theme) < need && guard++ < 120) {
+            boolean added = false;
+            for (PaperCard pc : tribeCore) {
+                if (countTribalCreatures(deck, theme) >= need)
+                    break;
+                int cur = main.countByName(pc.getName());
+                if (cur >= perName)
+                    continue;
+                // Swap a non-tribe non-land when the non-land budget is tight.
+                if (!FORMAT_COMMANDER.equals(fmt) && main.countAll() >= 60 - MIN_LANDS_60) {
+                    PaperCard victim = null;
+                    for (PaperCard c : main.toFlatList()) {
+                        if (c.getRules().getType().isLand())
+                            continue;
+                        if (countsAsTribalCreature(c, theme))
+                            continue;
+                        victim = c;
+                        break;
+                    }
+                    if (victim != null)
+                        main.remove(victim);
+                }
+                main.add(preferPaperPrinting(pc));
+                added = true;
+            }
+            if (!added)
+                break;
+        }
+        if (!FORMAT_COMMANDER.equals(fmt)) {
+            String[] pad = colorsFromMask(spellColorMask(deck));
+            if (pad.length == 0)
+                pad = theme.colors != null ? theme.colors : new String[]{"blue"};
+            rebuildBasicLands(deck, pad, 60);
+        }
+        enforceFillerCap(deck, theme, FORMAT_COMMANDER.equals(fmt) ? MAX_FILLER_COMMANDER
+                : MAX_FILLER_NONLAND);
+    }
+
+    private static boolean countsAsTribalCreature(PaperCard pc, EnemyThemeData theme) {
+        if (pc == null || pc.getRules() == null || !pc.getRules().getType().isCreature())
+            return false;
+        try {
+            if (pc.getRules().hasKeyword("Changeling"))
+                return true;
+        } catch (Throwable ignored) {
+        }
+        if (theme.creatureTypes == null)
+            return false;
+        for (String t : theme.creatureTypes) {
+            if (t != null && pc.getRules().getType().hasSubtype(t))
+                return true;
+        }
+        return false;
     }
 
     /**
@@ -2821,6 +3122,8 @@ public final class EnemyThemeDecks {
             PaperCard pc = e.getKey();
             if (pc == null)
                 continue;
+            if (isEnemyBanned(pc.getName()))
+                return pc.getName() + " is EN1 enemy-banned";
             if (isRestrictedCardName(pc.getName()))
                 return pc.getName() + " is Ascendant-restricted";
             if (isExcludedFromAdventureDecks(pc))
