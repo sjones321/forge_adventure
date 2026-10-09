@@ -101,21 +101,28 @@ public class EnemyThemeDeckLegalityTest {
         window.init(List.of("KHM", "NEO", "ONE"));
         Assert.assertTrue(window.isActive());
 
-        EnemyThemeData theme = new EnemyThemeData();
-        theme.id = "elf_tribal";
-        theme.tags = new String[]{"Elf"};
-        theme.colors = new String[]{"green"};
-        theme.creatureTypes = new String[]{"Elf"};
-        theme.standardRecipe = new EnemyThemeRecipeData();
-        theme.standardRecipe.count = 60;
-        theme.standardRecipe.colors = new String[]{"Green"};
-        theme.standardRecipe.tribe = "Elf";
-        theme.standardRecipe.rares = 0.15f;
+        EnemyThemeData theme = themeById("elf_tribal");
+        if (theme == null) {
+            theme = new EnemyThemeData();
+            theme.id = "elf_tribal";
+            theme.tags = new String[]{"Elf"};
+            theme.colors = new String[]{"green"};
+            theme.creatureTypes = new String[]{"Elf"};
+            theme.standardRecipe = new EnemyThemeRecipeData();
+            theme.standardRecipe.count = 60;
+            theme.standardRecipe.colors = new String[]{"Green"};
+            theme.standardRecipe.tribe = "Elf";
+            theme.standardRecipe.rares = 0.15f;
+        }
 
         Deck deck = EnemyThemeDecks.fillStandardRecipe(theme, window, 99L);
         Assert.assertNotNull(deck);
         Assert.assertTrue(deck.getMain().countAll() >= 40,
                 "recipe deck too small: " + deck.getMain().countAll());
+        Assert.assertTrue(EnemyThemeDecks.countOnThemeNonLand(deck, theme)
+                        >= EnemyThemeDecks.MIN_ON_THEME_NONLAND_STANDARD,
+                "Standard recipe below on-theme floor: "
+                        + EnemyThemeDecks.countOnThemeNonLand(deck, theme));
 
         Set<String> illegal = new HashSet<>();
         int nonBasics = 0;
@@ -126,13 +133,57 @@ public class EnemyThemeDeckLegalityTest {
             nonBasics += e.getValue();
             if (!printedInWindow(pc.getName(), window))
                 illegal.add(pc.getName());
+            Assert.assertFalse(EnemyThemeDecks.isAlchemyOrDigitalOnly(pc),
+                    "Alchemy in Standard recipe: " + pc.getName());
+            Assert.assertFalse(EnemyThemeDecks.isRestrictedCardName(pc.getName()),
+                    "restricted in Standard recipe: " + pc.getName());
         }
         Assert.assertTrue(illegal.isEmpty(),
                 "Standard recipe included cards outside window: " + illegal);
         Assert.assertTrue(nonBasics > 0,
                 "expected at least one non-basic from the Standard window");
 
+        // Inactive window must not treat every card as legal.
+        StandardWindow inactive = new StandardWindow();
+        Assert.assertFalse(inactive.isActive());
+        Deck refused = EnemyThemeDecks.fillStandardRecipe(theme, inactive, 7L);
+        Assert.assertTrue(refused == null || refused.isEmpty() || refused.getMain().countAll() == 0,
+                "inactive Standard window must not fill a deck");
+
         EnemyThemeDecks.clearCache();
+    }
+
+    @Test
+    public void everyFixedDeckMeetsThemeQualityAndBansAlchemyRestricted() {
+        List<String> problems = new ArrayList<>();
+        int checked = 0;
+        for (EnemyThemeData theme : themes) {
+            for (String format : new String[]{"Historic", "Pauper", "Commander"}) {
+                for (Path deckPath : listFixedDecks(theme.id, format)) {
+                    checked++;
+                    Deck deck = DeckSerializer.fromFile(deckPath.toFile());
+                    if (deck == null) {
+                        problems.add(deckPath + ": failed to parse");
+                        continue;
+                    }
+                    deck.getMain();
+                    if (deck.has(DeckSection.Commander))
+                        deck.get(DeckSection.Commander);
+
+                    String quality = EnemyThemeDecks.themeQualityProblem(deck, theme, format);
+                    if (quality != null)
+                        problems.add(deckPath.getFileName() + " [" + format + "]: " + quality);
+
+                    String legal = EnemyThemeDecks.legalityProblem(deck, format);
+                    if (legal != null && (legal.contains("restricted") || legal.contains("Alchemy")))
+                        problems.add(deckPath.getFileName() + " [" + format + "]: " + legal);
+                }
+            }
+        }
+        Assert.assertTrue(checked >= themes.size() * 3, "expected fixed decks, checked " + checked);
+        Assert.assertTrue(problems.isEmpty(),
+                checked + " decks checked; quality/restricted/Alchemy problems:\n"
+                        + String.join("\n", problems));
     }
 
     private static boolean printedInWindow(String name, StandardWindow window) {
@@ -233,6 +284,14 @@ public class EnemyThemeDeckLegalityTest {
 
     private static String checkLegal(Deck deck, String format) {
         return EnemyThemeDecks.legalityProblem(deck, format);
+    }
+
+    private EnemyThemeData themeById(String id) {
+        for (EnemyThemeData t : themes) {
+            if (t != null && id.equals(t.id))
+                return t;
+        }
+        return null;
     }
 
     private Deck loadFirstDeck(String format) {
@@ -366,33 +425,53 @@ public class EnemyThemeDeckLegalityTest {
                 current.colors = new String[]{"blue"};
                 current.creatureTypes = new String[0];
                 current.preferredCommanders = new String[0];
+                current.keyCards = new String[0];
+                current.mechanics = new String[0];
                 current.standardRecipe = new EnemyThemeRecipeData();
                 current.standardRecipe.count = 60;
-                current.standardRecipe.tribe = current.id.contains("goblin") ? "Goblin"
-                        : current.id.contains("elf") ? "Elf"
-                        : current.id.contains("zombie") ? "Zombie"
-                        : current.id.contains("vampire") ? "Vampire"
-                        : current.id.contains("dragon") ? "Dragon"
-                        : current.id.contains("soldier") ? "Soldier"
-                        : current.id.contains("knight") ? "Knight"
-                        : current.id.contains("spirit") ? "Spirit"
-                        : current.id.contains("kraken") ? "Kraken"
-                        : "Merfolk";
-                current.standardRecipe.colors = new String[]{"Blue"};
-                current.colors = new String[]{current.standardRecipe.colors[0].toLowerCase(Locale.ROOT)};
-                current.creatureTypes = new String[]{current.standardRecipe.tribe};
             } else if (current != null && t.startsWith("\"preferredCommanders\"")) {
                 current.preferredCommanders = jsonStringArray(t.substring(t.indexOf('[')));
             } else if (current != null && t.startsWith("\"tags\"")) {
                 current.tags = jsonStringArray(t.substring(t.indexOf('[')));
-            } else if (current != null && t.startsWith("\"colors\"") && !t.contains("standardRecipe")) {
-                // first colors array on the theme
-                if (current.colors == null || current.colors.length <= 1)
-                    current.colors = jsonStringArray(t.substring(t.indexOf('[')));
+            } else if (current != null && t.startsWith("\"creatureTypes\"")) {
+                current.creatureTypes = jsonStringArray(t.substring(t.indexOf('[')));
+            } else if (current != null && t.startsWith("\"keyCards\"")) {
+                current.keyCards = jsonStringArray(t.substring(t.indexOf('[')));
+            } else if (current != null && t.startsWith("\"mechanics\"")) {
+                current.mechanics = jsonStringArray(t.substring(t.indexOf('[')));
+            } else if (current != null && t.startsWith("\"tribe\"")) {
+                current.standardRecipe.tribe = jsonString(t);
+            } else if (current != null && t.startsWith("\"colors\"") && t.contains("[")) {
+                String[] cols = jsonStringArray(t.substring(t.indexOf('[')));
+                if (cols.length > 0 && Character.isUpperCase(cols[0].charAt(0)))
+                    current.standardRecipe.colors = cols;
+                else if (cols.length > 0)
+                    current.colors = cols;
             }
         }
         if (current != null)
             list.add(current);
+        for (EnemyThemeData th : list) {
+            if (th.creatureTypes == null || th.creatureTypes.length == 0) {
+                if (th.standardRecipe != null && th.standardRecipe.tribe != null)
+                    th.creatureTypes = new String[]{th.standardRecipe.tribe};
+                else if (th.tags != null && th.tags.length > 0)
+                    th.creatureTypes = new String[]{th.tags[0]};
+            }
+            if (th.standardRecipe != null && th.standardRecipe.tribe == null
+                    && th.creatureTypes != null && th.creatureTypes.length > 0)
+                th.standardRecipe.tribe = th.creatureTypes[0];
+            if (th.standardRecipe != null
+                    && (th.standardRecipe.colors == null || th.standardRecipe.colors.length == 0)
+                    && th.colors != null) {
+                String[] up = new String[th.colors.length];
+                for (int i = 0; i < th.colors.length; i++) {
+                    String c = th.colors[i];
+                    up[i] = c.substring(0, 1).toUpperCase(Locale.ROOT) + c.substring(1).toLowerCase(Locale.ROOT);
+                }
+                th.standardRecipe.colors = up;
+            }
+        }
         return list;
     }
 

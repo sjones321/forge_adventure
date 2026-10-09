@@ -110,6 +110,7 @@ public class WorldSave {
     static public boolean load(int currentSlot) {
         JSONStringLoader.clearCache();
         CardUtil.clearPriceCache();
+        EnemyThemeDecks.clearCache();
         Forge.getLocalizer().loadAdventureBundle(Config.instance().getPlanePath(Config.instance().getSettingData().plane) + "languages/");
 
         Forge.invokeWorldSave = true; // This is for dispose method check
@@ -749,6 +750,7 @@ public class WorldSave {
             multiverse.rememberCurrentPosition(px, py);
             multiverse.updateCurrentSeed(world.getSeed());
             CardUtil.clearPriceCache();
+            EnemyThemeDecks.clearCache();
             onLoadList.emit();
             enterGameSceneOnceAfterSwitch();
             notifyCoopPlaneSwitch();

@@ -52,25 +52,25 @@ public class EnemyThemeDeckGeneratorTest {
             for (String format : new String[]{"Historic", "Pauper", "Commander"}) {
                 Path out = enemyDeckRoot.resolve(theme.id)
                         .resolve(format.toLowerCase(Locale.ROOT) + "_1.dck");
-                if (Files.isRegularFile(out) && isAcceptable(out, format))
+                if (Files.isRegularFile(out) && isAcceptable(out, format, theme))
                     continue;
 
                 Files.createDirectories(out.getParent());
                 long seed = theme.id.hashCode() * 31L + format.hashCode();
                 Deck best = null;
                 String bestProblem = "not generated";
-                for (int attempt = 0; attempt < 8; attempt++) {
+                for (int attempt = 0; attempt < 24; attempt++) {
                     Deck deck = EnemyThemeDecks.buildFixedDeck(theme, format, seed + attempt * 17L);
                     if (deck == null)
                         continue;
                     deck.setName(theme.id + " " + format);
-                    String problem = legality(deck, format);
+                    String problem = quality(deck, theme, format);
                     if (problem == null) {
                         best = deck;
                         bestProblem = null;
                         break;
                     }
-                    if (best == null) {
+                    if (best == null || betterThan(problem, bestProblem)) {
                         best = deck;
                         bestProblem = problem;
                     }
@@ -97,13 +97,17 @@ public class EnemyThemeDeckGeneratorTest {
         EnemyThemeDecks.clearCache();
     }
 
-    private boolean isAcceptable(Path path, String format) {
+    private boolean isAcceptable(Path path, String format, EnemyThemeData theme) {
         try {
             Deck d = DeckSerializer.fromFile(path.toFile());
             if (d == null)
                 return false;
             d.getMain();
-            return legality(d, format) == null;
+            if (d.has(forge.deck.DeckSection.Commander))
+                d.get(forge.deck.DeckSection.Commander);
+            if (legality(d, format) != null)
+                return false;
+            return EnemyThemeDecks.themeQualityProblem(d, theme, format) == null;
         } catch (Exception e) {
             return false;
         }
@@ -111,6 +115,13 @@ public class EnemyThemeDeckGeneratorTest {
 
     private static String legality(Deck deck, String format) {
         return EnemyThemeDecks.legalityProblem(deck, format);
+    }
+
+    private static String quality(Deck deck, EnemyThemeData theme, String format) {
+        String legal = legality(deck, format);
+        if (legal != null)
+            return legal;
+        return EnemyThemeDecks.themeQualityProblem(deck, theme, format);
     }
 
     private static void writeUtf8NoBom(Path path, Deck deck) throws Exception {
@@ -184,6 +195,10 @@ public class EnemyThemeDeckGeneratorTest {
                 current.creatureTypes = extractStringArray(t);
             } else if (current != null && t.startsWith("\"preferredCommanders\"")) {
                 current.preferredCommanders = extractStringArray(t);
+            } else if (current != null && t.startsWith("\"keyCards\"")) {
+                current.keyCards = extractStringArray(t);
+            } else if (current != null && t.startsWith("\"mechanics\"")) {
+                current.mechanics = extractStringArray(t);
             } else if (current != null && t.startsWith("\"tribe\"")) {
                 current.standardRecipe.tribe = extractString(t);
                 if (current.creatureTypes == null || current.creatureTypes.length == 0)
@@ -207,6 +222,17 @@ public class EnemyThemeDeckGeneratorTest {
                 th.standardRecipe.tribe = th.creatureTypes[0];
         }
         return list;
+    }
+
+    private static boolean betterThan(String candidate, String current) {
+        if (current == null || "not generated".equals(current))
+            return true;
+        if (candidate == null)
+            return true;
+        // Prefer fewer on-theme complaints over legality failures when both bad.
+        boolean candTheme = candidate.contains("on-theme");
+        boolean curTheme = current.contains("on-theme");
+        return candTheme && !curTheme;
     }
 
     private static String extractString(String line) {
