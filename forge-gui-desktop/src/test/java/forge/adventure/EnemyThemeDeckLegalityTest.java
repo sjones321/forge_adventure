@@ -471,38 +471,57 @@ public class EnemyThemeDeckLegalityTest {
                 .getCard("Island", EnemyThemeDecks.PREFERRED_BASIC_LAND_EDITION);
         PaperCard journey = FModel.getMagicDb().getCommonCards().getUniqueByName("Journey to Nowhere");
         PaperCard leak = FModel.getMagicDb().getCommonCards().getUniqueByName("Mana Leak");
+        // Off-tribe bodies so a packed 60-card deck forces swaps (not free adds).
+        PaperCard vanguard = FModel.getMagicDb().getCommonCards().getUniqueByName("Elite Vanguard");
         Assert.assertNotNull(plains);
         Assert.assertNotNull(island);
         Assert.assertNotNull(journey);
         Assert.assertNotNull(leak);
-        // 8 non-creature spells at the floor, few spirits, rest basics.
+        Assert.assertNotNull(vanguard);
+        PaperCard chapel = FModel.getMagicDb().getCommonCards().getUniqueByName("Chapel Geist");
+        Assert.assertNotNull(chapel);
+
+        // Tight 60: 17 lands + 43 nonlands. Nonlands = 8 spells at the floor, 4 tribe
+        // creatures, and 31 off-tribe creatures so top-up must swap for density.
         for (int i = 0; i < 4; i++)
             deck.getMain().add(journey);
         for (int i = 0; i < 4; i++)
             deck.getMain().add(leak);
-        PaperCard chapel = FModel.getMagicDb().getCommonCards().getUniqueByName("Chapel Geist");
-        Assert.assertNotNull(chapel);
         for (int i = 0; i < 4; i++)
             deck.getMain().add(chapel);
+        for (int i = 0; i < 31; i++)
+            deck.getMain().add(vanguard);
         for (int i = 0; i < 9; i++)
             deck.getMain().add(plains);
         for (int i = 0; i < 8; i++)
             deck.getMain().add(island);
 
+        Assert.assertEquals(deck.getMain().countAll(), 60);
+        int nonLands = 0;
+        for (var e : deck.getMain()) {
+            PaperCard pc = e.getKey();
+            if (pc != null && pc.getRules() != null && !pc.getRules().getType().isLand())
+                nonLands += e.getValue();
+        }
+        Assert.assertEquals(nonLands, 43, "packed deck must be 43 nonlands");
         int spellsBefore = EnemyThemeDecks.countNonCreatureSpells(deck);
         Assert.assertEquals(spellsBefore, EnemyThemeDecks.MIN_NON_CREATURE_SPELLS_60);
         int journeyBefore = deck.getMain().countByName("Journey to Nowhere");
         int leakBefore = deck.getMain().countByName("Mana Leak");
+        Assert.assertTrue(EnemyThemeDecks.countTribalCreatures(deck, theme)
+                        < EnemyThemeDecks.MIN_TRIBAL_CREATURES_60,
+                "precondition: top-up must need to run");
 
-        EnemyThemeDecks.ensureTribalCreatureDensityForTests(
+        // Raw top-up only — no spell-floor refill — so surviving spells prove the
+        // swap path never picks non-creature spells as victims.
+        EnemyThemeDecks.ensureTribalCreatureDensityRawForTests(
                 deck, theme, "Pauper", pauper, allowed, false);
 
-        Assert.assertTrue(EnemyThemeDecks.countNonCreatureSpells(deck)
-                        >= EnemyThemeDecks.MIN_NON_CREATURE_SPELLS_60,
-                "spell floor must hold after tribal top-up");
-        Assert.assertTrue(deck.getMain().countByName("Journey to Nowhere") >= journeyBefore,
+        Assert.assertEquals(EnemyThemeDecks.countNonCreatureSpells(deck), spellsBefore,
+                "raw top-up must not change non-creature spell count");
+        Assert.assertEquals(deck.getMain().countByName("Journey to Nowhere"), journeyBefore,
                 "top-up must not remove Journey to Nowhere");
-        Assert.assertTrue(deck.getMain().countByName("Mana Leak") >= leakBefore,
+        Assert.assertEquals(deck.getMain().countByName("Mana Leak"), leakBefore,
                 "top-up must not remove Mana Leak");
         Assert.assertTrue(EnemyThemeDecks.countTribalCreatures(deck, theme)
                         >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_60,

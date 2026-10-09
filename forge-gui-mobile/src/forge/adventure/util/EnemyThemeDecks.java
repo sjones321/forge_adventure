@@ -2589,6 +2589,17 @@ public final class EnemyThemeDecks {
     }
 
     /**
+     * Test hook: tribal density top-up only (core before DB). Does <em>not</em>
+     * refill the non-creature spell floor — use this when asserting the top-up
+     * itself never strips spells.
+     */
+    public static void ensureTribalCreatureDensityRawForTests(Deck deck, EnemyThemeData theme,
+                                                              String format, GameFormat forgeFormat,
+                                                              byte allowed, boolean singleton) {
+        ensureTribalCreatureDensity(deck, theme, format, forgeFormat, allowed, singleton);
+    }
+
+    /**
      * Test hook: run tribal density top-up (core before DB) on an existing deck,
      * then re-check the non-creature spell floor for 60-card formats (same as
      * {@link #buildConstructedDeck}).
@@ -2596,7 +2607,7 @@ public final class EnemyThemeDecks {
     public static void ensureTribalCreatureDensityForTests(Deck deck, EnemyThemeData theme,
                                                            String format, GameFormat forgeFormat,
                                                            byte allowed, boolean singleton) {
-        ensureTribalCreatureDensity(deck, theme, format, forgeFormat, allowed, singleton);
+        ensureTribalCreatureDensityRawForTests(deck, theme, format, forgeFormat, allowed, singleton);
         String fmt = normalizeFormat(format);
         if (!FORMAT_COMMANDER.equals(fmt)) {
             ensureMinNonCreatureSpellsFromCore(deck, theme, fmt, forgeFormat, allowed,
