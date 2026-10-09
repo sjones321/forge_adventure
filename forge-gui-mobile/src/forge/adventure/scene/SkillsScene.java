@@ -100,9 +100,12 @@ public class SkillsScene extends UIScene {
             slots.setWrap(true);
             scrollContainer.add(slots).colspan(3).align(Align.left).padLeft(10).growX();
             scrollContainer.row().padTop(4);
-            String league = Current.player().isLeagueCleared() ? " · League ✓" : "";
+            String league = Current.player().isLeagueCleared() ? "League ✓" : "";
+            String planeFmt = forge.adventure.world.PlaneFormat.displayName(
+                    Current.player().getRunFormat());
             addRow("[BLACK]Gym badges", "[BLACK]" + Current.player().getBadgeCount() + "/8",
-                    "[DARK_GRAY]" + Current.player().getRunFormat() + league);
+                    "[DARK_GRAY]" + league);
+            addRow("[BLACK]Plane format", "", "[DARK_GRAY]" + planeFmt);
         }
 
         StandardWindow window = Current.player().getStandardWindow();

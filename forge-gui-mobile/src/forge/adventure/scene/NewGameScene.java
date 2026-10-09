@@ -21,6 +21,7 @@ import forge.adventure.data.HeroListData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.*;
+import forge.adventure.world.PlaneFormat;
 import forge.adventure.world.WorldSave;
 import forge.adventure.player.StandardWindow;
 import forge.card.CardEdition;
@@ -52,6 +53,8 @@ public class NewGameScene extends MenuScene {
     private final Selector mode;
     private final Selector difficulty;
     private final Selector starterEdition;
+    private Selector planeFormat;
+    private TextraLabel planeFormatLabel;
     private SelectBox<String> sealedSetBox;
     private java.util.List<CardEdition> sealedSets;
     private final TextraLabel starterEditionLabel;
@@ -127,6 +130,13 @@ public class NewGameScene extends MenuScene {
 
         starterEdition = ui.findActor("starterEdition");
         starterEditionLabel = ui.findActor("starterEditionL");
+        planeFormat = ui.findActor("planeFormat");
+        planeFormatLabel = ui.findActor("planeFormatL");
+        if (planeFormat != null) {
+            planeFormat.setTextList(PlaneFormat.CHOICES);
+            planeFormat.setCurrentIndex(0); // Bellwarden Standard
+        }
+        // Visibility follows the selected mode (hidden for Commander-like modes).
         originalEditionLabelText = starterEditionLabel.storedText;
         String[] starterEditions = Config.instance().starterEditions();
         String[] starterEditionNames = Config.instance().starterEditionNames();
@@ -322,6 +332,15 @@ public class NewGameScene extends MenuScene {
             sealedSetBox.setBounds(starterEdition.getX(), starterEdition.getY(), starterEdition.getWidth(), starterEdition.getHeight());
             sealedSetBox.setVisible(sealed);
         }
+        // Package K: Commander-mode runs are always Commander — hide the plane-format picker.
+        boolean showPlaneFormat = Config.ascendant() && planeFormat != null
+                && !selectedMode.isCommanderLike();
+        if (planeFormat != null) {
+            planeFormat.setVisible(showPlaneFormat);
+        }
+        if (planeFormatLabel != null) {
+            planeFormatLabel.setVisible(showPlaneFormat);
+        }
 
         if (selectedMode == AdventureModes.Precon) {
             starterEdition.setTextList(Config.instance().getPreconSetNames());
@@ -384,7 +403,7 @@ public class NewGameScene extends MenuScene {
                     getStartingColor(),
                     Config.instance().getConfigData().difficulties[difficulty.getCurrentIndex()],
                     modes.get(mode.getCurrentIndex()), colorId.getCurrentIndex(),
-                    getStartingEdition(), 0);
+                    getStartingEdition(), 0, getSelectedHomePlaneFormat());
             GamePlayerUtil.getGuiPlayer().setName(selectedName.getText());
             SoundSystem.instance.changeBackgroundTrack();
             WorldStage.getInstance().enterSpawnPOI();
@@ -395,6 +414,23 @@ public class NewGameScene extends MenuScene {
         };
         Forge.setTransitionScreen(new TransitionScreen(runnable, null, false, true, Forge.getLocalizer().getMessage("lblGeneratingWorld")));
         return true;
+    }
+
+    /** Package K: home-plane format from the New Game selector (Ascendant only). */
+    private String getSelectedHomePlaneFormat() {
+        if (!Config.ascendant())
+            return PlaneFormat.defaultFormat();
+        AdventureModes selected = modes != null && mode != null && mode.getCurrentIndex() >= 0
+                && mode.getCurrentIndex() < modes.size
+                ? modes.get(mode.getCurrentIndex()) : null;
+        if (selected != null && selected.isCommanderLike())
+            return PlaneFormat.COMMANDER;
+        if (planeFormat == null)
+            return PlaneFormat.defaultFormat();
+        int idx = planeFormat.getCurrentIndex();
+        if (idx < 0 || idx >= PlaneFormat.CHOICES.length)
+            return PlaneFormat.defaultFormat();
+        return PlaneFormat.fromChoiceLabel(PlaneFormat.CHOICES[idx]);
     }
 
     public boolean back() {
@@ -432,7 +468,7 @@ public class NewGameScene extends MenuScene {
                     getStartingColor(),
                     Config.instance().getConfigData().difficulties[difficulty.getCurrentIndex()],
                     modes.get(mode.getCurrentIndex()), colorId.getCurrentIndex(),
-                    getStartingEdition(), 0);
+                    getStartingEdition(), 0, getSelectedHomePlaneFormat());
             GamePlayerUtil.getGuiPlayer().setName(selectedName.getText());
             Forge.switchScene(GameScene.instance());
         }

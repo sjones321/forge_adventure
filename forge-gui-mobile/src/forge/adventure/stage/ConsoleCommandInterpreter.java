@@ -800,6 +800,12 @@ public class ConsoleCommandInterpreter {
             if (alignErr != null) {
                 return alignErr;
             }
+            // Package K: plane go picks the default format when unset (no dialog on console).
+            forge.adventure.world.PlaneMeta goMeta = save.getMultiverse().getMeta(id);
+            if (goMeta != null && forge.adventure.world.PlaneFormat.raw(goMeta).isEmpty()) {
+                forge.adventure.world.PlaneFormat.setPlaneFormat(goMeta,
+                        forge.adventure.world.PlaneFormat.resolveCurrent());
+            }
             // Deferred MV2 gen: materialize pending set planes before leaving a POI.
             if (!save.getMultiverse().hasCompressedBlob(id)
                     && !id.equals(save.getMultiverse().getCurrentPlaneId())) {

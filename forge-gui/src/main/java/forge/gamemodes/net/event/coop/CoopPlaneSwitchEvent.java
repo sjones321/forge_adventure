@@ -1,5 +1,6 @@
 package forge.gamemodes.net.event.coop;
 
+import forge.gamemodes.net.coop.CoopWireLimits;
 import forge.gamemodes.net.event.NetEvent;
 
 /**
@@ -11,9 +12,12 @@ import forge.gamemodes.net.event.NetEvent;
  *
  * <p>MV2: {@link #mv2SetCode} carries the host-stamped set code for rebuild
  * customisation. World hash includes planar-gate terrain clears.
+ *
+ * <p>Package K: {@link #planeFormat} is the destination plane's duel format,
+ * length-capped plain data.
  */
 public class CoopPlaneSwitchEvent implements NetEvent {
-    private static final long serialVersionUID = 3L;
+    private static final long serialVersionUID = 4L;
 
     private final String adventurePlaneId;
     private final String worldPlaneId;
@@ -25,13 +29,14 @@ public class CoopPlaneSwitchEvent implements NetEvent {
     private final float spawnY;
     private final String mv2SetCode;
     private final CoopPlanarGateEntry[] gates;
+    private final String planeFormat;
 
     public CoopPlaneSwitchEvent(final String adventurePlaneId, final String worldPlaneId,
                                 final String worldConfigPath, final String planeConfigHash,
                                 final long worldSeed, final String worldHash,
                                 final float spawnX, final float spawnY) {
         this(adventurePlaneId, worldPlaneId, worldConfigPath, planeConfigHash,
-                worldSeed, worldHash, spawnX, spawnY, "", null);
+                worldSeed, worldHash, spawnX, spawnY, "", null, "");
     }
 
     public CoopPlaneSwitchEvent(final String adventurePlaneId, final String worldPlaneId,
@@ -40,7 +45,7 @@ public class CoopPlaneSwitchEvent implements NetEvent {
                                 final float spawnX, final float spawnY,
                                 final String mv2SetCode) {
         this(adventurePlaneId, worldPlaneId, worldConfigPath, planeConfigHash,
-                worldSeed, worldHash, spawnX, spawnY, mv2SetCode, null);
+                worldSeed, worldHash, spawnX, spawnY, mv2SetCode, null, "");
     }
 
     public CoopPlaneSwitchEvent(final String adventurePlaneId, final String worldPlaneId,
@@ -48,6 +53,16 @@ public class CoopPlaneSwitchEvent implements NetEvent {
                                 final long worldSeed, final String worldHash,
                                 final float spawnX, final float spawnY,
                                 final String mv2SetCode, final CoopPlanarGateEntry[] gates) {
+        this(adventurePlaneId, worldPlaneId, worldConfigPath, planeConfigHash,
+                worldSeed, worldHash, spawnX, spawnY, mv2SetCode, gates, "");
+    }
+
+    public CoopPlaneSwitchEvent(final String adventurePlaneId, final String worldPlaneId,
+                                final String worldConfigPath, final String planeConfigHash,
+                                final long worldSeed, final String worldHash,
+                                final float spawnX, final float spawnY,
+                                final String mv2SetCode, final CoopPlanarGateEntry[] gates,
+                                final String planeFormat) {
         this.adventurePlaneId = adventurePlaneId;
         this.worldPlaneId = worldPlaneId;
         this.worldConfigPath = worldConfigPath;
@@ -58,6 +73,8 @@ public class CoopPlaneSwitchEvent implements NetEvent {
         this.spawnY = spawnY;
         this.mv2SetCode = mv2SetCode != null ? mv2SetCode : "";
         this.gates = copyGates(gates);
+        this.planeFormat = CoopWireLimits.clampString(
+                planeFormat != null ? planeFormat : "", CoopWireLimits.MAX_PLANE_FORMAT_LEN);
     }
 
     public String getAdventurePlaneId() {
@@ -101,6 +118,11 @@ public class CoopPlaneSwitchEvent implements NetEvent {
     /** Host live planar gates; never null (may be empty). */
     public CoopPlanarGateEntry[] getGates() {
         return copyGates(gates);
+    }
+
+    /** Package K: destination plane format token; empty when unset. */
+    public String getPlaneFormat() {
+        return planeFormat != null ? planeFormat : "";
     }
 
     private static CoopPlanarGateEntry[] copyGates(final CoopPlanarGateEntry[] src) {

@@ -178,6 +178,12 @@ public class WorldSave {
                     } catch (Exception ignored) {
                         // Gate placement must not block load.
                     }
+                    // Package K: migrate player-level runFormat onto the home plane when unset.
+                    try {
+                        PlaneFormat.migrateLegacyRunFormat(
+                                currentSave.multiverse, currentSave.player.getLegacyRunFormat());
+                    } catch (Exception ignored) {
+                    }
                     // H1: cache live co-op hash after plane load + gates.
                     try {
                         forge.adventure.coop.CoopSession.get().refreshHostLiveWorldHash();
@@ -242,6 +248,15 @@ public class WorldSave {
     }
 
     public static WorldSave generateNewWorld(String name, boolean male, int race, int avatarIndex, ColorSet startingColorIdentity, DifficultyData diff, AdventureModes mode, int customDeckIndex, CardEdition starterEdition, long seed) {
+        return generateNewWorld(name, male, race, avatarIndex, startingColorIdentity, diff, mode,
+                customDeckIndex, starterEdition, seed, null);
+    }
+
+    /**
+     * @param homePlaneFormat Package K: format for the home plane (null → config default /
+     *                        Bellwarden Standard). Ascendant only.
+     */
+    public static WorldSave generateNewWorld(String name, boolean male, int race, int avatarIndex, ColorSet startingColorIdentity, DifficultyData diff, AdventureModes mode, int customDeckIndex, CardEdition starterEdition, long seed, String homePlaneFormat) {
         Forge.getLocalizer().loadAdventureBundle(Config.instance().getPlanePath(Config.instance().getSettingData().plane) + "languages/");
         currentSave.world.generateNew(seed);
         currentSave.pointOfInterestChanges.clear();
@@ -263,6 +278,14 @@ public class WorldSave {
                     currentSave.world.getSeed(),
                     currentSave.player.getWorldPosX(),
                     currentSave.player.getWorldPosY());
+            String fmt = PlaneFormat.normalize(
+                    homePlaneFormat != null && !homePlaneFormat.isEmpty()
+                            ? homePlaneFormat : PlaneFormat.defaultFormat());
+            PlaneMeta home = currentSave.multiverse.getMeta(PlaneMeta.HOME_ID);
+            if (home != null) {
+                PlaneFormat.setPlaneFormat(home, fmt);
+            }
+            currentSave.player.setLegacyRunFormat(fmt);
         }
         currentSave.onLoadList.emit();
         return currentSave;
@@ -874,6 +897,8 @@ public class WorldSave {
             multiverse.updateCurrentSeed(world.getSeed());
             CardUtil.clearPriceCache();
             EnemyThemeDecks.clearCache();
+            // Package K: plane format (and Standard window) may change — rebuild shop/reward pool.
+            RewardData.invalidateCardPool();
             // MV2: place any missing Planar Gates on the plane we just entered.
             try {
                 PlanarPortalPlacer.ensureMissingGatesOnLoad(this);
