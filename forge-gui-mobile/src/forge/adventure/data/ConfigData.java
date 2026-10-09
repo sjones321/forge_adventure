@@ -390,4 +390,20 @@ public class ConfigData {
     /** Buildable zone height in tiles. */
     public int fortressBuildableHeight = 12;
 
+    // ---- Ascendant EN1: enemy decks by format and theme ----
+
+    /**
+     * When true (Ascendant default), ordinary overworld enemies pick a theme at spawn
+     * and play format-appropriate theme decks (fixed Historic/Pauper/Commander lists,
+     * Bellwarden Standard recipes filled from the current window).
+     */
+    public boolean en1EnemyThemeDecks = true;
+    /** Target size for EN1 Bellwarden Standard recipe decks. */
+    public int en1StandardDeckSize = 60;
+    /**
+     * When true, log EN1 format/theme fallbacks (missing .dck → nearest available).
+     * Defaults on so missing data is visible during content work.
+     */
+    public boolean en1LogFallbacks = true;
+
 }

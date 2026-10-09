@@ -318,6 +318,13 @@ try {
             <artifactId>forge-gui</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- EN1 deck legality / generator tests need adventure EnemyThemeDecks. -->
+        <dependency>
+            <groupId>forge</groupId>
+            <artifactId>forge-gui-mobile</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>com.miglayout</groupId>
             <artifactId>miglayout-swing</artifactId>

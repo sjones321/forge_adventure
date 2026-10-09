@@ -54,6 +54,12 @@ public class EnemyData implements Serializable {
      */
     public transient Deck preparedDeck;
 
+    /**
+     * EN1 theme id chosen at spawn (e.g. {@code merfolk_tribal}). Persisted with the
+     * overworld enemy via WorldStage; missing on old saves. Not part of enemies.json.
+     */
+    public String themeId;
+
     public EnemyData() {
     }
 
@@ -81,6 +87,7 @@ public class EnemyData implements Serializable {
         questTags       = enemyData.questTags.clone();
         lifetime        = enemyData.lifetime;
         gamesPerMatch   = enemyData.gamesPerMatch;
+        themeId         = enemyData.themeId;
         if (enemyData.scale == 0.0f) {
             scale = 1.0f;
         }
@@ -96,6 +103,15 @@ public class EnemyData implements Serializable {
     public Deck generateDeck(boolean isFantasyMode, boolean useGeneticAI) {
         if (preparedDeck != null)
             return preparedDeck;
+
+        // EN1: themed format decks for ordinary overworld enemies (Ascendant).
+        // Gyms/League set preparedDeck above. MV2 set-plane $generate should hook
+        // before this block when that PR merges — leave themeId unset on set planes
+        // that use $generate so the hooks stay separate.
+        if (themeId != null && !themeId.isEmpty()
+                && forge.adventure.util.EnemyThemeDecks.isEnabled()) {
+            return forge.adventure.util.EnemyThemeDecks.resolveDeck(this, isFantasyMode, useGeneticAI);
+        }
 
         boolean canUseGeneticAI = useGeneticAI && life > 16;
 

@@ -82,6 +82,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
     private final ArrayList<Float> cachedSaveXCoords = new ArrayList<>(32);
     private final ArrayList<Float> cachedSaveYCoords = new ArrayList<>(32);
     private final ArrayList<String> cachedSaveQuestIDs = new ArrayList<>(32);
+    /** EN1: theme id per enemy (parallel to names); empty string when none. */
+    private final ArrayList<String> cachedSaveThemes = new ArrayList<>(32);
     private final ArrayList<Float> cachedNodeTimeouts = new ArrayList<>(8);
     private final ArrayList<String> cachedNodeMaterialIds = new ArrayList<>(8);
     private final ArrayList<Float> cachedNodeXCoords = new ArrayList<>(8);
@@ -1285,7 +1287,10 @@ public class WorldStage extends GameStage implements SaveFileContent {
     private boolean spawn(EnemyData enemyData) {
         if (enemyData == null)
             return false;
-        EnemySprite sprite = new EnemySprite(enemyData);
+        // EN1: copy + assign theme at spawn so the shared catalog is never mutated
+        // and the theme survives save/load. Gyms/League use preparedDeck paths instead.
+        EnemyData data = forge.adventure.util.EnemyThemeDecks.assignThemeAtSpawn(enemyData);
+        EnemySprite sprite = new EnemySprite(data);
         return spawn(sprite);
 
     }
@@ -1384,8 +1389,27 @@ public class WorldStage extends GameStage implements SaveFileContent {
             List<Float> x = (List<Float>) data.readObject("x");
             List<Float> y = (List<Float>) data.readObject("y");
             List<String> questStageIDs = (List<String>) data.readObject("questStageIDs");
+            // EN1: optional theme ids (old saves omit the key → no themes).
+            List<String> themes = null;
+            if (data.containsKey("themes")) {
+                try {
+                    themes = (List<String>) data.readObject("themes");
+                } catch (Exception ignored) {
+                    themes = null;
+                }
+            }
             for (int i = 0; i < timeouts.size(); i++) {
-                EnemySprite sprite = new EnemySprite(WorldData.getEnemy(names.get(i)));
+                forge.adventure.data.EnemyData catalog = WorldData.getEnemy(names.get(i));
+                forge.adventure.data.EnemyData enemyData = catalog;
+                if (Config.ascendant() && catalog != null) {
+                    enemyData = new forge.adventure.data.EnemyData(catalog);
+                    if (themes != null && i < themes.size()) {
+                        String tid = themes.get(i);
+                        if (tid != null && !tid.isEmpty())
+                            enemyData.themeId = tid;
+                    }
+                }
+                EnemySprite sprite = new EnemySprite(enemyData);
                 sprite.setX(x.get(i));
                 sprite.setY(y.get(i));
                 sprite.questStageID = questStageIDs.get(i);
@@ -1447,6 +1471,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
         cachedSaveXCoords.clear();
         cachedSaveYCoords.clear();
         cachedSaveQuestIDs.clear();
+        cachedSaveThemes.clear();
 
         for (int i = 0; i < enemies.size(); i++) {
             Pair<Float, EnemySprite> enemy = enemies.get(i);
@@ -1458,6 +1483,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
             cachedSaveXCoords.add(enemy.getValue().getX());
             cachedSaveYCoords.add(enemy.getValue().getY());
             cachedSaveQuestIDs.add(enemy.getValue().questStageID);
+            String themeId = enemy.getValue().getData().themeId;
+            cachedSaveThemes.add(themeId != null ? themeId : "");
         }
 
         data.storeObject("timeouts", cachedSaveTimeouts);
@@ -1465,6 +1492,7 @@ public class WorldStage extends GameStage implements SaveFileContent {
         data.storeObject("x", cachedSaveXCoords);
         data.storeObject("y", cachedSaveYCoords);
         data.storeObject("questStageIDs", cachedSaveQuestIDs);
+        data.storeObject("themes", cachedSaveThemes);
         data.store("globalTimer", globalTimer);
 
         cachedNodeTimeouts.clear();

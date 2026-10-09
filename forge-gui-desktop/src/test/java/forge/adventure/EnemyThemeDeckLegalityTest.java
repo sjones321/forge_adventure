@@ -1,0 +1,276 @@
+package forge.adventure;
+
+import forge.adventure.data.EnemyThemeCatalogData;
+import forge.adventure.data.EnemyThemeData;
+import forge.adventure.data.EnemyThemeRecipeData;
+import forge.adventure.player.StandardWindow;
+import forge.adventure.util.EnemyThemeDecks;
+import forge.deck.Deck;
+import forge.deck.DeckFormat;
+import forge.deck.DeckSection;
+import forge.deck.io.DeckSerializer;
+import forge.game.GameFormat;
+import forge.item.PaperCard;
+import forge.localinstance.properties.ForgePreferences.FPref;
+import forge.model.FModel;
+import forge.net.TestUtils;
+import org.testng.Assert;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+/**
+ * EN1: every committed fixed enemy theme deck is legal in its format under Forge's
+ * own format checks. Also covers Standard recipe filling only from the current window.
+ * <p>
+ * Lives in forge-gui-desktop so {@link TestUtils#ensureFModelInitialized()} / card DB
+ * are available. Outside forge-gui-mobile by necessity.
+ */
+public class EnemyThemeDeckLegalityTest {
+
+    private static Path enemyDeckRoot;
+    private static List<EnemyThemeData> themes;
+
+    @BeforeClass
+    public void init() throws Exception {
+        TestUtils.ensureFModelInitialized();
+        if (!(GuiBase.getInterface() instanceof GuiDesktop)) {
+            // ensureFModelInitialized uses HeadlessGuiDesktop; fine.
+        }
+        FModel.getPreferences().setPref(FPref.ENFORCE_DECK_LEGALITY, false);
+
+        enemyDeckRoot = resolveEnemyDeckRoot();
+        themes = loadThemesFromJson();
+        Assert.assertFalse(themes.isEmpty(), "no themes loaded from enemy_themes.json");
+    }
+
+    @Test
+    public void everyFixedDeckIsLegalInItsFormat() {
+        List<String> problems = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        int checked = 0;
+        for (EnemyThemeData theme : themes) {
+            for (String format : new String[]{"Historic", "Pauper", "Commander"}) {
+                List<Path> decks = listFixedDecks(theme.id, format);
+                if (decks.isEmpty()) {
+                    missing.add(theme.id + "/" + format.toLowerCase(Locale.ROOT) + "_*.dck");
+                    continue;
+                }
+                for (Path deckPath : decks) {
+                    checked++;
+                    Deck deck = DeckSerializer.fromFile(deckPath.toFile());
+                    if (deck == null) {
+                        problems.add(deckPath + ": failed to parse");
+                        continue;
+                    }
+                    // Force deferred sections to load.
+                    deck.getMain();
+                    if (deck.has(DeckSection.Commander))
+                        deck.get(DeckSection.Commander);
+
+                    String problem = checkLegal(deck, format);
+                    if (problem != null)
+                        problems.add(deckPath.getFileName() + " [" + format + "]: " + problem);
+                }
+            }
+        }
+        Assert.assertTrue(missing.isEmpty(),
+                "missing fixed decks (generate with EnemyThemeDeckGeneratorTest):\n"
+                        + String.join("\n", missing));
+        Assert.assertTrue(problems.isEmpty(),
+                checked + " decks checked; problems:\n" + String.join("\n", problems));
+        Assert.assertTrue(checked >= themes.size() * 3,
+                "expected at least one deck per theme×format, checked " + checked);
+    }
+
+    @Test
+    public void standardRecipeFillsOnlyFromCurrentWindow() {
+        EnemyThemeDecks.setEnabledForTests(true);
+        EnemyThemeCatalogData cat = new EnemyThemeCatalogData();
+        cat.themes = themes.toArray(new EnemyThemeData[0]);
+        EnemyThemeDecks.loadCatalogForTests(cat);
+
+        StandardWindow window = new StandardWindow();
+        // Use three Historic-era sets that exist in the DB; window legality is by name
+        // from those editions' card lists + staples.
+        window.init(List.of("MKM", "OTJ", "BLB"));
+        Assert.assertTrue(window.isActive());
+
+        EnemyThemeData theme = null;
+        for (EnemyThemeData t : themes) {
+            if ("elf_tribal".equals(t.id)) {
+                theme = t;
+                break;
+            }
+        }
+        Assert.assertNotNull(theme);
+
+        Deck deck = EnemyThemeDecks.fillStandardRecipe(theme, window, 99L);
+        Assert.assertNotNull(deck);
+        Assert.assertTrue(deck.getMain().countAll() >= 40,
+                "recipe deck too small: " + deck.getMain().countAll());
+
+        Set<String> illegal = new HashSet<>();
+        for (var e : deck.getMain()) {
+            PaperCard pc = e.getKey();
+            if (pc.getRules().getType().isBasicLand())
+                continue;
+            if (!window.isStandardLegal(pc.getName()))
+                illegal.add(pc.getName());
+        }
+        Assert.assertTrue(illegal.isEmpty(),
+                "Standard recipe included cards outside window: " + illegal);
+
+        EnemyThemeDecks.clearCache();
+    }
+
+    private static String checkLegal(Deck deck, String format) {
+        if ("Commander".equals(format)) {
+            String problem = DeckFormat.Commander.getDeckConformanceProblem(deck);
+            if (problem != null)
+                return problem;
+            int main = deck.getMain().countAll();
+            int commanders = deck.getCommanders().size();
+            int total = main + commanders;
+            // Accept main=99 + 1 commander, or main=100 with commander also listed.
+            if (commanders < 1)
+                return "missing commander";
+            if (total != 100 && main != 100 && main != 99)
+                return "expected ~100 cards, main=" + main + " commanders=" + commanders;
+            return null;
+        }
+        GameFormat gf = "Pauper".equals(format)
+                ? FModel.getFormats().getPauper()
+                : FModel.getFormats().getHistoric();
+        Assert.assertNotNull(gf, format + " format missing from FModel");
+        if (!gf.isDeckLegal(deck))
+            return "Forge " + format + " rejected deck";
+        if (deck.getMain().countAll() < 60)
+            return "main has " + deck.getMain().countAll() + " cards";
+        return EnemyThemeDecks.legalityProblem(deck, format);
+    }
+
+    private static List<Path> listFixedDecks(String themeId, String format) {
+        List<Path> out = new ArrayList<>();
+        Path dir = enemyDeckRoot.resolve(themeId);
+        if (!Files.isDirectory(dir))
+            return out;
+        String prefix = format.toLowerCase(Locale.ROOT) + "_";
+        try (var stream = Files.list(dir)) {
+            stream.filter(p -> {
+                String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+                return name.startsWith(prefix) && name.endsWith(".dck");
+            }).sorted().forEach(out::add);
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    private static Path resolveEnemyDeckRoot() {
+        Path[] candidates = {
+                Paths.get("forge-gui/res/adventure/common/decks/enemy"),
+                Paths.get("../forge-gui/res/adventure/common/decks/enemy"),
+                Paths.get("res/adventure/common/decks/enemy")
+        };
+        for (Path p : candidates) {
+            if (Files.isDirectory(p))
+                return p.toAbsolutePath().normalize();
+        }
+        // Default write/read location relative to desktop module.
+        return Paths.get("../forge-gui/res/adventure/common/decks/enemy").toAbsolutePath().normalize();
+    }
+
+    private static List<EnemyThemeData> loadThemesFromJson() throws Exception {
+        Path json = enemyDeckRoot.getParent().getParent().resolve("world/enemy_themes.json");
+        if (!Files.isRegularFile(json)) {
+            Path[] alt = {
+                    Paths.get("../forge-gui/res/adventure/common/world/enemy_themes.json"),
+                    Paths.get("forge-gui/res/adventure/common/world/enemy_themes.json")
+            };
+            for (Path p : alt) {
+                if (Files.isRegularFile(p)) {
+                    json = p;
+                    break;
+                }
+            }
+        }
+        Assert.assertTrue(Files.isRegularFile(json), "enemy_themes.json not found near " + enemyDeckRoot);
+        String text = Files.readString(json, StandardCharsets.UTF_8);
+        // Minimal parse: pull theme blocks via Json if Config unavailable — use Gson-less
+        // libgdx Json requires Gdx; parse ids with a tiny scanner and rebuild recipes from file
+        // through EnemyThemeDecks after Config is up. Fallback: reconstruct from id lines.
+        List<EnemyThemeData> list = new ArrayList<>();
+        EnemyThemeData current = null;
+        for (String line : text.split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("\"id\":")) {
+                if (current != null)
+                    list.add(current);
+                current = new EnemyThemeData();
+                current.id = jsonString(t);
+                current.tags = new String[0];
+                current.colors = new String[]{"blue"};
+                current.creatureTypes = new String[0];
+                current.preferredCommanders = new String[0];
+                current.standardRecipe = new EnemyThemeRecipeData();
+                current.standardRecipe.count = 60;
+                current.standardRecipe.tribe = current.id.contains("goblin") ? "Goblin"
+                        : current.id.contains("elf") ? "Elf"
+                        : current.id.contains("zombie") ? "Zombie"
+                        : current.id.contains("vampire") ? "Vampire"
+                        : current.id.contains("dragon") ? "Dragon"
+                        : current.id.contains("soldier") ? "Soldier"
+                        : current.id.contains("knight") ? "Knight"
+                        : current.id.contains("spirit") ? "Spirit"
+                        : current.id.contains("kraken") ? "Kraken"
+                        : "Merfolk";
+                current.standardRecipe.colors = new String[]{"Blue"};
+                current.colors = new String[]{current.standardRecipe.colors[0].toLowerCase(Locale.ROOT)};
+                current.creatureTypes = new String[]{current.standardRecipe.tribe};
+            } else if (current != null && t.startsWith("\"preferredCommanders\"")) {
+                current.preferredCommanders = jsonStringArray(t.substring(t.indexOf('[')));
+            } else if (current != null && t.startsWith("\"tags\"")) {
+                current.tags = jsonStringArray(t.substring(t.indexOf('[')));
+            } else if (current != null && t.startsWith("\"colors\"") && !t.contains("standardRecipe")) {
+                // first colors array on the theme
+                if (current.colors == null || current.colors.length <= 1)
+                    current.colors = jsonStringArray(t.substring(t.indexOf('[')));
+            }
+        }
+        if (current != null)
+            list.add(current);
+        return list;
+    }
+
+    private static String jsonString(String line) {
+        int c = line.indexOf(':');
+        int q1 = line.indexOf('"', c + 1);
+        int q2 = line.indexOf('"', q1 + 1);
+        return line.substring(q1 + 1, q2);
+    }
+
+    private static String[] jsonStringArray(String bracketed) {
+        List<String> out = new ArrayList<>();
+        int i = 0;
+        while (i < bracketed.length()) {
+            int q1 = bracketed.indexOf('"', i);
+            if (q1 < 0)
+                break;
+            int q2 = bracketed.indexOf('"', q1 + 1);
+            if (q2 < 0)
+                break;
+            out.add(bracketed.substring(q1 + 1, q2));
+            i = q2 + 1;
+        }
+        return out.toArray(new String[0]);
+    }
+}
