@@ -95,6 +95,11 @@ public final class EnemyThemeDecks {
     public static final int MIN_NON_CREATURE_SPELLS_60 = 8;
     /** Max average CMC for non-ramp 60-card themes. */
     public static final float MAX_AVG_CMC_NON_RAMP = 3.75f;
+    /**
+     * Stable set code for basic lands in generated and fixed EN1 decks.
+     * Prefer Foundations over whatever printing happens to sort first / newest.
+     */
+    public static final String PREFERRED_BASIC_LAND_EDITION = "FDN";
 
     private static final String[] FORMAT_FALLBACK_ORDER = {
             FORMAT_HISTORIC, FORMAT_PAUPER, FORMAT_COMMANDER, FORMAT_STANDARD
@@ -1891,7 +1896,23 @@ public final class EnemyThemeDecks {
         };
     }
 
+    private static boolean isBasicLandName(String name) {
+        if (name == null)
+            return false;
+        return "Plains".equals(name) || "Island".equals(name) || "Swamp".equals(name)
+                || "Mountain".equals(name) || "Forest".equals(name) || "Wastes".equals(name);
+    }
+
+    /**
+     * Basics are pinned to {@link #PREFERRED_BASIC_LAND_EDITION} when that printing
+     * exists and is released / non-promo. Other names use the first good paper printing.
+     */
     private static PaperCard cardByName(String name) {
+        if (isBasicLandName(name)) {
+            PaperCard pinned = basicLandFromPreferredSet(name);
+            if (pinned != null)
+                return pinned;
+        }
         try {
             Collection<PaperCard> all = FModel.getMagicDb().getCommonCards().getAllCards(name);
             if (all != null) {
@@ -1907,7 +1928,7 @@ public final class EnemyThemeDecks {
                         continue;
                     if (good == null)
                         good = p;
-                    // Basics: prefer ordinary released non-promo printings.
+                    // Prefer ordinary released non-promo printings.
                     if (!isUnreleasedOrPromoOnlyEdition(p.getEdition())) {
                         released = p;
                         break;
@@ -1926,6 +1947,21 @@ public final class EnemyThemeDecks {
                 return pc;
             return FModel.getMagicDb().getCommonCards().getUniqueByName(name);
         } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Prefer {@link #PREFERRED_BASIC_LAND_EDITION} for basics when available. */
+    private static PaperCard basicLandFromPreferredSet(String name) {
+        try {
+            PaperCard pc = FModel.getMagicDb().getCommonCards()
+                    .getCard(name, PREFERRED_BASIC_LAND_EDITION);
+            if (pc == null)
+                return null;
+            if (isBadEditionCode(pc.getEdition()) || isUnreleasedOrPromoOnlyEdition(pc.getEdition()))
+                return null;
+            return pc;
+        } catch (Throwable e) {
             return null;
         }
     }
@@ -2439,7 +2475,9 @@ public final class EnemyThemeDecks {
 
     /**
      * Raise tribe creature count toward {@link #MIN_TRIBAL_CREATURES_60} /
-     * {@link #MIN_TRIBAL_CREATURES_COMMANDER} using core tribe creatures (changelings count).
+     * {@link #MIN_TRIBAL_CREATURES_COMMANDER}. Tops up from the theme's hand-picked
+     * core first; only expands into the broader card DB when core tribe copies are
+     * exhausted (changelings count).
      */
     private static void ensureTribalCreatureDensity(Deck deck, EnemyThemeData theme, String format,
                                                     GameFormat forgeFormat, byte allowed,
@@ -2451,7 +2489,6 @@ public final class EnemyThemeDecks {
                 : MIN_TRIBAL_CREATURES_60;
         if (countTribalCreatures(deck, theme) >= need)
             return;
-        CardPool main = deck.getOrCreate(DeckSection.Main);
         List<PaperCard> tribeCore = new ArrayList<>();
         Set<String> seenTribe = new HashSet<>();
         for (PaperCard pc : resolveCoreCards(theme, fmt, forgeFormat, allowed, singleton)) {
@@ -2461,33 +2498,58 @@ public final class EnemyThemeDecks {
                 continue;
             tribeCore.add(pc);
         }
-        // Expand from the broader pool when the core is short on tribe creatures.
-        try {
-            for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
-                if (pc == null || pc.getRules() == null || !countsAsTribalCreature(pc, theme))
-                    continue;
-                if (!seenTribe.add(pc.getName()))
-                    continue;
-                if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(pc.getName()))
-                    continue;
-                if (forgeFormat != null && !cardLegalInFixedFormat(pc, fmt, forgeFormat))
-                    continue;
-                if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
-                        && !pc.getRules().getColorIdentity().isColorless())
-                    continue;
-                // Keep expanded picks as core-adjacent so filler caps don't strip them:
-                // only add when still below the floor after core copies.
-                tribeCore.add(preferPaperPrinting(pc));
-                if (tribeCore.size() >= need * 3)
-                    break;
+        // Phase 1: exhaust hand-picked core tribe creatures before touching the DB.
+        addTribalCreaturesFromPool(deck, theme, fmt, tribeCore, need, singleton);
+
+        // Phase 2: only if still short, expand from the broader pool.
+        if (countTribalCreatures(deck, theme) < need) {
+            List<PaperCard> tribeDb = new ArrayList<>();
+            try {
+                for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
+                    if (pc == null || pc.getRules() == null || !countsAsTribalCreature(pc, theme))
+                        continue;
+                    if (!seenTribe.add(pc.getName()))
+                        continue;
+                    if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(pc.getName()))
+                        continue;
+                    if (forgeFormat != null && !cardLegalInFixedFormat(pc, fmt, forgeFormat))
+                        continue;
+                    if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
+                            && !pc.getRules().getColorIdentity().isColorless())
+                        continue;
+                    tribeDb.add(preferPaperPrinting(pc));
+                    if (tribeDb.size() >= need * 3)
+                        break;
+                }
+            } catch (Throwable ignored) {
             }
-        } catch (Throwable ignored) {
+            addTribalCreaturesFromPool(deck, theme, fmt, tribeDb, need, singleton);
         }
+        if (!FORMAT_COMMANDER.equals(fmt)) {
+            String[] pad = colorsFromMask(spellColorMask(deck));
+            if (pad.length == 0)
+                pad = theme.colors != null ? theme.colors : new String[]{"blue"};
+            rebuildBasicLands(deck, pad, 60);
+        }
+        enforceFillerCap(deck, theme, FORMAT_COMMANDER.equals(fmt) ? MAX_FILLER_COMMANDER
+                : MAX_FILLER_NONLAND);
+    }
+
+    /**
+     * Add tribe creatures from {@code pool} until {@code need} or the pool is exhausted
+     * at per-name caps. Swaps non-tribe non-lands when the non-land budget is tight.
+     */
+    private static void addTribalCreaturesFromPool(Deck deck, EnemyThemeData theme, String fmt,
+                                                   List<PaperCard> pool, int need,
+                                                   boolean singleton) {
+        if (deck == null || pool == null || pool.isEmpty())
+            return;
+        CardPool main = deck.getOrCreate(DeckSection.Main);
         int perName = singleton ? 1 : 4;
         int guard = 0;
         while (countTribalCreatures(deck, theme) < need && guard++ < 200) {
             boolean added = false;
-            for (PaperCard pc : tribeCore) {
+            for (PaperCard pc : pool) {
                 if (countTribalCreatures(deck, theme) >= need)
                     break;
                 int cur = main.countByName(pc.getName());
@@ -2547,14 +2609,15 @@ public final class EnemyThemeDecks {
             if (!added)
                 break;
         }
-        if (!FORMAT_COMMANDER.equals(fmt)) {
-            String[] pad = colorsFromMask(spellColorMask(deck));
-            if (pad.length == 0)
-                pad = theme.colors != null ? theme.colors : new String[]{"blue"};
-            rebuildBasicLands(deck, pad, 60);
-        }
-        enforceFillerCap(deck, theme, FORMAT_COMMANDER.equals(fmt) ? MAX_FILLER_COMMANDER
-                : MAX_FILLER_NONLAND);
+    }
+
+    /**
+     * Test hook: run tribal density top-up (core before DB) on an existing deck.
+     */
+    public static void ensureTribalCreatureDensityForTests(Deck deck, EnemyThemeData theme,
+                                                           String format, GameFormat forgeFormat,
+                                                           byte allowed, boolean singleton) {
+        ensureTribalCreatureDensity(deck, theme, format, forgeFormat, allowed, singleton);
     }
 
     private static boolean countsAsTribalCreature(PaperCard pc, EnemyThemeData theme) {
@@ -2844,11 +2907,12 @@ public final class EnemyThemeDecks {
         } catch (Throwable ignored) {
         }
         Collections.shuffle(pool, MyRandom.getRandom());
-        // Prefer tribe creatures for dragon themes so payoffs like Dragonstorm connect.
-        if (theme != null && theme.id != null && theme.id.contains("dragon")) {
+        // Prefer tribe creatures for tribal themes so filler does not spend slots on
+        // off-tribe "flash/flying" matches (e.g. Undersea Invader in spirit_tempo).
+        if (isTribalTheme(theme)) {
             pool.sort((a, b) -> Boolean.compare(
-                    b.getRules().getType().hasSubtype("Dragon"),
-                    a.getRules().getType().hasSubtype("Dragon")));
+                    countsAsTribalCreature(b, theme),
+                    countsAsTribalCreature(a, theme)));
         }
         int fillerCap = FORMAT_COMMANDER.equals(format) ? MAX_FILLER_COMMANDER : MAX_FILLER_NONLAND;
         int added = 0;
@@ -2859,6 +2923,22 @@ public final class EnemyThemeDecks {
             if (theme != null && theme.id != null && theme.id.contains("dragon")
                     && "Studious First-Year".equals(pc.getName()))
                 continue;
+            // Tribal constructed: spend filler on tribe creatures before off-tribe glue.
+            if (isTribalTheme(theme) && !FORMAT_COMMANDER.equals(format)
+                    && !countsAsTribalCreature(pc, theme)) {
+                // Allow a little non-tribe only if we somehow cannot fill with tribe.
+                boolean anyTribeLeft = false;
+                for (PaperCard t : pool) {
+                    if (countsAsTribalCreature(t, theme)
+                            && main.countByName(t.getName()) < (singleton ? 1
+                            : (FORMAT_PAUPER.equals(format) ? 4 : 2))) {
+                        anyTribeLeft = true;
+                        break;
+                    }
+                }
+                if (anyTribeLeft)
+                    continue;
+            }
             if (countFillerInPool(main, theme) >= fillerCap)
                 break;
             int max = singleton ? 1 : (FORMAT_PAUPER.equals(format) ? 4 : 2);
