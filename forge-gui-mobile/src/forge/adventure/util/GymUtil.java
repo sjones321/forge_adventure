@@ -502,7 +502,7 @@ public final class GymUtil {
             if (pc == null)
                 pc = CardUtil.getCardByName(preferred);
             if (pc != null && (commander || !window.isActive() || window.isStandardLegal(pc.getName())))
-                return pc;
+                return SourcePrintings.enabled() ? SourcePrintings.resolve(pc, (String[]) null) : pc;
         }
         List<String> pool = new ArrayList<>();
         if (window.isActive()) {
@@ -521,7 +521,7 @@ public final class GymUtil {
             if (pc == null)
                 pc = CardUtil.getCardByName(name);
             if (pc != null)
-                return pc;
+                return SourcePrintings.enabled() ? SourcePrintings.resolve(pc, (String[]) null) : pc;
         }
         return null;
     }

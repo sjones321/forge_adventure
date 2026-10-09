@@ -14,10 +14,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * CS0: Ascendant card printings come from their source (pack set, set plane, shop pool),
@@ -40,10 +43,32 @@ public final class SourcePrintings {
             CardEdition.EditionSectionWithCollectorNumbers.BOX_TOPPER.getName(),
             CardEdition.EditionSectionWithCollectorNumbers.BUNDLE.getName(),
             CardEdition.EditionSectionWithCollectorNumbers.SPECIAL_SLOT.getName(),
-            CardEdition.EditionSectionWithCollectorNumbers.JUMPSTART.getName()
+            CardEdition.EditionSectionWithCollectorNumbers.JUMPSTART.getName(),
+            CardEdition.EditionSectionWithCollectorNumbers.CONJURED.getName(),
+            CardEdition.EditionSectionWithCollectorNumbers.REBALANCED.getName(),
+            CardEdition.EditionSectionWithCollectorNumbers.ETERNAL.getName(),
+            CardEdition.EditionSectionWithCollectorNumbers.PRECON_PRODUCT.getName()
     );
 
+    private static final EnumSet<CardEdition.Type> EXCLUDED_EDITION_TYPES = EnumSet.of(
+            CardEdition.Type.PROMO,
+            CardEdition.Type.ONLINE,
+            CardEdition.Type.COLLECTOR_EDITION,
+            CardEdition.Type.FUNNY
+    );
+
+    /** Cache: edition|collectorNumber → section name (empty string if unknown). */
+    private static final Map<String, String> SECTION_CACHE = new ConcurrentHashMap<>();
+    /** Cache: edition|collectorNumber → isNormalPrinting. */
+    private static final Map<String, Boolean> NORMAL_CACHE = new ConcurrentHashMap<>();
+
     private SourcePrintings() {
+    }
+
+    /** Test helper: drop section / normal caches. */
+    public static void clearCachesForTest() {
+        SECTION_CACHE.clear();
+        NORMAL_CACHE.clear();
     }
 
     /**
@@ -80,22 +105,42 @@ public final class SourcePrintings {
     }
 
     /**
-     * A normal printing: non-promo edition and not from a showcase/borderless/etc. sheet.
-     * Main {@code cards} sheet printings (and unknown section) count as normal.
+     * A normal printing: not promo / online / collector / funny, not from a special sheet
+     * (showcase, borderless, conjured, rebalanced, eternal, precon, …), and not from a
+     * {@code restrictedEditions} code. Main {@code cards} sheet printings count as normal.
      */
     public static boolean isNormalPrinting(PaperCard pc) {
         if (pc == null) {
             return false;
         }
+        String editionCode = pc.getEdition();
+        String cn = pc.getCollectorNumber();
+        if (editionCode == null) {
+            return false;
+        }
+        String cacheKey = editionCode + "|" + (cn == null ? "" : cn);
+        Boolean cached = NORMAL_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        boolean normal = computeIsNormalPrinting(pc, editionCode, cn);
+        NORMAL_CACHE.put(cacheKey, normal);
+        return normal;
+    }
+
+    private static boolean computeIsNormalPrinting(PaperCard pc, String editionCode, String cn) {
         try {
-            CardEdition edition = editions().get(pc.getEdition());
+            if (isRestrictedEdition(editionCode)) {
+                return false;
+            }
+            CardEdition edition = editions().get(editionCode);
             if (edition == null) {
                 return false;
             }
-            if (edition.getType() == CardEdition.Type.PROMO) {
+            if (EXCLUDED_EDITION_TYPES.contains(edition.getType())) {
                 return false;
             }
-            String section = edition.getSectionForCollectorNumber(pc.getCollectorNumber());
+            String section = sectionFor(editionCode, cn, edition);
             if (section == null || section.isEmpty()) {
                 return true;
             }
@@ -103,8 +148,8 @@ public final class SourcePrintings {
             if (cards.equalsIgnoreCase(section)) {
                 return true;
             }
-            return !SPECIAL_SECTIONS.contains(section.toLowerCase(Locale.ROOT))
-                    && !SPECIAL_SECTIONS.contains(section);
+            String lower = section.toLowerCase(Locale.ROOT);
+            return !SPECIAL_SECTIONS.contains(lower) && !SPECIAL_SECTIONS.contains(section);
         } catch (Throwable t) {
             return false;
         }
@@ -113,6 +158,9 @@ public final class SourcePrintings {
     /** Prefer a main-sheet printing of {@code cardName} from {@code setCode}. */
     public static PaperCard printingFromSet(String cardName, String setCode) {
         if (cardName == null || cardName.isEmpty() || setCode == null || setCode.isEmpty()) {
+            return null;
+        }
+        if (isRestrictedEdition(setCode)) {
             return null;
         }
         List<PaperCard> inSet = new ArrayList<>();
@@ -172,7 +220,14 @@ public final class SourcePrintings {
         if (recent != null) {
             return recent;
         }
-        recent = pickMostRecent(all);
+        // Last resort: any non-restricted printing (still avoid online/funny when possible).
+        List<PaperCard> usable = new ArrayList<>();
+        for (PaperCard pc : all) {
+            if (pc != null && !isRestrictedEdition(pc.getEdition())) {
+                usable.add(pc);
+            }
+        }
+        recent = pickMostRecent(usable.isEmpty() ? all : usable);
         return recent != null ? recent : all.get(0);
     }
 
@@ -191,7 +246,7 @@ public final class SourcePrintings {
         }
         if (sourceEditions != null) {
             for (String ed : sourceEditions) {
-                if (ed == null || ed.isEmpty()) {
+                if (ed == null || ed.isEmpty() || isRestrictedEdition(ed)) {
                     continue;
                 }
                 PaperCard pinned = printingFromSet(candidate.getName(), ed);
@@ -202,7 +257,7 @@ public final class SourcePrintings {
         }
         try {
             String planeSet = SetPlaneRules.activeSetCode();
-            if (planeSet != null && !planeSet.isEmpty()) {
+            if (planeSet != null && !planeSet.isEmpty() && !isRestrictedEdition(planeSet)) {
                 PaperCard pinned = printingFromSet(candidate.getName(), planeSet);
                 if (pinned != null && planeSet.equalsIgnoreCase(pinned.getEdition())) {
                     return pinned;
@@ -236,6 +291,26 @@ public final class SourcePrintings {
         }
     }
 
+    public static boolean isRestrictedEdition(String code) {
+        if (code == null || code.isEmpty()) {
+            return false;
+        }
+        try {
+            ConfigData data = Config.instance().getConfigData();
+            if (data == null || data.restrictedEditions == null) {
+                return false;
+            }
+            for (String r : data.restrictedEditions) {
+                if (code.equalsIgnoreCase(r)) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+            // Config unavailable.
+        }
+        return false;
+    }
+
     private static List<PaperCard> allPrintings(String cardName) {
         try {
             StaticData db = magicDb();
@@ -266,6 +341,18 @@ public final class SourcePrintings {
         return db != null ? db.getEditions() : null;
     }
 
+    private static String sectionFor(String editionCode, String cn, CardEdition edition) {
+        String key = editionCode + "|" + (cn == null ? "" : cn);
+        return SECTION_CACHE.computeIfAbsent(key, k -> {
+            try {
+                String section = edition.getSectionForCollectorNumber(cn);
+                return section == null ? "" : section;
+            } catch (Throwable t) {
+                return "";
+            }
+        });
+    }
+
     private static Set<String> normalizeCodes(Collection<String> codes) {
         Set<String> out = new HashSet<>();
         if (codes == null) {
@@ -280,7 +367,7 @@ public final class SourcePrintings {
         return out;
     }
 
-    /** Prefer normal main-sheet, then lowest collector number. */
+    /** Prefer normal main-sheet, then lowest collector number (numeric / natural order). */
     private static PaperCard pickPreferred(List<PaperCard> cards) {
         if (cards == null || cards.isEmpty()) {
             return null;
@@ -289,8 +376,7 @@ public final class SourcePrintings {
                 .filter(pc -> pc != null)
                 .min(Comparator
                         .comparing((PaperCard pc) -> isNormalPrinting(pc) ? 0 : 1)
-                        .thenComparing(PaperCard::getCollectorNumber,
-                                Comparator.nullsLast(String::compareTo)))
+                        .thenComparing(SourcePrintings::sortableCn))
                 .orElse(null);
     }
 
@@ -302,9 +388,12 @@ public final class SourcePrintings {
                 .filter(pc -> pc != null)
                 .max(Comparator
                         .comparing(SourcePrintings::editionDate, Comparator.nullsFirst(Date::compareTo))
-                        .thenComparing(PaperCard::getCollectorNumber,
-                                Comparator.nullsLast(String::compareTo)))
+                        .thenComparing(SourcePrintings::sortableCn))
                 .orElse(null);
+    }
+
+    private static String sortableCn(PaperCard pc) {
+        return CardEdition.getSortableCollectorNumber(pc.getCollectorNumber());
     }
 
     private static Date editionDate(PaperCard pc) {

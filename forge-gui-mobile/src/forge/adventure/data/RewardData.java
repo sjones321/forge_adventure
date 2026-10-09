@@ -416,8 +416,13 @@ public class RewardData implements Serializable {
                                 }
                             } else {
                                 PaperCard card = finalPool.get(rewardRandom.nextInt(finalPool.size()));
-                                if (card != null)
+                                if (card != null) {
+                                    // CS0: Union shops (157 Ascendant entries) must rematch printings.
+                                    if (SourcePrintings.enabled()) {
+                                        card = SourcePrintings.resolve(card, this);
+                                    }
                                     ret.add(new Reward(card, isNoSell));
+                                }
                             }
                         }
                     }
@@ -456,8 +461,7 @@ public class RewardData implements Serializable {
                         }
                     } else {
                         // Rotating Standard (stock / pre-CS0): shops pinned to a set outside the window would
-                        // come up empty, so the window replaces their set restriction. CS0 keeps the shop's
-                        // set pin so printings come from that shop's pool.
+                        // come up empty, so the window replaces their set restriction.
                         RewardData filter = this;
                         if (!isForEnemy && editions != null && AdventurePlayer.current().getStandardWindow().isActive()
                                 && !SourcePrintings.enabled()) {
@@ -476,6 +480,18 @@ public class RewardData implements Serializable {
                                 cardPool = setPool;
                             }
                             // else: keep window/base pool so shops stay stocked
+                        }
+                        // CS0: keep set-pinned shops when the pin hits the pool; if the pin is
+                        // outside the rotation (40K / D&D shops) the pinned filter is empty — fall
+                        // back to the window pool so the shop stays stocked.
+                        if (SourcePrintings.enabled() && !isForEnemy && editions != null && editions.length > 0
+                                && AdventurePlayer.current().getStandardWindow().isActive()
+                                && filter.editions != null) {
+                            List<PaperCard> pinnedHits = CardUtil.getPredicateResult(cardPool, filter);
+                            if (pinnedHits.isEmpty()) {
+                                filter = new RewardData(this);
+                                filter.editions = null;
+                            }
                         }
                         for (PaperCard card : CardUtil.generateCards(cardPool, filter, count + addedCount, rewardRandom)) {
                             if (card != null)

@@ -929,7 +929,12 @@ public class CardUtil {
 
     public static PaperCard getCardByName(String cardName) {
         if (SourcePrintings.enabled()) {
+            // CS0 early return: rotation / most-recent normal (excludes online, funny,
+            // collector, restrictedEditions, special sheets via isNormalPrinting).
             PaperCard fromSource = SourcePrintings.printingFromRotation(cardName);
+            if (fromSource != null && SourcePrintings.isNormalPrinting(fromSource)) {
+                return fromSource;
+            }
             if (fromSource != null) {
                 return fromSource;
             }

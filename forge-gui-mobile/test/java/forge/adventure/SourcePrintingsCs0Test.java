@@ -1,6 +1,7 @@
 package forge.adventure;
 
 import com.badlogic.gdx.files.FileHandle;
+import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Json;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.RewardData;
@@ -9,6 +10,8 @@ import forge.adventure.player.AdventurePlayer;
 import forge.adventure.player.StandardWindow;
 import forge.adventure.util.CardUtil;
 import forge.adventure.util.Config;
+import forge.adventure.util.GymUtil;
+import forge.adventure.util.Reward;
 import forge.adventure.util.SourcePrintings;
 import forge.adventure.world.WorldSave;
 import forge.card.CardEdition;
@@ -318,9 +321,186 @@ public class SourcePrintingsCs0Test {
         Assert.assertNotNull(ed);
         Assert.assertNotEquals(ed.getType(), CardEdition.Type.PROMO,
                 "most-recent normal fallback should avoid promo sets when a normal exists");
+        Assert.assertNotEquals(ed.getType(), CardEdition.Type.ONLINE,
+                "fallback must not pick ONLINE editions when a normal exists");
+        Assert.assertNotEquals(ed.getType(), CardEdition.Type.FUNNY,
+                "fallback must not pick FUNNY editions when a normal exists");
+        Assert.assertFalse(SourcePrintings.isRestrictedEdition(lotus.getEdition()),
+                "fallback must not pick restrictedEditions");
+    }
+
+    // ---- RewardData.generate-level behaviour (Union, pinned fallback, exclusions) ----
+
+    @Test
+    public void generateUnionRematchesPrintingsIntoRotation() {
+        warmRotationCardPool();
+        Set<String> rotation = Set.of("ZEN", "WWK", "ROE");
+
+        RewardData union = new RewardData();
+        union.type = "Union";
+        union.count = 6;
+        union.probability = 1f;
+        RewardData a = new RewardData();
+        a.colors = new String[]{"green"};
+        a.cardTypes = new String[]{"Creature"};
+        RewardData b = new RewardData();
+        b.colors = new String[]{"red"};
+        b.cardTypes = new String[]{"Creature"};
+        union.cardUnion = new RewardData[]{a, b};
+
+        List<PaperCard> cards = cardsFromGenerate(union, 8);
+        Assert.assertFalse(cards.isEmpty(), "Union generate must stock Ascendant shops");
+        for (PaperCard pc : cards) {
+            Assert.assertTrue(rotation.contains(pc.getEdition()),
+                    "Union reward must rematch into rotation; got "
+                            + pc.getName() + " [" + pc.getEdition() + "]");
+        }
+    }
+
+    @Test
+    public void generatePinnedShopOutsideRotationFallsBackAndStocks() {
+        warmRotationCardPool();
+        // 40K / D&D style pin outside ZEN/WWK/ROE — must not come up empty.
+        RewardData pinned = new RewardData();
+        pinned.type = "randomCard";
+        pinned.count = 4;
+        pinned.probability = 1f;
+        pinned.editions = new String[]{"40K"};
+        pinned.cardTypes = new String[]{"Creature"};
+
+        List<PaperCard> cards = cardsFromGenerate(pinned, 6);
+        Assert.assertFalse(cards.isEmpty(),
+                "set-pinned shop outside rotation must fall back and stay stocked");
+        Set<String> rotation = Set.of("ZEN", "WWK", "ROE");
+        for (PaperCard pc : cards) {
+            Assert.assertTrue(rotation.contains(pc.getEdition()),
+                    "fallback stock should use rotation printings; got "
+                            + pc.getName() + " [" + pc.getEdition() + "]");
+        }
+    }
+
+    @Test
+    public void generateZenPinnedShopKeepsZenPrintings() {
+        warmRotationCardPool();
+        RewardData pinned = new RewardData();
+        pinned.type = "randomCard";
+        pinned.count = 4;
+        pinned.probability = 1f;
+        pinned.editions = new String[]{"ZEN"};
+        pinned.cardTypes = new String[]{"Creature"};
+
+        List<PaperCard> cards = cardsFromGenerate(pinned, 6);
+        Assert.assertFalse(cards.isEmpty(), "ZEN-pinned shop inside rotation must stock");
+        for (PaperCard pc : cards) {
+            Assert.assertEquals(pc.getEdition(), "ZEN",
+                    "ZEN pin must keep ZEN printings via generate()");
+        }
+    }
+
+    @Test
+    public void onlineAndRestrictedEditionsExcludedFromNormalFallback() {
+        SourcePrintings.clearCachesForTest();
+        // Shock: paper + online printings exist; empty rotation → most recent normal.
+        PaperCard shock = SourcePrintings.printingFromRotation("Shock", List.of());
+        Assert.assertNotNull(shock);
+        Assert.assertTrue(SourcePrintings.isNormalPrinting(shock),
+                "empty-rotation fallback must be a normal printing");
+        CardEdition ed = FModel.getMagicDb().getEditions().get(shock.getEdition());
+        Assert.assertNotNull(ed);
+        Assert.assertNotEquals(ed.getType(), CardEdition.Type.ONLINE);
+        Assert.assertNotEquals(ed.getType(), CardEdition.Type.FUNNY);
+        Assert.assertNotEquals(ed.getType(), CardEdition.Type.COLLECTOR_EDITION);
+        Assert.assertFalse(SourcePrintings.isRestrictedEdition(shock.getEdition()));
+
+        // Direct: an ONLINE printing must fail isNormalPrinting.
+        PaperCard online = SourcePrintings.printingFromSet("Shock", "ANB");
+        if (online != null) {
+            Assert.assertFalse(SourcePrintings.isNormalPrinting(online),
+                    "Arena Beginner (ONLINE) Shock must not count as normal");
+        }
+
+        // Restricted funny set (UST) must never be chosen as normal.
+        PaperCard ust = SourcePrintings.printingFromSet("Steamflogger Boss", "UST");
+        if (ust == null) {
+            // Any UST card name from the edition list.
+            CardEdition ustEd = FModel.getMagicDb().getEditions().get("UST");
+            Assert.assertNotNull(ustEd);
+            if (!ustEd.getCards().isEmpty()) {
+                ust = SourcePrintings.printingFromSet(ustEd.getCards().get(0).name(), "UST");
+            }
+        }
+        if (ust != null) {
+            Assert.assertTrue(SourcePrintings.isRestrictedEdition("UST"));
+            Assert.assertFalse(SourcePrintings.isNormalPrinting(ust),
+                    "restrictedEditions UST must fail isNormalPrinting");
+        }
+
+        // getCardByName early return must also avoid ONLINE / restricted.
+        PaperCard byName = CardUtil.getCardByName("Shock");
+        Assert.assertNotNull(byName);
+        Assert.assertTrue(SourcePrintings.isNormalPrinting(byName)
+                        || Set.of("ZEN", "WWK", "ROE").contains(byName.getEdition()),
+                "getCardByName under CS0 must not return online/restricted when avoidable");
+        Assert.assertNotEquals(
+                FModel.getMagicDb().getEditions().get(byName.getEdition()).getType(),
+                CardEdition.Type.ONLINE);
+    }
+
+    @Test
+    public void gymStapleRewardRoutesThroughResolve() {
+        warmRotationCardPool();
+        PaperCard staple = GymUtil.pickStapleReward("Goblin Guide");
+        Assert.assertNotNull(staple);
+        Assert.assertEquals(staple.getEdition(), "ZEN",
+                "gym staple reward must resolve to a rotation printing");
+    }
+
+    @Test
+    public void collectorNumbersComparedNumerically() {
+        // Prefer lower numeric CN: "2" before "10" (string compare would invert).
+        PaperCard a = SourcePrintings.printingFromSet("Plains", "ZEN");
+        Assert.assertNotNull(a);
+        // Cache hit path for section / normal.
+        SourcePrintings.clearCachesForTest();
+        Assert.assertTrue(SourcePrintings.isNormalPrinting(a));
+        Assert.assertTrue(SourcePrintings.isNormalPrinting(a), "second call uses cache");
+        String cn = CardEdition.getSortableCollectorNumber("2");
+        String cn10 = CardEdition.getSortableCollectorNumber("10");
+        Assert.assertTrue(cn.compareTo(cn10) < 0,
+                "sortable CN must order 2 before 10");
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** Force-load enough rotation cards so RewardData.initializeAllCards is non-empty. */
+    private static void warmRotationCardPool() {
+        AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
+        Set<String> names = player.getStandardWindow().legalNames();
+        int n = 0;
+        for (String name : names) {
+            FModel.getMagicDb().getCommonCards().getCard(name);
+            if (++n >= 400) {
+                break;
+            }
+        }
+        RewardData.invalidateCardPool();
+        SourcePrintings.clearCachesForTest();
+    }
+
+    private static List<PaperCard> cardsFromGenerate(RewardData template, int rounds) {
+        List<PaperCard> out = new ArrayList<>();
+        for (int i = 0; i < rounds; i++) {
+            RewardData one = new RewardData(template);
+            one.probability = 1f;
+            Array<Reward> rewards = one.generate(false, true);
+            for (Reward r : rewards) {
+                if (r != null && r.getType() == Reward.Type.Card && r.getCard() != null) {
+                    out.add(r.getCard());
+                }
+            }
+        }
+        return out;
+    }
 
     private static List<PaperCard> generateMany(RewardData template, int total) {
         List<PaperCard> out = new ArrayList<>();
