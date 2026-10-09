@@ -969,10 +969,8 @@ public final class EnemyThemeDecks {
                 || theme.creatureTypes.length == 0)
             return false;
         String id = theme.id;
-        return id.contains("tribal") || id.contains("spirit") || id.contains("kraken")
-                || id.contains("goblin") || id.contains("zombie") || id.contains("elf")
-                || id.contains("vampire") || id.contains("dragon") || id.contains("soldier")
-                || id.contains("knight");
+        // Strict tribal lists + the two creature-type specialty themes.
+        return id.contains("tribal") || "spirit_tempo".equals(id) || "kraken_leviathan".equals(id);
     }
 
     public static int countNonLandsAll(Deck deck) {
@@ -1043,8 +1041,12 @@ public final class EnemyThemeDecks {
                 continue;
             if (pc.getRules().getType().isLand())
                 continue;
-            if (!isInCore(pc.getName(), theme))
-                n += e.getValue();
+            if (isInCore(pc.getName(), theme))
+                continue;
+            // Tribe creatures that meet the tribal floor are not "filler".
+            if (isTribalTheme(theme) && countsAsTribalCreature(pc, theme))
+                continue;
+            n += e.getValue();
         }
         return n;
     }
@@ -1997,19 +1999,67 @@ public final class EnemyThemeDecks {
         }
         enforceFillerCap(deck, theme, maxFiller);
         ensureTribalCreatureDensity(deck, theme, FORMAT_COMMANDER, null, ci, true);
+        stripCommanderDuplicates(deck);
+        enforceFillerCap(deck, theme, maxFiller);
+        // Trim excess non-lands (never strip the land band), then rebuild the mana base.
+        while (countNonLands(main) > needMain - landBudget) {
+            PaperCard remove = null;
+            for (PaperCard pc : main.toFlatList()) {
+                if (pc.getRules().getType().isLand())
+                    continue;
+                if (countsAsTribalCreature(pc, theme))
+                    continue;
+                if (isInCore(pc.getName(), theme))
+                    continue;
+                remove = pc;
+                break;
+            }
+            if (remove == null) {
+                for (PaperCard pc : main.toFlatList()) {
+                    if (!pc.getRules().getType().isLand() && !countsAsTribalCreature(pc, theme)) {
+                        remove = pc;
+                        break;
+                    }
+                }
+            }
+            if (remove == null)
+                break;
+            main.remove(remove);
+        }
         rebuildCommanderManaBase(deck, ci, landBudget);
         stripCommanderDuplicates(deck);
         while (deck.getMain().countAll() > needMain) {
             PaperCard remove = null;
             for (PaperCard pc : deck.getMain().toFlatList()) {
-                if (pc.getRules().getType().isBasicLand()) {
-                    remove = pc;
-                    break;
+                if (pc.getRules().getType().isLand())
+                    continue;
+                if (countsAsTribalCreature(pc, theme))
+                    continue;
+                remove = pc;
+                break;
+            }
+            if (remove == null) {
+                for (PaperCard pc : deck.getMain().toFlatList()) {
+                    if (!pc.getRules().getType().isBasicLand()) {
+                        remove = pc;
+                        break;
+                    }
                 }
             }
             if (remove == null)
                 break;
             deck.getMain().remove(remove);
+        }
+        if (countLands(deck) < landBudget)
+            rebuildCommanderManaBase(deck, ci, landBudget);
+        while (deck.getMain().countAll() < needMain && countLands(deck) < MAX_LANDS_COMMANDER) {
+            String[] pad = colorsFromMask(ci);
+            if (pad.length == 0)
+                pad = new String[]{"blue"};
+            PaperCard land = cardByName(basicForColor(pad[deck.getMain().countAll() % pad.length]));
+            if (land == null)
+                break;
+            main.add(land);
         }
         enforceFillerCap(deck, theme, maxFiller);
         return deck;
@@ -2106,10 +2156,13 @@ public final class EnemyThemeDecks {
                 PaperCard pc = e.getKey();
                 if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
                     continue;
-                if (!isInCore(pc.getName(), theme)) {
-                    victim = pc;
-                    break;
-                }
+                if (isInCore(pc.getName(), theme))
+                    continue;
+                // Keep tribe creatures that satisfy the tribal floor.
+                if (isTribalTheme(theme) && countsAsTribalCreature(pc, theme))
+                    continue;
+                victim = pc;
+                break;
             }
             if (victim == null)
                 break;
@@ -2132,7 +2185,7 @@ public final class EnemyThemeDecks {
             return 35;
         if (colors == 2)
             return 36;
-        return 38;
+        return Math.min(MAX_LANDS_COMMANDER, 38);
     }
 
     private static int countNonLands(CardPool main) {
@@ -2364,29 +2417,39 @@ public final class EnemyThemeDecks {
             return;
         CardPool main = deck.getOrCreate(DeckSection.Main);
         List<PaperCard> tribeCore = new ArrayList<>();
+        Set<String> seenTribe = new HashSet<>();
         for (PaperCard pc : resolveCoreCards(theme, fmt, forgeFormat, allowed, singleton)) {
-            if (pc == null || pc.getRules() == null || !pc.getRules().getType().isCreature())
+            if (!countsAsTribalCreature(pc, theme))
                 continue;
-            boolean changeling = false;
-            try {
-                changeling = pc.getRules().hasKeyword("Changeling");
-            } catch (Throwable ignored) {
+            if (pc == null || !seenTribe.add(pc.getName()))
+                continue;
+            tribeCore.add(pc);
+        }
+        // Expand from the broader pool when the core is short on tribe creatures.
+        try {
+            for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
+                if (pc == null || pc.getRules() == null || !countsAsTribalCreature(pc, theme))
+                    continue;
+                if (!seenTribe.add(pc.getName()))
+                    continue;
+                if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(pc.getName()))
+                    continue;
+                if (forgeFormat != null && !cardLegalInFixedFormat(pc, fmt, forgeFormat))
+                    continue;
+                if (allowed != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
+                        && !pc.getRules().getColorIdentity().isColorless())
+                    continue;
+                // Keep expanded picks as core-adjacent so filler caps don't strip them:
+                // only add when still below the floor after core copies.
+                tribeCore.add(preferPaperPrinting(pc));
+                if (tribeCore.size() >= need * 3)
+                    break;
             }
-            boolean match = changeling;
-            if (!match && theme.creatureTypes != null) {
-                for (String t : theme.creatureTypes) {
-                    if (t != null && pc.getRules().getType().hasSubtype(t)) {
-                        match = true;
-                        break;
-                    }
-                }
-            }
-            if (match)
-                tribeCore.add(pc);
+        } catch (Throwable ignored) {
         }
         int perName = singleton ? 1 : 4;
         int guard = 0;
-        while (countTribalCreatures(deck, theme) < need && guard++ < 120) {
+        while (countTribalCreatures(deck, theme) < need && guard++ < 200) {
             boolean added = false;
             for (PaperCard pc : tribeCore) {
                 if (countTribalCreatures(deck, theme) >= need)
@@ -2394,6 +2457,18 @@ public final class EnemyThemeDecks {
                 int cur = main.countByName(pc.getName());
                 if (cur >= perName)
                     continue;
+                // Commander: never duplicate the commander in main.
+                if (FORMAT_COMMANDER.equals(fmt) && deck.getCommanders() != null) {
+                    boolean isCmd = false;
+                    for (PaperCard cmd : deck.getCommanders()) {
+                        if (cmd != null && cmd.getName().equals(pc.getName())) {
+                            isCmd = true;
+                            break;
+                        }
+                    }
+                    if (isCmd)
+                        continue;
+                }
                 // Swap a non-tribe non-land when the non-land budget is tight.
                 if (!FORMAT_COMMANDER.equals(fmt) && main.countAll() >= 60 - MIN_LANDS_60) {
                     PaperCard victim = null;
@@ -2404,6 +2479,28 @@ public final class EnemyThemeDecks {
                             continue;
                         victim = c;
                         break;
+                    }
+                    if (victim != null)
+                        main.remove(victim);
+                } else if (FORMAT_COMMANDER.equals(fmt)) {
+                    PaperCard victim = null;
+                    for (PaperCard c : main.toFlatList()) {
+                        if (c.getRules().getType().isLand())
+                            continue;
+                        if (countsAsTribalCreature(c, theme))
+                            continue;
+                        if (isInCore(c.getName(), theme))
+                            continue;
+                        victim = c;
+                        break;
+                    }
+                    if (victim == null) {
+                        for (PaperCard c : main.toFlatList()) {
+                            if (!c.getRules().getType().isLand() && !countsAsTribalCreature(c, theme)) {
+                                victim = c;
+                                break;
+                            }
+                        }
                     }
                     if (victim != null)
                         main.remove(victim);
