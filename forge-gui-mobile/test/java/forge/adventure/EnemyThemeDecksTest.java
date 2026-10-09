@@ -179,6 +179,46 @@ public class EnemyThemeDecksTest {
     }
 
     @Test
+    public void enemyBannedJsonExistsAndCoresContainNoBannedNames() throws Exception {
+        Path bannedPath = resolveEnemyBannedJson();
+        Assert.assertTrue(Files.isRegularFile(bannedPath), "missing " + bannedPath);
+        String bannedText = Files.readString(bannedPath, StandardCharsets.UTF_8);
+        Assert.assertFalse(bannedText.startsWith("\uFEFF"), "BOM in enemy_banned.json");
+        Set<String> banned = new HashSet<>();
+        for (String line : bannedText.split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("\"") && t.contains("\"") && !t.startsWith("\"cards\"")) {
+                int q1 = t.indexOf('"');
+                int q2 = t.indexOf('"', q1 + 1);
+                if (q1 >= 0 && q2 > q1)
+                    banned.add(t.substring(q1 + 1, q2));
+            }
+        }
+        Assert.assertTrue(banned.contains("Ragavan, Nimble Pilferer"));
+        Assert.assertTrue(banned.contains("Cyclonic Rift"));
+        Assert.assertTrue(banned.contains("Blood Crypt"));
+        Assert.assertTrue(banned.size() >= 30, "expected full ban list, got " + banned.size());
+
+        Path coresDir = resolveEnemyCoresDir();
+        List<String> hits = new ArrayList<>();
+        try (var stream = Files.list(coresDir)) {
+            stream.filter(p -> p.toString().endsWith(".json")).forEach(file -> {
+                try {
+                    String text = Files.readString(file, StandardCharsets.UTF_8);
+                    for (String name : banned) {
+                        if (text.contains("\"" + name + "\""))
+                            hits.add(file.getFileName() + ": " + name);
+                    }
+                } catch (Exception e) {
+                    hits.add(file.getFileName() + ": read failed " + e);
+                }
+            });
+        }
+        Assert.assertTrue(hits.isEmpty(), "cores still list enemy-banned cards:\n"
+                + String.join("\n", hits));
+    }
+
+    @Test
     public void standardRecipeFillNeverCrashesWithoutCardDb() {
         // Full window legality is covered by EnemyThemeDeckLegalityTest (desktop + FModel).
         // Here: recipe fill must not throw when StaticData / Config are unavailable.
@@ -249,6 +289,19 @@ public class EnemyThemeDecksTest {
         };
         for (Path p : candidates) {
             if (Files.isDirectory(p))
+                return p;
+        }
+        return candidates[0];
+    }
+
+    private static Path resolveEnemyBannedJson() {
+        Path[] candidates = {
+                Paths.get("forge-gui/res/adventure/common/world/enemy_banned.json"),
+                Paths.get("../forge-gui/res/adventure/common/world/enemy_banned.json"),
+                Paths.get("res/adventure/common/world/enemy_banned.json")
+        };
+        for (Path p : candidates) {
+            if (Files.isRegularFile(p))
                 return p;
         }
         return candidates[0];
