@@ -219,6 +219,13 @@ public class PlayerSkills {
                 notify("Dueling milestone: +" + lifeGained + " max life");
             }
         }
+        // AC1: skill-level achievements (Ascendant only; account-wide; local in co-op).
+        if (Config.ascendant()) {
+            try {
+                AchievementService.get().evaluatePlayer(AdventurePlayer.current());
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     private static void showXpDrop(Skill skill, int amount) {
