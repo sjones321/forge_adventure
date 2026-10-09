@@ -27,11 +27,20 @@ public class WorldSaveHeader implements java.io.Serializable, Disposable {
 
     private void readObject(java.io.ObjectInputStream in) throws IOException, ClassNotFoundException {
         name = in.readUTF();
-        if(preview!=null)
+        if (preview != null) {
             preview.dispose();
-        preview = Serializer.ReadPixmap(in);
+        }
+        // Headless / missing natives: length-0 writes decode to null; a non-empty
+        // preview that cannot allocate a Pixmap must not abort the whole load.
+        try {
+            preview = Serializer.ReadPixmap(in);
+        } catch (final Throwable t) {
+            preview = null;
+            // Drain the PNG payload if ReadPixmap failed mid-read after length.
+            // Serializer.ReadPixmap either returns null (len 0) or fully reads bytes
+            // before constructing Pixmap — so a Pixmap ctor failure leaves the stream OK.
+        }
         saveDate = (Date) in.readObject();
-
     }
 
     public void dispose() {

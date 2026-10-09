@@ -228,9 +228,15 @@ public class CoopPartnerPersistTest {
     public void realWorldSaveDiskRoundTripPartnersAndNoHeaderRetitle() throws Exception {
         final int slot = 7;
         final String headerName = "Host World Alpha";
-        ensureMinimalWorldForDiskSave();
+        final forge.adventure.data.DifficultyData diff =
+                forge.adventure.util.Config.instance().getConfigData().difficulties[0];
+        WorldSave.generateNewWorld(headerName, true, 0, 0,
+                forge.card.ColorSet.W, diff,
+                AdventureModes.Chaos, 0, null, 7777L);
         final WorldSave save = WorldSave.getCurrentSave();
         save.header.name = headerName;
+        // Headless: never leave a GL preview pixmap that ObjectInputStream can't decode.
+        save.header.preview = null;
         save.setLoadedSlot(slot);
         final AdventurePlayer partner = CoopPartnerStarter.createNew("DiskPartner", true, 0, 0, "");
         partner.giveGold(88);
@@ -239,21 +245,11 @@ public class CoopPartnerPersistTest {
         Assert.assertTrue(save.savePreservingHeader(slot), "disk save");
         Assert.assertEquals(save.header.name, headerName, "save must not retitle header");
 
-        // Real disk round-trip: read the .sav with the same Inflater/ObjectInputStream path.
-        final Path savPath = Path.of(WorldSave.getSaveFile(slot));
-        Assert.assertTrue(Files.exists(savPath));
-        forge.adventure.world.WorldSaveHeader diskHeader;
-        SaveFileData mainData;
-        try (FileInputStream fos = new FileInputStream(savPath.toFile());
-             InflaterInputStream inf = new InflaterInputStream(fos);
-             ObjectInputStream oos = new ObjectInputStream(inf)) {
-            diskHeader = (forge.adventure.world.WorldSaveHeader) oos.readObject();
-            mainData = (SaveFileData) oos.readObject();
-        }
-        Assert.assertEquals(diskHeader.name, headerName);
-        Assert.assertTrue(mainData.containsKey("partners"), "partners written to disk");
-        final WorldPartners fromDisk = new WorldPartners();
-        fromDisk.load(mainData.readSubData("partners"));
+        // Real disk round-trip via WorldSave.load (same path as Continue).
+        Assert.assertTrue(WorldSave.load(slot), "WorldSave.load round-trip");
+        Assert.assertEquals(WorldSave.getCurrentSave().header.name, headerName);
+        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), slot);
+        final WorldPartners fromDisk = WorldSave.getCurrentSave().getPartners();
         Assert.assertTrue(fromDisk.has(PROFILE_A));
         Assert.assertEquals(fromDisk.get(PROFILE_A).readString("name"), "DiskPartner");
         Assert.assertTrue(fromDisk.get(PROFILE_A).readInt("gold") >= 88);
