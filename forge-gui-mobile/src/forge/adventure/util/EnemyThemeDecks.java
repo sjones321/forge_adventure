@@ -70,23 +70,23 @@ public final class EnemyThemeDecks {
     private EnemyThemeDecks() {
     }
 
-    /** Drop cached catalog (plane switch / tests). */
+    /** Drop cached catalog (plane switch / tests). Does not clear the enabled override. */
     public static void clearCache() {
         catalog = null;
         byId = null;
         byTag = null;
         loadAttempted = false;
-        forceEnabledForTests = null;
     }
 
     /**
      * Test hook: install a catalog without touching {@link Config} file IO.
+     * Preserves {@link #setEnabledForTests(Boolean)}.
      */
     public static void loadCatalogForTests(EnemyThemeCatalogData data) {
-        clearCache();
-        loadAttempted = true;
+        catalog = null;
         byId = new HashMap<>();
         byTag = new HashMap<>();
+        loadAttempted = true;
         catalog = data != null ? data : new EnemyThemeCatalogData();
         if (catalog.themes == null)
             return;
@@ -104,7 +104,7 @@ public final class EnemyThemeDecks {
         }
     }
 
-    /** Test hook: force EN1 on/off without a live Ascendant Config. */
+    /** Test hook: force EN1 on/off without a live Ascendant Config. Pass null to clear. */
     public static void setEnabledForTests(Boolean enabled) {
         forceEnabledForTests = enabled;
     }
@@ -207,7 +207,7 @@ public final class EnemyThemeDecks {
         Deck stock = null;
         try {
             stock = loadStockDeck(enemy, isFantasyMode, useGeneticAI);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.log(Level.WARNING, "EN1: stock deck load failed", e);
         }
         if (!isEnabled() || enemy == null || enemy.themeId == null || enemy.themeId.isEmpty())
@@ -220,7 +220,7 @@ public final class EnemyThemeDecks {
                 return themed;
             LOG.warning("EN1: no deck for theme=" + enemy.themeId + " format=" + format
                     + "; falling back to stock");
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.log(Level.WARNING, "EN1: theme deck resolve failed; falling back to stock", e);
         }
         return stock != null ? stock : new Deck("EN1 empty");
@@ -231,52 +231,57 @@ public final class EnemyThemeDecks {
      * generator. Returns null when nothing usable is found (caller falls back).
      */
     public static Deck resolveForThemeAndFormat(String themeId, String format) {
-        ensureLoaded();
-        if (themeId == null || themeId.isEmpty())
-            return null;
-        EnemyThemeData theme = byId != null ? byId.get(themeId) : null;
-        if (theme == null) {
-            LOG.warning("EN1: unknown theme " + themeId);
-            return tryAnyThemeDeck(format);
-        }
-
-        String fmt = normalizeFormat(format);
-        Deck deck = loadFixedOrRecipe(theme, fmt);
-        if (deck != null && !deck.isEmpty())
-            return deck;
-
-        // Same theme, other formats.
-        for (String alt : FORMAT_FALLBACK_ORDER) {
-            if (alt.equals(fmt))
-                continue;
-            deck = loadFixedOrRecipe(theme, alt);
-            if (deck != null && !deck.isEmpty()) {
-                LOG.warning("EN1: theme " + themeId + " missing " + fmt
-                        + "; using " + alt);
-                return deck;
+        try {
+            ensureLoaded();
+            if (themeId == null || themeId.isEmpty())
+                return null;
+            EnemyThemeData theme = byId != null ? byId.get(themeId) : null;
+            if (theme == null) {
+                LOG.warning("EN1: unknown theme " + themeId);
+                return tryAnyThemeDeck(format);
             }
-        }
 
-        // Other themes sharing a tag.
-        if (theme.tags != null) {
-            for (String tag : theme.tags) {
-                List<EnemyThemeData> siblings = byTag.get(normalizeTag(tag));
-                if (siblings == null)
+            String fmt = normalizeFormat(format);
+            Deck deck = loadFixedOrRecipe(theme, fmt);
+            if (deck != null && !deck.isEmpty())
+                return deck;
+
+            // Same theme, other formats.
+            for (String alt : FORMAT_FALLBACK_ORDER) {
+                if (alt.equals(fmt))
                     continue;
-                for (EnemyThemeData sib : siblings) {
-                    if (sib == theme || sib.id == null)
+                deck = loadFixedOrRecipe(theme, alt);
+                if (deck != null && !deck.isEmpty()) {
+                    LOG.warning("EN1: theme " + themeId + " missing " + fmt
+                            + "; using " + alt);
+                    return deck;
+                }
+            }
+
+            // Other themes sharing a tag.
+            if (theme.tags != null) {
+                for (String tag : theme.tags) {
+                    List<EnemyThemeData> siblings = byTag.get(normalizeTag(tag));
+                    if (siblings == null)
                         continue;
-                    deck = loadFixedOrRecipe(sib, fmt);
-                    if (deck != null && !deck.isEmpty()) {
-                        LOG.warning("EN1: theme " + themeId + " empty; using sibling "
-                                + sib.id + " for " + fmt);
-                        return deck;
+                    for (EnemyThemeData sib : siblings) {
+                        if (sib == theme || sib.id == null)
+                            continue;
+                        deck = loadFixedOrRecipe(sib, fmt);
+                        if (deck != null && !deck.isEmpty()) {
+                            LOG.warning("EN1: theme " + themeId + " empty; using sibling "
+                                    + sib.id + " for " + fmt);
+                            return deck;
+                        }
                     }
                 }
             }
-        }
 
-        return tryAnyThemeDeck(fmt);
+            return tryAnyThemeDeck(fmt);
+        } catch (Throwable e) {
+            LOG.log(Level.WARNING, "EN1: resolveForThemeAndFormat failed", e);
+            return null;
+        }
     }
 
     /**
@@ -302,6 +307,10 @@ public final class EnemyThemeDecks {
                     ? recipe.colors : theme.colors;
 
             List<PaperCard> pool = buildWindowPool(window, colors, tribe, recipe);
+            if (pool.isEmpty()) {
+                // Soften: any window-legal cards in the theme colors (still never leave the window).
+                pool = buildWindowPool(window, colors, null, recipe);
+            }
             if (pool.isEmpty()) {
                 LOG.warning("EN1: Standard recipe pool empty for " + theme.id);
                 return padWithBasics(empty, target, colors);
@@ -371,7 +380,7 @@ public final class EnemyThemeDecks {
                 main.add(pc);
             padWithBasics(deck, target, colors);
             return deck;
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.log(Level.WARNING, "EN1: Standard recipe fill failed for "
                     + (theme != null ? theme.id : "?"), e);
             return empty;
@@ -392,7 +401,12 @@ public final class EnemyThemeDecks {
         try {
             String fmt = formatFileToken(format);
             String dir = themeDeckDir(themeId);
-            FileHandle folder = Config.instance().getFile(dir);
+            FileHandle folder = null;
+            try {
+                folder = Config.instance().getFile(dir);
+            } catch (Throwable ignored) {
+                folder = null;
+            }
             if (folder != null && folder.exists() && folder.isDirectory()) {
                 FileHandle[] children = folder.list(".dck");
                 if (children != null) {
@@ -407,13 +421,18 @@ public final class EnemyThemeDecks {
             if (out.isEmpty()) {
                 for (int n = 1; n <= 4; n++) {
                     String rel = dir + fmt + "_" + n + ".dck";
-                    FileHandle fh = Config.instance().getFile(rel);
+                    FileHandle fh = null;
+                    try {
+                        fh = Config.instance().getFile(rel);
+                    } catch (Throwable ignored) {
+                        fh = null;
+                    }
                     if (fh != null && fh.exists())
                         out.add(rel);
                 }
             }
             Collections.sort(out);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.log(Level.WARNING, "EN1: listFixedDeckPaths failed for " + themeId, e);
         }
         return out;
@@ -497,7 +516,7 @@ public final class EnemyThemeDecks {
             AdventurePlayer p = Current.player();
             if (p != null)
                 return normalizeFormat(p.getRunFormat());
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
         }
         return FORMAT_STANDARD;
     }
@@ -544,7 +563,7 @@ public final class EnemyThemeDecks {
             if (deck == null || deck.isEmpty())
                 return null;
             return deck;
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.log(Level.WARNING, "EN1: failed to load " + relativePath, e);
             return null;
         }
@@ -575,17 +594,24 @@ public final class EnemyThemeDecks {
             return stock.preparedDeck;
         if (stock.deck == null || stock.deck.length == 0)
             return new Deck(stock.getName());
-        boolean canUseGeneticAI = useGeneticAI && stock.life > 16;
-        if (stock.randomizeDeck)
-            return CardUtil.getDeck(forge.util.Aggregates.random(stock.deck), true, isFantasyMode,
-                    stock.colors, stock.life > 13, canUseGeneticAI);
-        int idx = 0;
         try {
-            idx = Current.player().getEnemyDeckNumber(stock.getName(), stock.deck.length);
-        } catch (Exception ignored) {
+            boolean canUseGeneticAI = useGeneticAI && stock.life > 16;
+            if (stock.randomizeDeck)
+                return CardUtil.getDeck(forge.util.Aggregates.random(stock.deck), true, isFantasyMode,
+                        stock.colors, stock.life > 13, canUseGeneticAI);
+            int idx = 0;
+            try {
+                idx = Current.player().getEnemyDeckNumber(stock.getName(), stock.deck.length);
+            } catch (Throwable ignored) {
+            }
+            if (idx < 0 || idx >= stock.deck.length)
+                idx = 0;
+            return CardUtil.getDeck(stock.deck[idx], true, isFantasyMode, stock.colors,
+                    stock.life > 13, canUseGeneticAI);
+        } catch (Throwable e) {
+            LOG.log(Level.WARNING, "EN1: stock CardUtil.getDeck failed", e);
+            return new Deck(stock.getName());
         }
-        return CardUtil.getDeck(stock.deck[idx], true, isFantasyMode, stock.colors,
-                stock.life > 13, canUseGeneticAI);
     }
 
     private static int standardTargetSize() {
@@ -625,35 +651,42 @@ public final class EnemyThemeDecks {
                         && !pc.getRules().getColorIdentity().hasNoColorsExcept(allowed)
                         && !pc.getRules().getColorIdentity().isColorless())
                     continue;
-                boolean tribal = tribe != null && !tribe.isEmpty()
-                        && pc.getRules().getType().hasSubtype(tribe);
-                boolean synergy = false;
-                if (!tribal && tribe != null && pc.getRules().getOracleText() != null)
-                    synergy = pc.getRules().getOracleText().toLowerCase(Locale.ROOT)
-                            .contains(tribe.toLowerCase(Locale.ROOT));
-                if (recipe != null && recipe.mechanics != null) {
-                    String text = pc.getRules().getOracleText();
-                    if (text != null) {
-                        String lower = text.toLowerCase(Locale.ROOT);
-                        for (String m : recipe.mechanics) {
-                            if (m != null && !m.isEmpty() && lower.contains(m.toLowerCase(Locale.ROOT))) {
-                                synergy = true;
-                                break;
+                if (tribe != null && !tribe.isEmpty()) {
+                    boolean tribal = pc.getRules().getType().hasSubtype(tribe);
+                    boolean synergy = false;
+                    if (!tribal && pc.getRules().getOracleText() != null)
+                        synergy = pc.getRules().getOracleText().toLowerCase(Locale.ROOT)
+                                .contains(tribe.toLowerCase(Locale.ROOT));
+                    if (recipe != null && recipe.mechanics != null) {
+                        String text = pc.getRules().getOracleText();
+                        if (text != null) {
+                            String lower = text.toLowerCase(Locale.ROOT);
+                            for (String m : recipe.mechanics) {
+                                if (m != null && !m.isEmpty()
+                                        && lower.contains(m.toLowerCase(Locale.ROOT))) {
+                                    synergy = true;
+                                    break;
+                                }
                             }
                         }
                     }
+                    if (!tribal && !synergy)
+                        continue;
                 }
-                if (!tribal && !synergy && tribe != null && !tribe.isEmpty())
-                    continue;
                 if (seen.add(pc.getName()))
                     out.add(pc);
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.log(Level.WARNING, "EN1: buildWindowPool failed", e);
         }
         return out;
     }
 
+    /**
+     * Bellwarden Standard for enemy recipes: printed in a set currently in the
+     * window (or a basic land). Does not depend on player staple unlocks / Config
+     * staple files, so generation stays safe in tests and at early boot.
+     */
     private static boolean isStandardWindowLegal(PaperCard pc, StandardWindow window) {
         if (pc == null)
             return false;
@@ -661,7 +694,19 @@ public final class EnemyThemeDecks {
             return true;
         if (window == null || !window.isActive())
             return true;
-        return window.isStandardLegal(pc.getName());
+        try {
+            for (String code : window.expandedCodes()) {
+                forge.card.CardEdition ed = FModel.getMagicDb().getEditions().get(code);
+                if (ed == null)
+                    continue;
+                for (forge.card.CardEdition.EditionEntry e : ed.getAllCardsInSet()) {
+                    if (pc.getName().equals(e.name()))
+                        return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
     }
 
     private static byte colorMask(String[] colors) {
@@ -951,7 +996,7 @@ public final class EnemyThemeDecks {
     private static boolean isAdventureBanned(String format, String cardName) {
         try {
             return BanLists.isBanned(format, cardName);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             return false;
         }
     }

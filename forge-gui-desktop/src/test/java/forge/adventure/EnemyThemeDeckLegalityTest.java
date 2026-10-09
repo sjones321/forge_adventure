@@ -43,9 +43,6 @@ public class EnemyThemeDeckLegalityTest {
     @BeforeClass
     public void init() throws Exception {
         TestUtils.ensureFModelInitialized();
-        if (!(GuiBase.getInterface() instanceof GuiDesktop)) {
-            // ensureFModelInitialized uses HeadlessGuiDesktop; fine.
-        }
         FModel.getPreferences().setPref(FPref.ENFORCE_DECK_LEGALITY, false);
 
         enemyDeckRoot = resolveEnemyDeckRoot();
@@ -100,19 +97,20 @@ public class EnemyThemeDeckLegalityTest {
         EnemyThemeDecks.loadCatalogForTests(cat);
 
         StandardWindow window = new StandardWindow();
-        // Use three Historic-era sets that exist in the DB; window legality is by name
-        // from those editions' card lists + staples.
-        window.init(List.of("MKM", "OTJ", "BLB"));
+        // Sets with green creatures so the recipe can fill non-basics; still must stay in-window.
+        window.init(List.of("KHM", "NEO", "ONE"));
         Assert.assertTrue(window.isActive());
 
-        EnemyThemeData theme = null;
-        for (EnemyThemeData t : themes) {
-            if ("elf_tribal".equals(t.id)) {
-                theme = t;
-                break;
-            }
-        }
-        Assert.assertNotNull(theme);
+        EnemyThemeData theme = new EnemyThemeData();
+        theme.id = "elf_tribal";
+        theme.tags = new String[]{"Elf"};
+        theme.colors = new String[]{"green"};
+        theme.creatureTypes = new String[]{"Elf"};
+        theme.standardRecipe = new EnemyThemeRecipeData();
+        theme.standardRecipe.count = 60;
+        theme.standardRecipe.colors = new String[]{"Green"};
+        theme.standardRecipe.tribe = "Elf";
+        theme.standardRecipe.rares = 0.15f;
 
         Deck deck = EnemyThemeDecks.fillStandardRecipe(theme, window, 99L);
         Assert.assertNotNull(deck);
@@ -120,17 +118,34 @@ public class EnemyThemeDeckLegalityTest {
                 "recipe deck too small: " + deck.getMain().countAll());
 
         Set<String> illegal = new HashSet<>();
+        int nonBasics = 0;
         for (var e : deck.getMain()) {
             PaperCard pc = e.getKey();
             if (pc.getRules().getType().isBasicLand())
                 continue;
-            if (!window.isStandardLegal(pc.getName()))
+            nonBasics += e.getValue();
+            if (!printedInWindow(pc.getName(), window))
                 illegal.add(pc.getName());
         }
         Assert.assertTrue(illegal.isEmpty(),
                 "Standard recipe included cards outside window: " + illegal);
+        Assert.assertTrue(nonBasics > 0,
+                "expected at least one non-basic from the Standard window");
 
         EnemyThemeDecks.clearCache();
+    }
+
+    private static boolean printedInWindow(String name, StandardWindow window) {
+        for (String code : window.expandedCodes()) {
+            forge.card.CardEdition ed = FModel.getMagicDb().getEditions().get(code);
+            if (ed == null)
+                continue;
+            for (forge.card.CardEdition.EditionEntry e : ed.getAllCardsInSet()) {
+                if (name.equals(e.name()))
+                    return true;
+            }
+        }
+        return false;
     }
 
     private static String checkLegal(Deck deck, String format) {
