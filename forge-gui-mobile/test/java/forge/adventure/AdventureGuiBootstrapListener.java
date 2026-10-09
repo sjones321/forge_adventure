@@ -7,6 +7,8 @@ import forge.GuiMobile;
 import forge.adventure.data.SettingData;
 import forge.gui.GuiBase;
 import forge.localinstance.properties.ForgeConstants;
+import forge.localinstance.properties.ForgePreferences.FPref;
+import forge.model.FModel;
 import forge.util.Localizer;
 import org.testng.ISuite;
 import org.testng.ISuiteListener;
@@ -16,12 +18,11 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 
 /**
- * Installs {@link GuiMobile} + {@link Localizer} before any adventure test touches
- * {@code Config} / {@code ForgeConstants} / {@code WorldSave}. Without this, the
- * first headless {@code Config.instance()} NPEs inside {@code ForgeConstants}
- * clinit, and any early {@code SetPlaneRules} → {@code Current.planeId} path
- * poisons {@code WorldSave} via an uninitialized Localizer in
- * {@code AdventurePlayer.clearDecks}.
+ * Installs {@link GuiMobile} + {@link Localizer} + {@link FModel} before any
+ * adventure test touches {@code Config} / {@code WorldSave} / {@code CardUtil}.
+ * Without this, early {@code SetPlaneRules.generateEnemyDeck} poisons
+ * {@code CardUtil} via {@code FModel.getFormats()} before editions load, and
+ * {@code WorldSave} clinit NPEs on an uninitialized Localizer.
  */
 public final class AdventureGuiBootstrapListener implements ISuiteListener {
     @Override
@@ -48,5 +49,16 @@ public final class AdventureGuiBootstrapListener implements ISuiteListener {
         settings.videomode = "720p";
         new FileHandle(ForgeConstants.USER_ADVENTURE_DIR + "settings.json")
                 .writeString(new Json(JsonWriter.OutputType.json).prettyPrint(settings), false, "UTF-8");
+        // FModel before CardUtil clinit (generateEnemyDeck / formats predicates).
+        try {
+            FModel.initialize(null, preferences -> {
+                preferences.setPref(FPref.LOAD_CARD_SCRIPTS_LAZILY, true);
+                preferences.setPref(FPref.UI_LANGUAGE, "en-US");
+                preferences.setPref(FPref.ENFORCE_DECK_LEGALITY, false);
+                return null;
+            });
+        } catch (Throwable t) {
+            System.err.println("AdventureGuiBootstrapListener: FModel init failed: " + t.getMessage());
+        }
     }
 }
