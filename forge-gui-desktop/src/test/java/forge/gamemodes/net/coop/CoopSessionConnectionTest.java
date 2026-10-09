@@ -156,6 +156,7 @@ public class CoopSessionConnectionTest {
     @Test
     public void versionMismatchIsRejected() throws Exception {
         final CountDownLatch rejected = new CountDownLatch(1);
+        final CountDownLatch slotFree = new CountDownLatch(1);
         final AtomicReference<String> reason = new AtomicReference<>();
 
         server = new CoopOverworldServer(port, new CoopMessageListener() {
@@ -175,6 +176,7 @@ public class CoopSessionConnectionTest {
 
             @Override
             public void onDisconnected(final String reason) {
+                slotFree.countDown();
             }
 
             @Override
@@ -210,12 +212,14 @@ public class CoopSessionConnectionTest {
         });
         client.connect();
         Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "reject not received");
+        Assert.assertTrue(slotFree.await(5, TimeUnit.SECONDS), "guest slot not freed after reject");
         Assert.assertTrue(reason.get().toLowerCase().contains("card"), reason.get());
     }
 
     @Test
     public void wrongSessionCodeIsRejected() throws Exception {
         final CountDownLatch rejected = new CountDownLatch(1);
+        final CountDownLatch slotFree = new CountDownLatch(1);
         final AtomicReference<String> reason = new AtomicReference<>();
         final AtomicReference<String> hostState = new AtomicReference<>("HOSTING");
 
@@ -241,6 +245,7 @@ public class CoopSessionConnectionTest {
             @Override
             public void onDisconnected(final String reason) {
                 hostState.set("HOSTING");
+                slotFree.countDown();
             }
 
             @Override
@@ -273,7 +278,8 @@ public class CoopSessionConnectionTest {
             }
         });
         client.connect();
-        Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS));
+        Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "reject not received");
+        Assert.assertTrue(slotFree.await(5, TimeUnit.SECONDS), "guest slot not freed after reject");
         Assert.assertTrue(reason.get().toLowerCase().contains("session"), reason.get());
         Assert.assertEquals(hostState.get(), "HOSTING");
     }
@@ -282,6 +288,8 @@ public class CoopSessionConnectionTest {
     public void fiveFailedCodesLockoutAddressWhileHostStaysHosting() throws Exception {
         final AtomicReference<String> hostState = new AtomicReference<>("HOSTING");
         final AtomicInteger failures = new AtomicInteger();
+        final AtomicReference<String> lastGuestIp = new AtomicReference<>();
+        final AtomicReference<CountDownLatch> slotFreeRef = new AtomicReference<>(new CountDownLatch(1));
 
         server = new CoopOverworldServer(port, new CoopMessageListener() {
             @Override
@@ -295,6 +303,7 @@ public class CoopSessionConnectionTest {
                     if (!CoopSessionCode.matches(sessionCode, h.getSessionCode())) {
                         failures.incrementAndGet();
                         final String ip = server.getGuestRemoteAddress();
+                        lastGuestIp.set(ip);
                         server.getAuthGuard().recordFailure(ip);
                         // Host state never leaves HOSTING on a failed attempt.
                         Assert.assertEquals(hostState.get(), "HOSTING");
@@ -306,6 +315,10 @@ public class CoopSessionConnectionTest {
             @Override
             public void onDisconnected(final String reason) {
                 hostState.set("HOSTING");
+                final CountDownLatch slotFree = slotFreeRef.get();
+                if (slotFree != null) {
+                    slotFree.countDown();
+                }
             }
 
             @Override
@@ -317,6 +330,7 @@ public class CoopSessionConnectionTest {
 
         for (int i = 0; i < CoopPorts.SESSION_CODE_MAX_FAILURES; i++) {
             final CountDownLatch rejected = new CountDownLatch(1);
+            slotFreeRef.set(new CountDownLatch(1));
             final AtomicReference<CoopOverworldClient> holder = new AtomicReference<>();
             final String badCode = "WRONGCD" + i;
             final CoopOverworldClient c = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
@@ -343,19 +357,24 @@ public class CoopSessionConnectionTest {
             holder.set(c);
             c.connect();
             Assert.assertTrue(rejected.await(10, TimeUnit.SECONDS), "attempt " + i + " not rejected");
+            Assert.assertTrue(slotFreeRef.get().await(5, TimeUnit.SECONDS),
+                    "guest slot not freed after attempt " + i);
             c.disconnect();
-            Thread.sleep(100);
             Assert.assertEquals(hostState.get(), "HOSTING");
         }
         Assert.assertEquals(failures.get(), CoopPorts.SESSION_CODE_MAX_FAILURES);
         Assert.assertEquals(hostState.get(), "HOSTING");
 
-        // Sixth connect: force lockout for the loopback address Netty will report, then verify refuse.
+        // Five failures already lock the real Netty peer address (IPv4 or IPv6 loopback).
+        final String lockedIp = lastGuestIp.get();
+        Assert.assertNotNull(lockedIp, "guest IP must be recorded from failed attempts");
+        Assert.assertTrue(server.getAuthGuard().isLockedOut(lockedIp),
+                "address must be locked after max failures: " + lockedIp);
+
+        // Sixth connect: channelActive refuses while locked (no hello required).
         final CountDownLatch lockoutReject = new CountDownLatch(1);
         final AtomicReference<String> lockoutReason = new AtomicReference<>();
-        server.getAuthGuard().forceLockout("127.0.0.1",
-                System.currentTimeMillis() + CoopPorts.SESSION_CODE_LOCKOUT_MS);
-        Assert.assertTrue(server.getAuthGuard().isLockedOut("127.0.0.1"));
+        slotFreeRef.set(new CountDownLatch(1));
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override
             public void onConnected() {
@@ -623,7 +642,8 @@ public class CoopSessionConnectionTest {
         });
         client.connect();
         Assert.assertTrue(helloSeen.await(10, TimeUnit.SECONDS));
-        Thread.sleep(200);
+        // Hello is the last queued message; once it is delivered, any earlier
+        // non-hello has either been dropped or (incorrectly) counted.
         Assert.assertEquals(nonHello.get(), 0, "pre-auth non-hello must be dropped");
     }
 

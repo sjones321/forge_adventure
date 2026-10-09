@@ -24,7 +24,7 @@ public class CoopDuelTest {
 
     @Test
     public void protocolVersionIsExactlyNineForMv2GateDelta() {
-        // CO2=5; CO3=6; MV1=7; MV2=8; MV2 gate-delta=9. TR1 takes the next on merge.
+        // At review: PROTOCOL_VERSION must be (feature/set-start) + 1. Today that is 9.
         // Exact equality only — do not use >= or collisions can pass silently.
         Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
     }

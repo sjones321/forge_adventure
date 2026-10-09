@@ -41,7 +41,7 @@ public class CoopGateUpdateTest {
 
     @Test
     public void protocolVersionIsNineForGateDelta() {
-        // MV2 gate-delta = 9; TR1 (#27) takes the next number when it merges.
+        // At review: PROTOCOL_VERSION must be (feature/set-start) + 1. Today that is 9.
         Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
     }
 

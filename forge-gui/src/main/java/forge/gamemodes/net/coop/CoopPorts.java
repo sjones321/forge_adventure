@@ -13,11 +13,11 @@ public final class CoopPorts {
 
     /**
      * Wire protocol version for {@code CoopHelloEvent}. Bump when message shapes change.
-     * CO2 (merged #18) is protocol 5; CO3 is 6; MV1 plane-follow = 7;
-     * MV2 live hash + gate list + {@code mv2SetCode} = 8;
+     * Do not pre-assign future numbers — at review time set this to
+     * {@code (feature/set-start PROTOCOL_VERSION) + 1}.
+     * History: CO2=5, CO3=6, MV1 plane-follow=7, MV2 live hash/gates=8,
      * MV2 mid-session gate-delta ({@code CoopGateUpdateEvent} /
      * {@code CoopWorldResyncRequestEvent}) = 9.
-     * TR1 trading (#27) takes the next number when it merges.
      */
     public static final int PROTOCOL_VERSION = 9;
 

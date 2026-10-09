@@ -134,7 +134,7 @@ World seed rebuild must also produce the same world hash; otherwise the guest re
 host-authoritative nodes/enemies/POI, party invites, and location-enter invites.
 Tunables live in Ascendant `config.json` (`coopPositionSendHz`,
 `coopPartnerInterpRate`, `coopInteractRangePx`, `coopLocationInviteTimeoutSeconds`, …).
-Wire protocol: CO2 = 5; CO3 = 6; MV2 mid-session gate-delta = **9** (TR1 takes the next number).
+Wire protocol: CO2 = 5; CO3 = 6; MV2 = 8; MV2 mid-session gate-delta = **9**.
 
 **Interior rule (v1):** both roam freely on the overworld. Entering a town,
 dungeon or delve invites a nearby party partner. Accept → enter the same

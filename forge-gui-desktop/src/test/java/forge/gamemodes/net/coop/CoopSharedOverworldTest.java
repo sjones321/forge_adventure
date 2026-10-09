@@ -507,6 +507,7 @@ public class CoopSharedOverworldTest {
         final AtomicInteger movesBeforeAuth = new AtomicInteger();
         final AtomicBoolean sawMoveAfterAuth = new AtomicBoolean(false);
         final CountDownLatch connected = new CountDownLatch(1);
+        final CountDownLatch moveAfterAuth = new CountDownLatch(1);
 
         server = new CoopOverworldServer(port, new CoopMessageListener() {
             @Override public void onConnected() { connected.countDown(); }
@@ -516,6 +517,7 @@ public class CoopSharedOverworldTest {
                         movesBeforeAuth.incrementAndGet();
                     } else {
                         sawMoveAfterAuth.set(true);
+                        moveAfterAuth.countDown();
                     }
                 } else if (event instanceof CoopHelloEvent) {
                     server.markGuestAuthenticated();
@@ -539,7 +541,8 @@ public class CoopSharedOverworldTest {
         });
         client.connect();
         Assert.assertTrue(connected.await(5, TimeUnit.SECONDS));
-        Thread.sleep(500);
+        Assert.assertTrue(moveAfterAuth.await(10, TimeUnit.SECONDS),
+                "post-auth move not delivered");
         Assert.assertEquals(movesBeforeAuth.get(), 0);
         Assert.assertTrue(sawMoveAfterAuth.get());
     }
@@ -767,7 +770,7 @@ public class CoopSharedOverworldTest {
 
     @Test
     public void protocolVersionIsExactlyNineForMv2GateDelta() {
-        // CO3=6; MV1=7; MV2=8; MV2 gate-delta=9. TR1 takes the next on merge.
+        // At review: PROTOCOL_VERSION must be (feature/set-start) + 1. Today that is 9.
         // Exact equality only — soft lower-bounds hide protocol collisions.
         Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 9);
     }
