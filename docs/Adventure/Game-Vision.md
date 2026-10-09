@@ -156,6 +156,12 @@ lives in the places that aren't selling you anything. (See the core loop in `Lor
   that is most *them* (the artifact the smith forged into her deck years ago; the kid's favorite beat-up creature).
   It joins your collection, and a copy sits in their alcove in the Hall of Remembrance. If their town is lost, the
   card is one of the last pieces of them left: playing it carries them with you.
+- **Learn Magic from the townsfolk (optional tutorial).** Each townsperson teaches the part of Magic their deck is
+  about: the school kid teaches the basics (lands, mana, creatures, attacking), the priest teaches lifegain,
+  protection and instants, the smith teaches artifacts and equipment. Learning Magic and making first friends are
+  the same activity. Lore reason: this bubble's magic runs on local rules, and comprehension is the multiplier.
+  Experienced players skip it: tell the kid "I know how to play" and he challenges you to a real game. Forge's
+  built-in puzzle mode could power the guided lessons.
 - **Shops restock by shipment.** Stock arrives from somewhere else (another town, a trade route), not by magic
   refresh. (Idea: shipments travel the roads, so when the Nothing cuts a road, the towns past it start running
   short. Ties into Logistics.)
