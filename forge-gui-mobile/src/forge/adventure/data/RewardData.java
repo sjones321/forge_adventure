@@ -326,7 +326,7 @@ public class RewardData implements Serializable {
                 .filter(filter)
                 .collect(Collectors.toList());
 
-        // Package K: plane format favors the shop/reward card pool. Bellwarden Standard
+        // Package K: plane format favors the shop/reward card pool. Shandalar Standard
         // keeps the rotating window; Pauper prefers commons; Historic/Commander use the
         // broader adventure pool (enemies still use basePool via allEnemyCards).
         // Commander-mode runs always take the Commander breadth path.
