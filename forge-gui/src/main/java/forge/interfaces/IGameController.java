@@ -49,7 +49,8 @@ public interface IGameController {
 
     /**
      * DS4: restore the retained pre-action snapshot for this controller's player.
-     * No-op when {@link #canTakeBackLastAction()} is false. Host-authoritative in net games.
+     * No-op when {@link #canTakeBackLastAction()} is false.
+     * Single-player / Ascendant only — not a network ProtocolMethod (co-op hides take-back).
      */
     default void takeBackLastAction() {
     }
