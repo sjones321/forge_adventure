@@ -12,7 +12,7 @@
 | #55 DS4 | r4 | `e8274087c58` | Each r4 blocker has a test that fails on r3 / with the fix reverted and passes now: **H-A** `abilityAfterSpellInvalidatesTakeBack` (PhaseHandler calls `game.invalidateTakeBack()` on a non-land/non-spell owner SA); **M3** `takeBackRestoreRunsOnGameLoopThreadAndRejectsClicks` (restore on the loop thread, clicks rejected during restore); **top-revealed** `playLandFromLibraryTopBumpsEpoch` (Courser of Kruphix; bump when a land/spell is played from the library); **random discard cost** `randomDiscardCostBumpsEpoch` (Sonic Burst, `HumanCostDecision`). Also: prowess test asserts stack + simultaneous entries empty and exact power; CATASTROPHIC test asserts input released; `pushForRestore` keeps order and fires no cast event; `CanTakeBack` javadoc = land/spell only. Grok's own check: `ProtocolMethod.takeBackLastAction` (inserted mid-enum) **dropped** with its `NetGameController` override — take back is SP-only and never on the wire (ProtocolMethod is serialized by name anyway). `TrackableProperty.CanTakeBack` is still the last constant. Timings, large board: `captureTakeBackSnapshot` avg 16 / max 30 ms; full takeBack avg 17 / max 22 ms. `TakeBackDs4Test` 12/12, mobile 310/0, desktop 864 with only the co-op Netty timeouts. |
 
 ### Waiting on Grok
-- Nothing in flight. EC1, then FT2, queued until Steve says go.
+- Nothing in flight. EC1, then FT2, queued until Steve says go. **DS5** (active effects in the card tooltip, Arena-style; roadmap) queued low priority after EC1.
 - Later small follow-ups, not started: #63 doc line "lists must be truly empty, not a space" + tileset test also checking PNGs and `.tx` template tilesets; #60 test asserting `playerTitle` sits inside `stats`.
 
 ### Waiting on Steve (hands-on)
@@ -24,7 +24,7 @@
 - Protocol: bump to base + 1 only when the PR changes the wire, right before review.
 - Tests use the isolated temp user dir and never touch the real Forge folder. No test runs while Steve is playing Forge.
 - Never edit `starter_town.tmx`. Never soften a quality check; fix the content.
-- Bugs Steve reports from play jump the queue.
+- Bugs Steve reports from play jump the queue. So do Tiny's, which arrive via `docs/FEEDBACK.md` (written by Tiny's AI, Sam; Wren triages).
 
 ## Log (newest first)
 

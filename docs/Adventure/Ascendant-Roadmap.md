@@ -730,6 +730,22 @@ All input still goes through `getGameController().selectCard/selectPlayer`, so i
   and card restored); take back refused after a draw, a reveal and an opponent response; restore failure leaves the
   game unchanged.
 
+### DS5. Active effects in the card tooltip, Arena-style (low priority; after EC1)
+- Requested by Steve 2026-10-10. Forge already draws keyword icons on battlefield cards (`UI_OVERLAY_ABILITY_ICONS`,
+  `CardRenderer.drawAbilityIcons`) and lists counters, damage and attachments in the details text
+  (`CardDetailUtil.composeCardText`). What's missing is **what changed the card and where it came from**.
+- Add an **Effects** block to the card zoom and the right-click oracle tooltip, one line per active effect:
+  source name, what it does, duration. Examples: "+2/+2 until end of turn (Giant Growth)", "Flying (Levitation)",
+  "Loses all abilities (Humility)". Buffs green, debuffs red, lost abilities grey with strikethrough.
+- Power/toughness on the card drawn green when raised and red when lowered.
+- Engine side: the per-timestamp tables the card already keeps (changed keywords, P/T boosts, text and type changes)
+  are not exposed to `CardView`. Add one trackable list of effect entries (appended `TrackableProperty`), filled from
+  those tables. Static effects name their source card; one-shot effects that only leave a timestamp may show the
+  effect without a source name at first. That's acceptable.
+- Single-player only; no wire change.
+- Tests: pump spell shows a green "+N/+N until end of turn" line with the spell's name and disappears at cleanup;
+  an anthem shows its source; a "loses all abilities" effect shows the struck-through keywords.
+
 ## AI opponent: bring your own
 
 The LLM opponent (`forge-ai/.../llm/LlmOpponent.java`, settings in `%APPDATA%\Forge\llm_opponent.properties`)
