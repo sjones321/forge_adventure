@@ -457,15 +457,22 @@ public class RewardData implements Serializable {
                                         pc = SourcePrintings.resolve(pc, r);
                                     }
                                 }
-                                pool.add(pc);
+                                if (pc != null) {
+                                    pool.add(pc);
+                                }
                             }
                         } else if (r.sourceDeck != null && !r.sourceDeck.isEmpty() ) {
                             List<PaperCard> fromDeck = CardUtil.getDeck(r.sourceDeck, false, false, "", false, false)
                                     .getAllCardsInASinglePool().toFlatList();
                             if (SourcePrintings.enabled()) {
                                 for (PaperCard pc : fromDeck) {
-                                    if (pc != null)
-                                        pool.add(SourcePrintings.resolve(pc, r));
+                                    if (pc == null) {
+                                        continue;
+                                    }
+                                    PaperCard resolved = SourcePrintings.resolve(pc, r);
+                                    if (resolved != null) {
+                                        pool.add(resolved);
+                                    }
                                 }
                             } else {
                                 pool.addAll(fromDeck);
@@ -474,8 +481,13 @@ public class RewardData implements Serializable {
                             List<PaperCard> fromFilter = CardUtil.getPredicateResult(allCards, r);
                             if (SourcePrintings.enabled()) {
                                 for (PaperCard pc : fromFilter) {
-                                    if (pc != null)
-                                        pool.add(SourcePrintings.resolve(pc, r));
+                                    if (pc == null) {
+                                        continue;
+                                    }
+                                    PaperCard resolved = SourcePrintings.resolve(pc, r);
+                                    if (resolved != null) {
+                                        pool.add(resolved);
+                                    }
                                 }
                             } else {
                                 pool.addAll(fromFilter);
@@ -530,7 +542,9 @@ public class RewardData implements Serializable {
                                             card = SourcePrintings.resolve(card, this);
                                         }
                                     }
-                                    ret.add(new Reward(card, isNoSell));
+                                    if (card != null) {
+                                        ret.add(new Reward(card, isNoSell));
+                                    }
                                 } else
                                     System.err.println("Missing card: " + cardName);
                             }

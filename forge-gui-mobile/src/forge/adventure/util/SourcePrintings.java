@@ -146,22 +146,25 @@ public final class SourcePrintings {
         if (editionCode == null) {
             return false;
         }
+        // Allow/restrict lists are config-mutable — evaluate outside NORMAL_CACHE so a
+        // mid-test (or plane) allow-list change cannot serve a stale true.
+        if (isExcludedEditionCode(editionCode) || isRestrictedEdition(editionCode)
+                || !isAllowedEdition(editionCode)) {
+            return false;
+        }
         String cacheKey = editionCode + "|" + (cn == null ? "" : cn);
         Boolean cached = NORMAL_CACHE.get(cacheKey);
         if (cached != null) {
             return cached;
         }
-        boolean normal = computeIsNormalPrinting(editionCode, cn);
+        boolean normal = computeIsNormalPrintingIntrinsic(editionCode, cn);
         NORMAL_CACHE.put(cacheKey, normal);
         return normal;
     }
 
-    private static boolean computeIsNormalPrinting(String editionCode, String cn) {
+    /** Edition type + sheet section only (no allow/restrict — those are checked by callers). */
+    private static boolean computeIsNormalPrintingIntrinsic(String editionCode, String cn) {
         try {
-            if (isExcludedEditionCode(editionCode) || isRestrictedEdition(editionCode)
-                    || !isAllowedEdition(editionCode)) {
-                return false;
-            }
             CardEdition edition = editions().get(editionCode);
             if (edition == null) {
                 return false;
@@ -350,7 +353,15 @@ public final class SourcePrintings {
                 usable.add(pc);
             }
         }
-        recent = pickMostRecent(usable.isEmpty() ? all : usable);
+        recent = pickMostRecent(usable);
+        if (recent != null) {
+            return recent;
+        }
+        // Allow-list active and nothing matched: never return a disallowed printing.
+        if (hasAllowList()) {
+            return null;
+        }
+        recent = pickMostRecent(all);
         return recent != null ? recent : all.get(0);
     }
 
@@ -393,7 +404,17 @@ public final class SourcePrintings {
             // Headless / no plane context.
         }
         PaperCard fromRotation = printingFromRotation(candidate.getName());
-        return fromRotation != null ? fromRotation : candidate;
+        if (fromRotation != null) {
+            return fromRotation;
+        }
+        // Prefer the candidate only when it is still allow-listed; otherwise do not
+        // hand back a disallowed printing when the allow-list is active.
+        if (isAllowedEdition(candidate.getEdition())
+                && !isRestrictedEdition(candidate.getEdition())
+                && !isExcludedEditionCode(candidate.getEdition())) {
+            return candidate;
+        }
+        return hasAllowList() ? null : candidate;
     }
 
     public static PaperCard resolve(PaperCard candidate, RewardData data) {
@@ -455,6 +476,16 @@ public final class SourcePrintings {
             return false;
         } catch (Throwable t) {
             return true;
+        }
+    }
+
+    /** True when the plane config has a non-empty {@code allowedEditions} allow-list. */
+    private static boolean hasAllowList() {
+        try {
+            ConfigData data = Config.instance().getConfigData();
+            return data != null && data.allowedEditions != null && data.allowedEditions.length > 0;
+        } catch (Throwable t) {
+            return false;
         }
     }
 
