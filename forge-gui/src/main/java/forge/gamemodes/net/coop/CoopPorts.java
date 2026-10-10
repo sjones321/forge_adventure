@@ -18,12 +18,14 @@ public final class CoopPorts {
      * MV2 = 8: live world hash + host gate list + {@code mv2SetCode} on offer/switch.
      * EN2 (#44) = 9: host-authoritative {@code lootRolls} on {@code CoopDuelResultEvent}.
      * Package K = 10: {@code planeFormat} plain-data field on world offer / plane switch.
+     * RW1 (#49) = 11: guest loot credit (enemy data id, theme id, signature candidates)
+     * on {@code CoopDuelResultEvent}.
      *
      * <p>Rule: set to {@code (feature/set-start PROTOCOL_VERSION) + 1} at review time;
      * Steve checks the number at merge. Do not pre-assign numbers for in-flight PRs.
-     * DS4 take-back is single-player only (no co-op wire / no protocol bump).
+     * DS4 take-back is single-player only (no co-op wire) — keep equal to base (RW1 = 11).
      */
-    public static final int PROTOCOL_VERSION = 10;
+    public static final int PROTOCOL_VERSION = 11;
 
     /** Length of the short session code shown by the host. */
     public static final int SESSION_CODE_LENGTH = 8;

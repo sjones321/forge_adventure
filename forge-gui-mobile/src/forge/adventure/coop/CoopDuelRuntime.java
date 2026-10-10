@@ -15,8 +15,10 @@ import forge.adventure.data.SkillTreeNodeData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.player.BanLists;
 import forge.adventure.stage.GameHUD;
+import forge.adventure.stage.MapStage;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
+import forge.adventure.util.Controls;
 import forge.adventure.util.Current;
 import forge.adventure.util.EnemyCoopPartners;
 import forge.adventure.data.EnemyData;
@@ -61,7 +63,6 @@ import forge.player.GamePlayerUtil;
 import forge.player.PlayerControllerHuman;
 import forge.screens.match.MatchController;
 import forge.sound.MusicPlaylist;
-import forge.toolbox.FOptionPane;
 import forge.util.Localizer;
 
 import java.util.ArrayList;
@@ -115,6 +116,12 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private volatile long pendingEnemyId;
     /** EN2: loot rolls for the active co-op duel (default 1). */
     private volatile int pendingPartnerLootRolls = 1;
+    /** EN2: partner enemy for RW1 guest loot credit (host stamps wire fields from this). */
+    private volatile EnemyData pendingPartnerForLoot;
+    /** Played deck of the primary (enemies.get(0)) — host loot + guest candidates when no partner. */
+    private volatile Deck pendingPrimaryPlayedDeck;
+    /** Played deck of the EN2 partner — guest credit candidates when a partner was built. */
+    private volatile Deck pendingPartnerPlayedDeck;
     private volatile boolean gameServerStartedByUs;
     private volatile FGameClient guestClient;
     private volatile CoopFightLoadout pendingGuestLoadout;
@@ -509,20 +516,59 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             return;
         } catch (final Exception ignored) {
         }
-        // Fallback when HUD unavailable (headless / tests).
+        // Fallback when HUD join-fight dialog is unavailable. Adventure scenes do not
+        // draw classic FOptionPane overlays — use the overworld/map stage dialog.
+        showJoinPromptOnAdventureDialog(from, enc);
+    }
+
+    /**
+     * Adventure-scene confirm for join-fight when {@link GameHUD} cannot show its dialog.
+     * Mirrors {@code PortalActor}'s MapStage dialog pattern (FOptionPane overlays do not draw).
+     */
+    private void showJoinPromptOnAdventureDialog(final String from, final String enc) {
         final Localizer loc = Forge.getLocalizer();
-        FOptionPane.showConfirmDialog(
-                from + " started a fight" + (enc.isEmpty() ? "" : " (" + enc + ")") + ". Join?",
-                "Join the fight?",
-                loc != null ? loc.getMessage("lblYes") : "Yes",
-                loc != null ? loc.getMessage("lblNo") : "No",
-                false, result -> {
-                    if (Boolean.TRUE.equals(result)) {
-                        acceptInviteFromUi();
-                    } else {
-                        declineInviteFromUi();
-                    }
-                });
+        final String yes = loc != null ? loc.getMessage("lblYes") : "Yes";
+        final String no = loc != null ? loc.getMessage("lblNo") : "No";
+        final String msg = from + " started a fight" + (enc.isEmpty() ? "" : " (" + enc + ")") + ". Join?";
+        try {
+            forge.adventure.stage.GameStage stage = null;
+            try {
+                if (MapStage.getInstance() != null && MapStage.getInstance().isInMap()) {
+                    stage = MapStage.getInstance();
+                }
+            } catch (final Exception ignored) {
+            }
+            if (stage == null) {
+                stage = WorldStage.getInstance();
+            }
+            if (stage == null || stage.getDialog() == null) {
+                // Headless / no stage — decline so the invite cannot hang invisibly.
+                declineInviteFromUi();
+                notifyHud(msg + " (declined — no adventure dialog)");
+                return;
+            }
+            final forge.adventure.stage.GameStage dialogStage = stage;
+            final com.badlogic.gdx.scenes.scene2d.ui.Dialog d = dialogStage.getDialog();
+            d.getButtonTable().clear();
+            d.getContentTable().clear();
+            d.clearListeners();
+            final com.github.tommyettinger.textra.TextraLabel label = Controls.newTextraLabel(msg);
+            label.setWrap(true);
+            d.getContentTable().add(label).width(250f);
+            d.getButtonTable().add(Controls.newTextButton(yes, () -> {
+                dialogStage.hideDialog();
+                acceptInviteFromUi();
+            })).width(240f).row();
+            d.getButtonTable().add(Controls.newTextButton(no, () -> {
+                dialogStage.hideDialog();
+                declineInviteFromUi();
+            })).width(240f).row();
+            d.setKeepWithinStage(true);
+            dialogStage.showDialog();
+        } catch (final Exception e) {
+            declineInviteFromUi();
+            notifyHud("Join-fight prompt failed — declined");
+        }
     }
 
     /** HUD Accept for join-fight (including after dequeue). Hook signature stable. */
@@ -755,6 +801,9 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                     mob.getData(), enemyId, currentBiomeEnemies(), hostDeck,
                     advPlayer.isFantasyMode(), baseFreeMulligans);
             pendingPartnerLootRolls = enemyBuild.lootRollsPerPlayer;
+            pendingPartnerForLoot = enemyBuild.partner;
+            pendingPrimaryPlayedDeck = enemyBuild.primaryDeck;
+            pendingPartnerPlayedDeck = enemyBuild.partnerDeck;
             final List<CoopDuelMatchPlan.EnemySpec> enemies = enemyBuild.enemies;
 
             final CoopDuelMatchPlan plan = CoopDuelMatchPlan.build(
@@ -925,9 +974,22 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         }
         final boolean teamWon = winningTeam == 0;
         final String encounterId = mob != null && mob.getData() != null ? mob.getData().getName() : "";
-        // EN2: host-authoritative loot rolls (guest must not recompute).
+        // EN2 + RW1: host-authoritative loot rolls and guest credit (theme + deck names).
+        final EnemyData guestCredit = forge.adventure.util.FightRewards.creditedLootEnemy(
+                mob != null ? mob.getData() : null, pendingPartnerForLoot, false);
+        // Catalog id (EnemyData.name), never display nameOverride.
+        final String creditDataId = guestCredit != null && guestCredit.name != null
+                ? guestCredit.name : "";
+        final String creditThemeId = guestCredit != null && guestCredit.themeId != null
+                ? guestCredit.themeId : "";
+        final boolean guestIsPartner = pendingPartnerForLoot != null && guestCredit == pendingPartnerForLoot;
+        final Deck creditDeck = guestIsPartner ? pendingPartnerPlayedDeck : pendingPrimaryPlayedDeck;
+        // Core ∩ deck first, then non-core deck names for thin-set fallback (length-capped).
+        final String[] wireDeckNames = forge.adventure.util.FightRewards.creditPlayedDeckNames(
+                creditThemeId, creditDeck);
         final CoopDuelResultEvent result = new CoopDuelResultEvent(
-                duelId, winningTeam, enemyId, encounterId, pendingPartnerLootRolls);
+                duelId, winningTeam, enemyId, encounterId, pendingPartnerLootRolls,
+                creditDataId, creditThemeId, wireDeckNames);
         CoopSession.get().send(result);
 
         // Local DuelScene / WorldStage result path (loot, removeEnemy, XP, penalties).
@@ -949,7 +1011,14 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (mob != null) {
             WorldStage.getInstance().setCurrentMob(mob);
             WorldStage.getInstance().setPendingLootRolls(pendingPartnerLootRolls);
+            // RW1: host is credited with the primary (overworld) enemy + the deck it played.
+            final EnemyData credit = forge.adventure.util.FightRewards.creditedLootEnemy(
+                    mob.getData(), pendingPartnerForLoot, true);
+            WorldStage.getInstance().setPendingLootCredit(credit, pendingPrimaryPlayedDeck);
             pendingPartnerLootRolls = 1;
+            pendingPartnerForLoot = null;
+            pendingPrimaryPlayedDeck = null;
+            pendingPartnerPlayedDeck = null;
             // setWinner also calls CoopOverworldRuntime.onHostDuelEnded().
             WorldStage.getInstance().setWinner(teamWon, false);
             return;
@@ -988,6 +1057,9 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             WorldStage.getInstance().setCurrentMob(mob);
             // EN2: use host-authoritative loot rolls from the result event (0 allowed).
             WorldStage.getInstance().setPendingLootRolls(event.getLootRolls());
+            // RW1: host-authoritative guest credit (theme + signature candidates on the wire).
+            // Guest mirrors often lack themeId — never rebuild from local biome/position.
+            applyGuestLootCreditFromEvent(mob.getData(), event);
             WorldStage.getInstance().setWinner(teamWon, false);
         } else {
             if (teamWon) {
@@ -1082,6 +1154,10 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     private void clearPendingEncounter() {
         pendingEnemy = null;
         pendingEnemyId = 0L;
+        pendingPrimaryPlayedDeck = null;
+        pendingPartnerPlayedDeck = null;
+        pendingPartnerForLoot = null;
+        pendingPartnerLootRolls = 1;
     }
 
     private CoopFightLoadout buildLocalLoadout() {
@@ -1479,14 +1555,24 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         public final float lifeFactor;
         public final int extraCards;
         public final int lootRollsPerPlayer;
+        /** Deck the primary seat (enemies.get(0)) played — host loot credit. */
+        public final Deck primaryDeck;
+        /** EN2 partner EnemyData for RW1 guest loot credit; null when no partner. */
+        public final EnemyData partner;
+        /** Deck the partner seat played; null when no partner. */
+        public final Deck partnerDeck;
 
         HostedCoopEnemyBuild(final List<CoopDuelMatchPlan.EnemySpec> enemies, final boolean partnerBuilt,
-                             final float lifeFactor, final int extraCards, final int lootRollsPerPlayer) {
+                             final float lifeFactor, final int extraCards, final int lootRollsPerPlayer,
+                             final Deck primaryDeck, final EnemyData partner, final Deck partnerDeck) {
             this.enemies = enemies;
             this.partnerBuilt = partnerBuilt;
             this.lifeFactor = lifeFactor;
             this.extraCards = extraCards;
             this.lootRollsPerPlayer = lootRollsPerPlayer;
+            this.primaryDeck = primaryDeck;
+            this.partner = partner;
+            this.partnerDeck = partnerDeck;
         }
     }
 
@@ -1515,20 +1601,69 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                     freeMulligans));
             current = current.nextEnemy;
         }
+        EnemyData partnerData = null;
+        Deck partnerDeckOut = null;
         if (partnerPlan.partnerBuilt && partnerPlan.partner != null && enemies.size() == 1) {
             final EnemyData partner = partnerPlan.partner;
             final Deck partnerDeck = partner.copyPlayerDeck
                     ? hostDeck
                     : partner.generateDeck(fantasyMode, false);
+            partnerData = partner;
+            partnerDeckOut = partnerDeck != null ? partnerDeck : hostDeck;
             enemies.add(new CoopDuelMatchPlan.EnemySpec(
                     partner.getName() != null ? partner.getName() : "Enemy Partner",
                     "enemy-partner",
-                    partnerDeck != null ? partnerDeck : hostDeck,
+                    partnerDeckOut,
                     partner.life,
                     freeMulligans));
         }
+        final Deck primaryDeckOut = enemies.isEmpty() ? null : enemies.get(0).deck;
         return new HostedCoopEnemyBuild(enemies, partnerPlan.partnerBuilt, partnerPlan.lifeFactor,
-                partnerPlan.extraCards, partnerPlan.lootRollsPerPlayer);
+                partnerPlan.extraCards, partnerPlan.lootRollsPerPlayer,
+                primaryDeckOut, partnerData, partnerDeckOut);
+    }
+
+    /** RW1 guest credit resolved from a host {@link CoopDuelResultEvent}. */
+    public static final class GuestLootCredit {
+        public final EnemyData credit;
+        public final Deck creditDeck;
+
+        public GuestLootCredit(final EnemyData credit, final Deck creditDeck) {
+            this.credit = credit;
+            this.creditDeck = creditDeck;
+        }
+    }
+
+    /**
+     * RW1: resolve host-authoritative guest loot credit from {@link CoopDuelResultEvent}.
+     * Loads the credited catalog enemy (rewards / colours) when possible, stamps
+     * {@code themeId}, and rebuilds the played-deck sample from wire names.
+     * An empty candidate list means no signature and no full-core fallback (host
+     * meaning preserved). Same logic {@link #applyGuestLocalResult} uses.
+     */
+    public static GuestLootCredit guestLootCreditFromEvent(final EnemyData mirrorPrimary,
+            final CoopDuelResultEvent event) {
+        if (event == null) {
+            return new GuestLootCredit(mirrorPrimary, null);
+        }
+        try {
+            final EnemyData credit = forge.adventure.util.FightRewards.creditFromWire(
+                    mirrorPrimary,
+                    event.getCreditEnemyDataId(),
+                    event.getCreditThemeId());
+            // Wire names are the host's played-deck sample (core-first, then filler).
+            final Deck creditDeck = forge.adventure.util.FightRewards.deckFromCandidateNames(
+                    event.getSignatureCandidates());
+            return new GuestLootCredit(credit, creditDeck);
+        } catch (final Exception ignored) {
+            return new GuestLootCredit(mirrorPrimary, null);
+        }
+    }
+
+    private void applyGuestLootCreditFromEvent(final EnemyData mirrorPrimary,
+            final CoopDuelResultEvent event) {
+        final GuestLootCredit resolved = guestLootCreditFromEvent(mirrorPrimary, event);
+        WorldStage.getInstance().setPendingLootCredit(resolved.credit, resolved.creditDeck);
     }
 
     /**

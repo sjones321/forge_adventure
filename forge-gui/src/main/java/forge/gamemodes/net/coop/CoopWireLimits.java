@@ -20,6 +20,12 @@ public final class CoopWireLimits {
     public static final int MAX_AVATAR_ID_LEN = 128;
     public static final int MAX_MATERIAL_ID_LEN = 64;
     public static final int MAX_ENEMY_DATA_ID_LEN = 64;
+    /** RW1: EN1/EN2 theme id on {@code CoopDuelResultEvent} guest loot credit. */
+    public static final int MAX_THEME_ID_LEN = 64;
+    /** RW1: card name entries in the signature-candidate list. */
+    public static final int MAX_CARD_NAME_LEN = 128;
+    /** RW1: max signature-candidate names on the duel-result wire. */
+    public static final int MAX_SIGNATURE_CANDIDATES = 32;
     public static final int MAX_POI_ID_LEN = 96;
     public static final int MAX_DISPLAY_NAME_LEN = 96;
     public static final int MAX_REASON_LEN = 160;
