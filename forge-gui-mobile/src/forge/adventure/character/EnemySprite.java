@@ -22,6 +22,7 @@ import forge.adventure.data.RewardData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.util.Config;
 import forge.adventure.util.Current;
+import forge.adventure.util.FightRewards;
 import forge.adventure.util.MapDialog;
 import forge.adventure.util.Reward;
 import forge.adventure.util.SourcePrintings;
@@ -549,18 +550,34 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
             }
         }
 
-        if (data.rewards != null) { // Collect standard rewards.
-            Deck enemyDeck = Current.latestDeck();
-            CardPool deckNoRestrictedEditions = enemyDeck.getMain().getFilteredPool(PaperCardPredicates.onlyPrintedInEditions(Config.instance().getConfigData().restrictedEditions).negate());
-            CardPool deckNoBasicLands = deckNoRestrictedEditions.getFilteredPool(PaperCardPredicates.fromRules(CardRulesPredicates.NOT_BASIC_LAND));
+        Deck enemyDeck = Current.latestDeck();
+        List<PaperCard> deckFlatForRewards = null;
+        if (enemyDeck != null && enemyDeck.getMain() != null) {
+            CardPool deckNoRestrictedEditions = enemyDeck.getMain().getFilteredPool(
+                    PaperCardPredicates.onlyPrintedInEditions(
+                            Config.instance().getConfigData().restrictedEditions).negate());
+            CardPool deckNoBasicLands = deckNoRestrictedEditions.getFilteredPool(
+                    PaperCardPredicates.fromRules(CardRulesPredicates.NOT_BASIC_LAND));
+            deckFlatForRewards = deckNoBasicLands.toFlatList();
+        }
 
+        // RW1: Ascendant themed fights — signature from theme core + remaining cards from current set.
+        // Gym / League / boss / quest paths never set themeId (or are bosses) and stay on the stock path.
+        if (FightRewards.applies(data)) {
+            rewardCollectionPool.addAll(FightRewards.generate(data, this.rewards, deckFlatForRewards, true));
+            forge.adventure.data.EnemyMaterialDropData.appendDrops(data, rewardCollectionPool);
+            return rewardCollectionPool;
+        }
+
+        if (data.rewards != null) { // Collect standard rewards.
             for (RewardData rdata : data.rewards) {
-                rewardCollectionPool.addAll(rdata.generate(false, enemyDeck == null ? null : deckNoBasicLands.toFlatList(), true));
+                rewardCollectionPool.addAll(rdata.generate(false, deckFlatForRewards, true));
             }
         }
         if (this.rewards != null) { // Collect additional rewards.
             for (RewardData rdata : this.rewards) {
-                rewardCollectionPool.addAll(rdata.generate(false, (Current.latestDeck() != null ? Current.latestDeck().getMain().toFlatList() : null), true));
+                rewardCollectionPool.addAll(rdata.generate(false,
+                        (Current.latestDeck() != null ? Current.latestDeck().getMain().toFlatList() : null), true));
             }
         }
         // Ascendant: color-keyed material drops (bosses always drop their unique material). Table in JSON.
