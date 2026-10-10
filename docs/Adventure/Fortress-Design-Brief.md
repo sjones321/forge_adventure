@@ -6,7 +6,7 @@ CO4, CO5, WAR1). Where this brief and those files disagree, tell Steve and Wren.
 
 ## The game in one paragraph
 
-**Bellwarden: Planes of Nothing** (working title) is a co-op, Stardew/RuneScape-style RPG built on Forge, where every
+**Bellwarden: Planes of Nothing** is a co-op, Stardew/RuneScape-style RPG built on Forge, where every
 fight is a real game of Magic. You gather, craft, build and explore an endless chain of planes, one per Magic set.
 Setting: Steve's own cosmology, the Eternal Engine. You are a Death Watch Initiate investigating **the Nothing**, which
 permanently erases land and towns. Tone: war-torn frontier, not a cozy farm, but with real warmth (friendship with

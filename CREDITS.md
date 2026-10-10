@@ -13,7 +13,7 @@ license. **Add an entry here whenever a new asset, library or data source is add
 
 ## Match UI behaviour (adapted, not copied)
 
-- **Neo Forge** (<https://github.com/AdrianLopez98/NeoForge>, GPLv3, JavaFX) — behaviour reference for Ascendant
+- **Neo Forge** (<https://github.com/AdrianLopez98/NeoForge>, GPLv3, JavaFX) — behaviour reference for Bellwarden: Planes of Nothing
   package DS1 (modern libGDX duel screen). Studied and reimplemented in `forge-gui-mobile` (not a line copy):
   - Combat / target / drag arrow colours and edge-to-edge curved arrows (`CombatOverlay.java`)
   - Drag-to-cast, drag-to-attack/block, ~9px drag slop, cancel when dropping a hand card off the board
@@ -36,7 +36,7 @@ license. **Add an entry here whenever a new asset, library or data source is add
   `forge-gui/res/adventure/common/maps/tileset/kenney_*.png`) — Kenney Vleugels, <https://kenney.nl>. CC0 1.0;
   credited with thanks.
 - **Kenney Tiny Town tool icons** (local tiles 115 pickaxe, 127 axe, 128 hammer/chisel, 129 sickle,
-  130/131 buckets for probe) and tinted Mana dust icons live in the Ascendant-only sheet
+  130/131 buckets for probe) and tinted Mana dust icons live in the Planes of Nothing–only sheet
   `forge-gui/res/adventure/common/sprites/ascendant_items.png` / `ascendant_items.atlas`
   (`ToolPickaxe`, `ToolAxe`, `ToolHammer`, `ToolSickle`, `ToolBucket`, `ToolBucketFull`,
   `DustCommon` / `DustUncommon` / `DustRare` / `DustMythic`). Same CC0 1.0 Tiny Town source.

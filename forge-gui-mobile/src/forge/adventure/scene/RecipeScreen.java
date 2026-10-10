@@ -61,7 +61,7 @@ public class RecipeScreen extends FScreen {
     @Override
     public void onActivate() {
         if (!Config.ascendant()) {
-            FOptionPane.showMessageDialog("Crafting stations are only available in Shandalar Ascendant.",
+            FOptionPane.showMessageDialog("Crafting stations are only available in Bellwarden: Planes of Nothing.",
                     "Craft", FOptionPane.INFORMATION_ICON, result -> Forge.back());
             return;
         }

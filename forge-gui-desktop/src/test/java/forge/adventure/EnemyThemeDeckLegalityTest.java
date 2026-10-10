@@ -621,6 +621,456 @@ public class EnemyThemeDeckLegalityTest {
     }
 
     @Test
+    public void everyFixedAndGeneratedCommanderDeckIsExactly99PlusCommander() {
+        List<String> problems = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
+        for (EnemyThemeData theme : themes) {
+            if (theme == null || theme.id == null || !seenIds.add(theme.id))
+                continue;
+            EnemyThemeDecks.ensureCoreLoaded(theme);
+            // Fixed lists.
+            for (Path deckPath : listFixedDecks(theme.id, "Commander")) {
+                Deck deck = DeckSerializer.fromFile(deckPath.toFile());
+                if (deck == null) {
+                    problems.add(deckPath + ": failed to parse");
+                    continue;
+                }
+                deck.getMain();
+                if (deck.has(DeckSection.Commander))
+                    deck.get(DeckSection.Commander);
+                String p = commanderSizeAndFloorsProblem(deck, theme, deckPath.getFileName().toString());
+                if (p != null)
+                    problems.add(p);
+            }
+            // Generated (includes EN2 merfolk_tempo / serpent_leviathan).
+            Deck generated = null;
+            for (int attempt = 0; attempt < 16 && generated == null; attempt++) {
+                try {
+                    generated = EnemyThemeDecks.buildFixedDeck(theme, "Commander",
+                            theme.id.hashCode() * 31L + attempt * 17L);
+                } catch (RuntimeException ex) {
+                    problems.add(theme.id + " generated: " + ex.getMessage());
+                    break;
+                }
+            }
+            if (generated == null) {
+                problems.add(theme.id + " generated: build returned null");
+                continue;
+            }
+            String gp = commanderSizeAndFloorsProblem(generated, theme, theme.id + " generated");
+            if (gp != null)
+                problems.add(gp);
+        }
+        Assert.assertTrue(seenIds.contains("merfolk_tempo"), "expected EN2 merfolk_tempo theme");
+        Assert.assertTrue(seenIds.contains("serpent_leviathan"), "expected EN2 serpent_leviathan theme");
+        Assert.assertTrue(problems.isEmpty(),
+                "Commander 99+1 / floors problems:\n" + String.join("\n", problems));
+    }
+
+    @Test
+    public void normalizeCommanderMainSizeFixesOvershootAndUndershoot() {
+        EnemyThemeData theme = themeById("spirit_tempo");
+        Assert.assertNotNull(theme);
+        EnemyThemeDecks.ensureCoreLoaded(theme);
+        Deck base = EnemyThemeDecks.buildFixedDeck(theme, "Commander", 42L);
+        Assert.assertNotNull(base);
+        Assert.assertEquals(base.getMain().countAll(), 99);
+        Assert.assertEquals(base.getCommanders().size(), 1);
+
+        PaperCard island = FModel.getMagicDb().getCommonCards()
+                .getCard("Island", EnemyThemeDecks.PREFERRED_BASIC_LAND_EDITION);
+        Assert.assertNotNull(island);
+
+        // Overshoot: +4 basics → normalize back to 99 without touching core/spells.
+        Deck over = copyDeck(base);
+        for (int i = 0; i < 4; i++)
+            over.getMain().add(island);
+        Assert.assertEquals(over.getMain().countAll(), 103);
+        int interactionBefore = countNamedInteraction(over);
+        int tribalBefore = EnemyThemeDecks.countTribalCreatures(over, theme);
+        EnemyThemeDecks.normalizeCommanderMainSizeForTests(over, theme);
+        Assert.assertEquals(over.getMain().countAll(), 99);
+        Assert.assertEquals(over.getCommanders().size(), 1);
+        Assert.assertNull(EnemyThemeDecks.legalityProblem(over, "Commander"),
+                EnemyThemeDecks.legalityProblem(over, "Commander"));
+        Assert.assertTrue(countNamedInteraction(over) >= Math.min(interactionBefore,
+                        EnemyThemeDecks.MIN_COMMANDER_INTERACTION_SPELLS),
+                "normalize must not strip the interaction spell floor");
+        Assert.assertTrue(EnemyThemeDecks.countTribalCreatures(over, theme) >= Math.min(tribalBefore,
+                        EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER)
+                        || EnemyThemeDecks.countTribalCreatures(over, theme)
+                        >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER,
+                "normalize must not strip tribal floor when trimming basics");
+
+        // Undershoot: strip 5 basics → normalize pads back to 99.
+        Deck under = copyDeck(base);
+        int removed = 0;
+        for (PaperCard pc : new ArrayList<>(under.getMain().toFlatList())) {
+            if (removed >= 5)
+                break;
+            if (pc.getRules() != null && pc.getRules().getType().isBasicLand()) {
+                under.getMain().remove(pc);
+                removed++;
+            }
+        }
+        Assert.assertEquals(removed, 5);
+        Assert.assertEquals(under.getMain().countAll(), 94);
+        int interactionUnder = countNamedInteraction(under);
+        EnemyThemeDecks.normalizeCommanderMainSizeForTests(under, theme);
+        Assert.assertEquals(under.getMain().countAll(), 99);
+        Assert.assertEquals(under.getCommanders().size(), 1);
+        Assert.assertNull(EnemyThemeDecks.legalityProblem(under, "Commander"),
+                EnemyThemeDecks.legalityProblem(under, "Commander"));
+        Assert.assertTrue(countNamedInteraction(under) >= interactionUnder,
+                "filling basics must not remove interaction spells");
+        Assert.assertNull(EnemyThemeDecks.themeQualityProblem(under, theme, "Commander"),
+                EnemyThemeDecks.themeQualityProblem(under, theme, "Commander"));
+    }
+
+    @Test
+    public void dragonTribalCommanderKeepsRestoredDragonsNotGenericFlyers() {
+        Path dck = enemyDeckRoot.resolve("dragon_tribal").resolve("commander_1.dck");
+        Assert.assertTrue(Files.isRegularFile(dck), "missing " + dck);
+        Deck deck = DeckSerializer.fromFile(dck.toFile());
+        Assert.assertNotNull(deck);
+        String[] restored = {
+                "Dracosaur Auxiliary", "Dragonspeaker Shaman", "Obsidian Charmaw",
+                "Realm-Scorcher Hellkite", "Smaug, the Great Calamity", "Stingerback Terror",
+                "Thundermane Dragon", "War-Spike Changeling"
+        };
+        List<String> missing = new ArrayList<>();
+        for (String name : restored) {
+            if (deck.getMain().countByName(name) < 1)
+                missing.add(name);
+        }
+        Assert.assertTrue(missing.isEmpty(), "restored Dragons missing: " + missing);
+        String[] flyers = {
+                "Arclight Phoenix", "Avatar of Fury", "Avengers Quinjet", "Emberwilde Djinn",
+                "Levitating Statue", "Thopter Assembly", "Draconautics Engineer"
+        };
+        List<String> leaked = new ArrayList<>();
+        for (String name : flyers) {
+            if (deck.getMain().countByName(name) > 0)
+                leaked.add(name);
+        }
+        Assert.assertTrue(leaked.isEmpty(), "generic flyers still present: " + leaked);
+        EnemyThemeData theme = themeById("dragon_tribal");
+        Assert.assertNotNull(theme);
+        EnemyThemeDecks.ensureCoreLoaded(theme);
+        Assert.assertNull(EnemyThemeDecks.themeQualityProblem(deck, theme, "Commander"),
+                EnemyThemeDecks.themeQualityProblem(deck, theme, "Commander"));
+        Assert.assertTrue(EnemyThemeDecks.countCreatureType(deck, "Dragon")
+                        >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER
+                        || EnemyThemeDecks.countTribalCreatures(deck, theme)
+                        >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER,
+                "dragon_tribal Commander must meet tribal floor with Dragons");
+    }
+
+    @Test
+    public void normalizeTrimProtectsTribalFloorForEveryCommanderTheme() {
+        List<String> problems = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (EnemyThemeData theme : themes) {
+            if (theme == null || theme.id == null || !seen.add(theme.id))
+                continue;
+            EnemyThemeDecks.ensureCoreLoaded(theme);
+            Deck base = null;
+            try {
+                base = EnemyThemeDecks.buildFixedDeck(theme, "Commander", 99L);
+            } catch (RuntimeException ex) {
+                problems.add(theme.id + ": build failed: " + ex.getMessage());
+                continue;
+            }
+            if (base == null) {
+                problems.add(theme.id + ": build returned null");
+                continue;
+            }
+            Deck edged = copyDeck(base);
+            PaperCard basic = firstBasicInDeck(edged);
+            if (basic == null) {
+                problems.add(theme.id + ": no basic land");
+                continue;
+            }
+            // Overshoot with basics only — trim must cut basics, never tribal creatures.
+            for (int i = 0; i < 4; i++)
+                edged.getMain().add(basic);
+            int tribalBefore = EnemyThemeDecks.countTribalCreatures(edged, theme);
+            try {
+                EnemyThemeDecks.normalizeCommanderMainSizeForTests(edged, theme);
+            } catch (RuntimeException ex) {
+                problems.add(theme.id + ": normalize threw: " + ex.getMessage());
+                continue;
+            }
+            if (edged.getMain().countAll() != 99)
+                problems.add(theme.id + ": size " + edged.getMain().countAll());
+            int tribalAfter = EnemyThemeDecks.countTribalCreatures(edged, theme);
+            if (tribalAfter < tribalBefore)
+                problems.add(theme.id + ": tribal dropped " + tribalBefore + "→" + tribalAfter
+                        + " while trimming basic overshoot");
+            if (tribalBefore >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER
+                    && tribalAfter < EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER)
+                problems.add(theme.id + ": tribal " + tribalAfter + " fell below floor");
+            if (countLandsInDeck(edged) > EnemyThemeDecks.MAX_LANDS_COMMANDER)
+                problems.add(theme.id + ": lands " + countLandsInDeck(edged) + " > max");
+            // Prefer a quality-legal seed; fall back to fixed deck when this seed is thin.
+            String quality = EnemyThemeDecks.themeQualityProblem(edged, theme, "Commander");
+            if (quality != null && tribalBefore >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER)
+                problems.add(theme.id + ": " + quality);
+        }
+        Assert.assertTrue(problems.isEmpty(),
+                "normalize tribal-floor problems:\n" + String.join("\n", problems));
+    }
+
+    @Test
+    public void normalizeFillRespectsLandCapForEveryCommanderTheme() {
+        List<String> problems = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (EnemyThemeData theme : themes) {
+            if (theme == null || theme.id == null || !seen.add(theme.id))
+                continue;
+            EnemyThemeDecks.ensureCoreLoaded(theme);
+            Deck base = null;
+            try {
+                base = EnemyThemeDecks.buildFixedDeck(theme, "Commander", 77L);
+            } catch (RuntimeException ex) {
+                problems.add(theme.id + ": build failed: " + ex.getMessage());
+                continue;
+            }
+            if (base == null) {
+                problems.add(theme.id + ": build returned null");
+                continue;
+            }
+            Deck under = copyDeck(base);
+            PaperCard basic = firstBasicInDeck(under);
+            PaperCard chaff = disposableChaffForTheme(theme);
+            if (basic == null || chaff == null) {
+                problems.add(theme.id + ": missing basic or CI-legal chaff");
+                continue;
+            }
+            // Pad basics to the land cap (size becomes 99+d).
+            while (countLandsInDeck(under) < EnemyThemeDecks.MAX_LANDS_COMMANDER)
+                under.getMain().add(basic);
+            final int shortfall = under.getMain().countAll() - 94;
+            if (shortfall <= 0) {
+                problems.add(theme.id + ": unexpected size after land pad "
+                        + under.getMain().countAll());
+                continue;
+            }
+            // Add chaff, remove that many originals, then remove only the added chaff
+            // → size 94 at the land cap without stripping basics.
+            final int chaffBefore = under.getMain().countByName(chaff.getName());
+            for (int i = 0; i < shortfall; i++)
+                under.getMain().add(chaff);
+            int removedOrig = 0;
+            // Prefer stripping non-tribal originals so the fill path is what restores size.
+            for (int pass = 0; pass < 2 && removedOrig < shortfall; pass++) {
+                for (PaperCard pc : new ArrayList<>(under.getMain().toFlatList())) {
+                    if (removedOrig >= shortfall)
+                        break;
+                    if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
+                        continue;
+                    if (chaff.getName().equals(pc.getName()))
+                        continue;
+                    boolean tribal = countsAsTribalForTest(pc, theme);
+                    if (pass == 0 && tribal)
+                        continue;
+                    if (pass == 1 && !tribal)
+                        continue;
+                    under.getMain().remove(pc);
+                    removedOrig++;
+                }
+            }
+            int removedChaff = 0;
+            while (under.getMain().countByName(chaff.getName()) > chaffBefore
+                    && removedChaff < shortfall) {
+                for (PaperCard pc : under.getMain().toFlatList()) {
+                    if (pc != null && chaff.getName().equals(pc.getName())) {
+                        under.getMain().remove(pc);
+                        removedChaff++;
+                        break;
+                    }
+                }
+            }
+            if (under.getMain().countAll() != 94
+                    || countLandsInDeck(under) != EnemyThemeDecks.MAX_LANDS_COMMANDER) {
+                problems.add(theme.id + ": could not shape undersize at cap (size="
+                        + under.getMain().countAll()
+                        + " lands=" + countLandsInDeck(under)
+                        + " removedOrig=" + removedOrig
+                        + " removedChaff=" + removedChaff + ")");
+                continue;
+            }
+            try {
+                EnemyThemeDecks.normalizeCommanderMainSizeForTests(under, theme);
+            } catch (RuntimeException ex) {
+                problems.add(theme.id + ": normalize threw: " + ex.getMessage());
+                continue;
+            }
+            if (under.getMain().countAll() != 99)
+                problems.add(theme.id + ": size " + under.getMain().countAll());
+            int lands = countLandsInDeck(under);
+            if (lands > EnemyThemeDecks.MAX_LANDS_COMMANDER)
+                problems.add(theme.id + ": lands " + lands + " > max "
+                        + EnemyThemeDecks.MAX_LANDS_COMMANDER);
+            // Fill at the cap must use nonlands — lands stay at the cap.
+            if (lands != EnemyThemeDecks.MAX_LANDS_COMMANDER)
+                problems.add(theme.id + ": lands " + lands + " != cap "
+                        + EnemyThemeDecks.MAX_LANDS_COMMANDER);
+        }
+        Assert.assertTrue(problems.isEmpty(),
+                "normalize land-cap fill problems:\n" + String.join("\n", problems));
+    }
+
+    /** CI-legal nonland used only as disposable test chaff (not an interaction staple). */
+    private static PaperCard disposableChaffForTheme(EnemyThemeData theme) {
+        String[] candidates = {
+                "Mind Stone", "Worn Powerstone", "Guardian Idol", "Coldsteel Heart",
+                "Pacifism", "Unsummon", "Duress", "Shock", "Giant Growth",
+                "Firebreathing", "Jump", "Holy Strength", "Unholy Strength"
+        };
+        byte ci = 0;
+        if (theme != null && theme.colors != null) {
+            for (String c : theme.colors) {
+                if (c == null)
+                    continue;
+                String L = c.toLowerCase(Locale.ROOT);
+                if ("white".equals(L) || "w".equals(L))
+                    ci |= forge.card.MagicColor.WHITE;
+                else if ("blue".equals(L) || "u".equals(L))
+                    ci |= forge.card.MagicColor.BLUE;
+                else if ("black".equals(L) || "b".equals(L))
+                    ci |= forge.card.MagicColor.BLACK;
+                else if ("red".equals(L) || "r".equals(L))
+                    ci |= forge.card.MagicColor.RED;
+                else if ("green".equals(L) || "g".equals(L))
+                    ci |= forge.card.MagicColor.GREEN;
+            }
+        }
+        for (String name : candidates) {
+            PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(name);
+            if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
+                continue;
+            if (isNamedInteractionForTest(name))
+                continue;
+            if (ci != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            return pc;
+        }
+        return null;
+    }
+
+    /** Non-core, non-floor-protected nonland suitable for test shaping. */
+    private static PaperCard pickRemovableNormalizeTestVictim(Deck deck, EnemyThemeData theme) {
+        for (PaperCard pc : deck.getMain().toFlatList()) {
+            if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
+                continue;
+            if (EnemyThemeDecks.isInCore(pc.getName(), theme))
+                continue;
+            if (isNamedInteractionForTest(pc.getName())
+                    && countNamedInteraction(deck)
+                    <= EnemyThemeDecks.MIN_COMMANDER_INTERACTION_SPELLS)
+                continue;
+            if (countsAsTribalForTest(pc, theme)
+                    && EnemyThemeDecks.countTribalCreatures(deck, theme)
+                    <= EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER)
+                continue;
+            if (!countsAsTribalForTest(pc, theme))
+                return pc;
+        }
+        for (PaperCard pc : deck.getMain().toFlatList()) {
+            if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
+                continue;
+            if (EnemyThemeDecks.isInCore(pc.getName(), theme))
+                continue;
+            if (countsAsTribalForTest(pc, theme)
+                    && EnemyThemeDecks.countTribalCreatures(deck, theme)
+                    > EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER)
+                return pc;
+        }
+        return null;
+    }
+
+    private static boolean countsAsTribalForTest(PaperCard pc, EnemyThemeData theme) {
+        return EnemyThemeDecks.countTribalCreatures(singletonDeck(pc), theme) > 0;
+    }
+
+    private static Deck singletonDeck(PaperCard pc) {
+        Deck d = new Deck("t");
+        if (pc != null)
+            d.getMain().add(pc);
+        return d;
+    }
+
+    private static boolean isNamedInteractionForTest(String name) {
+        if (name == null)
+            return false;
+        Deck probe = new Deck("p");
+        PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(name);
+        if (pc == null)
+            return false;
+        probe.getMain().add(pc);
+        return countNamedInteraction(probe) > 0;
+    }
+
+    private static PaperCard firstBasicInDeck(Deck deck) {
+        for (PaperCard pc : deck.getMain().toFlatList()) {
+            if (pc != null && pc.getRules() != null && pc.getRules().getType().isBasicLand())
+                return pc;
+        }
+        return null;
+    }
+
+    private static int countLandsInDeck(Deck deck) {
+        int n = 0;
+        for (PaperCard pc : deck.getMain().toFlatList()) {
+            if (pc != null && pc.getRules() != null && pc.getRules().getType().isLand())
+                n++;
+        }
+        return n;
+    }
+
+    /** Counts cards on the generator's Commander interaction priority list. */
+    private static int countNamedInteraction(Deck deck) {
+        String[] names = {
+                "Swords to Plowshares", "Path to Exile", "Anguished Unmaking", "Mortify",
+                "Oblivion Ring", "Journey to Nowhere", "Generous Gift",
+                "Wrath of God", "Supreme Verdict", "Time Wipe", "Deafening Clarion",
+                "Austere Command", "Farewell",
+                "Go for the Throat", "Feed the Swarm", "Infernal Grasp", "Cast Down",
+                "Hero's Downfall", "Languish",
+                "Counterspell", "Negate", "Aetherize", "Engulf the Shore", "River's Rebuke",
+                "Wash Out", "Pongify", "Rapid Hybridization", "Reality Shift",
+                "Chaos Warp", "Abrade", "Blasphemous Act", "By Force", "Vandalblast",
+                "Starstorm", "Chain Reaction", "Wild Magic Surge",
+                "Beast Within", "Nature's Claim", "Kenrith's Transformation",
+                "Song of the Dryads", "Return to Nature", "Krosan Grip"
+        };
+        int n = 0;
+        for (String name : names)
+            n += deck.getMain().countByName(name);
+        return n;
+    }
+
+    private static String commanderSizeAndFloorsProblem(Deck deck, EnemyThemeData theme,
+                                                        String label) {
+        if (deck.getCommanders() == null || deck.getCommanders().isEmpty())
+            return label + ": missing commander";
+        int main = deck.getMain().countAll();
+        int cmd = deck.getCommanders().size();
+        if (main != 99 || cmd != 1)
+            return label + ": size main=" + main + " commanders=" + cmd + " (need 99+1)";
+        String legal = EnemyThemeDecks.legalityProblem(deck, "Commander");
+        if (legal != null)
+            return label + ": " + legal;
+        // Singleton + CI covered by legalityProblem; tribal + nonland floors via quality.
+        String quality = EnemyThemeDecks.themeQualityProblem(deck, theme, "Commander");
+        if (quality != null)
+            return label + ": " + quality;
+        return null;
+    }
+
+    @Test
     public void legalityRejectsBrokenCommanderAndPauperDecks() {
         Deck legalCommander = loadFirstDeck("Commander");
         Assert.assertNotNull(legalCommander, "need a committed Commander theme deck");

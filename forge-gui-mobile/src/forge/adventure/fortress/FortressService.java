@@ -269,7 +269,7 @@ public final class FortressService {
 
     public String openBuildMode() {
         if (!Config.ascendant())
-            return "Fortresses require Shandalar Ascendant.";
+            return "Fortresses require Bellwarden: Planes of Nothing.";
         if (!canModifyWorld() || guestForbidden())
             return "Guests cannot build in the host's fortress.";
         if (!isInsideFortressMap())

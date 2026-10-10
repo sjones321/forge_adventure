@@ -19,7 +19,7 @@ Magic, played by Forge's rules engine.
 | Network duels | Co-op overworld, controller-first UI |
 
 Stay on **libGDX / Java**: same language as the engine (no bridge), and one codebase for Windows, Mac, Linux and
-**Android**. Everything built in the Shandalar Ascendant packages carries over.
+**Android**. Everything built in the Bellwarden: Planes of Nothing packages carries over.
 
 ## Design pillars
 
@@ -109,7 +109,10 @@ Firstborn. Losses are real; dialog stays skippable; the stakes live in the world
 
 Both players are in the **same world at the same time**. The host's save owns the world **and the partner's
 character**: like a Stardew farmhand, the guest has a character made for that world, stored in the host's save and
-following that world's rules. Solo characters stay in solo games (see roadmap CO5). The host is authoritative over the world (enemies,
+following that world's rules. Solo characters stay in solo games (see roadmap CO5).
+**Co-op worlds are their own saves**: you host from a world made for co-op, where both of you have characters and make
+progress together; your solo games are separate. Co-op is part of the definitive game, so every system is designed
+for two players from the start (roadmap: standing rule, CO6 co-op mechanics, Horde delves). The host is authoritative over the world (enemies,
 nodes, POI changes, loot rolls). Players **team up or go their separate ways**: party up by invite, leave any time,
 and nobody is ever pulled into a fight or a location without saying yes. Co-op fights are two humans on one team
 against the enemy, using Forge's existing network duel code. Connection is direct over LAN or Tailscale, no servers. See roadmap packages CO1-CO4.
@@ -117,7 +120,7 @@ against the enemy, using Forge's existing network duel code. Connection is direc
 ## Milestones
 
 1. **Co-op foundation**: session and connection (CO1), shared overworld (CO2), co-op duels (CO3).
-2. **Own identity**: name, launcher, app, separate from stock Forge. **Working title: Bellwarden: Planes of
+2. **Own identity**: name, launcher, app, separate from stock Forge. **Official name: Bellwarden: Planes of
    Nothing** (chosen 2026-10-08). Avoid "NeoForge" (Minecraft mod loader), "___ of Eternity" (Pillars of
    Eternity), and "Death Watch"/"Deathwatch" in the title (Star Wars / Warhammer 40K); the canon name is fine
    inside the game.

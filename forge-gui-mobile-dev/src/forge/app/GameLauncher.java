@@ -9,6 +9,7 @@ import com.badlogic.gdx.backends.lwjgl3.Lwjgl3WindowAdapter;
 import com.badlogic.gdx.graphics.glutils.HdpiMode;
 import forge.util.HWInfo;
 import forge.Forge;
+import forge.adventure.util.AdventureTitles;
 import forge.adventure.util.Config;
 import io.sentry.protocol.Device;
 import io.sentry.protocol.OperatingSystem;
@@ -115,7 +116,9 @@ public class GameLauncher {
             config.setResizable(false);
         }
         config.setHdpiMode(HdpiMode.Logical);
-        config.setTitle("Forge - " + versionString);
+        String planeId = Config.instance().getSettingData() != null
+                ? Config.instance().getSettingData().plane : null;
+        config.setTitle(AdventureTitles.resolveWindowTitle(planeId, versionString));
         config.setWindowListener(new Lwjgl3WindowAdapter() {
             @Override
             public boolean closeRequested() {

@@ -69,7 +69,7 @@ public final class FortressPlacement {
             case OK:
                 return "Fortress claimed.";
             case NOT_ASCENDANT:
-                return "Fortresses require Shandalar Ascendant.";
+                return "Fortresses require Bellwarden: Planes of Nothing.";
             case GUEST_FORBIDDEN:
                 return "Guests cannot plant a fortress banner in the host's world.";
             case NOT_WALKABLE:

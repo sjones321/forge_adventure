@@ -861,7 +861,7 @@ public class WorldSave {
     public boolean canTravelToPlane(String planeId) {
         lastPlaneSwitchError = "";
         if (!Config.ascendant()) {
-            lastPlaneSwitchError = "Multi-plane requires Ascendant";
+            lastPlaneSwitchError = "Multi-plane requires Bellwarden: Planes of Nothing";
             return false;
         }
         if (planeId == null || planeId.isEmpty()) {
@@ -915,7 +915,7 @@ public class WorldSave {
     public boolean switchPlane(String planeId) {
         lastPlaneSwitchError = "";
         if (!Config.ascendant()) {
-            lastPlaneSwitchError = "Multi-plane requires Ascendant";
+            lastPlaneSwitchError = "Multi-plane requires Bellwarden: Planes of Nothing";
             return false;
         }
         if (planeId == null || planeId.isEmpty()) {
