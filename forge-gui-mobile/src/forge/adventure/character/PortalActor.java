@@ -15,7 +15,6 @@ import forge.adventure.util.Paths;
 import forge.adventure.world.PlaneFormat;
 import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.WorldSave;
-import forge.toolbox.FOptionPane;
 
 import java.util.HashMap;
 import java.util.List;
@@ -202,19 +201,39 @@ public class PortalActor extends EntryActor {
         String msg = "Choose the format for " + dest + ".\n"
                 + "Enemies, gyms and events on this plane will use it.\n"
                 + "Default: " + PlaneFormat.displayName(from) + " (this plane).";
-        FOptionPane.showOptionDialog(msg, "Plane format", FOptionPane.QUESTION_ICON,
-                options, defaultIdx, result -> {
-                    if (result == null || result < 0 || result >= PlaneFormat.CHOICES.length) {
-                        notifyPortal("Portal cancelled.");
-                        return;
-                    }
-                    String chosen = PlaneFormat.fromChoiceLabel(PlaneFormat.CHOICES[result]);
-                    PlaneFormat.setPlaneFormat(targetMeta, chosen);
-                    notifyPortal("Format: " + PlaneFormat.displayName(chosen));
-                    if (onChosen != null) {
-                        onChosen.run();
-                    }
-                });
+        // Adventure scenes don't draw classic FOptionPane overlays, so use the map stage's own dialog.
+        MapStage ms = getMapStage();
+        if (ms == null || ms.getDialog() == null) {
+            PlaneFormat.setPlaneFormat(targetMeta, from);
+            notifyPortal("Format: " + PlaneFormat.displayName(from));
+            if (onChosen != null)
+                onChosen.run();
+            return;
+        }
+        com.badlogic.gdx.scenes.scene2d.ui.Dialog d = ms.getDialog();
+        d.getButtonTable().clear();
+        d.getContentTable().clear();
+        d.clearListeners();
+        com.github.tommyettinger.textra.TextraLabel label = forge.adventure.util.Controls.newTextraLabel(msg);
+        label.setWrap(true);
+        d.getContentTable().add(label).width(250f);
+        for (int i = 0; i < options.size(); i++) {
+            final String chosen = PlaneFormat.fromChoiceLabel(PlaneFormat.CHOICES[i]);
+            String text = options.get(i) + (i == defaultIdx ? " (default)" : "");
+            d.getButtonTable().add(forge.adventure.util.Controls.newTextButton(text, () -> {
+                ms.hideDialog();
+                PlaneFormat.setPlaneFormat(targetMeta, chosen);
+                notifyPortal("Format: " + PlaneFormat.displayName(chosen));
+                if (onChosen != null)
+                    onChosen.run();
+            })).width(240f).row();
+        }
+        d.getButtonTable().add(forge.adventure.util.Controls.newTextButton("Cancel", () -> {
+            ms.hideDialog();
+            notifyPortal("Portal cancelled.");
+        })).width(240f).row();
+        d.setKeepWithinStage(true);
+        ms.showDialog();
     }
 
     /**
