@@ -26,6 +26,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -62,7 +64,7 @@ public class Ai1MulliganStallTest extends AITest {
     @Test(timeOut = 60_000)
     public void forcedMulliganToZeroStillPlaysTurns_llmOff() throws Exception {
         AssertJUnit.assertFalse(LlmOpponent.isActive());
-        runForcedMulliganGame(/*useLlmStub*/ false);
+        runForcedMulliganGame();
     }
 
     @Test(timeOut = 60_000)
@@ -73,12 +75,12 @@ public class Ai1MulliganStallTest extends AITest {
         s.setModel("stub");
         s.setApiKey("");
         s.setTimeoutSeconds(1);
-        s.setMulliganMinHandSize(0); // allow forced path to reach 0 via always-mull controller
+        // Floor 0 so ForcedMulliganController can reach an empty hand; LLM stub unused for mulligan.
+        s.setMulliganMinHandSize(0);
         s.setPriorityWatchdogSeconds(5);
         LlmOpponent.activateForTests(s);
-        // Stub never used for mulligan by ForcedMulliganController; still must not hang on spells.
         LlmOpponent.setAskClientForTests(prompt -> null);
-        runForcedMulliganGame(/*useLlmStub*/ true);
+        runForcedMulliganGame();
     }
 
     @Test(timeOut = 30_000)
@@ -98,38 +100,86 @@ public class Ai1MulliganStallTest extends AITest {
             return "{\"keep\": false, \"reason\": \"mull forever\"}";
         });
 
-        AtomicReference<Game> gameRef = new AtomicReference<>();
+        LobbyPlayerAi p1Lobby = new LobbyPlayerAi("p1", null);
+        LobbyPlayerAi p2Lobby = new LobbyPlayerAi("p2", null);
+        Match match = createMatch(p1Lobby, p2Lobby);
+        Game game = match.createGame();
+        game.AI_TIMEOUT = 3;
+        Player tracked = game.getRegisteredPlayers().get(0);
+
+        CountDownLatch reachedPlay = new CountDownLatch(1);
         AtomicInteger handAtPlay = new AtomicInteger(-1);
-        AtomicBoolean reachedPlay = new AtomicBoolean();
+        AtomicReference<Throwable> gameError = new AtomicReference<>();
 
         Thread t = new Thread(() -> {
-            Game game = createAiAiGame(new LobbyPlayerAi("p1", null), new LobbyPlayerAi("p2", null));
-            gameRef.set(game);
-            game.getAction().startGame(null, () -> {
-                reachedPlay.set(true);
-                Player p1 = game.getPlayers().get(0);
-                handAtPlay.set(p1.getCardsIn(ZoneType.Hand).size());
-                for (Player p : game.getPlayers()) {
-                    p.concede();
-                }
-            });
+            try {
+                match.startGame(game, () -> {
+                    handAtPlay.set(tracked.getCardsIn(ZoneType.Hand).size());
+                    reachedPlay.countDown();
+                    for (Player p : new ArrayList<>(game.getRegisteredPlayers())) {
+                        if (!p.hasLost()) {
+                            p.concede();
+                        }
+                    }
+                });
+            } catch (Throwable e) {
+                gameError.set(e);
+                reachedPlay.countDown();
+            }
         }, "ai1-floor-game");
         t.setDaemon(true);
         t.start();
-        t.join(25_000);
 
-        AssertJUnit.assertTrue("game must finish mulligan and reach play", reachedPlay.get());
+        AssertJUnit.assertTrue("game must finish mulligan and reach play",
+                reachedPlay.await(25, TimeUnit.SECONDS));
+        if (gameError.get() != null) {
+            throw new AssertionError("game thread failed", gameError.get());
+        }
         AssertJUnit.assertTrue("LLM forever-mulligan must stop at floor (hand >= 5), got "
                 + handAtPlay.get(), handAtPlay.get() >= 5);
         AssertJUnit.assertTrue("stub should have been asked while above floor", asks.get() >= 1);
+        t.join(5_000);
         AssertJUnit.assertFalse("game thread should not still be stuck in mulligan", t.isAlive());
+    }
+
+    @Test
+    public void chooseKeepHandFloorStopsForeverMulliganStub() {
+        LlmSettings s = new LlmSettings();
+        s.setEnabled(true);
+        s.setBaseUrl("http://127.0.0.1:9/v1");
+        s.setModel("stub");
+        s.setTimeoutSeconds(1);
+        s.setMulliganMinHandSize(5);
+        LlmOpponent.activateForTests(s);
+        AtomicInteger asks = new AtomicInteger();
+        LlmOpponent.setAskClientForTests(prompt -> {
+            asks.incrementAndGet();
+            return "{\"keep\": false, \"reason\": \"mull forever\"}";
+        });
+
+        Game game = initAndCreateGame();
+        Player ai = game.getPlayers().get(1);
+        fillLibrary(ai, 40);
+        // Build a 7-card hand, then shrink to simulate London post-tuck sizes.
+        for (int i = 0; i < 7; i++) {
+            addCardToZone("Plains", ai, ZoneType.Hand);
+        }
+        AssertJUnit.assertEquals(Boolean.FALSE, LlmOpponent.chooseKeepHand(ai, 0));
+        while (ai.getCardsIn(ZoneType.Hand).size() > 6) {
+            game.getAction().moveTo(ZoneType.Exile, ai.getCardsIn(ZoneType.Hand).get(0), null, null);
+        }
+        AssertJUnit.assertEquals(Boolean.FALSE, LlmOpponent.chooseKeepHand(ai, 1));
+        while (ai.getCardsIn(ZoneType.Hand).size() > 5) {
+            game.getAction().moveTo(ZoneType.Exile, ai.getCardsIn(ZoneType.Hand).get(0), null, null);
+        }
+        AssertJUnit.assertEquals(Boolean.TRUE, LlmOpponent.chooseKeepHand(ai, 2));
+        AssertJUnit.assertEquals("only hands above the floor ask the LLM", 2, asks.get());
     }
 
     @Test
     public void emptyHandKeepsEvenWhenControllerSaysMulligan() {
         Game game = initAndCreateGame();
         Player ai = game.getPlayers().get(1);
-        // Empty the hand
         for (Card c : new ArrayList<>(ai.getCardsIn(ZoneType.Hand))) {
             ai.getGame().getAction().moveTo(ZoneType.Exile, c, null, null);
         }
@@ -145,7 +195,6 @@ public class Ai1MulliganStallTest extends AITest {
         Player opp = game.getPlayers().get(0);
         fillLibrary(ai, 40);
         fillLibrary(opp, 40);
-        // Empty AI hand; give opponent a land so the game can progress.
         for (Card c : new ArrayList<>(ai.getCardsIn(ZoneType.Hand))) {
             game.getAction().moveTo(ZoneType.Exile, c, null, null);
         }
@@ -168,67 +217,79 @@ public class Ai1MulliganStallTest extends AITest {
 
     // ---- helpers ----
 
-    private void runForcedMulliganGame(boolean useLlmStub) throws Exception {
-        AtomicBoolean reachedPlay = new AtomicBoolean();
+    private void runForcedMulliganGame() throws Exception {
+        ForcedMulliganLobby forced = new ForcedMulliganLobby("mulliganer");
+        LobbyPlayerAi other = new LobbyPlayerAi("keeper", null);
+        Match match = createMatch(forced, other);
+        Game game = match.createGame();
+        game.AI_TIMEOUT = 3;
+
+        Player mulliganer = null;
+        for (Player p : game.getRegisteredPlayers()) {
+            if ("mulliganer".equals(p.getName())) {
+                mulliganer = p;
+                break;
+            }
+        }
+        AssertJUnit.assertNotNull("mulliganer player must exist", mulliganer);
+        final Player tracked = mulliganer;
+
+        CountDownLatch reachedPlay = new CountDownLatch(1);
         AtomicInteger handAtPlay = new AtomicInteger(-1);
         AtomicInteger turnsSeen = new AtomicInteger();
-        AtomicReference<Game> gameRef = new AtomicReference<>();
-
-        LobbyPlayerAi forced = new ForcedMulliganLobby("mulliganer");
-        LobbyPlayerAi other = new LobbyPlayerAi("keeper", null);
+        AtomicBoolean gameOver = new AtomicBoolean();
+        AtomicReference<Throwable> gameError = new AtomicReference<>();
 
         Thread t = new Thread(() -> {
-            Game game = createAiAiGame(forced, other);
-            gameRef.set(game);
-            game.AI_TIMEOUT = 3;
-            game.getAction().startGame(null, () -> {
-                reachedPlay.set(true);
-                Player mull = game.getPlayers().stream()
-                        .filter(p -> "mulliganer".equals(p.getName()))
-                        .findFirst().orElse(game.getPlayers().get(0));
-                handAtPlay.set(mull.getCardsIn(ZoneType.Hand).size());
-            });
-        }, "ai1-forced-mull-" + useLlmStub);
+            try {
+                match.startGame(game, () -> {
+                    handAtPlay.set(tracked.getCardsIn(ZoneType.Hand).size());
+                    reachedPlay.countDown();
+                });
+                gameOver.set(true);
+            } catch (Throwable e) {
+                gameError.set(e);
+                reachedPlay.countDown();
+            }
+        }, "ai1-forced-mull");
         t.setDaemon(true);
         t.start();
 
-        long deadline = System.currentTimeMillis() + 45_000;
+        AssertJUnit.assertTrue("must leave mulligan (stall bug)",
+                reachedPlay.await(40, TimeUnit.SECONDS));
+        if (gameError.get() != null) {
+            throw new AssertionError("game thread failed", gameError.get());
+        }
+        AssertJUnit.assertEquals("forced mulligan-to-0 should leave empty hand", 0, handAtPlay.get());
+
+        long deadline = System.currentTimeMillis() + 20_000;
         while (System.currentTimeMillis() < deadline) {
-            Game g = gameRef.get();
-            if (g != null && reachedPlay.get()) {
-                turnsSeen.set(g.getPhaseHandler().getTurn());
-                if (g.getPhaseHandler().getTurn() >= 2 || g.isGameOver()) {
-                    break;
-                }
-            }
-            if (!t.isAlive() && reachedPlay.get()) {
+            turnsSeen.set(game.getPhaseHandler().getTurn());
+            if (game.isGameOver() || turnsSeen.get() >= 2) {
                 break;
             }
             Thread.sleep(50);
         }
-
-        Game g = gameRef.get();
-        if (g != null && !g.isGameOver()) {
-            for (Player p : g.getPlayers()) {
-                p.concede();
+        if (!game.isGameOver()) {
+            for (Player p : new ArrayList<>(game.getRegisteredPlayers())) {
+                if (!p.hasLost()) {
+                    p.concede();
+                }
             }
         }
         t.join(5_000);
 
-        AssertJUnit.assertTrue("must leave mulligan (stall bug)", reachedPlay.get());
-        AssertJUnit.assertEquals("forced mulligan-to-0 should leave empty hand", 0, handAtPlay.get());
         AssertJUnit.assertTrue("empty-hand AI must take turns (turn>=2 or game ended), turn="
-                        + turnsSeen.get() + " alive=" + t.isAlive(),
-                turnsSeen.get() >= 2 || (g != null && g.isGameOver()));
+                        + turnsSeen.get() + " alive=" + t.isAlive() + " over=" + game.isGameOver(),
+                turnsSeen.get() >= 2 || game.isGameOver() || gameOver.get());
     }
 
-    private Game createAiAiGame(LobbyPlayerAi a, LobbyPlayerAi b) {
+    private Match createMatch(LobbyPlayerAi a, LobbyPlayerAi b) {
         List<RegisteredPlayer> players = new ArrayList<>();
         players.add(new RegisteredPlayer(minimalDeck("Plains")).setPlayer(a));
         players.add(new RegisteredPlayer(minimalDeck("Mountain")).setPlayer(b));
         GameRules rules = new GameRules(GameType.Constructed);
-        Match match = new Match(rules, players, "AI1Mulligan");
-        return match.createGame();
+        return new Match(rules, players, "AI1Mulligan");
     }
 
     private static Deck minimalDeck(String landName) {
