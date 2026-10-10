@@ -473,4 +473,21 @@ public class ConfigData {
      */
     public boolean kStrictOverworldLegalDecks = false;
 
+    // ---- Ascendant RW1: fight rewards feed the current set ----
+
+    /**
+     * When true (Ascendant default), a themed overworld win grants one signature
+     * card from the enemy theme core and draws the remaining card rewards from
+     * the current set (set plane, or newest rotation set on home).
+     */
+    public boolean rw1FightRewards = true;
+    /** Guaranteed signature cards from the theme core ∩ played deck (default 1). */
+    public int rw1SignatureCardCount = 1;
+    /**
+     * Share of the remaining (non-signature) card rewards that come from the
+     * current set (0–1). Default 1.0 = all remaining card rewards from the set;
+     * the rest (if any) still come from the enemy deck as today.
+     */
+    public float rw1CurrentSetCardShare = 1.0f;
+
 }

@@ -766,10 +766,10 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsExactlyTenForPackageK() {
-        // CO3=6; MV1=7; MV2=8; EN2 lootRolls=9; Package K planeFormat=10
-        // (set-start + 1 at review). Exact equality only.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
+    public void protocolVersionIsExactlyElevenForRw1() {
+        // CO3=6; MV1=7; MV2=8; EN2 lootRolls=9; Package K planeFormat=10;
+        // RW1 guest loot credit=11 (set-start + 1 at review). Exact equality only.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
     }
 
     private static long[][] sampleBiome(final int n) {

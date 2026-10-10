@@ -53,6 +53,13 @@ public class WorldStage extends GameStage implements SaveFileContent {
      * {@code 0} is valid. Cleared on win (consume) and on loss.
      */
     private final PendingLootRolls pendingLootRolls = new PendingLootRolls();
+    /**
+     * RW1 + EN2: enemy the local peer is credited with for loot (host → primary,
+     * guest → partner). Null means roll {@link #currentMob} as today.
+     */
+    private forge.adventure.data.EnemyData pendingLootCredit;
+    /** Played deck for {@link #pendingLootCredit} (partner seat), or null. */
+    private forge.deck.Deck pendingLootCreditDeck;
 
     /**
      * EN2 loot-roll bookkeeping used by {@link #setWinner}. Package-visible shape so
@@ -510,9 +517,44 @@ public class WorldStage extends GameStage implements SaveFileContent {
         return pendingLootRolls.consume();
     }
 
+    /**
+     * RW1 + EN2: set which enemy the local peer is credited with for the next
+     * loot rolls (host → primary, guest → partner). Pass null to use {@link #currentMob}.
+     */
+    public void setPendingLootCredit(final forge.adventure.data.EnemyData credit,
+            final forge.deck.Deck playedDeck) {
+        pendingLootCredit = credit;
+        pendingLootCreditDeck = playedDeck;
+    }
+
+    public forge.adventure.data.EnemyData getPendingLootCredit() {
+        return pendingLootCredit;
+    }
+
     /** CO3: pin the encounter enemy before a deferred co-op result path runs. */
     public void setCurrentMob(final EnemySprite mob) {
         currentMob = mob;
+    }
+
+    /**
+     * One loot roll for the local peer. When EN2/RW1 has a pending credit (host →
+     * primary deck, guest → wire partner/primary), roll against that enemy's reward
+     * table, colours, theme core and played deck — even when themes match the
+     * overworld mob. Otherwise use {@link EnemySprite#getRewards()} on the mob.
+     */
+    public static com.badlogic.gdx.utils.Array<Reward> rollLootForCredit(final EnemySprite mob,
+            final forge.adventure.data.EnemyData credit, final forge.deck.Deck creditDeck) {
+        if (credit != null && FightRewards.applies(credit)) {
+            final java.util.List<forge.item.PaperCard> deckCards =
+                    FightRewards.deckCardsForRewards(creditDeck);
+            // Wire / host credit decks are known — empty means no signature (no full-core).
+            final boolean allowFullCore = creditDeck == null;
+            final com.badlogic.gdx.utils.Array<Reward> one =
+                    FightRewards.generate(credit, null, deckCards, true, allowFullCore);
+            forge.adventure.data.EnemyMaterialDropData.appendDrops(credit, one);
+            return one;
+        }
+        return mob != null ? mob.getRewards() : new com.badlogic.gdx.utils.Array<>();
     }
 
     private void removeEnemy(EnemySprite currentMob) {
@@ -548,9 +590,14 @@ public class WorldStage extends GameStage implements SaveFileContent {
                     float deathDuration = currentMob.getActionAnimationDuration(CharacterSprite.AnimationTypes.Death, 0.3f);
                     startPause(deathDuration, () -> {
                         final int rolls = consumePendingLootRolls();
+                        final forge.adventure.data.EnemyData credit = pendingLootCredit;
+                        final forge.deck.Deck creditDeck = pendingLootCreditDeck;
+                        pendingLootCredit = null;
+                        pendingLootCreditDeck = null;
                         final com.badlogic.gdx.utils.Array<Reward> loot = new com.badlogic.gdx.utils.Array<>();
                         for (int r = 0; r < rolls; r++) {
-                            final com.badlogic.gdx.utils.Array<Reward> one = currentMob.getRewards();
+                            final com.badlogic.gdx.utils.Array<Reward> one =
+                                    rollLootForCredit(currentMob, credit, creditDeck);
                             if (one != null) {
                                 loot.addAll(one);
                             }
@@ -567,6 +614,8 @@ public class WorldStage extends GameStage implements SaveFileContent {
         } else {
             // EN2: clear any pending loot rolls on a loss too.
             pendingLootRolls.clearOnLoss();
+            pendingLootCredit = null;
+            pendingLootCreditDeck = null;
             currentMob.clearCollisionHeight();
             player.setAnimation(CharacterSprite.AnimationTypes.Hit);
             currentMob.setAnimation(CharacterSprite.AnimationTypes.Attack);

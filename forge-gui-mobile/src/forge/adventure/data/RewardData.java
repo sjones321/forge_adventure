@@ -633,6 +633,16 @@ public class RewardData implements Serializable {
         return ret;
     }
 
+    /**
+     * RW1: Ascendant themed-fight loot via {@link FightRewards} (signature from theme
+     * core + remaining cards from the current set). Real reward path used by
+     * {@code EnemySprite#getRewards} and by RW1 behavior tests.
+     */
+    public static Array<Reward> generateThemedFightRewards(EnemyData enemy, RewardData[] extraRewards,
+            Iterable<PaperCard> cards, boolean useSeedlessRandom) {
+        return FightRewards.generateViaRewardPath(enemy, extraRewards, cards, useSeedlessRandom);
+    }
+
     static public List<PaperCard> generateAllCards(Iterable<RewardData> dataList, boolean isForEnemy) {
         return rewardsToCards(generateAll(dataList, isForEnemy));
     }
