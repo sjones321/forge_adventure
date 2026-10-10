@@ -234,6 +234,10 @@ public final class FightRewards {
         if (sigWanted > 0) {
             List<PaperCard> signatures = pickSignatures(enemy.themeId, deckList, sigWanted, rng,
                     allowFullCoreSignatureFallback);
+            // No theme (or no theme card in the deck): the signature comes from the deck it played.
+            if (signatures.isEmpty() && allowFullCoreSignatureFallback) {
+                signatures = pickDeckSignatures(deckList, sigWanted, rng);
+            }
             for (PaperCard pc : signatures) {
                 if (pc != null) {
                     out.add(new Reward(pc));
@@ -536,6 +540,45 @@ public final class FightRewards {
             }
             remaining.remove(picked);
             // Signature: normal printing from the rotation when possible (CS0).
+            PaperCard pc = resolvePrinting(picked, null);
+            if (pc != null) {
+                out.add(pc);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Signature for an enemy without a usable theme: a non-basic card from the deck it played,
+     * weighted toward higher rarity and toward cards the player doesn't own yet.
+     */
+    public static List<PaperCard> pickDeckSignatures(List<PaperCard> deckCards, int count, Random rng) {
+        List<PaperCard> out = new ArrayList<>();
+        if (deckCards == null || deckCards.isEmpty() || count <= 0 || rng == null) {
+            return out;
+        }
+        List<String> weighted = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (PaperCard pc : deckCards) {
+            if (pc == null || pc.getRules() == null || pc.getRules().getType().isBasicLand()
+                    || !seen.add(pc.getName())) {
+                continue;
+            }
+            int copies = switch (pc.getRarity()) {
+                case MythicRare, Rare -> 3;
+                case Uncommon -> 2;
+                default -> 1;
+            };
+            for (int i = 0; i < copies; i++) {
+                weighted.add(pc.getName());
+            }
+        }
+        for (int i = 0; i < count && !weighted.isEmpty(); i++) {
+            String picked = weightedPick(weighted, rng);
+            if (picked == null) {
+                break;
+            }
+            weighted.removeIf(picked::equals);
             PaperCard pc = resolvePrinting(picked, null);
             if (pc != null) {
                 out.add(pc);

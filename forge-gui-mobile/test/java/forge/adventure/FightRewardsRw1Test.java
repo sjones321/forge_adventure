@@ -300,21 +300,38 @@ public class FightRewardsRw1Test {
     }
 
     @Test
-    public void unthemedWinOnZenGivesOnlyZenCardsAndNoSignature() {
+    public void unthemedWinGivesADeckSignaturePlusZenCards() {
         assumeCardDb();
         FightRewards.setCurrentSetCodeForTest("ZEN");
         RewardData.invalidateCardPool();
 
         EnemyData enemy = merfolkEnemy();
-        enemy.themeId = null;
+        enemy.themeId = null; // e.g. a red-white enemy: no EN1 theme matches it
         List<PaperCard> deck = deckWithCoreCards("merfolk_tribal");
+        Set<String> deckNames = new HashSet<>();
+        for (PaperCard pc : deck) {
+            deckNames.add(pc.getName());
+        }
         Array<Reward> rewards = FightRewards.generate(enemy, null, deck, true);
         List<PaperCard> cards = cardRewards(rewards);
-        Assert.assertFalse(cards.isEmpty(), "unthemed win still gives cards");
+        Assert.assertTrue(cards.stream().anyMatch(c -> deckNames.contains(c.getName())),
+                "one signature card from the deck it played; cards=" + names(cards));
         for (PaperCard pc : cards) {
-            Assert.assertTrue(FightRewards.isEdition(pc, "ZEN"),
-                    "every card is a ZEN printing; editions=" + editions(cards));
+            if (!deckNames.contains(pc.getName())) {
+                Assert.assertTrue(FightRewards.isEdition(pc, "ZEN"),
+                        "non-signature cards are ZEN printings; editions=" + editions(cards));
+            }
         }
+    }
+
+    @Test
+    public void deckSignatureSkipsBasicsAndHandlesEmptyDecks() {
+        assumeCardDb();
+        Assert.assertTrue(FightRewards.pickDeckSignatures(null, 1, new java.util.Random(1)).isEmpty());
+        PaperCard island = forge.model.FModel.getMagicDb().getCommonCards().getCard("Island");
+        Assert.assertNotNull(island);
+        Assert.assertTrue(FightRewards.pickDeckSignatures(List.of(island, island), 1, new java.util.Random(1)).isEmpty(),
+                "basic lands are never a signature");
     }
 
     @Test
