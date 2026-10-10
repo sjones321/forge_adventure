@@ -124,6 +124,8 @@
   "coopDuelPartnerLifeFactor": 1.0,
   "coopDuelPartnerExtraCards": 0,
   "coopDuelPartnerLootRollsPerPlayer": 1,
+  "kDefaultPlaneFormat": "Standard",
+  "kStrictOverworldLegalDecks": false,
   "cs0SourcePrintings": true,
   "screenWidth": 480,
   "screenHeight": 270,

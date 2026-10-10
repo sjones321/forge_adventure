@@ -60,7 +60,7 @@ public class WaypointTravelScreen extends FScreen {
     @Override
     public void onActivate() {
         if (!Config.ascendant()) {
-            FOptionPane.showMessageDialog("Waypoint travel is only available in Shandalar Ascendant.",
+            FOptionPane.showMessageDialog("Waypoint travel is only available in Bellwarden: Planes of Nothing.",
                     "Travel", FOptionPane.INFORMATION_ICON, result -> Forge.back());
             return;
         }

@@ -38,6 +38,10 @@ import java.util.List;
  * <p>MV2 customisation runs only when the host sends a non-empty
  * {@code mv2SetCode} (stamped on {@link PlaneMeta} at materialize for known
  * editions only). Pre-MV2 / unknown set codes rebuild as plain template worlds.
+ *
+ * <p>Package K plane format travels as a separate plain-data field on
+ * {@link forge.gamemodes.net.event.coop.CoopWorldOfferEvent} /
+ * {@link forge.gamemodes.net.event.coop.CoopPlaneSwitchEvent}, not in {@code mv2SetCode}.
  */
 public final class CoopWorldSync {
     /** Soft cap on planar gates shipped on the wire (Standard window + pending + return). */

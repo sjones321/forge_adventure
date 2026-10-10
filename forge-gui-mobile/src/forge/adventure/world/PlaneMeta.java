@@ -18,6 +18,11 @@ public final class PlaneMeta {
     private String displayName = "Home";
     /** Optional set code for MV2; unused by MV1 except as a label. */
     private String setCode = "";
+    /**
+     * Package K: plane duel format ({@code Standard}/{@code Historic}/{@code Pauper}/{@code Commander}).
+     * Empty means unset — {@link PlaneFormat#resolve(PlaneMeta)} applies the default.
+     */
+    private String format = "";
     private float playerPosX;
     private float playerPosY;
 
@@ -69,6 +74,15 @@ public final class PlaneMeta {
         this.setCode = setCode != null ? setCode : "";
     }
 
+    /** Canonical format token, or empty when never chosen (legacy / pending portal). */
+    public String getFormat() {
+        return format != null ? format : "";
+    }
+
+    public void setFormat(String format) {
+        this.format = format != null ? format : "";
+    }
+
     public float getPlayerPosX() {
         return playerPosX;
     }
@@ -90,6 +104,7 @@ public final class PlaneMeta {
         data.store("worldConfigPath", getWorldConfigPath());
         data.store("displayName", displayName != null ? displayName : id);
         data.store("setCode", getSetCode());
+        data.store("format", getFormat());
         data.store("playerPosX", playerPosX);
         data.store("playerPosY", playerPosY);
         return data;
@@ -109,6 +124,12 @@ public final class PlaneMeta {
         displayName = name != null && !name.isEmpty() ? name : id;
         String code = data.readString("setCode");
         setCode = code != null ? code : "";
+        if (data.containsKey("format")) {
+            String fmt = data.readString("format");
+            format = fmt != null ? fmt : "";
+        } else {
+            format = "";
+        }
         playerPosX = data.readFloat("playerPosX");
         playerPosY = data.readFloat("playerPosY");
     }

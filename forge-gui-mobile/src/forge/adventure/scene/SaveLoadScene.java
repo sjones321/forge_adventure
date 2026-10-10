@@ -18,6 +18,8 @@ import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 import forge.adventure.util.Current;
+import forge.adventure.world.PlaneFormat;
+import forge.adventure.world.PlaneMeta;
 import forge.adventure.world.WorldSave;
 import forge.adventure.world.WorldSaveHeader;
 import forge.screens.TransitionScreen;
@@ -49,6 +51,7 @@ public class SaveLoadScene extends UIScene {
     Selectable<TextraButton> quickSave;
     Selectable<TextraButton> autoSave;
     SelectBox difficulty;
+    SelectBox<String> planeFormatBox;
     ScrollPane scrollPane;
     char ASCII_179 = '│';
     Dialog saveDialog;
@@ -76,6 +79,8 @@ public class SaveLoadScene extends UIScene {
             //DifficultyData difficulty1 = Config.instance().getConfigData().difficulties[difficulty.getSelectedIndex()];
             return null;
         });
+        planeFormatBox = Controls.newComboBox(PlaneFormat.CHOICES, null, o -> null);
+        planeFormatBox.setVisible(false);
         previewImage = ui.findActor("preview");
         previewDate = ui.findActor("saveDate");
         playerLocation = Controls.newTextraLabel("");
@@ -88,6 +93,11 @@ public class SaveLoadScene extends UIScene {
         root.add(header).grow();
         root.add(difficulty);
         root.row();
+        if (Config.ascendant()) {
+            root.add(Controls.newLabel("[BLACK]Plane format:")).left();
+            root.add(planeFormatBox).right();
+            root.row();
+        }
         root.add(scrollPane).colspan(2).width(window.getWidth() - 20);
         autoSave = addSaveSlot(Forge.getLocalizer().getMessage("lblAutoSave"), WorldSave.AUTO_SAVE_SLOT);
         quickSave = addSaveSlot(Forge.getLocalizer().getMessage("lblQuickSave"), WorldSave.QUICK_SAVE_SLOT);
@@ -329,6 +339,19 @@ public class SaveLoadScene extends UIScene {
                                 WorldSave.getCurrentSave().clearBookmarks();
                                 // Drop every set plane; registry restarts as a fresh home plane.
                                 WorldSave.getCurrentSave().resetForNewGamePlus();
+                                // Package K: NG+ picks the new home plane's format.
+                                if (Config.ascendant() && planeFormatBox != null) {
+                                    String fmt = PlaneFormat.fromChoiceLabel(
+                                            planeFormatBox.getSelected() != null
+                                                    ? planeFormatBox.getSelected()
+                                                    : PlaneFormat.CHOICES[0]);
+                                    PlaneMeta home = WorldSave.getCurrentSave().getMultiverse()
+                                            .getMeta(PlaneMeta.HOME_ID);
+                                    if (home != null) {
+                                        PlaneFormat.setPlaneFormat(home, fmt);
+                                    }
+                                    Current.player().setLegacyRunFormat(fmt);
+                                }
                                 WorldStage.getInstance().enterSpawnPOI();
                                 SoundSystem.instance.changeBackgroundTrack();
                                 Forge.switchScene(GameScene.instance());
@@ -446,9 +469,16 @@ public class SaveLoadScene extends UIScene {
                 difficulty.setVisible(true);
                 difficulty.setSelectedIndex(1);
             }
+            if (planeFormatBox != null && Config.ascendant()) {
+                planeFormatBox.setVisible(true);
+                planeFormatBox.setSelectedIndex(0);
+            }
         } else {
             if (difficulty != null) {
                 difficulty.setVisible(false);
+            }
+            if (planeFormatBox != null) {
+                planeFormatBox.setVisible(false);
             }
         }
         performTouch(scrollPane); //can use mouse wheel if available to scroll
