@@ -1,0 +1,176 @@
+wren_drafts_material_icons.png
+size: 80,224
+format: RGBA8888
+filter: Nearest,Nearest
+repeat: none
+oak
+  xy: 0, 0
+  size: 16, 16
+willow
+  xy: 16, 0
+  size: 16, 16
+yew
+  xy: 32, 0
+  size: 16, 16
+ironwood
+  xy: 48, 0
+  size: 16, 16
+ore_iron
+  xy: 0, 16
+  size: 16, 16
+ore_mithral
+  xy: 16, 16
+  size: 16, 16
+ore_adamant
+  xy: 32, 16
+  size: 16, 16
+ore_rune
+  xy: 48, 16
+  size: 16, 16
+ash
+  xy: 0, 32
+  size: 16, 16
+charcoal
+  xy: 16, 32
+  size: 16, 16
+brimstone
+  xy: 32, 32
+  size: 16, 16
+dragonfire_ash
+  xy: 48, 32
+  size: 16, 16
+limestone
+  xy: 0, 48
+  size: 16, 16
+marble
+  xy: 16, 48
+  size: 16, 16
+sunstone
+  xy: 32, 48
+  size: 16, 16
+starstone
+  xy: 48, 48
+  size: 16, 16
+spring_water
+  xy: 0, 64
+  size: 16, 16
+glacier_ice
+  xy: 16, 64
+  size: 16, 16
+purified_water
+  xy: 32, 64
+  size: 16, 16
+elemental_water
+  xy: 48, 64
+  size: 16, 16
+bone_fragments
+  xy: 0, 80
+  size: 16, 16
+grave_moss
+  xy: 16, 80
+  size: 16, 16
+ancient_bone
+  xy: 32, 80
+  size: 16, 16
+wraithbloom
+  xy: 48, 80
+  size: 16, 16
+wild_herbs
+  xy: 0, 96
+  size: 16, 16
+tree_sap
+  xy: 16, 96
+  size: 16, 16
+elder_seeds
+  xy: 32, 96
+  size: 16, 16
+worldtree_bark
+  xy: 48, 96
+  size: 16, 16
+scrap
+  xy: 0, 112
+  size: 16, 16
+brass_gears
+  xy: 16, 112
+  size: 16, 16
+thran_parts
+  xy: 32, 112
+  size: 16, 16
+thran_relic
+  xy: 48, 112
+  size: 16, 16
+garnet
+  xy: 0, 128
+  size: 16, 16
+sapphire
+  xy: 16, 128
+  size: 16, 16
+emerald
+  xy: 32, 128
+  size: 16, 16
+ruby
+  xy: 48, 128
+  size: 16, 16
+onyx
+  xy: 64, 128
+  size: 16, 16
+quartz
+  xy: 0, 144
+  size: 16, 16
+azure
+  xy: 16, 144
+  size: 16, 16
+prismatic_crystal
+  xy: 32, 144
+  size: 16, 16
+aether
+  xy: 48, 144
+  size: 16, 16
+pearl
+  xy: 0, 160
+  size: 16, 16
+black_pearl
+  xy: 16, 160
+  size: 16, 16
+luna_pearl
+  xy: 32, 160
+  size: 16, 16
+aether_pearl
+  xy: 48, 160
+  size: 16, 16
+feathers
+  xy: 0, 176
+  size: 16, 16
+soft_down
+  xy: 16, 176
+  size: 16, 16
+flight_feathers
+  xy: 32, 176
+  size: 16, 16
+seraph_plume
+  xy: 48, 176
+  size: 16, 16
+hide
+  xy: 0, 192
+  size: 16, 16
+thick_hide
+  xy: 16, 192
+  size: 16, 16
+hardened_hide
+  xy: 32, 192
+  size: 16, 16
+prime_hide
+  xy: 48, 192
+  size: 16, 16
+brine
+  xy: 0, 208
+  size: 16, 16
+sea_salt
+  xy: 16, 208
+  size: 16, 16
+pure_brine
+  xy: 32, 208
+  size: 16, 16
+elemental_brine
+  xy: 48, 208
+  size: 16, 16
