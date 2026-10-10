@@ -34,6 +34,7 @@ import forge.Graphics;
 import forge.assets.FSkinColor;
 import forge.assets.FSkinFont;
 import forge.assets.FSkinImage;
+import forge.card.CardMagnifierControls;
 import forge.card.CardZoom.ActivateHandler;
 import forge.gui.FThreads;
 import forge.item.InventoryItem;
@@ -1229,6 +1230,10 @@ public abstract class ItemManager<T extends InventoryItem> extends FContainer im
 
     @Override
     public boolean keyDown(int keyCode) {
+        // DS3: M / Shift+M for shared hover-preview toggle (local prefs).
+        if (CardMagnifierControls.handleKeyDown(keyCode)) {
+            return true;
+        }
         if(isContextMenuOpen()) {
             switch (keyCode) {
                 case Input.Keys.DPAD_UP:

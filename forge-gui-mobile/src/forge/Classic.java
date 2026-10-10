@@ -1,7 +1,9 @@
 package forge;
 
+import forge.card.CardMagnifierControls;
 import forge.card.HoverPreview;
 import forge.gui.error.BugReporter;
+import forge.screens.match.MatchScreen;
 import forge.toolbox.FContainer;
 import forge.toolbox.FOverlay;
 
@@ -41,7 +43,13 @@ public class Classic {
                     }
                 }
             }
+            // Duel hover magnifier after overlays so menus cannot cover preview/details text.
+            if (screen instanceof MatchScreen matchScreen) {
+                matchScreen.drawHoverMagnifierAfterOverlays(Forge.getGraphics());
+            }
             HoverPreview.drawAndClear(Forge.getGraphics());
+            // HUD note on MatchScreen and ItemManager (deck editor / collection) alike.
+            CardMagnifierControls.drawHudNote(Forge.getGraphics(), Forge.getScreenWidth(), Forge.getScreenHeight());
             //update here
             if (Forge.needsUpdate) {
                 if (Forge.getAssets().manager().update(16))

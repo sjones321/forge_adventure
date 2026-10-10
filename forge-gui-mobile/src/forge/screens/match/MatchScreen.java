@@ -15,8 +15,10 @@ import forge.adventure.scene.GameScene;
 import forge.animation.ForgeAnimation;
 import forge.assets.FImage;
 import forge.card.CardImageRenderer;
+import forge.card.CardMagnifierControls;
 import forge.card.CardRenderer;
 import forge.card.CardZoom;
+import forge.card.HoverMagnifierPreview;
 import forge.game.spellability.StackItemView;
 import forge.screens.match.views.VField;
 import forge.screens.match.views.VReveal;
@@ -433,82 +435,129 @@ public class MatchScreen extends FScreen {
         ModernDuelController.get().drawOverlay(g);
         CardFlightOverlay.draw(g, bottomPlayerPanel.getPlayer(), getHeight());
         drawMulliganAdvice(g);
-        if (FModel.getPreferences().getPrefBoolean(ForgePreferences.FPref.UI_ENABLE_MAGNIFIER) && Forge.magnify && Forge.magnifyToggle) {
-            if (Forge.isLandscapeMode() && (!GuiBase.isMobile() || Forge.hasGamepad()) && !CardZoom.isOpen() && potentialListener != null) {
-                for (FDisplayObject object : potentialListener) {
-                    if (object != null) {
-                        if (object instanceof FCardPanel cardPanel) {
-                            try {
-                                if (cardPanel.isHovered()) {
-                                    CardView cardView = cardPanel.getCard();
-                                    VPlayerPanel vPlayerPanel = getPlayerPanel(cardView.getController());
-                                    if (vPlayerPanel == null)
-                                        vPlayerPanel = getPlayerPanel(cardView.getOwner());
-                                    if (vPlayerPanel != null) {
-                                        boolean rotate = CardRendererUtils.needsRotation(cardView) && !Forge.magnifyShowDetails;
-                                        // A ghost's card is in exile, but it sits on the battlefield attached to its
-                                        // host, so position its preview like a battlefield card (on the host's side)
-                                        boolean inBattlefield = ZoneType.Battlefield.equals(cardView.getZone())
-                                                || (cardPanel instanceof CardAreaPanel cap && cap.isGhost());
-                                        float mul = 0.45f;
-                                        float div = inBattlefield ? cardPanel.isTapped() ? 2.7f : 2.4f : 1.6f;
-                                        float adjX = rotate ? cardPanel.getWidth() / div : 0f;
-                                        float adjY = rotate ? cardPanel.getHeight() / 2.2f : 0f;
-                                        float cardW = getHeight() * mul;
-                                        float cardH = FCardPanel.ASPECT_RATIO * cardW;
-                                        float cardX = !inBattlefield ? cardPanel.screenPos.x - (cardW + adjX)
-                                                : cardPanel.screenPos.x + (cardPanel.isTapped() ? cardPanel.getWidth()
-                                                : cardPanel.getWidth() / 1.4f) + adjX;
-                                        if (vPlayerPanel.getSelectedTab() != null && vPlayerPanel.getSelectedTab().isVisible()
-                                                && cardX > vPlayerPanel.getSelectedTab().getDisplayArea().getLeft()) {
-                                            cardX = cardPanel.screenPos.x - (cardW + adjX);
-                                        }
-                                        if ((cardX + cardW + adjX) > scroller.getWidth() + scroller.getLeft())
-                                            cardX = cardPanel.screenPos.x - (cardW + adjX);
-                                        if (vPlayerPanel.getCommandZone() != null
-                                                && vPlayerPanel.getCommandZone().isVisible() && cardX > vPlayerPanel.getCommandZone().screenPos.x)
-                                            cardX = cardPanel.screenPos.x - (cardW + adjX);
-                                        float cardY = (cardPanel.screenPos.y - (cardH - adjY)) + cardPanel.getHeight();
-                                        if (vPlayerPanel.getPlayer() == bottomPlayerPanel.getPlayer()) {
-                                            cardY = bottomPlayerPrompt.screenPos.y - (cardH - adjY);
-                                        } else if (cardY < vPlayerPanel.getField().screenPos.y && vPlayerPanel.getPlayer() != bottomPlayerPanel.getPlayer()) {
-                                            cardY = vPlayerPanel.getField().screenPos.y - adjY;
-                                            if ((cardY + (cardH - adjY)) > bottomPlayerPrompt.screenPos.y)
-                                                cardY = bottomPlayerPrompt.screenPos.y - (cardH - adjY);
-                                        }
-                                        if (Forge.magnifyShowDetails)
-                                            CardImageRenderer.drawDetails(g, cardView, MatchController.instance.getGameView(), false, cardX, cardY, cardW, cardH);
-                                        else
-                                            CardRenderer.drawCard(g, cardView, cardX, cardY, cardW, cardH, CardRenderer.CardStackPosition.Top, rotate, false, false, true);
-                                    }
-                                }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        } else if (object instanceof VStack.StackInstanceDisplay vstackDisplay) {
-                            try {
-                                CardView cardView = vstackDisplay.stackInstance.getSourceCard();
-                                if (object.isHovered() && cardView != null && getStack().isVisible()) {
-                                    float cardW = getHeight() * 0.45f;
-                                    float cardH = FCardPanel.ASPECT_RATIO * cardW;
-                                    float cardX = object.screenPos.x - cardW - Utils.scale(4);
-                                    float cardY = object.screenPos.y - Utils.scale(2);
-                                    if (cardY < topPlayerPanel.getField().screenPos.y)
-                                        cardY = topPlayerPanel.getField().screenPos.y;
-                                    if ((cardY + cardH) > bottomPlayerPrompt.screenPos.y)
-                                        cardY = bottomPlayerPrompt.screenPos.y - cardH;
-                                    if (Forge.magnifyShowDetails)
-                                        CardImageRenderer.drawDetails(g, cardView, MatchController.instance.getGameView(), false, cardX, cardY, cardW, cardH);
-                                    else
-                                        CardRenderer.drawCard(g, cardView, cardX, cardY, cardW, cardH, CardRenderer.CardStackPosition.Top, false, false, false, true);
-                                }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
+        // Hover magnifier is drawn from Classic.render after FOverlays so menus
+        // cannot cover it; see drawHoverMagnifierAfterOverlays.
+    }
+
+    /**
+     * Clean card-image hover preview. Called from {@link forge.Classic} after
+     * FOverlays so dropdowns/menus cannot cover the preview (or its details text).
+     * Preview art never uses battlefield marker overlays — when details mode is
+     * on it shows oracle text instead of the card image.
+     */
+    public void drawHoverMagnifierAfterOverlays(Graphics g) {
+        drawHoverMagnifier(g);
+    }
+
+    private void drawHoverMagnifier(Graphics g) {
+        if (!FModel.getPreferences().getPrefBoolean(ForgePreferences.FPref.UI_ENABLE_MAGNIFIER)
+                || !Forge.magnify || !Forge.magnifyToggle) {
+            return;
+        }
+        if (!Forge.isLandscapeMode() || (GuiBase.isMobile() && !Forge.hasGamepad())
+                || CardZoom.isOpen() || potentialListener == null) {
+            return;
+        }
+        for (FDisplayObject object : potentialListener) {
+            if (object == null) {
+                continue;
+            }
+            if (object instanceof FCardPanel cardPanel) {
+                try {
+                    if (!cardPanel.isHovered()) {
+                        continue;
+                    }
+                    CardView cardView = cardPanel.getCard();
+                    VPlayerPanel vPlayerPanel = getPlayerPanel(cardView.getController());
+                    if (vPlayerPanel == null) {
+                        vPlayerPanel = getPlayerPanel(cardView.getOwner());
+                    }
+                    if (vPlayerPanel == null) {
+                        continue;
+                    }
+                    boolean rotate = CardRendererUtils.needsRotation(cardView) && !Forge.magnifyShowDetails;
+                    // A ghost's card is in exile, but it sits on the battlefield attached to its
+                    // host, so position its preview like a battlefield card (on the host's side)
+                    boolean inBattlefield = ZoneType.Battlefield.equals(cardView.getZone())
+                            || (cardPanel instanceof CardAreaPanel cap && cap.isGhost());
+                    float mul = 0.45f;
+                    float div = inBattlefield ? cardPanel.isTapped() ? 2.7f : 2.4f : 1.6f;
+                    float adjX = rotate ? cardPanel.getWidth() / div : 0f;
+                    float adjY = rotate ? cardPanel.getHeight() / 2.2f : 0f;
+                    float cardW = getHeight() * mul;
+                    float cardH = FCardPanel.ASPECT_RATIO * cardW;
+                    float cardX = !inBattlefield ? cardPanel.screenPos.x - (cardW + adjX)
+                            : cardPanel.screenPos.x + (cardPanel.isTapped() ? cardPanel.getWidth()
+                            : cardPanel.getWidth() / 1.4f) + adjX;
+                    if (vPlayerPanel.getSelectedTab() != null && vPlayerPanel.getSelectedTab().isVisible()
+                            && cardX > vPlayerPanel.getSelectedTab().getDisplayArea().getLeft()) {
+                        cardX = cardPanel.screenPos.x - (cardW + adjX);
+                    }
+                    if ((cardX + cardW + adjX) > scroller.getWidth() + scroller.getLeft()) {
+                        cardX = cardPanel.screenPos.x - (cardW + adjX);
+                    }
+                    if (vPlayerPanel.getCommandZone() != null
+                            && vPlayerPanel.getCommandZone().isVisible()
+                            && cardX > vPlayerPanel.getCommandZone().screenPos.x) {
+                        cardX = cardPanel.screenPos.x - (cardW + adjX);
+                    }
+                    float cardY = (cardPanel.screenPos.y - (cardH - adjY)) + cardPanel.getHeight();
+                    if (vPlayerPanel.getPlayer() == bottomPlayerPanel.getPlayer()) {
+                        cardY = bottomPlayerPrompt.screenPos.y - (cardH - adjY);
+                    } else if (cardY < vPlayerPanel.getField().screenPos.y
+                            && vPlayerPanel.getPlayer() != bottomPlayerPanel.getPlayer()) {
+                        cardY = vPlayerPanel.getField().screenPos.y - adjY;
+                        if ((cardY + (cardH - adjY)) > bottomPlayerPrompt.screenPos.y) {
+                            cardY = bottomPlayerPrompt.screenPos.y - (cardH - adjY);
                         }
                     }
+                    drawHoverMagnifierCard(g, cardView, cardX, cardY, cardW, cardH, rotate);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            } else if (object instanceof VStack.StackInstanceDisplay vstackDisplay) {
+                try {
+                    CardView cardView = vstackDisplay.stackInstance.getSourceCard();
+                    if (object.isHovered() && cardView != null && getStack().isVisible()) {
+                        float cardW = getHeight() * 0.45f;
+                        float cardH = FCardPanel.ASPECT_RATIO * cardW;
+                        float cardX = object.screenPos.x - cardW - Utils.scale(4);
+                        float cardY = object.screenPos.y - Utils.scale(2);
+                        if (cardY < topPlayerPanel.getField().screenPos.y) {
+                            cardY = topPlayerPanel.getField().screenPos.y;
+                        }
+                        if ((cardY + cardH) > bottomPlayerPrompt.screenPos.y) {
+                            cardY = bottomPlayerPrompt.screenPos.y - cardH;
+                        }
+                        drawHoverMagnifierCard(g, cardView, cardX, cardY, cardW, cardH, false);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
             }
+        }
+    }
+
+    /**
+     * Draws the hover magnifier for one card.
+     * <ul>
+     *   <li>Details mode ({@code Shift+M}): oracle/details panel — this replaces the
+     *       card image (the usual cause of “text covering” the art).</li>
+     *   <li>Clean image: {@code magnify=true} suppresses damage cracks; never
+     *       {@link CardRenderer#drawCardWithOverlays}.</li>
+     * </ul>
+     * Battlefield markers on the source card are separate; they do not paint onto
+     * this preview.
+     */
+    static void drawHoverMagnifierCard(Graphics g, CardView cardView, float cardX, float cardY,
+                                       float cardW, float cardH, boolean rotate) {
+        if (HoverMagnifierPreview.styleFor(Forge.magnifyShowDetails)
+                == HoverMagnifierPreview.Style.DETAILS_TEXT) {
+            CardImageRenderer.drawDetails(g, cardView, MatchController.instance.getGameView(),
+                    false, cardX, cardY, cardW, cardH);
+        } else {
+            CardRenderer.drawCard(g, cardView, cardX, cardY, cardW, cardH,
+                    CardRenderer.CardStackPosition.Top, rotate, false, false, true);
         }
     }
 
@@ -557,6 +606,10 @@ public class MatchScreen extends FScreen {
         // TODO: make the keyboard shortcuts configurable on Mobile
         if (Forge.hasGamepad() && ((FMenuBar) getHeader()).isShowingMenu(false) && (keyCode == Keys.ESCAPE || keyCode == Keys.ENTER))
             return false;
+        // DS3: M toggles hover preview; Shift+M toggles details (local prefs only).
+        if (CardMagnifierControls.handleKeyDown(keyCode)) {
+            return true;
+        }
         // DS1 modern duel: full pad path (peek / mana / phase / hold / target arrow).
         if (ModernDuelScreen.enabled() && !((FMenuBar) getHeader()).isShowingMenu(true)) {
             final CardView padFocused = focusedCardForController();
