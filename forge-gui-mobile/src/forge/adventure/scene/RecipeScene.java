@@ -42,4 +42,13 @@ public class RecipeScene extends ForgeScene {
     public FScreen getScreen() {
         return screen == null ? screen = new RecipeScreen(pendingStation) : screen;
     }
+
+    @Override
+    public boolean leave() {
+        try {
+            forge.adventure.coop.CoopHooks.notifyPartnerProgressChanged(false);
+        } catch (final Exception ignored) {
+        }
+        return super.leave();
+    }
 }

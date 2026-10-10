@@ -93,7 +93,12 @@ public final class WireClassFilter implements IHasForgeLog {
             "forge.gamemodes.net.event.coop.CoopFightLoadoutEvent",
             "forge.gamemodes.net.event.coop.CoopDuelStartEvent",
             "forge.gamemodes.net.event.coop.CoopDuelResultEvent",
-            "forge.gamemodes.net.coop.CoopFightLoadout");
+            "forge.gamemodes.net.coop.CoopFightLoadout",
+            // CO5 world-bound partner characters
+            "forge.gamemodes.net.event.coop.CoopPartnerOfferEvent",
+            "forge.gamemodes.net.event.coop.CoopPartnerCreateEvent",
+            "forge.gamemodes.net.event.coop.CoopPartnerSnapshotEvent",
+            "forge.gamemodes.net.event.coop.CoopPartnerSnapshotAckEvent");
 
     private static final String JAVA_LANG = "java.lang.";
     private static final String PRIMITIVE_DESCRIPTORS = "BCDFIJSZ";
@@ -116,7 +121,7 @@ public final class WireClassFilter implements IHasForgeLog {
      * @throws InvalidClassException before the class is resolved, so a gadget's
      *         static initialiser and constructor never run
      */
-    static void checkAllowed(final String rawName) throws InvalidClassException {
+    public static void checkAllowed(final String rawName) throws InvalidClassException {
         if (isAllowed(rawName)) {
             return;
         }

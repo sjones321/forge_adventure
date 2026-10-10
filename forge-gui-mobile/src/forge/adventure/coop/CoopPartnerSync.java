@@ -1,0 +1,522 @@
+package forge.adventure.coop;
+
+import com.badlogic.gdx.Gdx;
+import forge.adventure.player.AdventurePlayer;
+import forge.adventure.stage.MapStage;
+import forge.adventure.util.Config;
+import forge.adventure.util.SaveFileData;
+import forge.adventure.world.WorldSave;
+import forge.gamemodes.net.event.coop.CoopPartnerSnapshotAckEvent;
+import forge.gamemodes.net.event.coop.CoopPartnerSnapshotEvent;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
+
+/**
+ * CO5 guest/host partner snapshot protocol: sequenced snapshots, host acks,
+ * trailing debounce, leave waits for final ack, host debounced world save.
+ */
+public final class CoopPartnerSync {
+    static final String FINAL_ACK_TIMEOUT_MSG =
+            "Host did not confirm partner save — progress may be lost";
+
+    private final CoopSession session;
+    private final AtomicLong nextSequence = new AtomicLong(1L);
+    private final CoopPartnerValidator validator = new CoopPartnerValidator();
+
+    private volatile long lastAckedSequence;
+    private volatile long pendingSequence;
+    private volatile CountDownLatch pendingAckLatch;
+    private volatile boolean trailingScheduled;
+    private volatile long hostLastWorldSaveMs;
+    private volatile boolean hostPartnerDirty;
+    private volatile boolean hostSaveScheduled;
+    private volatile String lastGuiPlayerName = "";
+    private volatile String lastFinalAckWarning = "";
+    /** True while leave is waiting for a final-snapshot ack (suppresses debounced snaps). */
+    private volatile boolean awaitingFinalAck;
+    private volatile boolean finalAckAccepted;
+
+    public CoopPartnerSync(final CoopSession session) {
+        this.session = session;
+    }
+
+    public CoopPartnerValidator validator() {
+        return validator;
+    }
+
+    public void resetGuest() {
+        nextSequence.set(1L);
+        lastAckedSequence = 0L;
+        pendingSequence = 0L;
+        pendingAckLatch = null;
+        trailingScheduled = false;
+        lastFinalAckWarning = "";
+        awaitingFinalAck = false;
+        finalAckAccepted = false;
+    }
+
+    /**
+     * Full host reset (host start / stop). Clears dirty and pending world-save state.
+     * Do <em>not</em> call from {@code onHello} — a new guest must not wipe unsaved
+     * partner progress from a prior guest in the same hosting session.
+     */
+    public void resetHost() {
+        validator.resetRateLimit();
+        hostLastWorldSaveMs = 0L;
+        hostPartnerDirty = false;
+        hostSaveScheduled = false;
+        clearAwaitingGuestFinal();
+    }
+
+    /**
+     * New authenticated guest on an already-hosting session: reset only the inbound
+     * snapshot rate limit. Keeps {@link #hostPartnerDirty} and pending saves.
+     */
+    public void resetHostForNewGuest() {
+        validator.resetRateLimit();
+        clearAwaitingGuestFinal();
+    }
+
+    public void rememberGuiPlayerName(final String name) {
+        if (name != null && !name.isEmpty()) {
+            lastGuiPlayerName = name;
+        }
+    }
+
+    public String getLastGuiPlayerName() {
+        return lastGuiPlayerName != null ? lastGuiPlayerName : "";
+    }
+
+    /** Cleared after the leave UI has shown it (or on guest reset). */
+    public String consumeFinalAckWarning() {
+        final String w = lastFinalAckWarning;
+        lastFinalAckWarning = "";
+        return w != null ? w : "";
+    }
+
+    public String peekFinalAckWarning() {
+        return lastFinalAckWarning != null ? lastFinalAckWarning : "";
+    }
+
+    /**
+     * Guest: send a snapshot now. {@code finalSnapshot} bypasses rate limits on the host
+     * and is used for leave. Must build the player blob on the GL thread (caller ensures).
+     * Non-final snapshots are suppressed while a final-ack wait is in progress so a
+     * debounced snap cannot steal {@code pendingSequence} and cause a false timeout.
+     *
+     * @return sequence number sent, or 0 if not sent
+     */
+    public long sendSnapshot(final boolean finalSnapshot) {
+        if (session.getRole() != CoopSessionRole.GUEST || !session.isPartnerLoaded()) {
+            return 0L;
+        }
+        if (awaitingFinalAck && !finalSnapshot) {
+            return 0L;
+        }
+        try {
+            final SaveFileData data = WorldSave.getCurrentSave().getPlayer().save();
+            final byte[] blob = CoopPartnerCodec.encode(data);
+            if (!CoopPartnerValidator.blobSizeOk(blob)) {
+                session.status("Partner snapshot too large — not sent");
+                notifyGuest("Partner snapshot too large — progress not sent");
+                return 0L;
+            }
+            final long seq = nextSequence.getAndIncrement();
+            pendingSequence = seq;
+            if (finalSnapshot) {
+                pendingAckLatch = new CountDownLatch(1);
+                awaitingFinalAck = true;
+                finalAckAccepted = false;
+            }
+            session.send(new CoopPartnerSnapshotEvent(session.getGuestProfileId(), seq, finalSnapshot, blob));
+            return seq;
+        } catch (final Exception e) {
+            session.status("Partner snapshot failed: " + e.getMessage());
+            notifyGuest("Partner snapshot failed");
+            return 0L;
+        }
+    }
+
+    /**
+     * Trailing debounce: schedule one snapshot after the configured window.
+     * Multiple calls within the window collapse to a single trailing send.
+     */
+    public void requestDebouncedSnapshot() {
+        if (session.getRole() != CoopSessionRole.GUEST || !session.isPartnerLoaded()) {
+            return;
+        }
+        if (awaitingFinalAck) {
+            return;
+        }
+        if (trailingScheduled) {
+            return;
+        }
+        trailingScheduled = true;
+        final int debounceSec;
+        try {
+            debounceSec = Math.max(1, Config.instance().getConfigData().coopPartnerSnapshotDebounceSeconds);
+        } catch (final Exception e) {
+            trailingScheduled = false;
+            sendSnapshot(false);
+            return;
+        }
+        final Runnable send = () -> {
+            trailingScheduled = false;
+            sendSnapshot(false);
+        };
+        if (Gdx.app != null) {
+            // LibGDX Timer is seconds; schedule on GL-friendly path.
+            com.badlogic.gdx.utils.Timer.schedule(new com.badlogic.gdx.utils.Timer.Task() {
+                @Override
+                public void run() {
+                    send.run();
+                }
+            }, debounceSec);
+        } else {
+            // Headless tests: run after a short delay on a daemon thread.
+            final Thread t = new Thread(() -> {
+                try {
+                    Thread.sleep(debounceSec * 1000L);
+                } catch (final InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+                send.run();
+            }, "coop-partner-debounce");
+            t.setDaemon(true);
+            t.start();
+        }
+    }
+
+    /**
+     * Build and send the final leave snapshot on the GL thread, then wait for an
+     * <em>accepted</em> ack on the calling (worker) thread. Never call the await
+     * portion on GL/Netty.
+     *
+     * @return true if an accepted ack arrived before timeout
+     */
+    public boolean sendFinalSnapshotAndAwaitAck(final long timeoutMs) {
+        final long[] seqHolder = {0L};
+        final CountDownLatch sent = new CountDownLatch(1);
+        runOnGl(() -> {
+            try {
+                seqHolder[0] = sendSnapshot(true);
+            } finally {
+                sent.countDown();
+            }
+        });
+        try {
+            if (!sent.await(Math.max(500L, timeoutMs), TimeUnit.MILLISECONDS)) {
+                lastFinalAckWarning = "Could not send final partner snapshot";
+                notifyGuest(lastFinalAckWarning);
+                awaitingFinalAck = false;
+                return false;
+            }
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            lastFinalAckWarning = "Interrupted waiting for partner save ack";
+            notifyGuest(lastFinalAckWarning);
+            awaitingFinalAck = false;
+            return false;
+        }
+        if (seqHolder[0] == 0L) {
+            lastFinalAckWarning = "Could not send final partner snapshot";
+            notifyGuest(lastFinalAckWarning);
+            awaitingFinalAck = false;
+            return false;
+        }
+        final CountDownLatch latch = pendingAckLatch;
+        if (latch == null) {
+            awaitingFinalAck = false;
+            return false;
+        }
+        try {
+            final boolean arrived = latch.await(Math.max(500L, timeoutMs), TimeUnit.MILLISECONDS);
+            awaitingFinalAck = false;
+            if (!arrived || !finalAckAccepted) {
+                lastFinalAckWarning = FINAL_ACK_TIMEOUT_MSG;
+                notifyGuest(FINAL_ACK_TIMEOUT_MSG);
+                session.status(arrived
+                        ? "Final partner snapshot rejected"
+                        : "Final partner snapshot ack timed out");
+                return false;
+            }
+            return true;
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            awaitingFinalAck = false;
+            lastFinalAckWarning = "Interrupted waiting for partner save ack";
+            notifyGuest(lastFinalAckWarning);
+            return false;
+        }
+    }
+
+    public void onSnapshotAck(final CoopPartnerSnapshotAckEvent ack) {
+        if (ack == null) {
+            return;
+        }
+        if (ack.getSequence() == pendingSequence || ack.getSequence() >= lastAckedSequence) {
+            if (ack.isAccepted()) {
+                lastAckedSequence = Math.max(lastAckedSequence, ack.getSequence());
+                notifyGuest("Progress saved");
+            } else {
+                final String reason = ack.getReason().isEmpty() ? "unknown" : ack.getReason();
+                notifyGuest("Partner snapshot rejected: " + reason);
+                // Rate-limited non-final snaps: schedule one trailing retry.
+                if ("rate limit".equals(ack.getReason()) && !awaitingFinalAck) {
+                    requestDebouncedSnapshot();
+                }
+            }
+        }
+        final CountDownLatch latch = pendingAckLatch;
+        if (latch != null && ack.getSequence() == pendingSequence) {
+            if (ack.isAccepted()) {
+                finalAckAccepted = true;
+            }
+            latch.countDown();
+        }
+    }
+
+    /**
+     * Host: validate and store a snapshot. Must be called on the GL thread.
+     * Never rate-limits {@code finalSnapshot}. Never stores a blob that failed validation/load.
+     */
+    public boolean applySnapshotOnGl(final CoopPartnerSnapshotEvent event) {
+        if (event == null) {
+            return false;
+        }
+        final String id = CoopProfileId.sanitize(event.getProfileId());
+        if (id.isEmpty() || !id.equals(session.getGuestProfileId())) {
+            sendAck(event, false, "profile mismatch");
+            return false;
+        }
+        final byte[] blob = event.getPartnerBlob();
+        if (!CoopPartnerValidator.blobSizeOk(blob)) {
+            sendAck(event, false, "size");
+            notifyGuestDrop("Partner snapshot dropped: size");
+            return false;
+        }
+        if (!event.isFinalSnapshot() && !validator.acceptSnapshot()) {
+            sendAck(event, false, "rate limit");
+            notifyGuestDrop("Partner snapshot dropped: rate limit — retry");
+            return false;
+        }
+        final SaveFileData data = CoopPartnerCodec.decodeSafe(blob);
+        final String problem = CoopPartnerValidator.validateDecoded(data);
+        if (problem != null) {
+            sendAck(event, false, problem);
+            return false;
+        }
+        final String name = CoopPartnerValidator.capName(data.readString("name"));
+        if (!name.isEmpty()) {
+            data.store("name", name);
+        }
+        // Overlay host live Standard window so stored partner follows rotation.
+        try {
+            final AdventurePlayer tmp = new AdventurePlayer();
+            SaveFileData.beginWireFilteredReads();
+            try {
+                tmp.load(data);
+            } finally {
+                SaveFileData.endWireFilteredReads();
+            }
+            CoopPartnerStarter.applyHostStandardWindow(tmp, null);
+            WorldSave.getCurrentSave().getPartners().putPlayer(id, tmp);
+        } catch (final Throwable t) {
+            sendAck(event, false, "load failed");
+            session.status("Partner snapshot load failed: " + t.getMessage());
+            return false;
+        }
+        hostPartnerDirty = true;
+        sendAck(event, true, "");
+        session.status("Stored partner snapshot #" + event.getSequence());
+        if (event.isFinalSnapshot()) {
+            signalGuestFinalReceived();
+            saveHostWorldNow();
+        } else {
+            scheduleHostWorldSave();
+        }
+        return true;
+    }
+
+    private void sendAck(final CoopPartnerSnapshotEvent event, final boolean accepted, final String reason) {
+        session.send(new CoopPartnerSnapshotAckEvent(
+                event.getProfileId(), event.getSequence(), accepted, reason));
+    }
+
+    private void notifyGuestDrop(final String msg) {
+        // Guest is remote — status goes over session status channel; also try HUD if local.
+        session.status(msg);
+    }
+
+    private void notifyGuest(final String msg) {
+        session.status(msg);
+        try {
+            if (Gdx.app != null) {
+                Gdx.app.postRunnable(() -> {
+                    try {
+                        forge.adventure.stage.GameHUD.getInstance().addNotification(msg);
+                    } catch (final Exception ignored) {
+                    }
+                });
+            }
+        } catch (final Exception ignored) {
+        }
+    }
+
+    public void scheduleHostWorldSave() {
+        if (hostSaveScheduled) {
+            return;
+        }
+        hostSaveScheduled = true;
+        final int debounceSec = 30;
+        final Runnable task = () -> {
+            hostSaveScheduled = false;
+            if (!hostPartnerDirty) {
+                return;
+            }
+            saveHostWorldNow();
+        };
+        if (Gdx.app != null) {
+            com.badlogic.gdx.utils.Timer.schedule(new com.badlogic.gdx.utils.Timer.Task() {
+                @Override
+                public void run() {
+                    task.run();
+                }
+            }, debounceSec);
+        } else {
+            final Thread t = new Thread(() -> {
+                try {
+                    Thread.sleep(debounceSec * 1000L);
+                } catch (final InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+                task.run();
+            }, "coop-host-world-save");
+            t.setDaemon(true);
+            t.start();
+        }
+    }
+
+    /**
+     * Host: persist world (with partners) if not blocked by an interior map.
+     * Writes {@link WorldSave#getLoadedSlot()} (the slot last loaded or saved —
+     * including auto/quick after F5/F8); never retitles the save header.
+     * When deferred (in-map) or when the write fails, {@link #hostPartnerDirty}
+     * stays true so a later flush or quit warning still fires.
+     */
+    public boolean saveHostWorldNow() {
+        if (session.getRole() != CoopSessionRole.HOST && session.getRole() != CoopSessionRole.NONE) {
+            // Allow NONE during host disconnect cleanup when dirty.
+        }
+        try {
+            if (MapStage.getInstance().isInMap()) {
+                // Defer — keep dirty; schedule again.
+                scheduleHostWorldSave();
+                return false;
+            }
+        } catch (final Exception ignored) {
+        }
+        try {
+            final WorldSave save = WorldSave.getCurrentSave();
+            // CO5 amendment: partner flushes only belong to co-op worlds.
+            if (!save.isCoopWorld()) {
+                session.status("Partner flush skipped — not a co-op world");
+                return false;
+            }
+            save.syncHostCharacterIntoPartners();
+            int slot = save.getLoadedSlot();
+            if (slot == WorldSave.INVALID_SAVE_SLOT) {
+                // Fall back to autosave slot — never invent slot 0 from a stale lastActiveSave.
+                slot = WorldSave.AUTO_SAVE_SLOT;
+            }
+            final boolean ok = save.savePreservingHeader(slot);
+            if (ok) {
+                hostPartnerDirty = false;
+                hostLastWorldSaveMs = System.currentTimeMillis();
+                session.status("Host world saved (partners)");
+            }
+            // Failed write: leave hostPartnerDirty set.
+            return ok;
+        } catch (final Exception e) {
+            session.status("Host world save failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    // --- Host wait for guest final snapshot (stop / quit with guest connected) ---
+
+    private volatile CountDownLatch awaitingGuestFinalLatch;
+    private volatile boolean guestFinalReceived;
+
+    /** Arm a latch the host waits on while the guest sends its final snapshot. */
+    public void beginAwaitGuestFinal() {
+        guestFinalReceived = false;
+        awaitingGuestFinalLatch = new CountDownLatch(1);
+    }
+
+    private void signalGuestFinalReceived() {
+        guestFinalReceived = true;
+        final CountDownLatch latch = awaitingGuestFinalLatch;
+        if (latch != null) {
+            latch.countDown();
+        }
+    }
+
+    private void clearAwaitingGuestFinal() {
+        final CountDownLatch latch = awaitingGuestFinalLatch;
+        awaitingGuestFinalLatch = null;
+        guestFinalReceived = false;
+        if (latch != null) {
+            latch.countDown();
+        }
+    }
+
+    /**
+     * Host: wait for a final partner snapshot (or timeout). Call after sending a
+     * graceful disconnect so the guest runs its Leave final-snap path.
+     *
+     * @return true if a final snapshot was applied before timeout
+     */
+    public boolean awaitGuestFinalSnapshot(final long timeoutMs) {
+        final CountDownLatch latch = awaitingGuestFinalLatch;
+        if (latch == null) {
+            return guestFinalReceived;
+        }
+        try {
+            final boolean ok = latch.await(Math.max(500L, timeoutMs), TimeUnit.MILLISECONDS);
+            return ok && guestFinalReceived;
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return guestFinalReceived;
+        } finally {
+            clearAwaitingGuestFinal();
+        }
+    }
+
+    public boolean isHostPartnerDirty() {
+        return hostPartnerDirty;
+    }
+
+    public void markHostPartnerDirty() {
+        hostPartnerDirty = true;
+    }
+
+    /** Run {@code action} on the GL thread (inline when Gdx.app is null). */
+    public static void runOnGl(final Runnable action) {
+        if (action == null) {
+            return;
+        }
+        if (Gdx.app != null) {
+            Gdx.app.postRunnable(action);
+        } else {
+            action.run();
+        }
+    }
+
+    public static void runOnGl(final Consumer<Void> action) {
+        runOnGl(() -> action.accept(null));
+    }
+}

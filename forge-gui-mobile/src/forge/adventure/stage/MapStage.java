@@ -1039,6 +1039,15 @@ public class MapStage extends GameStage {
         else if (defeatedByBoss)
             WorldStage.getInstance().defeatedFromBoss();
         forge.adventure.coop.CoopOverworldRuntime.get().onExitPoi();
+        // CO5: host partner progress deferred while in-map — flush explicitly on map exit.
+        try {
+            final forge.adventure.coop.CoopSession coop = forge.adventure.coop.CoopSession.get();
+            if (coop.getRole() == forge.adventure.coop.CoopSessionRole.HOST
+                    && coop.isHostPartnerDirty()) {
+                coop.saveHostWorldNow();
+            }
+        } catch (final Exception ignored) {
+        }
         Forge.switchScene(GameScene.instance());
         isPlayerLeavingDungeon = false;
         dialogOnlyInput = false;

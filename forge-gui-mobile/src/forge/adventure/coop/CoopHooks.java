@@ -243,4 +243,26 @@ public final class CoopHooks {
         final CoopPartyProximity p = partyProximity;
         return p != null ? p : CoopPartyProximity.NEVER;
     }
+
+    /**
+     * CO5: guest inventory/progress changed (rewards collected, craft, shop, deck,
+     * equipment). Sends an immediate snapshot for duel rewards; trailing debounce
+     * for other batches.
+     *
+     * @param immediate when true (post-duel rewards), send now; else debounce
+     */
+    public static void notifyPartnerProgressChanged(final boolean immediate) {
+        try {
+            if (CoopSession.get().getRole() != CoopSessionRole.GUEST
+                    || !CoopSession.get().isPartnerLoaded()) {
+                return;
+            }
+            if (immediate) {
+                CoopSession.get().sendPartnerSnapshotNow();
+            } else {
+                CoopSession.get().sendPartnerSnapshotDebounced();
+            }
+        } catch (final Exception ignored) {
+        }
+    }
 }

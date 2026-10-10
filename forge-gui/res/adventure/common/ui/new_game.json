@@ -222,6 +222,16 @@
       "yOffset": 9
     },
     {
+      "type": "CheckBox",
+      "name": "coopWorld",
+      "text": "[BLACK]Co-op world",
+      "selectable": true,
+      "width": 142,
+      "height": 16,
+      "x": 159,
+      "yOffset": 10
+    },
+    {
       "type": "TextButton",
       "name": "back",
       "text": "tr(lblBack)",

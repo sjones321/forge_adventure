@@ -23,7 +23,7 @@ import java.lang.reflect.Method;
  * sit orders of magnitude clear of real traffic because a false rejection drops
  * a frame mid-game, while the attacks need values far larger still.
  */
-final class WireStreamLimits implements IHasForgeLog {
+public final class WireStreamLimits implements IHasForgeLog {
 
     /** Measured max 3,635. */
     private static final int MAX_ARRAY_LENGTH =
@@ -34,6 +34,13 @@ final class WireStreamLimits implements IHasForgeLog {
     /** Measured max 15, flat across the run; a stack overflow needs thousands. */
     private static final int MAX_DEPTH =
             Integer.getInteger("forge.net.maxWireDepth", 100);
+
+    /**
+     * Ceiling on bytes read out of a decompressed partner / wire payload stream.
+     * Same default as {@link CompatibleObjectDecoder} ({@code forge.net.maxDecompressedBytes}).
+     */
+    public static final long MAX_DECOMPRESSED_BYTES =
+            Long.getLong("forge.net.maxDecompressedBytes", 64L * 1024 * 1024);
 
     private static final Method SET_FILTER = findSetter();
     private static final Object FILTER = createFilter();
@@ -69,7 +76,7 @@ final class WireStreamLimits implements IHasForgeLog {
     }
 
     /** Installs the bounds if this platform has the API; otherwise a no-op. */
-    static void applyTo(final ObjectInputStream in) {
+    public static void applyTo(final ObjectInputStream in) {
         if (FILTER == null) {
             return;
         }

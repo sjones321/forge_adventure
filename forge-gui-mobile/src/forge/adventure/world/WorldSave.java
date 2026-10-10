@@ -15,6 +15,7 @@ import forge.adventure.scene.MapViewScene;
 import forge.adventure.scene.SaveLoadScene;
 import forge.adventure.stage.PointOfInterestMapSprite;
 import forge.adventure.stage.WorldStage;
+import forge.adventure.coop.WorldPartners;
 import forge.adventure.fortress.FortressService;
 import forge.adventure.util.*;
 import forge.card.CardEdition;
@@ -53,6 +54,13 @@ public class WorldSave {
     private final World world = new World();
     private final PointOfInterestChanges.Map pointOfInterestChanges = new PointOfInterestChanges.Map();
     private final MultiverseState multiverse = new MultiverseState();
+    /** CO5: guest partner characters keyed by profile id (host world save only). */
+    private final WorldPartners partners = new WorldPartners();
+    /**
+     * Slot last successfully loaded (or saved). Used by co-op host partner flushes so
+     * they never fall back to stale {@code lastActiveSave} / hidden slot 0.
+     */
+    private int loadedSlot = INVALID_SAVE_SLOT;
     private String lastPlaneSwitchError = "";
     /** Test hook: count of {@link forge.adventure.scene.GameScene#enter()} after switches. */
     private int planeSwitchEnterCount;
@@ -73,6 +81,41 @@ public class WorldSave {
 
     public MultiverseState getMultiverse() {
         return multiverse;
+    }
+
+    /** CO5: world-bound partner characters (host save). Missing on old saves → empty. */
+    public WorldPartners getPartners() {
+        return partners;
+    }
+
+    /**
+     * CO5: after a guest leaves (or a failed partner load), wipe in-memory world and
+     * player so StartScene hides Save/Resume and autosave cannot write partner data
+     * into a solo slot. Disk solo {@code .sav} files are never touched.
+     */
+    public void unloadAfterGuestSession() {
+        try {
+            world.unloadData();
+        } catch (final Exception ignored) {
+        }
+        try {
+            player.unload();
+        } catch (final Exception ignored) {
+        }
+        try {
+            partners.clear();
+        } catch (final Exception ignored) {
+        }
+        try {
+            pointOfInterestChanges.clear();
+        } catch (final Exception ignored) {
+        }
+        try {
+            GamePlayerUtil.getGuiPlayer().setName("");
+        } catch (final Exception ignored) {
+        }
+        // H2: do not let a later host partner flush overwrite the pre-join slot.
+        loadedSlot = INVALID_SAVE_SLOT;
     }
 
     /** MV1 current plane instance id ({@link PlaneMeta#HOME_ID} for legacy / home). */
@@ -133,8 +176,13 @@ public class WorldSave {
 
                 } catch (Exception e) {
                     System.err.println("Generating New World");
-                    if (!currentSave.world.generateNew(0))
+                    try {
+                        if (!currentSave.world.generateNew(0))
+                            return false;
+                    } catch (final Exception genEx) {
+                        System.err.println("World regenerate failed: " + genEx);
                         return false;
+                    }
                 }
 
                 // MV1: multi-plane registry, or wrap legacy single-world saves as home.
@@ -203,6 +251,13 @@ public class WorldSave {
                     FortressService.get().clear();
                 }
 
+                // CO5: world-bound partners (missing → empty; old saves still load).
+                if (Config.ascendant() && mainData.containsKey("partners")) {
+                    currentSave.partners.load(mainData.readSubData("partners"));
+                } else {
+                    currentSave.partners.clear();
+                }
+
                 currentSave.onLoadList.emit();
 
             }
@@ -210,7 +265,24 @@ public class WorldSave {
             e.printStackTrace();
             return false;
         }
+        // Track the slot that is actually loaded so partner flushes hit the same file.
+        currentSave.loadedSlot = currentSlot;
+        try {
+            Config.instance().getSettingData().lastActiveSave = WorldSave.filename(currentSlot);
+            Config.instance().saveSettings();
+        } catch (final Exception ignored) {
+        }
         return true;
+    }
+
+    /** Slot currently backed by {@link #currentSave}, or {@link #INVALID_SAVE_SLOT}. */
+    public int getLoadedSlot() {
+        return loadedSlot;
+    }
+
+    /** Test / host-create helper: remember which slot this in-memory save belongs to. */
+    public void setLoadedSlot(final int slot) {
+        loadedSlot = slot;
     }
 
     public static boolean isSafeFile(String name) {
@@ -257,9 +329,19 @@ public class WorldSave {
      *                        Bellwarden Standard). Ascendant only.
      */
     public static WorldSave generateNewWorld(String name, boolean male, int race, int avatarIndex, ColorSet startingColorIdentity, DifficultyData diff, AdventureModes mode, int customDeckIndex, CardEdition starterEdition, long seed, String homePlaneFormat) {
+        return generateNewWorld(name, male, race, avatarIndex, startingColorIdentity, diff, mode,
+                customDeckIndex, starterEdition, seed, homePlaneFormat, false);
+    }
+
+    /**
+     * @param coopWorld CO5 amendment: when true, this save is a co-op world (hostable;
+     *                  host character lives here; solo saves never receive its progress).
+     */
+    public static WorldSave generateNewWorld(String name, boolean male, int race, int avatarIndex, ColorSet startingColorIdentity, DifficultyData diff, AdventureModes mode, int customDeckIndex, CardEdition starterEdition, long seed, String homePlaneFormat, boolean coopWorld) {
         Forge.getLocalizer().loadAdventureBundle(Config.instance().getPlanePath(Config.instance().getSettingData().plane) + "languages/");
         currentSave.world.generateNew(seed);
         currentSave.pointOfInterestChanges.clear();
+        currentSave.partners.clear();
         FortressService.get().clear();
         boolean chaos = mode == AdventureModes.Chaos;
         boolean custom = mode == AdventureModes.Custom;
@@ -287,8 +369,62 @@ public class WorldSave {
             }
             currentSave.player.setLegacyRunFormat(fmt);
         }
+        // CO5: co-op worlds are their own saves; host character is this world's player
+        // (also mirrored into partners under the host profile id, like guest partners).
+        currentSave.header.coopWorld = coopWorld && Config.ascendant();
+        if (currentSave.header.coopWorld) {
+            try {
+                currentSave.partners.putPlayer(
+                        forge.adventure.coop.CoopProfileId.getOrCreate(), currentSave.player);
+            } catch (final Exception ignored) {
+            }
+        }
+        // H2: New Game is not bound to a prior load slot until the player saves.
+        currentSave.clearLoadedSlotAfterNewGame();
         currentSave.onLoadList.emit();
         return currentSave;
+    }
+
+    /** CO5: whether the current save is a co-op world (hostable). */
+    public boolean isCoopWorld() {
+        return header != null && header.coopWorld;
+    }
+
+    /**
+     * CO5: one-time convert of a loaded world into a co-op world. Sets the header flag
+     * and mirrors the host character into {@link #partners}. Caller should save.
+     */
+    public void markAsCoopWorld() {
+        if (header == null) {
+            header = new WorldSaveHeader();
+        }
+        header.coopWorld = true;
+        try {
+            partners.putPlayer(forge.adventure.coop.CoopProfileId.getOrCreate(), player);
+        } catch (final Exception ignored) {
+        }
+    }
+
+    /**
+     * CO5: ensure the host's co-op character in {@link #partners} matches the live player
+     * before a partner flush. No-op for solo worlds.
+     */
+    public void syncHostCharacterIntoPartners() {
+        if (!isCoopWorld()) {
+            return;
+        }
+        try {
+            partners.putPlayer(forge.adventure.coop.CoopProfileId.getOrCreate(), player);
+        } catch (final Exception ignored) {
+        }
+    }
+
+    /**
+     * Same {@code loadedSlot} clear as New Game. Public for headless tests that
+     * cannot run {@link #generateNewWorld} (needs GL / {@code -Pgl-tests}).
+     */
+    public void clearLoadedSlotAfterNewGame() {
+        loadedSlot = INVALID_SAVE_SLOT;
     }
 
     /**
@@ -372,40 +508,72 @@ public class WorldSave {
     }
 
     public boolean autoSave() {
-        if (forge.adventure.coop.CoopSession.get().blocksLocalWorldSave()) {
-            return false; // Guest co-op: never write host world into local slots.
+        // CO5: guests play a host-world partner in memory — never write local slots mid-session.
+        if (forge.adventure.coop.CoopSession.get().isGuestSession()) {
+            return false;
         }
-        return save("auto save" + SaveLoadScene.instance().getSaveFileSuffix(), AUTO_SAVE_SLOT);
+        if (currentSave.world.getData() == null) {
+            return false;
+        }
+        return save("auto save" + saveFileSuffixSafe(), AUTO_SAVE_SLOT);
     }
 
     public boolean quickSave() {
-        if (forge.adventure.coop.CoopSession.get().blocksLocalWorldSave()) {
+        if (forge.adventure.coop.CoopSession.get().isGuestSession()) {
             return false;
         }
-        return save("quick save" + SaveLoadScene.instance().getSaveFileSuffix(), QUICK_SAVE_SLOT);
+        if (currentSave.world.getData() == null) {
+            return false;
+        }
+        return save("quick save" + saveFileSuffixSafe(), QUICK_SAVE_SLOT);
+    }
+
+    private static String saveFileSuffixSafe() {
+        try {
+            return SaveLoadScene.instance().getSaveFileSuffix();
+        } catch (final Throwable t) {
+            return "";
+        }
     }
 
     public boolean quickLoad() {
         return load(QUICK_SAVE_SLOT);
     }
 
+    /**
+     * Persist the current world without renaming the save-slot header
+     * (CO5 host partner flush must not retitle the load UI).
+     */
+    public boolean savePreservingHeader(final int currentSlot) {
+        final String keep = header != null && header.name != null && !header.name.isEmpty()
+                ? header.name : "save";
+        return save(keep, currentSlot);
+    }
+
     public boolean save(String text, int currentSlot) {
-        if (forge.adventure.coop.CoopSession.get().blocksLocalWorldSave()) {
+        if (forge.adventure.coop.CoopSession.get().isGuestSession()) {
             System.err.println("Co-op guest: refusing to write WorldSave slot " + currentSlot);
             return false;
         }
+        // No live world → nothing to save (CO5 guest leave leaves data null).
+        if (currentSave.world.getData() == null) {
+            return false;
+        }
         header.name = text;
-        CollectionExporter.export(currentSave.player); // collection + decks for external deck builders
 
         String fileName = WorldSave.getSaveFile(currentSlot);
         String oldFileName = fileName.replace(".sav", ".old");
         new File(getSaveDir()).mkdirs();
         File currentFile = new File(fileName);
         File backupFile = new File(oldFileName);
-        if (currentFile.exists())
-            currentFile.renameTo(backupFile);
+        boolean renamedToOld = false;
+        if (currentFile.exists()) {
+            renamedToOld = currentFile.renameTo(backupFile);
+        }
 
         try {
+            CollectionExporter.export(currentSave.player); // collection + decks for external deck builders
+
             try (FileOutputStream fos = new FileOutputStream(fileName);
                  DeflaterOutputStream def = new DeflaterOutputStream(fos);
                  ObjectOutputStream oos = new ObjectOutputStream(def)) {
@@ -415,7 +583,13 @@ public class WorldSave {
 
                 SaveFileData player = currentSave.player.save();
                 SaveFileData world = currentSave.world.save();
-                SaveFileData worldStage = WorldStage.getInstance().save();
+                SaveFileData worldStage;
+                try {
+                    worldStage = WorldStage.getInstance().save();
+                } catch (final Throwable t) {
+                    // Headless / pre-GL: still persist player + world + partners.
+                    worldStage = new SaveFileData();
+                }
                 SaveFileData poiChanges = currentSave.pointOfInterestChanges.save();
                 SaveFileData multi = Config.ascendant() ? currentSave.multiverse.saveRegistry() : null;
                 SaveFileData fortress = Config.ascendant() ? FortressService.get().saveCurrent() : null;
@@ -432,7 +606,7 @@ public class WorldSave {
                     fos.close();
                     restoreBackup(oldFileName, fileName);
                     finish(message);
-                    return true;
+                    return false;
                 }
 
                 SaveFileData mainData = new SaveFileData();
@@ -447,13 +621,21 @@ public class WorldSave {
                 if (fortress != null) {
                     mainData.store("fortress", fortress);
                 }
+                // CO5: partners map (host world). Empty on solo / pre-CO5 saves.
+                // Co-op worlds also mirror the host's co-op character under their profile id.
+                if (Config.ascendant()) {
+                    if (currentSave.isCoopWorld()) {
+                        currentSave.syncHostCharacterIntoPartners();
+                    }
+                    mainData.store("partners", currentSave.partners.save());
+                }
 
                 if (mainData.readString("IOException") != null) {
                     oos.close();
                     fos.close();
                     restoreBackup(oldFileName, fileName);
                     finish("Please check forge.log for errors.");
-                    return true;
+                    return false;
                 }
 
                 header.saveDate = new Date();
@@ -461,15 +643,21 @@ public class WorldSave {
                 oos.writeObject(mainData);
             }
 
-        } catch (IOException e) {
-            restoreBackup(oldFileName, fileName);
+        } catch (final Throwable e) {
+            // Never leave a truncated .sav — restore .old on any failure.
+            System.err.println("WorldSave.save failed: " + e);
+            try {
+                restoreBackup(oldFileName, fileName);
+            } catch (final Exception ignored) {
+            }
             finish("Please check forge.log for errors.");
-            return true;
+            return false;
         }
 
         Config.instance().getSettingData().lastActiveSave = WorldSave.filename(currentSlot);
         Config.instance().saveSettings();
-        if (backupFile.exists())
+        currentSave.loadedSlot = currentSlot;
+        if (backupFile.exists() && renamedToOld)
             backupFile.delete();
         finish(null);
         return true;
@@ -478,9 +666,11 @@ public class WorldSave {
     private void finish(String errors) {
         if (errors != null)
             announceError(errors);
-        Gdx.app.postRunnable(() -> {
-            OverlayText.getInstance().update("");
-        });
+        if (Gdx.app != null) {
+            Gdx.app.postRunnable(() -> {
+                OverlayText.getInstance().update("");
+            });
+        }
     }
 
     public void restoreBackup(String oldFilename, String currentFilename) {
@@ -505,7 +695,11 @@ public class WorldSave {
     }
 
     private void announceError(String message) {
-        currentSave.player.getCurrentGameStage().setExtraAnnouncement("Error Saving File!\n" + message);
+        try {
+            currentSave.player.getCurrentGameStage().setExtraAnnouncement("Error Saving File!\n" + message);
+        } catch (final Throwable t) {
+            System.err.println("Error Saving File!\n" + message);
+        }
     }
 
     public void clearChanges() {

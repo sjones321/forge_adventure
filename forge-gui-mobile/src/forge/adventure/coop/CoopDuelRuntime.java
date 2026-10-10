@@ -13,14 +13,14 @@ import forge.adventure.data.SkillTreeData;
 import forge.adventure.data.SkillTreeListData;
 import forge.adventure.data.SkillTreeNodeData;
 import forge.adventure.player.AdventurePlayer;
-import forge.adventure.player.BanLists;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.stage.WorldStage;
+import forge.adventure.data.BiomeData;
+import forge.adventure.data.EnemyData;
 import forge.adventure.util.Config;
 import forge.adventure.util.Current;
 import forge.adventure.util.EnemyCoopPartners;
-import forge.adventure.data.EnemyData;
-import forge.adventure.data.BiomeData;
+import forge.adventure.util.EnemyThemeDecks;
 import forge.adventure.world.World;
 import forge.deck.Deck;
 import forge.deck.io.DeckSerializer;
@@ -982,6 +982,8 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             WorldStage.getInstance().setCurrentMob(mob);
             // EN2: use host-authoritative loot rolls from the result event (0 allowed).
             WorldStage.getInstance().setPendingLootRolls(event.getLootRolls());
+            // Wins: snapshot after rewards (RewardScene.done). Losses: WorldStage.setWinner
+            // calls CoopHooks after defeated() so gold/life penalties are included.
             WorldStage.getInstance().setWinner(teamWon, false);
         } else {
             if (teamWon) {
@@ -990,7 +992,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 ap.defeated();
             }
             try {
-                CoopCharacterStore.savePlayer(ap);
+                CoopSession.get().sendPartnerSnapshotNow();
             } catch (final Exception ignored) {
             }
         }
@@ -1269,9 +1271,9 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
     }
 
     /**
-     * Adventure deck restrictions for CO3: plane {@code restrictedCards} /
-     * {@code restrictedEditions} plus the host's current run-format rules —
-     * not the union of Standard/Historic/Commander ban lists.
+     * CO5 overworld co-op fights: accept any deck except game-wide restricted,
+     * joke and digital-only cards. Gyms / League / tournaments use
+     * {@link forge.adventure.util.GymUtil#listIllegalCardsForRun()} instead.
      */
     private Predicate<String> adventureBanned() {
         final ConfigData cfg = Config.instance().getConfigData();
@@ -1283,17 +1285,6 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 }
             }
         }
-        final Set<String> restrictedEditions = new HashSet<>();
-        if (cfg.restrictedEditions != null) {
-            for (final String ed : cfg.restrictedEditions) {
-                if (ed != null && !ed.isEmpty()) {
-                    restrictedEditions.add(ed);
-                }
-            }
-        }
-        final AdventurePlayer hostAp = Current.player();
-        final String format = hostAp != null ? hostAp.getRunFormat() : forge.adventure.util.GymUtil.FORMAT_STANDARD;
-        final String formatKey = format != null ? format.toLowerCase(java.util.Locale.ROOT) : "standard";
         return name -> {
             if (name == null || name.isEmpty()) {
                 return true;
@@ -1306,21 +1297,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
                 pc = FModel.getMagicDb().getCommonCards().getCard(name);
             } catch (final Exception ignored) {
             }
-            if (pc != null && !restrictedEditions.isEmpty()
-                    && restrictedEditions.contains(pc.getEdition())) {
-                return true;
-            }
-            // Run-format ban list for the host's current format only.
-            if (BanLists.isBanned(formatKey, name)) {
-                return true;
-            }
-            // Standard window: illegal outside the active rotation.
-            if (hostAp != null
-                    && forge.adventure.util.GymUtil.FORMAT_STANDARD.equalsIgnoreCase(format)
-                    && hostAp.getStandardWindow().isActive()
-                    && pc != null
-                    && !pc.getRules().getType().isBasicLand()
-                    && !hostAp.isStandardLegal(pc)) {
+            if (pc != null && EnemyThemeDecks.isExcludedFromAdventureDecks(pc)) {
                 return true;
             }
             return false;

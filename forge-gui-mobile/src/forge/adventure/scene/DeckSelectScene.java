@@ -269,6 +269,10 @@ public class DeckSelectScene extends UIScene {
             button.setColor(Color.RED);
         }
         Current.player().setSelectedDeckSlot(slot);
+        try {
+            forge.adventure.coop.CoopHooks.notifyPartnerProgressChanged(false);
+        } catch (final Exception ignored) {
+        }
 
         return true;
     }

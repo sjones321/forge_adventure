@@ -17,7 +17,6 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -44,9 +43,8 @@ public class CoopSharedOverworldTest {
     public void setUp() throws Exception {
         CoopVersion.setCardDataHashSupplier(() -> CoopVersion.sha256Hex("test-cards-co2"));
         sessionCode = CoopSessionCode.generate();
-        try (ServerSocket ss = new ServerSocket(0)) {
-            port = ss.getLocalPort();
-        }
+        // Ephemeral bind via Netty (port 0) — avoid ServerSocket grab/rebind TIME_WAIT races.
+        port = 0;
     }
 
     @AfterMethod
@@ -74,13 +72,13 @@ public class CoopSharedOverworldTest {
         final AtomicReference<CoopPlayerMoveEvent> received = new AtomicReference<>();
         final String worldHash = CoopWorldHash.hash(7L, 4, 4, sampleBiome(4), sampleTerrain(4));
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override public void onConnected() { }
             @Override public void onMessage(final NetEvent event) {
                 if (event instanceof CoopHelloEvent) {
                     server.markGuestAuthenticated();
                     server.send(new CoopWorldOfferEvent("Host", "Shandalar Ascendant", "plane",
-                            7L, worldHash, CoopPorts.GAME_PORT, port));
+                            7L, worldHash, CoopPorts.GAME_PORT, server.getLocalPort()));
                 } else if (event instanceof CoopSessionReadyEvent) {
                     ready.countDown();
                 } else if (event instanceof CoopPlayerMoveEvent) {
@@ -93,10 +91,11 @@ public class CoopSharedOverworldTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         final CountDownLatch guestReady = new CountDownLatch(1);
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
-            @Override public void onConnected() { client.send(hello(sessionCode)); }
+            @Override public void onConnected() { }
             @Override public void onMessage(final NetEvent event) {
                 if (event instanceof CoopWorldOfferEvent) {
                     final CoopWorldOfferEvent offer = (CoopWorldOfferEvent) event;
@@ -112,9 +111,11 @@ public class CoopSharedOverworldTest {
             @Override public void onError(final String message, final Throwable cause) { }
         });
         client.connect();
-        Assert.assertTrue(guestReady.await(10, TimeUnit.SECONDS));
-        Assert.assertTrue(ready.await(10, TimeUnit.SECONDS));
-        Assert.assertTrue(gotMove.await(10, TimeUnit.SECONDS));
+        Assert.assertTrue(client.awaitConnected(5000), "client connect");
+        client.send(hello(sessionCode));
+        Assert.assertTrue(guestReady.await(10, TimeUnit.SECONDS), "guest did not get world offer");
+        Assert.assertTrue(ready.await(10, TimeUnit.SECONDS), "host did not get session ready");
+        Assert.assertTrue(gotMove.await(10, TimeUnit.SECONDS), "host did not get player move");
         Assert.assertEquals(received.get().getAvatarId(), "sprites/heroes/Human_m.atlas");
     }
 
@@ -505,20 +506,22 @@ public class CoopSharedOverworldTest {
     @Test
     public void unauthenticatedCoopMessagesAreIgnored() throws Exception {
         final AtomicInteger movesBeforeAuth = new AtomicInteger();
-        final AtomicBoolean sawMoveAfterAuth = new AtomicBoolean(false);
         final CountDownLatch connected = new CountDownLatch(1);
+        final CountDownLatch gotHello = new CountDownLatch(1);
+        final CountDownLatch gotMoveAfterAuth = new CountDownLatch(1);
 
-        server = new CoopOverworldServer(port, new CoopMessageListener() {
+        server = new CoopOverworldServer(0, new CoopMessageListener() {
             @Override public void onConnected() { connected.countDown(); }
             @Override public void onMessage(final NetEvent event) {
                 if (event instanceof CoopPlayerMoveEvent) {
                     if (!server.isGuestAuthenticated()) {
                         movesBeforeAuth.incrementAndGet();
                     } else {
-                        sawMoveAfterAuth.set(true);
+                        gotMoveAfterAuth.countDown();
                     }
                 } else if (event instanceof CoopHelloEvent) {
                     server.markGuestAuthenticated();
+                    gotHello.countDown();
                 }
             }
             @Override public void onDisconnected(final String reason) { }
@@ -526,12 +529,13 @@ public class CoopSharedOverworldTest {
         });
         server.start();
         Assert.assertTrue(server.awaitBound(5000));
+        port = server.getLocalPort();
 
         client = new CoopOverworldClient("127.0.0.1", port, new CoopMessageListener() {
             @Override public void onConnected() {
+                // Pre-auth move must be dropped by the server (never reaches onMessage).
                 client.send(new CoopPlayerMoveEvent(1f, 1f, 1f, 1L, "X", "sprites/heroes/Human_m.atlas"));
                 client.send(hello(sessionCode));
-                client.send(new CoopPlayerMoveEvent(3f, 3f, 1f, 3L, "X", "sprites/heroes/Human_m.atlas"));
             }
             @Override public void onMessage(final NetEvent event) { }
             @Override public void onDisconnected(final String reason) { }
@@ -539,9 +543,11 @@ public class CoopSharedOverworldTest {
         });
         client.connect();
         Assert.assertTrue(connected.await(5, TimeUnit.SECONDS));
-        Thread.sleep(500);
-        Assert.assertEquals(movesBeforeAuth.get(), 0);
-        Assert.assertTrue(sawMoveAfterAuth.get());
+        Assert.assertTrue(gotHello.await(10, TimeUnit.SECONDS), "hello not received");
+        Assert.assertEquals(movesBeforeAuth.get(), 0, "pre-auth move must not reach listener");
+        // Send the post-auth move only after hello has been processed.
+        client.send(new CoopPlayerMoveEvent(3f, 3f, 1f, 3L, "X", "sprites/heroes/Human_m.atlas"));
+        Assert.assertTrue(gotMoveAfterAuth.await(10, TimeUnit.SECONDS), "post-auth move not received");
     }
 
     @Test
@@ -766,10 +772,10 @@ public class CoopSharedOverworldTest {
     }
 
     @Test
-    public void protocolVersionIsExactlyTenForPackageK() {
-        // CO3=6; MV1=7; MV2=8; EN2 lootRolls=9; Package K planeFormat=10
-        // (set-start + 1 at review). Exact equality only.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
+    public void protocolVersionIsExactlyElevenForCo5() {
+        // Package K planeFormat=10 on tip; CO5 world-bound partners = tip + 1.
+        // Exact equality only — never >=.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
     }
 
     private static long[][] sampleBiome(final int n) {

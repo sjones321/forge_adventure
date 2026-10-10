@@ -41,6 +41,11 @@ public class WireClassFilterTest {
             "forge.gamemodes.net.event.coop.CoopGatherRequestEvent",
             "forge.gamemodes.net.event.coop.CoopNodeStateEvent",
             "forge.gamemodes.net.event.coop.CoopLocationInviteEvent",
+            // CO5 world-bound partners
+            "forge.gamemodes.net.event.coop.CoopPartnerOfferEvent",
+            "forge.gamemodes.net.event.coop.CoopPartnerCreateEvent",
+            "forge.gamemodes.net.event.coop.CoopPartnerSnapshotEvent",
+            "forge.gamemodes.net.event.coop.CoopPartnerSnapshotAckEvent",
     };
 
     private static final String[] REJECTED = {

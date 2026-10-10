@@ -134,7 +134,7 @@ World seed rebuild must also produce the same world hash; otherwise the guest re
 host-authoritative nodes/enemies/POI, party invites, and location-enter invites.
 Tunables live in the mode `config.json` (`coopPositionSendHz`,
 `coopPartnerInterpRate`, `coopInteractRangePx`, `coopLocationInviteTimeoutSeconds`, …).
-Wire protocol: CO2 = 5; CO3 = 6; MV1 = 7; MV2 = 8; EN2 (`lootRolls`) = 9; Package K (`planeFormat` on world offer / plane switch) = **10**.
+Wire protocol: CO2 = 5; CO3 = 6; MV1 = 7; MV2 = 8; EN2 (`lootRolls`) = 9; Package K (`planeFormat` on world offer / plane switch) = 10; CO5 (world-bound partners) = **11**.
 
 **Interior rule (v1):** both roam freely on the overworld. Entering a town,
 dungeon or delve invites a nearby party partner. Accept → enter the same
@@ -175,6 +175,15 @@ See `CoopHooks` / `CoopOverworldRuntime` / `CoopDuelRuntime` and
 `docs/Adventure/Ascendant-Roadmap.md`.
 
 **Trust note (CO3 decks):** the host cannot verify that the guest owns the cards in their decklist — the partner is trusted. The host still clamps loadout life/hand, allowlists effect card names from items.json / skill perks, and enforces Adventure min deck size + ban lists.
+
+**CO5 (world-bound partners):** the guest's character lives inside the host world
+(`WorldPartners`), not a solo save slot. Create / import and leave-timeout dialogs
+use adventure Scene2D (`CoopAdventureDialogs`) — classic `FOptionPane` overlays are
+not drawn under `Adventure.render`. Partner snapshots flush into the host's
+**currently loaded slot**; after an autosave or F5 quicksave that means the
+auto/quick slot until the host loads a numbered slot again — that is intentional.
+New Game and guest unload clear `loadedSlot` so a later partner flush cannot
+overwrite an earlier host load. Guests cannot F8 quickload during a session.
 
 ## One-PC playtest (two Forge copies)
 

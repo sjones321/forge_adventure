@@ -207,13 +207,19 @@ public class World implements Disposable, SaveFileContent {
 
         SaveFileData data = new SaveFileData();
 
-        data.store("biomeImage", biomeImage);
+        if (biomeImage != null) {
+            data.store("biomeImage", biomeImage);
+        }
         data.storeObject("biomeMap", biomeMap);
         data.storeObject("terrainMap", terrainMap);
         data.store("width", width);
         data.store("height", height);
-        data.store("mapObjectIds", mapObjectIds.save());
-        data.store("mapPoiIds", mapPoiIds.save());
+        if (mapObjectIds != null) {
+            data.store("mapObjectIds", mapObjectIds.save());
+        }
+        if (mapPoiIds != null) {
+            data.store("mapPoiIds", mapPoiIds.save());
+        }
         data.store("seed", seed);
         data.store("worldConfigPath", getWorldConfigPath());
         return data;
@@ -1172,15 +1178,17 @@ public class World implements Disposable, SaveFileContent {
             return;
         }
         this.data = worldData;
-        this.width = worldData.width;
-        this.height = worldData.height;
+        this.width = Math.max(1, worldData.width);
+        this.height = Math.max(1, worldData.height);
         this.seed = worldSeed;
-        this.terrainMap = new int[Math.max(1, width)][Math.max(1, height)];
-        int chunk = Math.max(1, worldData.tileSize > 0 ? 16 : 16);
-        int chunksX = Math.max(1, width / chunk);
-        int chunksY = Math.max(1, height / chunk);
-        this.mapPoiIds = new PointOfInterestMap(chunk, worldData.tileSize > 0 ? worldData.tileSize : 16,
-                chunksX, chunksY);
+        this.terrainMap = new int[this.width][this.height];
+        this.biomeMap = new long[this.width][this.height];
+        final int tile = worldData.tileSize > 0 ? worldData.tileSize : 16;
+        final int chunk = 16;
+        final int chunksX = Math.max(1, this.width / chunk);
+        final int chunksY = Math.max(1, this.height / chunk);
+        this.mapPoiIds = new PointOfInterestMap(chunk, tile, chunksX, chunksY);
+        this.mapObjectIds = new SpritesDataMap(chunk, tile, chunksX);
         this.worldDataLoaded = true;
     }
 
@@ -1232,6 +1240,22 @@ public class World implements Disposable, SaveFileContent {
         globalTexture = null;
         emptyTile = null;
         worldDataLoaded = false;
+    }
+
+    /**
+     * CO5: clear world data after a guest leaves co-op so StartScene hides Save/Resume
+     * and the guest must Load/Continue from disk. Disposes textures then nulls {@link #data}.
+     */
+    public void unloadData() {
+        try {
+            dispose();
+        } catch (final Exception ignored) {
+        }
+        data = null;
+        worldDataLoaded = false;
+        seed = 0;
+        width = 0;
+        height = 0;
     }
 
     /** Dispose {@link BiomeTexture} pixmaps on the GL/EDT thread when available. */
