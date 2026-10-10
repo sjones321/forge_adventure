@@ -56,10 +56,11 @@ public final class InteriorMapSave {
      * Stock modes stay world-map only.
      */
     public static boolean allowsManualSave() {
+        MapStage map = MapStage.instance;
         if (!saveAnywhereEnabled()) {
-            return !MapStage.getInstance().isInMap();
+            return map == null || !map.isInMap();
         }
-        return !MapStage.getInstance().isDialogOnlyInput();
+        return map == null || !map.isDialogOnlyInput();
     }
 
     /** Persist interior location into the player {@link SaveFileData} when in a map. */
@@ -67,8 +68,9 @@ public final class InteriorMapSave {
         if (data == null || !saveAnywhereEnabled()) {
             return;
         }
-        MapStage map = MapStage.getInstance();
-        if (!map.isInMap()) {
+        // Use the live instance only — never construct MapStage from a headless player.save().
+        MapStage map = MapStage.instance;
+        if (map == null || !map.isInMap()) {
             return;
         }
         TileMapScene scene = TileMapScene.instance();
