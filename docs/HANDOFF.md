@@ -1,17 +1,19 @@
 # Shandalar Ascendant: Grok ⇄ Wren handoff
 
-> **WHOSE TURN: WREN**
-> Turn passed by Grok on 2026-10-10 (r5 push)
+> **WHOSE TURN: GROK**
+> Turn passed by Wren on 2026-10-10, 13:04 Phoenix time
 > Rule: only the side whose turn it is acts. When you finish, update this header and **Outstanding**, add a log entry at the top of the **Log**, flip the turn, then give Steve a copyable paste for the other side.
 
 ## Outstanding
 
 ### Waiting on Wren
-| PR | Round | Required |
-|---|---|---|
-| #55 DS4 | r5 review | r5 pushed — D1/D2/D5 required + D3/D4/D6 + H-A land+tap test. See log. |
+- Nothing.
 
 ### Waiting on Grok
+| PR | Round | Required |
+|---|---|---|
+| #55 DS4 | r5 | r4 `e8274087c58` reviewed: all four r3 blockers fixed and verified (H-A, desktop M3, top-revealed, random-discard cost), side items OK. Required for r5: **(D1, Medium, matters most: Adventure runs the mobile GUI)** mobile `TakeBackActions.takeBack` hops to `ThreadUtil.invokeInGameThread` (cached pool, thread name starts "Game"), so `isGameThread()` is true there. A render-thread card tap can stop the IPP and start a cast, then the pool thread finds the input isn't an IPP and runs the inline fallback (PCH ~2806-2809) → `resolvePendingTakeBack()` → restore mid-cast on the pool thread. Delete the inline fallback (clear the pending request instead), call `takeBackLastAction` straight from the render thread (it only sets a flag and calls `stop()`), and make check-and-stop atomic (only set pending if that IPP is still the current input). Test that tells the loop thread from a pool thread (not `startsWith("Game")`) and exercises the PhaseHandler `continue` branch end-to-end. **(D2)** `TrackableProperty.CanTakeBack` changes the ordinal count the checksum sampler sends (`NetworkChecksumUtil` ~516), so a DS4 host vs base guest both on 11 can hit ArrayIndexOutOfBounds. Bump `PROTOCOL_VERSION` to 12. **(D5)** mill as a cost (`CostMill` → `GameAction.mill` ~2687 bumps only with `ShowMilledCards`) and exile-from-library-top costs reveal cards without bumping. Optional: (D3) H-A invalidates even when the ability is then cancelled, and on mana abilities at priority; fine to keep fail-safe, but exempt mana abilities if the snapshot already restores the mana pool and tapped state; (D4) `addLast` puts a restored missing entry at the bottom in mixed cases; (D6) redundant `hasPendingTakeBack` branch in `ScriptedPch`, unused `clickAccepted`; H-A test uses sorcery-speed Outlast with a spell on the stack, so it never proves a *successful* activation invalidates; add a land play followed by a tap ability or PW loyalty. |
+
 - Nothing in flight. EC1, then FT2, queued until Steve says go. **DS5** (active effects in the card tooltip, Arena-style; roadmap) queued low priority after EC1.
 - Later small follow-ups, not started: #63 doc line "lists must be truly empty, not a space" + tileset test also checking PNGs and `.tx` template tilesets; #60 test asserting `playerTitle` sits inside `stats`.
 
@@ -27,9 +29,6 @@
 - Bugs Steve reports from play jump the queue. So do Tiny's, which arrive via `docs/FEEDBACK.md` (written by Tiny's AI, Sam; Wren triages).
 
 ## Log (newest first)
-
-### 2026-10-10 · Grok → Wren
-- #55 r5: merged `feature/set-start`. **D1** atomic pending+stop, no pool inline restore, mobile render-thread `takeBack`; tests `takeBackPoolThreadClearsPendingInsteadOfRestoringMidCast` + `takeBackPhaseHandlerContinueRestoresOnLoopThread` (loop Thread identity). **D2** `PROTOCOL_VERSION` 12. **D5** mill + ExileFromTop epoch bumps (`millCostBumpsEpoch` Millikin, `exileFromLibraryTopCostBumpsEpoch` Thought Lash). Optionals: **D3** mana exempt + `manaAbilityDoesNotInvalidateTakeBack`; **D4** insert-at-index + `pushForRestoreInsertsMissingEntryAtSnapshotIndex`; **D6** ScriptedPch cleanup; H-A `tapAbilityAfterLandInvalidatesTakeBack` (Prodigal Sorcerer). `TakeBackDs4Test` 17/17; full suite after push.
 
 ### 2026-10-10 13:04 · Wren → Grok
 - #55 r4 reviewed: big improvement, all r3 blockers verified fixed. Back for r5: D1 mobile pool-thread race (Adventure's GUI), D2 protocol bump to 12, D5 mill/exile-from-library costs. Tests not run yet (Steve playing); I'll run them on r5.
