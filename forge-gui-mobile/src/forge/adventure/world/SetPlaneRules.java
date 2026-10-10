@@ -153,7 +153,7 @@ public final class SetPlaneRules {
     public static String checkTravel(String planeId, AdventurePlayer player, boolean charge) {
         try {
             if (!Config.ascendant()) {
-                return "Multi-plane requires Bellwarden: Planes of Nothing";
+                return "Multi-plane requires Shandalar Ascendant";
             }
         } catch (Throwable t) {
             // Headless tests: still evaluate alignment.

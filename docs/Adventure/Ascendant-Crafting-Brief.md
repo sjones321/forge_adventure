@@ -1,4 +1,4 @@
-# Bellwarden: Planes of Nothing — Crafting, Gathering and Gear Brief
+# Shandalar Ascendant — Crafting, Gathering and Gear Brief
 
 This brief is for agents working on the `sjones321/forge_adventure` fork, branch `feature/set-start`.
 It covers three phases: wildcard crafting, overworld gathering, and craftable gear.
@@ -9,7 +9,7 @@ Build them in order. Phase 1 must be merged before Phase 2 or 3 starts.
 
 ## Ground rules (all phases)
 
-- **Everything is gated to Bellwarden: Planes of Nothing.** Check `Config.ascendant()` (backed by `ascendantRules` in
+- **Everything is gated to Shandalar Ascendant.** Check `Config.ascendant()` (backed by `ascendantRules` in
   `forge-gui/res/adventure/Shandalar Ascendant/config.json` — internal folder id unchanged). Stock worlds must behave exactly as before: no new buttons,
   no new currencies shown, no new world objects.
 - **Tunable numbers go in `ConfigData.java`** with defaults, and are set in the mode `config.json`.
@@ -18,7 +18,7 @@ Build them in order. Phase 1 must be merged before Phase 2 or 3 starts.
   (missing → default). Saves use `SaveFileData` (`store`/`readInt`/`readObject`); see `AdventurePlayer.save()`/`load()`
   around lines 600-1020.
 - **Skills** live in `forge-gui-mobile/src/forge/adventure/player/PlayerSkills.java`. XP curve is RuneScape's (1-99).
-  `addXp` already returns 0 when Planes of Nothing rules (`Config.ascendant()`) are off. New skills are added to the `Skill` enum and must appear on
+  `addXp` already returns 0 when Ascendant rules are off. New skills are added to the `Skill` enum and must appear on
   `SkillsScene` and `UnlocksScene` automatically (check that they do).
 - **Only change `forge-gui-mobile` and `forge-gui/res/adventure`** unless a phase says otherwise. No new dependencies.
 - **Checkstyle fails the build on unused imports.** Build before opening a PR:
@@ -75,14 +75,14 @@ Build them in order. Phase 1 must be merged before Phase 2 or 3 starts.
   `craftCard(PaperCard)`.
 
 ### UI
-- Deck editor: "Salvage" menu item next to every "Sell" item, showing the yield. Planes of Nothing only.
+- Deck editor: "Salvage" menu item next to every "Sell" item, showing the yield. Ascendant only.
 - Dust totals shown where gold/shards are shown in the deck editor and the inventory/status screen.
-- **Crafting screen** (new scene, reached from the deck editor and from Spell Smith in Planes of Nothing):
+- **Crafting screen** (new scene, reached from the deck editor and from Spell Smith in Ascendant):
   search box by card name, results list with hover preview (existing `HoverPreview`), cost and owned count per result,
   a "Craft" button. Card-name search uses `StaticData` card DB filtered to the craftable pool.
 
 ### Acceptance
-- Old Planes of Nothing save loads, shows 0 dust, unlocked history equals the current window.
+- Old Ascendant save loads, shows 0 dust, unlocked history equals the current window.
 - Stock Shandalar save shows no dust, no Salvage, no crafting screen.
 - Salvaging a vaulted card or a card in a deck is refused with a message.
 - A rotated-out card costs 2× and is still craftable; a card from a never-unlocked set does not appear in search.
@@ -130,7 +130,7 @@ Build them in order. Phase 1 must be merged before Phase 2 or 3 starts.
 ## Phase 3 — Gear crafting
 
 ### Rules
-- A **Forge** building in towns (Planes of Nothing only), reusing the Spell Smith map object pattern in `MapStage`
+- A **Forge** building in towns (Ascendant only), reusing the Spell Smith map object pattern in `MapStage`
   (or a button inside Spell Smith if adding town objects is too invasive).
 - Recipes in `forge-gui/res/adventure/common/world/recipes.json`:
   `{ result (item name), materials: {id: count}, gold, skill, levelRequired, xp }`.

@@ -51,8 +51,8 @@ Embark on a thrilling single-player journey where you can:
 
 <img width="1282" height="752" alt="Shandalar World" src="https://github.com/user-attachments/assets/9af31471-d688-442f-9418-9807d8635b72" />
 
-#### Bellwarden: Planes of Nothing
-This fork’s expanded Adventure mode. Pick **Bellwarden: Planes of Nothing** in Settings → World (the internal content pack is still stored as `Shandalar Ascendant` until a later migration). Stock **Shandalar** and other planes are unchanged. Built on Forge — see [CREDITS.md](CREDITS.md) and the GPL-3.0 license.
+#### Shandalar Ascendant
+This fork’s expanded Adventure mode (single-player Magic adventure). Pick **Shandalar Ascendant** in Settings → World. Stock **Shandalar** and other planes are unchanged. Built on Forge — see [CREDITS.md](CREDITS.md) and the GPL-3.0 license. Steve’s separate Godot game **Bellwarden** is documented under `docs/Bellwarden/`.
 
 ### 🔍 Quest Mode
 Engage in focused gameplay without the overworld exploration—perfect for quick sessions!

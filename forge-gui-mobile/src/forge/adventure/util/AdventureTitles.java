@@ -4,16 +4,16 @@ package forge.adventure.util;
  * Player-facing titles for Adventure worlds and modes.
  * <p>
  * Internal plane folder ids (for example {@code Shandalar Ascendant}), save keys,
- * {@link Config#ascendant()}, and protocol strings stay unchanged until a later
- * migration PR. This class only maps what players and readers see.
+ * {@link Config#ascendant()}, and protocol strings stay on the Ascendant id so old
+ * saves keep loading. This class only maps what players and readers see.
  */
 public final class AdventureTitles {
-    /** Content-pack folder / settings id (do not rename until save migration). */
+    /** Content-pack folder / settings id (do not rename without a save migration). */
     public static final String ASCENDANT_PLANE_ID = "Shandalar Ascendant";
     /** Stock Shandalar world folder id — display name stays {@code Shandalar}. */
     public static final String STOCK_SHANDALAR_PLANE_ID = "Shandalar";
-    /** Official game title for the Ascendant content pack / mode. */
-    public static final String GAME_TITLE = "Bellwarden: Planes of Nothing";
+    /** Official game title for this Forge Ascendant content pack / mode. */
+    public static final String GAME_TITLE = "Shandalar Ascendant";
 
     private AdventureTitles() {
     }
