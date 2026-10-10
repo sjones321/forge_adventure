@@ -5,6 +5,7 @@ import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Json;
 import forge.ImageKeys;
 import forge.StaticData;
+import forge.adventure.character.EnemySprite;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.RewardData;
 import forge.adventure.player.AccountStore;
@@ -429,10 +430,18 @@ public class SourcePrintingsCs0Test {
 
         String[] previousAllowed = ascendantConfig.allowedEditions;
         try {
-            // Small allow-list that excludes M21 (and ZEN) but keeps M12/M14 + the window.
-            ascendantConfig.allowedEditions = new String[]{"M12", "M14", "WWK", "ROE"};
+            // Warm NORMAL_CACHE while the catalogue is open (M21 is allowed / "normal").
+            ascendantConfig.allowedEditions = null;
             Config.installConfigDataForTest(ascendantConfig);
             SourcePrintings.clearCaches();
+            Assert.assertTrue(SourcePrintings.isNormalPrinting(m21Shock),
+                    "precondition: M21 Shock is normal before the allow-list");
+
+            // Small allow-list that excludes M21 (and ZEN) but keeps M12/M14 + the window.
+            // Mutate the live ConfigData without clearCaches — proves allow-list is checked
+            // outside NORMAL_CACHE (a stale intrinsic true must not win).
+            ascendantConfig.allowedEditions = new String[]{"M12", "M14", "WWK", "ROE"};
+            Config.instance().getConfigData().allowedEditions = ascendantConfig.allowedEditions;
             RewardData.invalidateCardPool();
 
             Assert.assertTrue(SourcePrintings.isAllowedEdition("M14"));
@@ -765,6 +774,69 @@ public class SourcePrintingsCs0Test {
         Assert.assertNotNull(staple);
         Assert.assertEquals(staple.getEdition(), "ZEN",
                 "gym staple reward must resolve to a rotation printing");
+    }
+
+    @Test
+    public void fantasyLootSkipsNullCs0Rematch() {
+        warmCard("Goblin Guide");
+        PaperCard zenGuide = printingInEdition("Goblin Guide", "ZEN");
+        Assert.assertNotNull(zenGuide);
+
+        String[] previousAllowed = ascendantConfig.allowedEditions;
+        try {
+            // ZEN disallowed and Guide has no WWK/ROE printing → resolve returns null.
+            ascendantConfig.allowedEditions = new String[]{"WWK", "ROE", "M12", "M14"};
+            Config.installConfigDataForTest(ascendantConfig);
+            SourcePrintings.clearCaches();
+            Assert.assertNull(SourcePrintings.resolve(zenGuide, (String[]) null),
+                    "precondition: CS0 rematch of ZEN Guide is null under this allow-list");
+
+            Array<Reward> pool = new Array<>();
+            EnemySprite.addCs0CardReward(pool, zenGuide);
+            EnemySprite.addCs0CardReward(pool, null);
+            Assert.assertEquals(pool.size, 0,
+                    "fantasy loot must not add Reward(null) when CS0 rematch fails");
+        } finally {
+            ascendantConfig.allowedEditions = previousAllowed;
+            Config.installConfigDataForTest(ascendantConfig);
+            SourcePrintings.clearCaches();
+            RewardData.invalidateCardPool();
+        }
+    }
+
+    @Test
+    public void pickStapleRewardTriesNextWhenPreferredRematchIsNull() {
+        warmRotationCardPool();
+        warmCard("Goblin Guide");
+        warmCard("Shock");
+        warmCard("Evolving Wilds");
+
+        String[] previousAllowed = ascendantConfig.allowedEditions;
+        try {
+            // Guide's ZEN printing is disallowed; staples with WWK/ROE/M12/M14 printings remain.
+            ascendantConfig.allowedEditions = new String[]{"WWK", "ROE", "M12", "M14"};
+            Config.installConfigDataForTest(ascendantConfig);
+            SourcePrintings.clearCaches();
+            RewardData.invalidateCardPool();
+            Assert.assertNull(SourcePrintings.printingFromRotation("Goblin Guide",
+                            List.of("ZEN", "WWK", "ROE")),
+                    "precondition: preferred Guide rematch is null");
+            Assert.assertNotNull(GymUtil.pickStapleReward(null),
+                    "precondition: staple pool must still yield under this allow-list");
+
+            PaperCard staple = GymUtil.pickStapleReward("Goblin Guide");
+            Assert.assertNotNull(staple,
+                    "pickStapleReward must try the next staple instead of returning null");
+            Assert.assertNotEquals(staple.getName(), "Goblin Guide",
+                    "must not keep the failed preferred staple");
+            Assert.assertTrue(SourcePrintings.isAllowedEdition(staple.getEdition()),
+                    "fallback staple must be allow-listed; got " + staple.getEdition());
+        } finally {
+            ascendantConfig.allowedEditions = previousAllowed;
+            Config.installConfigDataForTest(ascendantConfig);
+            SourcePrintings.clearCaches();
+            RewardData.invalidateCardPool();
+        }
     }
 
     @Test
