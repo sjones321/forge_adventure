@@ -431,6 +431,10 @@ public class RollDiceEffect extends SpellAbilityEffect {
             player.roll();
             naturalRolls.add(roll);
         }
+        // DS4: randomness locks take-back.
+        if (amount > 0) {
+            player.getGame().bumpInformationEpoch();
+        }
 
         naturalRolls.sort(null);
 

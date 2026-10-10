@@ -152,7 +152,7 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
         boolean turnEnded = false;
 
         game.getStack().clearUndoStack(); //can't undo action from previous phase
-        game.invalidateTakeBack(); // DS4: phase change locks the last action
+        game.bumpInformationEpoch(); // DS4: phase change locks take-back
 
         if (bRepeatCleanup) { // for when Cleanup needs to repeat itself
             bRepeatCleanup = false;
@@ -1066,11 +1066,16 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
 
                 if (chosenSa == null) {
                     // DS4: passing priority locks take-back (priority has moved on).
-                    game.invalidateTakeBack();
+                    game.bumpInformationEpoch();
                     break; // that means 'I pass'
                 }
                 if (DEBUG_PHASES) {
                     System.out.print("... " + pPlayerPriority + " plays " + chosenSa);
+                }
+
+                // DS4: opponent / AI decisions lock any prior take-back (fail-safe).
+                if (pPlayerPriority.getController().isAI()) {
+                    game.bumpInformationEpoch();
                 }
 
                 boolean rollback = false;
@@ -1079,20 +1084,26 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                     final Zone originZone = saHost.getZone();
                     final CardZoneTable triggerList = new CardZoneTable(game.getLastStateBattlefield(), game.getLastStateGraveyard());
 
+                    // DS4: dedicated snapshot only right before the human's own top-level action.
+                    boolean captured = false;
+                    if (game.TAKE_BACK_ENABLED
+                            && !pPlayerPriority.getController().isAI()
+                            && isTakeBackTopLevelAction(sa)) {
+                        captured = game.captureTakeBackSnapshot(pPlayerPriority);
+                    }
+
                     if (pPlayerPriority.getController().playChosenSpellAbility(sa)) {
                         // 117.3c If a player has priority when they cast a spell, activate an ability, [play a land]
                         // that player receives priority afterward.
                         pFirstPriority = pPlayerPriority; // all opponents have to pass before stack is allowed to resolve
-                        // DS4: another player's action locks any prior take-back; then retain for the actor.
-                        if (game.TAKE_BACK_ENABLED) {
-                            final Player priorOwner = game.getTakeBackOwner();
-                            if (priorOwner != null && !priorOwner.equals(pPlayerPriority)) {
-                                game.invalidateTakeBack();
-                            }
-                            game.retainTakeBackSnapshot(pPlayerPriority);
+                        // Snapshot already captured before the action; no retain of cancel-path state.
+                    } else {
+                        if (captured) {
+                            game.invalidateTakeBack();
                         }
-                    } else if (game.EXPERIMENTAL_RESTORE_SNAPSHOT) {
-                        rollback = true;
+                        if (game.EXPERIMENTAL_RESTORE_SNAPSHOT) {
+                            rollback = true;
+                        }
                     }
 
                     saHost = game.getCardState(saHost);
@@ -1335,5 +1346,16 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                 game.getCleanup().executeUntil(p);
             }
         }
+    }
+
+    /**
+     * DS4: snapshot only for the human's own top-level land, cast, or non-mana activation.
+     * Mana abilities are excluded — they are payment steps more often than misclicks.
+     */
+    private static boolean isTakeBackTopLevelAction(final SpellAbility sa) {
+        if (sa == null || sa.isManaAbility()) {
+            return false;
+        }
+        return sa.isLandAbility() || sa.isSpell() || sa.isActivatedAbility();
     }
 }

@@ -78,12 +78,10 @@ public final class GameMenu {
         return menuItem;
     }
 
-    /** DS4: Take back last land/spell/ability (snapshot restore). Ctrl+Z when eligible. */
+    /** DS4: Take back last land/spell/ability (snapshot restore). Ctrl+Z is on KeyboardShortcuts only. */
     private SkinnedMenuItem getMenuItem_TakeBack() {
         final Localizer localizer = Localizer.getInstance();
         final SkinnedMenuItem menuItem = new SkinnedMenuItem(localizer.getMessage("lblTakeBack"));
-        // Share Ctrl+Z with Undo: take-back wins when a snapshot is eligible.
-        setAcceleratorFromPref(menuItem, FPref.SHORTCUT_UNDO);
         menuItem.addActionListener(e -> {
             final forge.interfaces.IGameController gc = matchUI.getGameController();
             if (gc != null && gc.canTakeBackLastAction()) {

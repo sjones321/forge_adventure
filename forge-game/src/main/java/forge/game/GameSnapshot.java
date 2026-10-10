@@ -168,8 +168,7 @@ public class GameSnapshot {
             }
             //System.out.println("RESTORED");
         }
-
-        // TODO update thisTurnCast
+        // thisTurnCast / storm restored in copyStack (restore path).
     }
 
     public void assignPlayerState(Player origPlayer, Player newPlayer) {
@@ -224,10 +223,22 @@ public class GameSnapshot {
     }
 
     private void copyStack(Game fromGame, Game toGame) {
-        // Try to match the StackInstance ID. If we don't find it, generate a new stack instance that matches
-        // If we do find it, we may need to alter the existing stack instance
-        // If we find it and we're restoring, we dont need to do anything
+        if (restore) {
+            // Critical 1: fully revert the stack — drop instances that aren't in the
+            // snapshot, clear simultaneous/pending triggers, and reset storm / thisTurnCast.
+            toGame.getStack().clearForTakeBackRestore();
+            toGame.getTriggerHandler().clearWaitingTriggers();
+            // Snapshot was taken before the action: rebuild whatever the snapshot had.
+            for (SpellAbilityStackInstance origEntry : fromGame.getStack()) {
+                addStackInstanceFromSnapshot(origEntry, toGame);
+            }
+            // Storm / thisTurnCast: snapshot list wins (usually empty when undoing a cast).
+            toGame.getStack().setThisTurnCastForRestore(
+                    Lists.newArrayList(fromGame.getStack().getSpellsCastThisTurn()));
+            return;
+        }
 
+        // Copy path (storing a snapshot): add missing instances into the copy.
         Map<Integer, SpellAbilityStackInstance> stackIds = new HashMap<>();
         for (SpellAbilityStackInstance toEntry : toGame.getStack()) {
             stackIds.put(toEntry.getId(), toEntry);
@@ -238,47 +249,43 @@ public class GameSnapshot {
             SpellAbilityStackInstance instance = stackIds.getOrDefault(id, null);
 
             if (instance != null) {
-                if (!restore) {
-                    System.out.println("Might need to alter " + origEntry.getSpellAbility() + " on stack");
-                }
-
+                System.out.println("Might need to alter " + origEntry.getSpellAbility() + " on stack");
                 continue;
             }
 
             System.out.println("Adding " + origEntry.getSpellAbility() + " to stack");
+            addStackInstanceFromSnapshot(origEntry, toGame);
+        }
+    }
 
-            SpellAbility origSa = origEntry.getSpellAbility();
-            Card origHostCard = origSa.getHostCard();
-            Card newCard = findBy(toGame, origHostCard);
+    private void addStackInstanceFromSnapshot(SpellAbilityStackInstance origEntry, Game toGame) {
+        SpellAbility origSa = origEntry.getSpellAbility();
+        Card origHostCard = origSa.getHostCard();
+        Card newCard = findBy(toGame, origHostCard);
 
-            if (newCard == null) {
-                // IF this card isn't in future world, it's likely a copy
-                newCard = createCardCopy(toGame, findBy(toGame, origHostCard.getOwner()), origHostCard);
-            }
+        if (newCard == null) {
+            newCard = createCardCopy(toGame, findBy(toGame, origHostCard.getOwner()), origHostCard);
+        }
 
-            // FInd newEntry from origEntrys
+        SpellAbility newSa = null;
+        if (origSa.isSpell()) {
+            newSa = findSAInCard(origSa, newCard);
+        }
 
-            SpellAbility newSa = null;
-            if (origSa.isSpell()) {
-                newSa = findSAInCard(origSa, newCard);
-            }
-
-            // Is the SA on the stack?
-            if (newSa != null) {
-                newSa.setActivatingPlayer(findBy(toGame, origSa.getActivatingPlayer()));
-                if (origSa.usesTargeting()) {
-                    for (GameObject o : origSa.getTargets()) {
-                        if (o instanceof Card) {
-                            newSa.getTargets().add(findBy(toGame, (Card) o));
-                        } else if (o instanceof Player) {
-                            newSa.getTargets().add(findBy(toGame, (Player) o));
-                        } else {
-                            System.out.println("Failed to restore target " + o + " for " + origSa);
-                        }
+        if (newSa != null) {
+            newSa.setActivatingPlayer(findBy(toGame, origSa.getActivatingPlayer()));
+            if (origSa.usesTargeting()) {
+                for (GameObject o : origSa.getTargets()) {
+                    if (o instanceof Card) {
+                        newSa.getTargets().add(findBy(toGame, (Card) o));
+                    } else if (o instanceof Player) {
+                        newSa.getTargets().add(findBy(toGame, (Player) o));
+                    } else {
+                        System.out.println("Failed to restore target " + o + " for " + origSa);
                     }
                 }
-                toGame.getStack().add(newSa, id);
             }
+            toGame.getStack().add(newSa, origEntry.getId());
         }
     }
 

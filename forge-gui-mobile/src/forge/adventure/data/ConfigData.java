@@ -545,13 +545,14 @@ public class ConfigData {
      */
     public boolean cs0SourcePrintings = true;
 
-    // ---- Ascendant duel take-back (Package DS4): snapshot undo of last own action. ----
+    // ---- Ascendant duel take-back (Package DS4): dedicated pre-action snapshot undo. ----
 
     /**
      * When true (Ascendant default), single-player adventure duels enable Take back of the
-     * player's last land, spell or ability via {@code GameSnapshot} while nothing new has
-     * happened. Unlimited uses; no turn restart. Disabled in co-op duels. Old saves omit
-     * this key and keep the default.
+     * player's last land, spell or non-mana activation via a dedicated {@code GameSnapshot}
+     * taken right before that action, while the information epoch is unchanged. Unlimited
+     * uses; no turn restart. Does not enable {@code EXPERIMENTAL_RESTORE_SNAPSHOT}.
+     * Disabled in co-op duels. Old saves omit this key and keep the default.
      */
     public boolean duelTakeBackEnabled = true;
 

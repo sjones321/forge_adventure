@@ -104,17 +104,20 @@ public class Game {
     // While this is false here, its really set by the Match/Preferences
 
     /**
-     * DS4 Ascendant take-back: when true, a successful land/spell/ability retains the
-     * pre-action {@link #previousGameState} so the acting player can restore it while
-     * nothing new has happened. Requires {@link #EXPERIMENTAL_RESTORE_SNAPSHOT}.
+     * DS4 Ascendant take-back: when true, a dedicated pre-action snapshot may be taken
+     * for the human's own top-level land / spell / activation. Independent of
+     * {@link #EXPERIMENTAL_RESTORE_SNAPSHOT} (cancel-path plumbing).
      */
     public boolean TAKE_BACK_ENABLED = false;
 
     // If this merges with LKI In the future, it will need to change forms
     private GameSnapshot previousGameState = null;
-    /** Retained pre-action snapshot for DS4 take-back (not overwritten by cancel-path stash). */
+    /** Dedicated pre-action snapshot for DS4 take-back (never shares identity with cancel stash). */
     private GameSnapshot takeBackSnapshot = null;
     private Player takeBackOwner = null;
+    /** Information epoch: take-back is only legal while this equals {@link #takeBackEpoch}. */
+    private long informationEpoch = 0L;
+    private long takeBackEpoch = -1L;
     private CardCollection lastStateBattlefield = new CardCollection();
     private CardCollection lastStateGraveyard = new CardCollection();
 
@@ -228,26 +231,55 @@ public class Game {
     }
 
     /**
-     * After a successful land/spell/ability, keep the cancel-path stash as a take-back
-     * snapshot for {@code actor}. Call before the next {@link #stashGameState()} overwrites it.
+     * DS4: take one dedicated snapshot right before the human's own top-level action.
+     * Failures are swallowed — no snapshot means no Take back button.
+     *
+     * @return true if a snapshot was retained
      */
-    public void retainTakeBackSnapshot(final Player actor) {
-        if (!TAKE_BACK_ENABLED || !EXPERIMENTAL_RESTORE_SNAPSHOT || actor == null
-                || previousGameState == null) {
-            return;
+    public boolean captureTakeBackSnapshot(final Player actor) {
+        if (!TAKE_BACK_ENABLED || actor == null) {
+            return false;
         }
-        takeBackSnapshot = previousGameState;
-        takeBackOwner = actor;
-        updateTakeBackViews();
+        // Replace any prior snapshot; a new top-level action owns take-back.
+        clearTakeBackSnapshot();
+        try {
+            final GameSnapshot snap = new GameSnapshot(this);
+            snap.makeCopy();
+            takeBackSnapshot = snap;
+            takeBackOwner = actor;
+            takeBackEpoch = informationEpoch;
+            updateTakeBackViews();
+            return true;
+        } catch (final RuntimeException | Error e) {
+            clearTakeBackSnapshot();
+            return false;
+        }
     }
 
-    /** Clear take-back eligibility (draw, reveal, opponent, trigger, phase, pass, etc.). */
+    /**
+     * Bump the information epoch and clear take-back. Call on draws, shuffles, reveals,
+     * peeks, searches, randomness, opponent/AI decisions, triggers on the stack, passes,
+     * and phase changes. Fail-safe: unknown new information → locked.
+     */
+    public void bumpInformationEpoch() {
+        informationEpoch++;
+        if (takeBackSnapshot != null || takeBackOwner != null) {
+            clearTakeBackSnapshot();
+        }
+    }
+
+    /** Clear take-back eligibility without advancing the epoch. */
     public void invalidateTakeBack() {
-        if (takeBackSnapshot == null && takeBackOwner == null) {
+        clearTakeBackSnapshot();
+    }
+
+    private void clearTakeBackSnapshot() {
+        if (takeBackSnapshot == null && takeBackOwner == null && takeBackEpoch < 0L) {
             return;
         }
         takeBackSnapshot = null;
         takeBackOwner = null;
+        takeBackEpoch = -1L;
         updateTakeBackViews();
     }
 
@@ -255,15 +287,21 @@ public class Game {
         return takeBackOwner;
     }
 
+    public long getInformationEpoch() {
+        return informationEpoch;
+    }
+
     public boolean canTakeBack(final Player player) {
-        return TAKE_BACK_ENABLED && EXPERIMENTAL_RESTORE_SNAPSHOT
+        return TAKE_BACK_ENABLED
                 && takeBackSnapshot != null && takeBackOwner != null
-                && player != null && takeBackOwner.equals(player);
+                && player != null && takeBackOwner.equals(player)
+                && takeBackEpoch == informationEpoch;
     }
 
     /**
      * Restore the retained take-back snapshot for {@code player}.
-     * On failure the board is left unchanged (current state is re-applied from a backup).
+     * On failure the board is left unchanged when the backup restore succeeds.
+     * If the backup also fails, returns {@link TakeBackResult#CATASTROPHIC}.
      */
     public TakeBackResult takeBack(final Player player) {
         if (!canTakeBack(player)) {
@@ -275,22 +313,43 @@ public class Game {
             backup = new GameSnapshot(this);
             backup.makeCopy();
         } catch (final RuntimeException e) {
+            clearTakeBackSnapshot();
             return TakeBackResult.RESTORE_FAILED;
         }
         try {
             toRestore.restoreGameState(this);
-            invalidateTakeBack();
+            clearTakeBackSnapshot();
             getStack().clearUndoStack();
+            // Critical 2: a later cancel must not re-apply the taken-back action.
+            resetPreviousGameStateAfterTakeBack();
+            bumpInformationEpoch();
             return TakeBackResult.SUCCESS;
         } catch (final RuntimeException e) {
+            boolean backupOk = false;
             try {
                 if (backup != null) {
                     backup.restoreGameState(this);
+                    backupOk = true;
                 }
             } catch (final RuntimeException ignored) {
-                // Best effort: leave whatever state we have rather than throw.
+                backupOk = false;
             }
-            return TakeBackResult.RESTORE_FAILED;
+            clearTakeBackSnapshot();
+            return backupOk ? TakeBackResult.RESTORE_FAILED : TakeBackResult.CATASTROPHIC;
+        }
+    }
+
+    /** Re-stash cancel-path state to the restored board, or clear it. */
+    private void resetPreviousGameStateAfterTakeBack() {
+        if (!EXPERIMENTAL_RESTORE_SNAPSHOT) {
+            previousGameState = null;
+            return;
+        }
+        try {
+            previousGameState = new GameSnapshot(this);
+            previousGameState.makeCopy();
+        } catch (final RuntimeException e) {
+            previousGameState = null;
         }
     }
 

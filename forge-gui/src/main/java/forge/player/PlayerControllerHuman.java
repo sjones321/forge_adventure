@@ -2776,19 +2776,39 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
 
     @Override
     public boolean canTakeBackLastAction() {
-        return player != null && getGame().canTakeBack(player);
+        if (player == null || !getGame().canTakeBack(player)) {
+            return false;
+        }
+        // High: only while the human is in InputPassPriority with nothing in progress.
+        final Input current = inputQueue.getInput();
+        if (!(current instanceof InputPassPriority)) {
+            return false;
+        }
+        if (getGame().costPaymentStack.peek() != null) {
+            return false;
+        }
+        return true;
     }
 
     @Override
     public void takeBackLastAction() {
+        if (!ThreadUtil.isGameThread()) {
+            ThreadUtil.invokeInGameThread(this::tryTakeBackLastAction);
+            return;
+        }
         tryTakeBackLastAction();
     }
 
     /**
-     * DS4: restore the retained snapshot for this player. On failure shows a message
-     * and leaves the board unchanged. Net games request a full-state resync after success.
+     * DS4: restore the dedicated pre-action snapshot for this player. Must run on the
+     * game thread while in {@link InputPassPriority}. On failure shows a message and
+     * leaves the board unchanged; if the backup restore also fails, ends the duel cleanly.
      */
     public boolean tryTakeBackLastAction() {
+        if (!ThreadUtil.isGameThread()) {
+            ThreadUtil.invokeInGameThread(this::tryTakeBackLastAction);
+            return false;
+        }
         if (!canTakeBackLastAction()) {
             return false;
         }
@@ -2813,6 +2833,14 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
                 inputQueue.updateObservers();
             }
             return true;
+        }
+        if (result == TakeBackResult.CATASTROPHIC) {
+            if (getGui() != null) {
+                getGui().showMatchNote(Localizer.getInstance().getMessage("lblTakeBackCatastrophic"));
+            }
+            // End cleanly rather than leave a half-restored board.
+            player.concede();
+            return false;
         }
         if (result == TakeBackResult.RESTORE_FAILED && getGui() != null) {
             // Adventure duels: MatchScreen note via Classic.render — not FOptionPane.

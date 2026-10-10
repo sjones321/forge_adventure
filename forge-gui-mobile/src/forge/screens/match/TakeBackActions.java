@@ -5,9 +5,9 @@ import forge.adventure.coop.CoopDuelRuntime;
 import forge.adventure.coop.CoopSession;
 import forge.adventure.coop.CoopSessionRole;
 import forge.adventure.util.Config;
-import forge.game.player.PlayerView;
 import forge.interfaces.IGameController;
 import forge.util.Localizer;
+import forge.util.ThreadUtil;
 
 /**
  * DS4: Ascendant-gated take-back entry points for both duel screens.
@@ -33,24 +33,21 @@ public final class TakeBackActions {
     }
 
     /**
-     * Whether the local human may take back right now (snapshot retained and eligible).
-     * Always false during a co-op duel.
+     * Whether the local human may take back right now (dedicated snapshot retained,
+     * epoch unchanged, and {@link forge.gamemodes.match.input.InputPassPriority} with
+     * nothing in progress). Always false during a co-op duel.
      */
     public static boolean canTakeBack() {
         if (!featureEnabled() || isCoopDuel()) {
             return false;
-        }
-        final PlayerView local = MatchController.instance.getCurrentPlayer();
-        if (local != null && local.canTakeBack()) {
-            return true;
         }
         final IGameController gc = MatchController.instance.getGameController();
         return gc != null && gc.canTakeBackLastAction();
     }
 
     /**
-     * Perform take-back for the local player. In a co-op duel, shows a short note
-     * and does nothing (no wire events).
+     * Perform take-back for the local player on the game thread. In a co-op duel,
+     * shows a short note and does nothing (no wire events).
      */
     public static void takeBack() {
         if (!featureEnabled()) {
@@ -60,11 +57,12 @@ public final class TakeBackActions {
             notifyUnavailableInCoop();
             return;
         }
-        final IGameController gc = MatchController.instance.getGameController();
-        if (gc == null) {
+        if (!ThreadUtil.isGameThread()) {
+            ThreadUtil.invokeInGameThread(TakeBackActions::takeBack);
             return;
         }
-        if (!gc.canTakeBackLastAction()) {
+        final IGameController gc = MatchController.instance.getGameController();
+        if (gc == null || !gc.canTakeBackLastAction()) {
             return;
         }
         gc.takeBackLastAction();

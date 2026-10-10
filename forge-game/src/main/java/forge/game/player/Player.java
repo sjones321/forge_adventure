@@ -1169,7 +1169,7 @@ public class Player extends GameEntity implements Comparable<Player> {
         }
         // DS4: drawing cards reveals hidden information — lock take-back.
         if (!drawn.isEmpty() && game.getAge().ordinal() > GameStage.Mulligan.ordinal()) {
-            game.invalidateTakeBack();
+            game.bumpInformationEpoch();
         }
         return drawn;
     }
@@ -1634,7 +1634,7 @@ public class Player extends GameEntity implements Comparable<Player> {
         // Play the shuffle sound
         game.fireEvent(new GameEventShuffle(this));
         // DS4: shuffle randomizes hidden info — lock take-back.
-        game.invalidateTakeBack();
+        game.bumpInformationEpoch();
     }
 
     public final Card playLand(final Card land, SpellAbility cause) {

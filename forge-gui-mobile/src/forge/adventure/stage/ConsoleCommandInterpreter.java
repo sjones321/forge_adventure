@@ -7,11 +7,9 @@ import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
 import forge.Forge;
 import forge.StaticData;
-import forge.adventure.character.EnemySprite;
 import forge.adventure.character.PlayerSprite;
 import forge.adventure.data.*;
 import forge.adventure.pointofintrest.PointOfInterest;
-import forge.adventure.scene.DuelScene;
 import forge.adventure.scene.InnScene;
 import forge.adventure.scene.InventoryScene;
 import forge.adventure.util.AdventureEventController;
@@ -31,7 +29,6 @@ import forge.item.PaperCard;
 import forge.model.CardBlock;
 import forge.model.FModel;
 import forge.screens.CoverScreen;
-import forge.screens.TransitionScreen;
 import forge.util.Aggregates;
 import forge.util.ScreenUtil;
 
@@ -602,33 +599,6 @@ public class ConsoleCommandInterpreter {
             GameHUD.getInstance().setDebug(false);
             currentGameStage().debugCollision(false);
             return "Debug map and collision OFF";
-        });
-        // DS4 screenshot helper: force-start a single-player adventure duel (overworld).
-        registerCommand(new String[]{"debug", "duel"}, s -> {
-            final String enemyName = s.length < 1 ? "Goblin" : String.join(" ", s);
-            final EnemyData data = WorldData.getEnemy(enemyName);
-            if (data == null) {
-                return "Can not find enemy " + enemyName;
-            }
-            if (MapStage.getInstance().isInMap()) {
-                MapStage.getInstance().exitDungeon(false, false);
-            }
-            final WorldStage ws = WorldStage.getInstance();
-            final PlayerSprite playerSprite = ws.getPlayerSprite();
-            if (playerSprite == null) {
-                return "No player sprite";
-            }
-            final EnemySprite mob = new EnemySprite(data);
-            mob.setPosition(playerSprite.getX() + 24f, playerSprite.getY());
-            FThreads.invokeInEdtNowOrLater(() -> {
-                final DuelScene duelScene = DuelScene.instance();
-                Forge.setTransitionScreen(new TransitionScreen(() -> {
-                    duelScene.initDuels(playerSprite, mob);
-                    Forge.switchScene(duelScene);
-                }, ScreenUtil.getInstance().takeScreenshot(), true, false, false, false, "",
-                        Current.player().avatar(), mob.getAtlasPath(), Current.player().getName(), mob.getName()));
-            });
-            return "Starting duel vs " + enemyName;
         });
         registerCommand(new String[]{"remove", "enemy", "all"}, s -> {
             if (!MapStage.getInstance().isInMap()) {
