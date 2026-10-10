@@ -138,7 +138,7 @@ Vulkan backend rather than assuming a PyTorch ROCm install will fix it.
 | Test succeeds, duel still uses Forge AI | Enable the checkbox; Planes of Nothing only. Co-op: configure the **host**. |
 | Slow turns / timeouts | Raise timeout slightly, use a smaller/faster model, or disable LLM (Forge AI continues). |
 | Malformed / ignored answers | Prefer instruct models that follow “reply only with JSON”. Forge AI is used for that decision. |
-| AI stuck after mulligan to 0 / never acts | AI1 mulligan floor (default 5) and empty-hand keep fix stop London from looping. If still stuck, disable LLM (Forge AI) or lower timeout; check `llm_decisions.log` for WATCHDOG lines (key is never logged). |
+| AI stuck after mulligan to 0 / never acts | AI1 mulligan floor (default 5) and empty-hand keep fix stop London from looping. If still stuck, disable LLM (Forge AI) or lower timeout; check `llm_decisions.log` for WATCHDOG lines (key is never logged). Watchdog/timeout fallbacks are **log-only** — Adventure does not show them via `FOptionPane`/`SOptionPane` (those dialogs do not draw in adventure scenes). |
 | Key worries | Clear the key field and save; delete `apiKey` from `llm_opponent.properties`; never paste the key into chat logs. |
 
 ## Related code

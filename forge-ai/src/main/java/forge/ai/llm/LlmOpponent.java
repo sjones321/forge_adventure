@@ -145,7 +145,11 @@ public final class LlmOpponent {
         return s == null ? LlmSettings.DEFAULT_PRIORITY_WATCHDOG_SECONDS : s.getPriorityWatchdogSeconds();
     }
 
-    /** Log a watchdog fallback (never log the API key or prompt secrets). */
+    /**
+     * Log a watchdog fallback (never log the API key or prompt secrets).
+     * Log-only on purpose: Adventure scenes do not draw {@code FOptionPane}/{@code SOptionPane}
+     * reliably — do not pop a dialog here; use {@code llm_decisions.log} / the game battle log.
+     */
     public static void logWatchdogFallback(String decisionKind) {
         log("----- WATCHDOG: AI made no progress on " + decisionKind
                 + " within " + getPriorityWatchdogSeconds() + "s; falling back to Forge AI");
