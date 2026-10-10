@@ -257,7 +257,7 @@ public enum TrackableProperty {
     Object(TrackableTypes.ObjectType, FreezeMode.IgnoresFreeze),
     Dependencies(TrackableTypes.StringType),
 
-    /** DS4: this player may take back their last land/spell/ability. Appended — do not insert mid-enum. */
+    /** DS4: this player may take back their last land play or spell cast. Appended — do not insert mid-enum. */
     CanTakeBack(TrackableTypes.BooleanType, FreezeMode.IgnoresFreeze);
 
     public enum FreezeMode {

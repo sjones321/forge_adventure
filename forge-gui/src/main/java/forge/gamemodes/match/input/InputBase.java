@@ -81,9 +81,15 @@ public abstract class InputBase implements java.io.Serializable, Input {
 
     protected abstract void showMessage();
 
+    /** DS4 M3: ignore GUI clicks while a take-back restore is in progress on the loop thread. */
+    private boolean rejectDuringTakeBack() {
+        return getController() != null && getController().getGame() != null
+                && getController().getGame().isTakeBackInProgress();
+    }
+
     @Override
     public final void selectPlayer(final Player player, final ITriggerEvent triggerEvent) {
-        if (isFinished()) { return; }
+        if (isFinished() || rejectDuringTakeBack()) { return; }
         onPlayerSelected(player, triggerEvent);
     }
 
@@ -94,19 +100,19 @@ public abstract class InputBase implements java.io.Serializable, Input {
 
     @Override
     public final void selectButtonCancel() {
-        if (isFinished()) { return; }
+        if (isFinished() || rejectDuringTakeBack()) { return; }
         onCancel();
     }
 
     @Override
     public final void selectButtonOK() {
-        if (isFinished()) { return; }
+        if (isFinished() || rejectDuringTakeBack()) { return; }
         onOk();
     }
 
     @Override
     public final boolean selectCard(final Card c, final List<Card> otherCardsToSelect, final ITriggerEvent triggerEvent) {
-        if (isFinished()) { return false; }
+        if (isFinished() || rejectDuringTakeBack()) { return false; }
         return onCardSelected(c, otherCardsToSelect, triggerEvent);
     }
 

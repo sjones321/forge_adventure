@@ -102,6 +102,8 @@ public class HumanCostDecision extends CostDecisionMakerBase {
 
         if (discardType.equals("Random")) {
             CardCollectionView randomSubset = new CardCollection(Aggregates.random(hand, c));
+            // DS4: random discard as a cost reveals hidden information — lock take-back.
+            player.getGame().bumpInformationEpoch();
             if (randomSubset.size() > 1 && ability.getActivatingPlayer() != null) {
                 randomSubset = ability.getActivatingPlayer().getController().orderMoveToZoneList(randomSubset, ZoneType.Graveyard, ability);
             }

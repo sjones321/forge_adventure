@@ -118,6 +118,10 @@ public class Game {
     /** Information epoch: take-back is only legal while this equals {@link #takeBackEpoch}. */
     private long informationEpoch = 0L;
     private long takeBackEpoch = -1L;
+    /** Player who requested take-back while InputPassPriority was blocked (M3). */
+    private Player pendingTakeBackPlayer = null;
+    /** True while {@link #takeBack} is restoring — inputs must reject clicks (M3). */
+    private volatile boolean takeBackInProgress = false;
     private CardCollection lastStateBattlefield = new CardCollection();
     private CardCollection lastStateGraveyard = new CardCollection();
 
@@ -293,15 +297,45 @@ public class Game {
 
     public boolean canTakeBack(final Player player) {
         return TAKE_BACK_ENABLED
+                && !takeBackInProgress
                 && takeBackSnapshot != null && takeBackOwner != null
                 && player != null && takeBackOwner.equals(player)
                 && takeBackEpoch == informationEpoch;
     }
 
     /**
+     * M3: queue a take-back for {@code player}. The game-loop thread runs it after
+     * {@link forge.gamemodes.match.input.InputPassPriority} is released — never on a
+     * pool thread via {@code GameAction.invoke}.
+     */
+    public void requestTakeBack(final Player player) {
+        pendingTakeBackPlayer = player;
+    }
+
+    public boolean hasPendingTakeBack(final Player player) {
+        return player != null && player.equals(pendingTakeBackPlayer);
+    }
+
+    public boolean hasPendingTakeBack() {
+        return pendingTakeBackPlayer != null;
+    }
+
+    /** Clear a pending request without restoring. Returns the player if one was pending. */
+    public Player clearPendingTakeBack() {
+        final Player p = pendingTakeBackPlayer;
+        pendingTakeBackPlayer = null;
+        return p;
+    }
+
+    public boolean isTakeBackInProgress() {
+        return takeBackInProgress;
+    }
+
+    /**
      * Restore the retained take-back snapshot for {@code player}.
      * On failure the board is left unchanged when the backup restore succeeds.
      * If the backup also fails, returns {@link TakeBackResult#CATASTROPHIC}.
+     * Must run on the game-loop thread (see {@link #requestTakeBack}).
      */
     /**
      * Test seam: when non-null, {@link #takeBack} uses this snapshot as the post-failure
@@ -310,43 +344,51 @@ public class Game {
     GameSnapshot takeBackBackupOverride = null;
 
     public TakeBackResult takeBack(final Player player) {
-        // M3: serialise against concurrent GUI / pool-thread mutations.
-        synchronized (this) {
-            if (!canTakeBack(player)) {
-                return TakeBackResult.NOT_AVAILABLE;
-            }
-            final GameSnapshot toRestore = takeBackSnapshot;
-            GameSnapshot backup = takeBackBackupOverride;
-            if (backup == null) {
-                try {
-                    backup = new GameSnapshot(this);
-                    backup.makeCopy();
-                } catch (final RuntimeException | Error e) {
-                    clearTakeBackSnapshot();
-                    return TakeBackResult.RESTORE_FAILED;
+        // M3: reject concurrent clicks; flag is visible to InputBase without holding the lock.
+        takeBackInProgress = true;
+        try {
+            synchronized (this) {
+                if (!TAKE_BACK_ENABLED
+                        || takeBackSnapshot == null || takeBackOwner == null
+                        || player == null || !takeBackOwner.equals(player)
+                        || takeBackEpoch != informationEpoch) {
+                    return TakeBackResult.NOT_AVAILABLE;
                 }
-            }
-            try {
-                toRestore.restoreGameState(this);
-                clearTakeBackSnapshot();
-                getStack().clearUndoStack();
-                // Critical 2: a later cancel must not re-apply the taken-back action.
-                resetPreviousGameStateAfterTakeBack();
-                bumpInformationEpoch();
-                return TakeBackResult.SUCCESS;
-            } catch (final RuntimeException | Error e) {
-                boolean backupOk = false;
-                try {
-                    if (backup != null) {
-                        backup.restoreGameState(this);
-                        backupOk = true;
+                final GameSnapshot toRestore = takeBackSnapshot;
+                GameSnapshot backup = takeBackBackupOverride;
+                if (backup == null) {
+                    try {
+                        backup = new GameSnapshot(this);
+                        backup.makeCopy();
+                    } catch (final RuntimeException | Error e) {
+                        clearTakeBackSnapshot();
+                        return TakeBackResult.RESTORE_FAILED;
                     }
-                } catch (final RuntimeException | Error ignored) {
-                    backupOk = false;
                 }
-                clearTakeBackSnapshot();
-                return backupOk ? TakeBackResult.RESTORE_FAILED : TakeBackResult.CATASTROPHIC;
+                try {
+                    toRestore.restoreGameState(this);
+                    clearTakeBackSnapshot();
+                    getStack().clearUndoStack();
+                    // Critical 2: a later cancel must not re-apply the taken-back action.
+                    resetPreviousGameStateAfterTakeBack();
+                    bumpInformationEpoch();
+                    return TakeBackResult.SUCCESS;
+                } catch (final RuntimeException | Error e) {
+                    boolean backupOk = false;
+                    try {
+                        if (backup != null) {
+                            backup.restoreGameState(this);
+                            backupOk = true;
+                        }
+                    } catch (final RuntimeException | Error ignored) {
+                        backupOk = false;
+                    }
+                    clearTakeBackSnapshot();
+                    return backupOk ? TakeBackResult.RESTORE_FAILED : TakeBackResult.CATASTROPHIC;
+                }
             }
+        } finally {
+            takeBackInProgress = false;
         }
     }
 

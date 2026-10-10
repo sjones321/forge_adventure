@@ -78,7 +78,7 @@ public final class GameMenu {
         return menuItem;
     }
 
-    /** DS4: Take back last land/spell/ability (snapshot restore). Ctrl+Z is on KeyboardShortcuts only. */
+    /** DS4: Take back last land play or spell cast (snapshot restore). Ctrl+Z is on KeyboardShortcuts only. */
     private SkinnedMenuItem getMenuItem_TakeBack() {
         final Localizer localizer = Localizer.getInstance();
         final SkinnedMenuItem menuItem = new SkinnedMenuItem(localizer.getMessage("lblTakeBack"));

@@ -85,6 +85,12 @@ public class PlaySpellAbility {
         Card source = sa.getHostCard();
         sa.setActivatingPlayer(p);
 
+        // DS4: playing a land or spell from the library top (Courser, Future Sight,
+        // Bolas's Citadel) reveals the next card — lock take-back.
+        if (source.isInZone(ZoneType.Library) && (sa.isLandAbility() || sa.isSpell())) {
+            p.getGame().bumpInformationEpoch();
+        }
+
         if (sa.isLandAbility()) {
             if (sa.canPlay()) {
                 sa.resolve();

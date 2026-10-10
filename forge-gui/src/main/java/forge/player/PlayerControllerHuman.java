@@ -2792,24 +2792,53 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
 
     @Override
     public void takeBackLastAction() {
-        // M3: serialise via GameAction.invoke (same path as other in-game UI mutations).
-        getGame().getAction().invoke(this::tryTakeBackLastAction);
+        // M3: do NOT GameAction.invoke (pool thread). Request restore on the game-loop
+        // thread by releasing InputPassPriority; PhaseHandler calls resolvePendingTakeBack.
+        if (!canTakeBackLastAction()) {
+            return;
+        }
+        getGame().requestTakeBack(player);
+        final Input current = inputQueue.getInput();
+        if (current instanceof InputPassPriority ipp) {
+            ipp.stop();
+            return;
+        }
+        // Already on the game-loop thread with no blocking input — restore inline.
+        if (ThreadUtil.isGameThread()) {
+            resolvePendingTakeBack();
+        }
     }
 
     /**
-     * DS4: restore the dedicated pre-action snapshot for this player. Must run on the
-     * game thread while in {@link InputPassPriority}. On failure shows a message and
-     * leaves the board unchanged; if the backup restore also fails, ends the duel cleanly.
+     * DS4 M3: called on the game-loop thread after InputPassPriority was stopped for a
+     * take-back request. Handles restore result messaging / concede.
+     */
+    @Override
+    public void resolvePendingTakeBack() {
+        final Player pending = getGame().clearPendingTakeBack();
+        if (pending == null || !pending.equals(player)) {
+            return;
+        }
+        applyTakeBackResult(getGame().takeBack(player));
+    }
+
+    /**
+     * DS4: restore while already on the game-loop thread in {@link InputPassPriority}
+     * (tests / inline path). On failure shows a message; CATASTROPHIC concedes cleanly.
      */
     public boolean tryTakeBackLastAction() {
         if (!ThreadUtil.isGameThread()) {
-            getGame().getAction().invoke(this::tryTakeBackLastAction);
+            // Never restore on a pool thread — bounce through the pending/stop path.
+            takeBackLastAction();
             return false;
         }
         if (!canTakeBackLastAction()) {
             return false;
         }
-        final TakeBackResult result = getGame().takeBack(player);
+        return applyTakeBackResult(getGame().takeBack(player));
+    }
+
+    private boolean applyTakeBackResult(final TakeBackResult result) {
         if (result == TakeBackResult.SUCCESS) {
             final Input currentInput = inputQueue.getInput();
             if (currentInput instanceof InputPassPriority) {
@@ -2837,6 +2866,13 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
             }
             // H2: end cleanly via the controller concede path (not player.concede alone).
             this.concede();
+            // Release any blocked priority input (stop removes it from the queue).
+            final Input current = inputQueue.getInput();
+            if (current instanceof InputPassPriority ipp) {
+                ipp.stop();
+            } else {
+                inputQueue.onGameOver(true);
+            }
             return false;
         }
         if (result == TakeBackResult.RESTORE_FAILED && getGui() != null) {

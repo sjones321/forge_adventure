@@ -93,6 +93,18 @@ public abstract class PlayerController {
     public Player getPlayer() { return player; }
     public LobbyPlayer getLobbyPlayer() { return lobbyPlayer; }
 
+    /**
+     * DS4 M3: run a pending take-back on the game-loop thread after InputPassPriority
+     * was released. Default restores via {@link Game#takeBack}; human controllers add UI.
+     */
+    public void resolvePendingTakeBack() {
+        final Game game = getGame();
+        final Player pending = game.clearPendingTakeBack();
+        if (pending != null && pending.equals(player)) {
+            game.takeBack(pending);
+        }
+    }
+
     public void tempShowCards(final Iterable<Card> cards) { } // show cards in UI until ended
     public void endTempShowCards() { }
 

@@ -1056,6 +1056,13 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
 
                 chosenSa = pPlayerPriority.getController().chooseSpellAbilityToPlay();
 
+                // M3: take-back requested from the GUI released InputPassPriority — run restore
+                // on THIS game-loop thread before treating the return as a pass or play.
+                if (game.hasPendingTakeBack(pPlayerPriority)) {
+                    pPlayerPriority.getController().resolvePendingTakeBack();
+                    continue;
+                }
+
                 // this needs to come after chosenSa so it sees you conceding on own turn
                 if (playerTurn.hasLost() && pPlayerPriority.equals(playerTurn) && pFirstPriority.equals(playerTurn)) {
                     // If the active player has lost, and they have priority, set the next player to have priority
@@ -1084,12 +1091,16 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                     final Zone originZone = saHost.getZone();
                     final CardZoneTable triggerList = new CardZoneTable(game.getLastStateBattlefield(), game.getLastStateGraveyard());
 
-                    // DS4: dedicated snapshot only right before the human's own top-level action.
+                    // DS4: dedicated snapshot only right before the human's own top-level land/spell.
+                    // H-A: any other owner action (activated/PW ability, suspend/plot/unmorph, …)
+                    // after a captured spell must invalidate the prior snapshot.
                     boolean captured = false;
-                    if (game.TAKE_BACK_ENABLED
-                            && !pPlayerPriority.getController().isAI()
-                            && isTakeBackTopLevelAction(sa)) {
-                        captured = game.captureTakeBackSnapshot(pPlayerPriority);
+                    if (game.TAKE_BACK_ENABLED && !pPlayerPriority.getController().isAI()) {
+                        if (isTakeBackTopLevelAction(sa)) {
+                            captured = game.captureTakeBackSnapshot(pPlayerPriority);
+                        } else if (game.canTakeBack(pPlayerPriority)) {
+                            game.invalidateTakeBack();
+                        }
                     }
 
                     if (pPlayerPriority.getController().playChosenSpellAbility(sa)) {

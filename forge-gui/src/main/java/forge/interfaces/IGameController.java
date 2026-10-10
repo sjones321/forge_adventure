@@ -40,7 +40,7 @@ public interface IGameController {
     void undoLastAction();
 
     /**
-     * DS4: whether this controller's player may take back their last land/spell/ability.
+     * DS4: whether this controller's player may take back their last land play or spell cast.
      * Default false for watchers / stubs.
      */
     default boolean canTakeBackLastAction() {
