@@ -340,7 +340,11 @@ public class CardUtil {
                 if (candidate != null) {
                     if (SourcePrintings.enabled()) {
                         // CS0: pin to source set / rotation; never random variants.
-                        result.add(SourcePrintings.resolve(candidate, data));
+                        // resolve may return null when allowedEditions excludes every printing.
+                        PaperCard resolved = SourcePrintings.resolve(candidate, data);
+                        if (resolved != null) {
+                            result.add(resolved);
+                        }
                     } else if (allCardVariants) {
                         // Get a random variant, preserving edition when specified
                         PaperCard finalCandidate = CardUtil.getCardByNameAndEdition(candidate.getCardName(), candidate.getEdition());
