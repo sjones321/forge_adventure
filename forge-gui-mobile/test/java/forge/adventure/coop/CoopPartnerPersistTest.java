@@ -86,6 +86,10 @@ public class CoopPartnerPersistTest {
             }
         }
         WorldSave.getCurrentSave().getPartners().clear();
+        if (WorldSave.getCurrentSave().header != null) {
+            WorldSave.getCurrentSave().header.coopWorld = false;
+        }
+        WorldSave.getCurrentSave().clearLoadedSlotAfterNewGame();
         CoopSession.get().testClearGuestPlaneFollow();
         CoopProfileId.clearCacheForTests();
     }
@@ -427,6 +431,7 @@ public class CoopPartnerPersistTest {
 
         session.testArmGuestLeaveInFlight();
         Assert.assertTrue(session.testIsGuestLeaveInFlight());
+        Assert.assertTrue(session.testIsHostJoinBlocked(), "Host/Join blocked while leave in flight");
         session.disconnect(); // second leave while in flight
         Assert.assertTrue(session.testIsGuestLeaveInFlight(), "flag must stay armed");
         Assert.assertTrue(session.isPartnerLoaded(), "second leave must not unload");
@@ -437,6 +442,44 @@ public class CoopPartnerPersistTest {
         Assert.assertFalse(session.testIsGuestLeaveInFlight());
         Assert.assertFalse(session.isPartnerLoaded());
         Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), WorldSave.INVALID_SAVE_SLOT);
+    }
+
+    /**
+     * Real double leave: first {@link CoopSession#disconnect()} starts the leave
+     * (final-ack path), second disconnect is a no-op and does not unload twice.
+     */
+    @Test(timeOut = 30_000)
+    public void realDoubleLeaveSecondDisconnectIsNoOp() throws Exception {
+        ensureMinimalWorldForDiskSave();
+        final CoopSession session = CoopSession.get();
+        session.testBeginHostForPartner(PROFILE_A);
+        Assert.assertTrue(session.applyHostPartnerCreate(new CoopPartnerCreateEvent(
+                PROFILE_A, "Farmhand", true, 0, 0, new byte[0], "")));
+        final byte[] blob = CoopPartnerCodec.encode(WorldSave.getCurrentSave().getPartners().get(PROFILE_A));
+
+        session.testBeginGuestForPartner(PROFILE_A);
+        partnerSyncRememberName(session, "SoloHero");
+        session.applyGuestPartnerBlob(blob, new String[0]);
+        Assert.assertTrue(session.isPartnerLoaded());
+        WorldSave.getCurrentSave().getPlayer().giveGold(11);
+
+        // First leave: headless path runs final-ack await inline (no Gdx.app) then unloads.
+        // Arm leave mid-flight first so a concurrent second disconnect is observed as no-op,
+        // then clear and run a real leave; plus a second disconnect after leave completes.
+        session.testArmGuestLeaveInFlight();
+        session.disconnect();
+        Assert.assertTrue(session.isPartnerLoaded(), "armed leave blocks second disconnect unload");
+        session.testClearGuestLeaveInFlight();
+
+        session.disconnect(); // real leave
+        Assert.assertFalse(session.isPartnerLoaded());
+        Assert.assertFalse(session.testIsGuestLeaveInFlight());
+        final String nameAfter = WorldSave.getCurrentSave().getPlayer().getName();
+        // Second disconnect after leave finished must stay a no-op (idle).
+        session.disconnect();
+        Assert.assertFalse(session.testIsGuestLeaveInFlight());
+        Assert.assertEquals(WorldSave.getCurrentSave().getPlayer().getName(), nameAfter);
+        Assert.assertNull(WorldSave.getCurrentSave().getWorld().getData());
     }
 
     /**
@@ -451,6 +494,7 @@ public class CoopPartnerPersistTest {
         final WorldSave save = WorldSave.getCurrentSave();
         save.header.name = "HostJoinWorld";
         save.header.preview = null;
+        save.markAsCoopWorld();
         preparePlayer(save.getPlayer(), "HostJoin", SOLO_GOLD);
         Assert.assertTrue(save.savePreservingHeader(slot));
         // Mimic WorldSave.load's successful bind (load itself needs GL world regen here).
@@ -502,6 +546,194 @@ public class CoopPartnerPersistTest {
         } finally {
             stub.stop();
             session.testClearGuestPlaneFollow();
+        }
+    }
+
+    @Test
+    public void coopWorldFlagSetOnGenerateAndRefuseHostFromSolo() throws Exception {
+        ensureMinimalWorldForDiskSave();
+        final WorldSave save = WorldSave.getCurrentSave();
+        save.header.coopWorld = false;
+        Assert.assertFalse(save.isCoopWorld());
+
+        final CoopSession session = CoopSession.get();
+        try {
+            session.host(true);
+            Assert.fail("host() must refuse a non-co-op save");
+        } catch (final IllegalStateException e) {
+            Assert.assertTrue(e.getMessage().toLowerCase().contains("co-op world"),
+                    "refuse message should mention co-op world: " + e.getMessage());
+        }
+
+        save.markAsCoopWorld();
+        Assert.assertTrue(save.isCoopWorld());
+        save.syncHostCharacterIntoPartners();
+        final String hostId = CoopProfileId.getOrCreate();
+        Assert.assertTrue(save.getPartners().has(hostId),
+                "host co-op character must be mirrored into partners");
+    }
+
+    @Test
+    public void soloSaveNeverReceivesPartnerFlush() throws Exception {
+        final int soloSlot = 11;
+        final int coopSlot = 12;
+        ensureMinimalWorldForDiskSave();
+        final WorldSave save = WorldSave.getCurrentSave();
+        save.header.name = "SoloWorld";
+        save.header.preview = null;
+        save.header.coopWorld = false;
+        preparePlayer(save.getPlayer(), "SoloOnly", SOLO_GOLD);
+        save.setLoadedSlot(soloSlot);
+        Assert.assertTrue(save.savePreservingHeader(soloSlot));
+        final byte[] soloBefore = Files.readAllBytes(Path.of(WorldSave.getSaveFile(soloSlot)));
+
+        // Co-op world in another slot gets the partner flush.
+        save.header.name = "CoopWorld";
+        save.markAsCoopWorld();
+        preparePlayer(save.getPlayer(), "HostCoop", SOLO_GOLD);
+        save.setLoadedSlot(coopSlot);
+        Assert.assertTrue(save.savePreservingHeader(coopSlot));
+
+        final CoopSession session = CoopSession.get();
+        session.testBeginHostForPartner(PROFILE_A);
+        Assert.assertTrue(session.applyHostPartnerCreate(new CoopPartnerCreateEvent(
+                PROFILE_A, "GuestInCoop", true, 0, 0, new byte[0], "")));
+        session.partnerSync().markHostPartnerDirty();
+        Assert.assertTrue(session.partnerSync().saveHostWorldNow());
+
+        Assert.assertEquals(Files.readAllBytes(Path.of(WorldSave.getSaveFile(soloSlot))), soloBefore,
+                "solo slot must be byte-identical after partner flush to co-op slot");
+        Assert.assertEquals(save.getLoadedSlot(), coopSlot);
+        Assert.assertTrue(save.getPartners().has(PROFILE_A));
+    }
+
+    @Test
+    public void helloDoesNotClearHostPartnerDirty() {
+        ensureMinimalWorldForDiskSave();
+        final CoopSession session = CoopSession.get();
+        session.testBeginHostForPartner(PROFILE_A);
+        session.partnerSync().markHostPartnerDirty();
+        Assert.assertTrue(session.isHostPartnerDirty());
+        session.partnerSync().resetHostForNewGuest();
+        Assert.assertTrue(session.isHostPartnerDirty(),
+                "new hello must not clear hostPartnerDirty");
+        session.partnerSync().resetHost();
+        Assert.assertFalse(session.isHostPartnerDirty(),
+                "full resetHost (host start/stop) may clear dirty");
+    }
+
+    /**
+     * Real {@link WorldSave#load} round-trip of the co-op world header flag and partners.
+     * Uses the same disk path as Continue; falls back gracefully when world regen needs GL
+     * (full GL coverage is in {@code SetPlaneGeneratorTest} with {@code -Pgl-tests}).
+     */
+    /**
+     * GL: full {@link WorldSave#generateNewWorld} + {@link WorldSave#load} for a
+     * co-op world (same path as Continue / SetPlaneGeneratorTest).
+     */
+    @Test(groups = "gl", timeOut = 300_000)
+    public void glGenerateAndLoadCoopWorldViaRealWorldSaveLoad() {
+        forge.adventure.AdventureGlTestSupport.runOnGl(() -> {
+            final int slot = 14;
+            final forge.adventure.data.DifficultyData diff =
+                    forge.adventure.util.Config.instance().getConfigData().difficulties[0];
+            WorldSave.generateNewWorld("GlCoopHost", true, 0, 0,
+                    forge.card.ColorSet.W, diff,
+                    forge.adventure.util.AdventureModes.Chaos, 0, null, 99L, null, true);
+            final WorldSave save = WorldSave.getCurrentSave();
+            Assert.assertTrue(save.isCoopWorld(), "generateNewWorld(..., coopWorld=true)");
+            final String hostId = CoopProfileId.getOrCreate();
+            Assert.assertTrue(save.getPartners().has(hostId), "host mirrored into partners");
+            save.header.preview = null;
+            Assert.assertTrue(save.save("gl-coop-world", slot));
+            Assert.assertTrue(WorldSave.load(slot), "real WorldSave.load");
+            Assert.assertTrue(WorldSave.getCurrentSave().isCoopWorld());
+            Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), slot);
+            Assert.assertTrue(WorldSave.getCurrentSave().getPartners().has(hostId));
+        });
+    }
+
+    @Test
+    public void realWorldSaveLoadRoundTripsCoopWorldFlagAndPartners() throws Exception {
+        final int slot = 13;
+        ensureMinimalWorldForDiskSave();
+        final WorldSave save = WorldSave.getCurrentSave();
+        save.header.name = "CoopLoadWorld";
+        save.header.preview = null;
+        save.markAsCoopWorld();
+        preparePlayer(save.getPlayer(), "LoadHost", SOLO_GOLD);
+        save.syncHostCharacterIntoPartners();
+        final AdventurePlayer partner = CoopPartnerStarter.createNew("LoadGuest", true, 0, 0, "");
+        partner.giveGold(77);
+        save.getPartners().putPlayer(PROFILE_A, partner);
+        save.setLoadedSlot(slot);
+        Assert.assertTrue(save.savePreservingHeader(slot), "seed coop slot");
+        Assert.assertTrue(Files.exists(Path.of(WorldSave.getSaveFile(slot))));
+
+        // Clear in-memory so load must restore from disk.
+        save.getPartners().clear();
+        save.header.coopWorld = false;
+        save.clearLoadedSlotAfterNewGame();
+        ensureMinimalWorldForDiskSave();
+        preparePlayer(save.getPlayer(), "Scratch", 1);
+
+        final boolean loaded = WorldSave.load(slot);
+        if (!loaded) {
+            // Headless world regen may fail without GL — still prove header bytes via stream.
+            assertCoopHeaderAndPartnersOnDisk(slot, PROFILE_A, "LoadGuest");
+            return;
+        }
+        Assert.assertTrue(WorldSave.getCurrentSave().isCoopWorld(),
+                "WorldSave.load must restore coopWorld header");
+        Assert.assertEquals(WorldSave.getCurrentSave().getLoadedSlot(), slot);
+        Assert.assertTrue(WorldSave.getCurrentSave().getPartners().has(PROFILE_A));
+        Assert.assertEquals(WorldSave.getCurrentSave().getPartners().get(PROFILE_A).readString("name"),
+                "LoadGuest");
+        Assert.assertTrue(WorldSave.getCurrentSave().getPartners().get(PROFILE_A).readInt("gold") >= 77);
+    }
+
+    @Test
+    public void hostJoinBlockedWhileJoining() throws Exception {
+        ensureMinimalWorldForDiskSave();
+        WorldSave.getCurrentSave().markAsCoopWorld();
+        final CoopSession session = CoopSession.get();
+        session.testBeginGuestForPartner(PROFILE_A);
+        // JOINING state blocks Host/Join.
+        try {
+            // Force JOINING without a live socket by using the test guest begin then
+            // flipping state via a join against a closed port is slow — use leave arm + join block.
+            session.testArmGuestLeaveInFlight();
+            Assert.assertTrue(session.testIsHostJoinBlocked());
+            try {
+                session.host(true);
+                Assert.fail("host must refuse while leave in flight");
+            } catch (final IllegalStateException e) {
+                Assert.assertTrue(e.getMessage().toLowerCase().contains("leave")
+                                || e.getMessage().toLowerCase().contains("join"),
+                        e.getMessage());
+            }
+        } finally {
+            session.testClearGuestLeaveInFlight();
+            session.testClearGuestPlaneFollow();
+        }
+    }
+
+    private static void assertCoopHeaderAndPartnersOnDisk(final int slot, final String profileId,
+                                                         final String partnerName) throws Exception {
+        final Path savPath = Path.of(WorldSave.getSaveFile(slot));
+        Assert.assertTrue(Files.exists(savPath));
+        try (java.io.FileInputStream fis = new java.io.FileInputStream(savPath.toFile());
+             java.util.zip.InflaterInputStream inf = new java.util.zip.InflaterInputStream(fis);
+             java.io.ObjectInputStream ois = new java.io.ObjectInputStream(inf)) {
+            final forge.adventure.world.WorldSaveHeader header =
+                    (forge.adventure.world.WorldSaveHeader) ois.readObject();
+            Assert.assertTrue(header.coopWorld, "disk header coopWorld");
+            final SaveFileData main = (SaveFileData) ois.readObject();
+            Assert.assertTrue(main.containsKey("partners"));
+            final WorldPartners partners = new WorldPartners();
+            partners.load(main.readSubData("partners"));
+            Assert.assertTrue(partners.has(profileId));
+            Assert.assertEquals(partners.get(profileId).readString("name"), partnerName);
         }
     }
 

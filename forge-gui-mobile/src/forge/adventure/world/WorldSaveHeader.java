@@ -5,7 +5,9 @@ import com.badlogic.gdx.utils.Disposable;
 import forge.adventure.util.Serializer;
 import forge.util.ScreenUtil;
 
+import java.io.EOFException;
 import java.io.IOException;
+import java.io.OptionalDataException;
 import java.util.Date;
 
 /**
@@ -16,6 +18,12 @@ public class WorldSaveHeader implements java.io.Serializable, Disposable {
     public Pixmap preview;
     public String name;
     public Date saveDate;
+    /**
+     * CO5 amendment: true when this save is a co-op world (New Game "Co-op world" or
+     * one-time convert). Hosting is refused unless this flag is set. Solo saves stay false
+     * and never receive co-op / partner progress.
+     */
+    public boolean coopWorld;
 
     private void writeObject(java.io.ObjectOutputStream out) throws IOException {
 
@@ -23,6 +31,7 @@ public class WorldSaveHeader implements java.io.Serializable, Disposable {
         // Null-safe: headless / partner-flush tests must not allocate a Pixmap just to serialize.
         Serializer.WritePixmap(out, preview, false);
         out.writeObject(saveDate);
+        out.writeBoolean(coopWorld);
     }
 
     private void readObject(java.io.ObjectInputStream in) throws IOException, ClassNotFoundException {
@@ -36,11 +45,14 @@ public class WorldSaveHeader implements java.io.Serializable, Disposable {
             preview = Serializer.ReadPixmap(in);
         } catch (final Throwable t) {
             preview = null;
-            // Drain the PNG payload if ReadPixmap failed mid-read after length.
-            // Serializer.ReadPixmap either returns null (len 0) or fully reads bytes
-            // before constructing Pixmap — so a Pixmap ctor failure leaves the stream OK.
         }
         saveDate = (Date) in.readObject();
+        // Pre-CO5-amendment saves omit the flag → solo world.
+        try {
+            coopWorld = in.readBoolean();
+        } catch (final EOFException | OptionalDataException e) {
+            coopWorld = false;
+        }
     }
 
     public void dispose() {

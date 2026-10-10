@@ -68,6 +68,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /**
@@ -126,8 +127,15 @@ public final class CoopSession {
     private volatile File pendingLegacyImport;
     /** CO5: true after guest sent a create — a second needCreate means host rejected. */
     private volatile boolean createAlreadySent;
-    /** CO5: true while a final-ack worker is finishing disconnect (avoid re-entry). */
-    private final AtomicBoolean guestLeaveInFlight = new AtomicBoolean(false);
+    /**
+     * CO5: true while a leave/disconnect is finishing (final ack / host guest-flush).
+     * Tracked per {@link #sessionEpoch} so a stale leave cannot tear down a newer session.
+     */
+    private final AtomicBoolean leaveInFlight = new AtomicBoolean(false);
+    /** Monotonic id for the current host/join attempt; leave captures it at start. */
+    private final AtomicLong sessionEpoch = new AtomicLong(0L);
+    /** Epoch of the leave currently in flight, or -1 when none. */
+    private final AtomicLong leaveEpoch = new AtomicLong(-1L);
     /** CO5: snapshot seq/ack, trailing debounce, host world save. */
     private final CoopPartnerSync partnerSync = new CoopPartnerSync(this);
     /** MV1: plane instance id the guest last accepted from the host. */
@@ -334,7 +342,8 @@ public final class CoopSession {
         guestLeaveGuard = false;
         pendingLegacyImport = null;
         createAlreadySent = false;
-        guestLeaveInFlight.set(false);
+        leaveInFlight.set(false);
+        leaveEpoch.set(-1L);
         partnerSync.resetGuest();
         partnerSync.resetHost();
         sessionCode = "";
@@ -403,6 +412,11 @@ public final class CoopSession {
         guestProfileId = CoopProfileId.sanitize(profileId);
         partnerLoaded = false;
         partnerSync.resetHost();
+        // CO5 amendment: partner flush only writes co-op worlds.
+        try {
+            WorldSave.getCurrentSave().markAsCoopWorld();
+        } catch (final Exception ignored) {
+        }
     }
 
     /** Test hook: guest session with profile id set (partner not yet loaded). */
@@ -434,17 +448,24 @@ public final class CoopSession {
 
     /** Test hook: arm leave-in-flight so a second {@link #disconnect()} is a no-op. */
     public void testArmGuestLeaveInFlight() {
-        guestLeaveInFlight.set(true);
+        leaveEpoch.set(sessionEpoch.get());
+        leaveInFlight.set(true);
     }
 
     /** Test hook: whether a leave is currently in flight. */
     public boolean testIsGuestLeaveInFlight() {
-        return guestLeaveInFlight.get();
+        return leaveInFlight.get();
     }
 
     /** Test hook: clear leave-in-flight after a no-op double-disconnect check. */
     public void testClearGuestLeaveInFlight() {
-        guestLeaveInFlight.set(false);
+        leaveInFlight.set(false);
+        leaveEpoch.set(-1L);
+    }
+
+    /** Test hook: whether Host/Join would be blocked (leave in flight or joining). */
+    public boolean testIsHostJoinBlocked() {
+        return leaveInFlight.get() || state == State.JOINING;
     }
 
     /**
@@ -654,7 +675,18 @@ public final class CoopSession {
         ensureExitHook();
         ensureAscendant();
         ensureWorldLoaded();
-        disconnectInternal("restarting host", false);
+        ensureCoopWorld();
+        ensureHostJoinAllowed("host");
+        // Tear down any prior session fully before starting a new epoch.
+        if (role != CoopSessionRole.NONE || state == State.HOSTING || state == State.READY
+                || state == State.JOINING || server != null || client != null) {
+            disconnectInternal("restarting host", false);
+            if (leaveInFlight.get()) {
+                throw new IllegalStateException(
+                        "A co-op leave is still finishing — wait, then try Host again.");
+            }
+        }
+        final long epoch = sessionEpoch.incrementAndGet();
         this.skipUPnP = skipUPnPFlag;
         this.overworldPort = Config.instance().getConfigData().coopOverworldPort;
         this.gamePort = Config.instance().getConfigData().coopGamePort;
@@ -666,6 +698,11 @@ public final class CoopSession {
         guestProfileId = "";
         partnerLoaded = false;
         partnerSync.resetHost();
+        // Host plays this world's co-op character (mirrored under profile id).
+        try {
+            WorldSave.getCurrentSave().syncHostCharacterIntoPartners();
+        } catch (final Exception ignored) {
+        }
 
         activeHostListener = new HostListener();
         server = new CoopOverworldServer(overworldPort,
@@ -676,7 +713,9 @@ public final class CoopSession {
         } catch (final Exception e) {
             // A failed bind must not leave the session stuck in HOSTING with live event loops.
             activeHostListener = null;
-            disconnectInternal("host failed", false);
+            if (sessionEpoch.get() == epoch) {
+                disconnectInternal("host failed", false);
+            }
             throw e;
         }
         status("Hosting co-op on overworld port " + overworldPort
@@ -693,7 +732,15 @@ public final class CoopSession {
         ensureExitHook();
         ensureAscendant();
         ensureWorldLoaded();
-        disconnectInternal("restarting join", false);
+        ensureHostJoinAllowed("join");
+        if (role != CoopSessionRole.NONE || state == State.HOSTING || state == State.READY
+                || state == State.JOINING || server != null || client != null) {
+            disconnectInternal("restarting join", false);
+            if (leaveInFlight.get()) {
+                throw new IllegalStateException(
+                        "A co-op leave is still finishing — wait, then try Join again.");
+            }
+        }
 
         final URLValidator.HostPort hp = URLValidator.parseURL(address);
         if (hp == null) {
@@ -703,6 +750,7 @@ public final class CoopSession {
         final int port = hp.port() != null && hp.port() > 0
                 ? hp.port()
                 : Config.instance().getConfigData().coopOverworldPort;
+        final long epoch = sessionEpoch.incrementAndGet();
         this.overworldPort = port;
         this.gamePort = Config.instance().getConfigData().coopGamePort;
         this.skipUPnP = CoopAddressUtil.shouldSkipUPnPForAddress(host);
@@ -729,7 +777,9 @@ public final class CoopSession {
         try {
             client.connect();
         } catch (final Exception e) {
-            disconnectInternal("join failed", true);
+            if (sessionEpoch.get() == epoch) {
+                disconnectInternal("join failed", true);
+            }
             throw e;
         }
         status("Connecting to " + host + ':' + port
@@ -759,25 +809,39 @@ public final class CoopSession {
      *                     GL/Netty), unloads, shows any timeout warning, then returns
      *                     to the main menu. Wrong-code rejects before partner load
      *                     pass {@code false} so the solo game stays intact.
+     *                     Guest app quit ({@link #ensureExitHook}) uses the same path.
      */
     private void disconnectInternal(final String reason, final boolean returnToMenu) {
-        // H3: CoopDisconnectEvent + onDisconnected (or c.disconnect()) must not unload twice.
-        if (!guestLeaveInFlight.compareAndSet(false, true)) {
+        // Per-session leave: a second disconnect while leave is in flight is a no-op.
+        // Stale leave finishers check leaveEpoch against sessionEpoch before tearing down.
+        final long epochAtStart = sessionEpoch.get();
+        if (!leaveInFlight.compareAndSet(false, true)) {
             return;
         }
+        leaveEpoch.set(epochAtStart);
         final CoopSessionRole previousRole = role;
         final State previousState = state;
         final boolean hadPartner = partnerLoaded;
+        // Only wait for a final snap when a live guest is authenticated on the wire.
+        // Test hooks that set guestProfileId without a server must not pay the 8s timeout.
+        final CoopOverworldServer liveServer = server;
+        final boolean guestConnected = previousRole == CoopSessionRole.HOST
+                && liveServer != null
+                && liveServer.isGuestAuthenticated();
 
         // Guest leave with progress: final ack on a worker — never block GL/Netty for 8s.
         // Snapshot blob is built on the GL thread inside sendFinalSnapshotAndAwaitAck.
+        // App quit (LifecycleListener.dispose → disconnect) uses this same path.
         if (previousRole == CoopSessionRole.GUEST && hadPartner && returnToMenu) {
             guestLeaveGuard = true;
             final Runnable afterAck = () -> {
                 try {
+                    if (leaveEpoch.get() != epochAtStart || sessionEpoch.get() != epochAtStart) {
+                        return; // superseded by a newer session
+                    }
                     finishDisconnectAfterFinalAck(reason, previousRole, previousState, true);
                 } finally {
-                    guestLeaveInFlight.set(false);
+                    clearLeaveInFlight(epochAtStart);
                 }
             };
             if (shouldOffloadFinalAckWait()) {
@@ -800,13 +864,74 @@ public final class CoopSession {
             return;
         }
 
+        // Host stop/quit with a guest: request guest final snapshot, wait, then tear down.
+        if (previousRole == CoopSessionRole.HOST && guestConnected) {
+            final Runnable afterGuestFlush = () -> {
+                try {
+                    if (leaveEpoch.get() != epochAtStart || sessionEpoch.get() != epochAtStart) {
+                        return;
+                    }
+                    finishDisconnectAfterFinalAck(reason, previousRole, previousState, returnToMenu);
+                } finally {
+                    clearLeaveInFlight(epochAtStart);
+                }
+            };
+            if (shouldOffloadFinalAckWait()) {
+                final Thread worker = new Thread(() -> {
+                    try {
+                        requestAndAwaitGuestFinalSnapshot(8_000L);
+                    } catch (final Exception ignored) {
+                    }
+                    CoopPartnerSync.runOnGl(afterGuestFlush);
+                }, "coop-host-await-guest-final");
+                worker.setDaemon(true);
+                worker.start();
+                return;
+            }
+            try {
+                requestAndAwaitGuestFinalSnapshot(8_000L);
+            } catch (final Exception ignored) {
+            }
+            afterGuestFlush.run();
+            return;
+        }
+
         if (previousRole == CoopSessionRole.GUEST && returnToMenu) {
             guestLeaveGuard = true;
         }
         try {
-            finishDisconnectAfterFinalAck(reason, previousRole, previousState, returnToMenu);
+            if (leaveEpoch.get() == epochAtStart && sessionEpoch.get() == epochAtStart) {
+                finishDisconnectAfterFinalAck(reason, previousRole, previousState, returnToMenu);
+            }
         } finally {
-            guestLeaveInFlight.set(false);
+            clearLeaveInFlight(epochAtStart);
+        }
+    }
+
+    private void clearLeaveInFlight(final long epochAtStart) {
+        if (leaveEpoch.compareAndSet(epochAtStart, -1L)) {
+            leaveInFlight.set(false);
+        }
+    }
+
+    /**
+     * Host: tell the guest to leave (final snapshot + ack), then wait for that
+     * final snapshot to land before stopping the server.
+     */
+    private void requestAndAwaitGuestFinalSnapshot(final long timeoutMs) {
+        partnerSync.beginAwaitGuestFinal();
+        try {
+            final CoopOverworldServer s = server;
+            if (s != null) {
+                s.send(new CoopDisconnectEvent("host stopping — send final partner snapshot"));
+            } else {
+                send(new CoopDisconnectEvent("host stopping — send final partner snapshot"));
+            }
+        } catch (final Exception ignored) {
+        }
+        final boolean got = partnerSync.awaitGuestFinalSnapshot(timeoutMs);
+        if (!got) {
+            status("Guest final snapshot timed out — saving host world with last known partner");
         }
     }
 
@@ -1090,13 +1215,18 @@ public final class CoopSession {
     /** Re-offer needCreate so the guest is not stuck in JOINING after a reject. */
     private void rejectPartnerCreate(final String profileId, final String reason) {
         try {
-            sendPartnerOffer(profileId, true);
+            sendPartnerOffer(profileId, true, reason != null ? reason : "rejected");
             status("Told guest to retry partner create (" + reason + ")");
         } catch (final Exception ignored) {
         }
     }
 
     private void sendPartnerOffer(final String profileId, final boolean needCreate) {
+        sendPartnerOffer(profileId, needCreate, "");
+    }
+
+    private void sendPartnerOffer(final String profileId, final boolean needCreate,
+                                  final String rejectReason) {
         try {
             boolean create = needCreate;
             byte[] blob = new byte[0];
@@ -1111,7 +1241,7 @@ public final class CoopSession {
             final boolean allowCopy = Config.instance().getConfigData().coopPartnerAllowCopySoloDeck;
             final List<String> sets = CoopPartnerStarter.hostStandardSets(WorldSave.getCurrentSave().getPlayer());
             send(new CoopPartnerOfferEvent(profileId, create, allowCopy, blob,
-                    sets.toArray(new String[0])));
+                    sets.toArray(new String[0]), rejectReason != null ? rejectReason : ""));
         } catch (final Exception e) {
             status("Partner offer failed: " + e.getMessage());
         }
@@ -1195,6 +1325,30 @@ public final class CoopSession {
     private void ensureWorldLoaded() {
         if (WorldSave.getCurrentSave().getWorld().getData() == null) {
             throw new IllegalStateException("Load or continue a game before hosting or joining co-op");
+        }
+    }
+
+    /**
+     * CO5 amendment: hosting only from a co-op world (New Game option or one-time convert).
+     */
+    private void ensureCoopWorld() {
+        if (!WorldSave.getCurrentSave().isCoopWorld()) {
+            throw new IllegalStateException(
+                    "This save is not a co-op world. Start a New Game with \"Co-op world\" checked, "
+                            + "or convert this world once from the Host screen. Solo saves cannot host "
+                            + "and never receive co-op progress.");
+        }
+    }
+
+    /** Block Host/Join while a leave is in flight or while already joining. */
+    private void ensureHostJoinAllowed(final String action) {
+        if (leaveInFlight.get()) {
+            throw new IllegalStateException(
+                    "A co-op leave is still finishing — wait, then try " + action + " again.");
+        }
+        if (state == State.JOINING) {
+            throw new IllegalStateException(
+                    "Already joining a co-op session — disconnect first, then try " + action + " again.");
         }
     }
 
@@ -1496,7 +1650,8 @@ public final class CoopSession {
                 return;
             }
             guestProfileId = profileId;
-            partnerSync.resetHost();
+            // Keep hostPartnerDirty / pending saves across a new hello (prior guest progress).
+            partnerSync.resetHostForNewGuest();
             // H1: live-world hash + gate collect must run on the GL thread (no regenerate).
             // On failure: refuse the guest and keep hosting — never delayedSwitchBack to menu.
             final String loadingMsg = Forge.getLocalizer() != null
@@ -1608,13 +1763,11 @@ public final class CoopSession {
                     send(new CoopPartnerCreateEvent(guestProfileId, "Partner",
                             true, 0, 0, new byte[0], ""));
                 } else {
-                    final boolean rejectedRetry = createAlreadySent;
+                    final String rejectReason = offer.getRejectReason();
                     Gdx.app.postRunnable(() -> {
-                        if (rejectedRetry) {
-                            CoopAdventureDialogs.showMessage("Co-op partner",
-                                    "The host rejected that partner create. Try again.");
-                        }
-                        promptPartnerCreateAsync(offer.isAllowCopySoloDeck());
+                        // Fold reject into the create prompt — avoid a separate dialog that
+                        // pops back up between prompts when dialogHost was a dead StartScene.
+                        promptPartnerCreateAsync(offer.isAllowCopySoloDeck(), rejectReason);
                     });
                 }
                 return;
@@ -1651,6 +1804,11 @@ public final class CoopSession {
          * Marks legacy import only after host accepts.
          */
         private void promptPartnerCreateAsync(final boolean allowCopySoloDeck) {
+            promptPartnerCreateAsync(allowCopySoloDeck, "");
+        }
+
+        private void promptPartnerCreateAsync(final boolean allowCopySoloDeck,
+                                              final String rejectReason) {
             try {
                 final String soloName = WorldSave.getCurrentSave().getPlayer().getName();
                 final List<File> legacy = CoopLegacyChrImport.listImportableChrFiles();
@@ -1663,6 +1821,8 @@ public final class CoopSession {
                         preferred.add(f);
                     }
                 }
+                final String rejectPrefix = rejectReason != null && !rejectReason.isEmpty()
+                        ? ("Host rejected: " + rejectReason + "\n\n") : "";
                 if (!preferred.isEmpty() || !hostExports.isEmpty()) {
                     final List<String> labels = new ArrayList<>();
                     final List<File> options = new ArrayList<>();
@@ -1679,7 +1839,7 @@ public final class CoopSession {
                     }
                     CoopAdventureDialogs.showOptions(
                             "Co-op partner",
-                            "Bring an existing co-op character into this world?",
+                            rejectPrefix + "Bring an existing co-op character into this world?",
                             labels,
                             idx -> {
                                 int choice = idx == null || idx < 0 ? 0 : idx;
@@ -1695,7 +1855,7 @@ public final class CoopSession {
                             });
                     return;
                 }
-                promptFreshPartnerLook(allowCopySoloDeck);
+                promptFreshPartnerLook(allowCopySoloDeck, rejectPrefix);
             } catch (final Exception e) {
                 createAlreadySent = true;
                 send(new CoopPartnerCreateEvent(guestProfileId, "Partner", true, 0, 0, new byte[0], ""));
@@ -1742,7 +1902,13 @@ public final class CoopSession {
         }
 
         private void promptFreshPartnerLook(final boolean allowCopySoloDeck) {
-            CoopAdventureDialogs.showInput("Co-op partner", "Partner name (max 32 chars)", "Partner",
+            promptFreshPartnerLook(allowCopySoloDeck, "");
+        }
+
+        private void promptFreshPartnerLook(final boolean allowCopySoloDeck, final String rejectPrefix) {
+            final String msg = (rejectPrefix != null ? rejectPrefix : "")
+                    + "Partner name (max 32 chars)";
+            CoopAdventureDialogs.showInput("Co-op partner", msg, "Partner",
                     typed -> {
                         String name = "Partner";
                         if (typed != null && !typed.trim().isEmpty()) {

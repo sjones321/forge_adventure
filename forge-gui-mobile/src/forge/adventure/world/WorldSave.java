@@ -329,6 +329,15 @@ public class WorldSave {
      *                        Bellwarden Standard). Ascendant only.
      */
     public static WorldSave generateNewWorld(String name, boolean male, int race, int avatarIndex, ColorSet startingColorIdentity, DifficultyData diff, AdventureModes mode, int customDeckIndex, CardEdition starterEdition, long seed, String homePlaneFormat) {
+        return generateNewWorld(name, male, race, avatarIndex, startingColorIdentity, diff, mode,
+                customDeckIndex, starterEdition, seed, homePlaneFormat, false);
+    }
+
+    /**
+     * @param coopWorld CO5 amendment: when true, this save is a co-op world (hostable;
+     *                  host character lives here; solo saves never receive its progress).
+     */
+    public static WorldSave generateNewWorld(String name, boolean male, int race, int avatarIndex, ColorSet startingColorIdentity, DifficultyData diff, AdventureModes mode, int customDeckIndex, CardEdition starterEdition, long seed, String homePlaneFormat, boolean coopWorld) {
         Forge.getLocalizer().loadAdventureBundle(Config.instance().getPlanePath(Config.instance().getSettingData().plane) + "languages/");
         currentSave.world.generateNew(seed);
         currentSave.pointOfInterestChanges.clear();
@@ -360,10 +369,54 @@ public class WorldSave {
             }
             currentSave.player.setLegacyRunFormat(fmt);
         }
+        // CO5: co-op worlds are their own saves; host character is this world's player
+        // (also mirrored into partners under the host profile id, like guest partners).
+        currentSave.header.coopWorld = coopWorld && Config.ascendant();
+        if (currentSave.header.coopWorld) {
+            try {
+                currentSave.partners.putPlayer(
+                        forge.adventure.coop.CoopProfileId.getOrCreate(), currentSave.player);
+            } catch (final Exception ignored) {
+            }
+        }
         // H2: New Game is not bound to a prior load slot until the player saves.
         currentSave.clearLoadedSlotAfterNewGame();
         currentSave.onLoadList.emit();
         return currentSave;
+    }
+
+    /** CO5: whether the current save is a co-op world (hostable). */
+    public boolean isCoopWorld() {
+        return header != null && header.coopWorld;
+    }
+
+    /**
+     * CO5: one-time convert of a loaded world into a co-op world. Sets the header flag
+     * and mirrors the host character into {@link #partners}. Caller should save.
+     */
+    public void markAsCoopWorld() {
+        if (header == null) {
+            header = new WorldSaveHeader();
+        }
+        header.coopWorld = true;
+        try {
+            partners.putPlayer(forge.adventure.coop.CoopProfileId.getOrCreate(), player);
+        } catch (final Exception ignored) {
+        }
+    }
+
+    /**
+     * CO5: ensure the host's co-op character in {@link #partners} matches the live player
+     * before a partner flush. No-op for solo worlds.
+     */
+    public void syncHostCharacterIntoPartners() {
+        if (!isCoopWorld()) {
+            return;
+        }
+        try {
+            partners.putPlayer(forge.adventure.coop.CoopProfileId.getOrCreate(), player);
+        } catch (final Exception ignored) {
+        }
     }
 
     /**
@@ -569,7 +622,11 @@ public class WorldSave {
                     mainData.store("fortress", fortress);
                 }
                 // CO5: partners map (host world). Empty on solo / pre-CO5 saves.
+                // Co-op worlds also mirror the host's co-op character under their profile id.
                 if (Config.ascendant()) {
+                    if (currentSave.isCoopWorld()) {
+                        currentSave.syncHostCharacterIntoPartners();
+                    }
                     mainData.store("partners", currentSave.partners.save());
                 }
 

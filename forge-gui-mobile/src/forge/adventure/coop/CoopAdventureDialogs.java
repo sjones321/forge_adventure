@@ -5,7 +5,6 @@ import com.badlogic.gdx.scenes.scene2d.ui.Dialog;
 import com.badlogic.gdx.scenes.scene2d.ui.TextField;
 import com.github.tommyettinger.textra.TextraButton;
 import forge.Forge;
-import forge.adventure.scene.StartScene;
 import forge.adventure.scene.UIScene;
 import forge.adventure.stage.GameHUD;
 import forge.adventure.util.Controls;
@@ -24,7 +23,11 @@ public final class CoopAdventureDialogs {
     private CoopAdventureDialogs() {
     }
 
-    /** Resolve a UIScene that can host dialogs (current scene, else StartScene). */
+    /**
+     * Resolve a UIScene that can host dialogs — only the <em>current</em> scene.
+     * Never fall back to a non-rendered {@code StartScene} instance (that shows
+     * dialogs the player cannot see, and makes reject messages reappear between prompts).
+     */
     public static UIScene dialogHost() {
         try {
             if (Forge.getCurrentScene() instanceof UIScene) {
@@ -32,11 +35,7 @@ public final class CoopAdventureDialogs {
             }
         } catch (final Exception ignored) {
         }
-        try {
-            return StartScene.instance();
-        } catch (final Exception ignored) {
-            return null;
-        }
+        return null;
     }
 
     /**

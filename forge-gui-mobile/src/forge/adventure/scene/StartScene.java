@@ -12,6 +12,7 @@ import com.github.tommyettinger.textra.TextraButton;
 import com.github.tommyettinger.textra.TextraLabel;
 import com.github.tommyettinger.textra.TypingLabel;
 import forge.Forge;
+import forge.adventure.coop.CoopAdventureDialogs;
 import forge.adventure.coop.CoopSession;
 import forge.adventure.coop.CoopSessionRole;
 import forge.adventure.stage.GameHUD;
@@ -26,7 +27,6 @@ import forge.gamemodes.net.coop.CoopPorts;
 import forge.gamemodes.net.coop.CoopSessionCode;
 import forge.gamemodes.net.server.FServerManager;
 import forge.gui.GuiBase;
-import forge.gui.util.SOptionPane;
 import forge.localinstance.properties.ForgeProfileProperties;
 import forge.screens.TransitionScreen;
 import forge.sound.SoundSystem;
@@ -186,10 +186,32 @@ public class StartScene extends UIScene {
         if (!Config.ascendant()) {
             return true;
         }
+        if (CoopSession.get().testIsHostJoinBlocked()) {
+            showDialog(createGenericDialog("Co-op",
+                    "A co-op leave or join is still in progress.\nWait for it to finish, then try Host again.",
+                    Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null));
+            return true;
+        }
         if (WorldSave.getCurrentSave().getWorld().getData() == null) {
             showDialog(createGenericDialog("Co-op",
                     "Load or Continue a game before hosting.\nThe host's save owns the world.",
                     Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null));
+            return true;
+        }
+        // CO5 amendment: refuse hosting from a solo (non-co-op) save.
+        if (!WorldSave.getCurrentSave().isCoopWorld()) {
+            showDialog(createGenericDialog("Not a co-op world",
+                    "Hosting requires a co-op world.\n\n"
+                            + "Start a New Game with \"Co-op world\" checked, or convert this "
+                            + "world once (your character here becomes the host's co-op character; "
+                            + "solo saves never receive co-op progress).",
+                    "Convert once", Forge.getLocalizer().getMessage("lblAbort"),
+                    () -> {
+                        removeDialog();
+                        WorldSave.getCurrentSave().markAsCoopWorld();
+                        startHosting();
+                    },
+                    this::removeDialog));
             return true;
         }
         if (CoopSession.get().getState() == CoopSession.State.HOSTING
@@ -197,6 +219,11 @@ public class StartScene extends UIScene {
             showHostingDialog();
             return true;
         }
+        startHosting();
+        return true;
+    }
+
+    private void startHosting() {
         final boolean skipUPnP = Config.instance().getConfigData().coopSkipUPnP;
         new Thread(() -> {
             try {
@@ -209,7 +236,6 @@ public class StartScene extends UIScene {
                         Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null)));
             }
         }, "Coop-Host").start();
-        return true;
     }
 
     private void showHostingDialog() {
@@ -303,6 +329,12 @@ public class StartScene extends UIScene {
         if (!Config.ascendant()) {
             return true;
         }
+        if (CoopSession.get().testIsHostJoinBlocked()) {
+            showDialog(createGenericDialog("Co-op",
+                    "A co-op leave or join is still in progress.\nWait for it to finish, then try Join again.",
+                    Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null));
+            return true;
+        }
         if (WorldSave.getCurrentSave().getWorld().getData() == null) {
             showDialog(createGenericDialog("Co-op",
                     "Load or Continue a game before joining so the client can rebuild the host world.\n"
@@ -310,13 +342,26 @@ public class StartScene extends UIScene {
                     Forge.getLocalizer().getMessage("lblOK"), null, this::removeDialog, null));
             return true;
         }
+        // CO5: with co-op worlds, the guest's solo game should be saved or left alone first.
+        showDialog(createGenericDialog("Unsaved solo progress?",
+                "Co-op does not change your solo save — you play a partner character in the host's world.\n\n"
+                        + "Save your solo game first if you have unsaved progress, then continue to join.",
+                "Continue to join", Forge.getLocalizer().getMessage("lblAbort"),
+                () -> {
+                    removeDialog();
+                    showJoinFieldsDialog();
+                },
+                this::removeDialog));
+        return true;
+    }
+
+    private void showJoinFieldsDialog() {
         if (joinAddressField == null) {
             joinAddressField = Controls.newTextField("100.");
         }
         if (joinCodeField == null) {
             joinCodeField = Controls.newTextField("");
         }
-        // Rebuild join dialog each time so fields stay current.
         joinDialog = createGenericDialog("Co-op Join", null,
                 Forge.getLocalizer().getMessage("lblOK"),
                 Forge.getLocalizer().getMessage("lblAbort"),
@@ -340,7 +385,6 @@ public class StartScene extends UIScene {
                 .colspan(2).pad(2);
         joinDialog.getContentTable().row();
         showDialog(joinDialog);
-        return true;
     }
 
     private void connectJoin(final String address, String sessionCode) {
@@ -350,31 +394,42 @@ public class StartScene extends UIScene {
         String target = address.trim();
         // The whole "address:port CODE" line pasted into the address box.
         if (target.contains(" ") && (sessionCode == null || sessionCode.trim().isEmpty())) {
-            final String[] parts = target.split("\s+");
+            final String[] parts = target.split("\\s+");
             target = parts[0];
             sessionCode = parts[parts.length - 1];
         }
         if ("100.".equals(target)) {
-            final String typed = SOptionPane.showInputDialog(
-                    "Enter host address (Tailscale 100.x.y.z or LAN IP)",
-                    "Co-op Join");
-            if (typed == null || typed.trim().isEmpty()) {
-                return;
-            }
-            target = typed.trim();
+            final String pendingCode = sessionCode;
+            CoopAdventureDialogs.showInput("Co-op Join",
+                    "Enter host address (Tailscale 100.x.y.z or LAN IP)", "",
+                    typed -> {
+                        if (typed == null || typed.trim().isEmpty()) {
+                            return;
+                        }
+                        connectJoinResolveCode(typed.trim(), pendingCode);
+                    });
+            return;
         }
+        connectJoinResolveCode(target, sessionCode);
+    }
+
+    private void connectJoinResolveCode(final String target, final String sessionCode) {
         String code = sessionCode != null ? sessionCode.trim() : "";
         if (code.isEmpty()) {
-            final String typed = SOptionPane.showInputDialog(
-                    "Enter the session code shown on the host",
-                    "Co-op Join");
-            if (typed == null || typed.trim().isEmpty()) {
-                return;
-            }
-            code = typed.trim();
+            CoopAdventureDialogs.showInput("Co-op Join",
+                    "Enter the session code shown on the host", "",
+                    typed -> {
+                        if (typed == null || typed.trim().isEmpty()) {
+                            return;
+                        }
+                        startJoinThread(target, typed.trim());
+                    });
+            return;
         }
-        final String joinTarget = target;
-        final String joinCode = code;
+        startJoinThread(target, code);
+    }
+
+    private void startJoinThread(final String joinTarget, final String joinCode) {
         new Thread(() -> {
             try {
                 CoopSession.get().ensureConsoleStatusListener();

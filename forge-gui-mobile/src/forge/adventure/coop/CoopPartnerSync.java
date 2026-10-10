@@ -58,11 +58,26 @@ public final class CoopPartnerSync {
         finalAckAccepted = false;
     }
 
+    /**
+     * Full host reset (host start / stop). Clears dirty and pending world-save state.
+     * Do <em>not</em> call from {@code onHello} — a new guest must not wipe unsaved
+     * partner progress from a prior guest in the same hosting session.
+     */
     public void resetHost() {
         validator.resetRateLimit();
         hostLastWorldSaveMs = 0L;
         hostPartnerDirty = false;
         hostSaveScheduled = false;
+        clearAwaitingGuestFinal();
+    }
+
+    /**
+     * New authenticated guest on an already-hosting session: reset only the inbound
+     * snapshot rate limit. Keeps {@link #hostPartnerDirty} and pending saves.
+     */
+    public void resetHostForNewGuest() {
+        validator.resetRateLimit();
+        clearAwaitingGuestFinal();
     }
 
     public void rememberGuiPlayerName(final String name) {
@@ -247,8 +262,12 @@ public final class CoopPartnerSync {
                 lastAckedSequence = Math.max(lastAckedSequence, ack.getSequence());
                 notifyGuest("Progress saved");
             } else {
-                notifyGuest("Partner snapshot rejected: "
-                        + (ack.getReason().isEmpty() ? "unknown" : ack.getReason()));
+                final String reason = ack.getReason().isEmpty() ? "unknown" : ack.getReason();
+                notifyGuest("Partner snapshot rejected: " + reason);
+                // Rate-limited non-final snaps: schedule one trailing retry.
+                if ("rate limit".equals(ack.getReason()) && !awaitingFinalAck) {
+                    requestDebouncedSnapshot();
+                }
             }
         }
         final CountDownLatch latch = pendingAckLatch;
@@ -281,7 +300,7 @@ public final class CoopPartnerSync {
         }
         if (!event.isFinalSnapshot() && !validator.acceptSnapshot()) {
             sendAck(event, false, "rate limit");
-            notifyGuestDrop("Partner snapshot dropped: rate limit");
+            notifyGuestDrop("Partner snapshot dropped: rate limit — retry");
             return false;
         }
         final SaveFileData data = CoopPartnerCodec.decodeSafe(blob);
@@ -314,6 +333,7 @@ public final class CoopPartnerSync {
         sendAck(event, true, "");
         session.status("Stored partner snapshot #" + event.getSequence());
         if (event.isFinalSnapshot()) {
+            signalGuestFinalReceived();
             saveHostWorldNow();
         } else {
             scheduleHostWorldSave();
@@ -401,6 +421,12 @@ public final class CoopPartnerSync {
         }
         try {
             final WorldSave save = WorldSave.getCurrentSave();
+            // CO5 amendment: partner flushes only belong to co-op worlds.
+            if (!save.isCoopWorld()) {
+                session.status("Partner flush skipped — not a co-op world");
+                return false;
+            }
+            save.syncHostCharacterIntoPartners();
             int slot = save.getLoadedSlot();
             if (slot == WorldSave.INVALID_SAVE_SLOT) {
                 // Fall back to autosave slot — never invent slot 0 from a stale lastActiveSave.
@@ -417,6 +443,56 @@ public final class CoopPartnerSync {
         } catch (final Exception e) {
             session.status("Host world save failed: " + e.getMessage());
             return false;
+        }
+    }
+
+    // --- Host wait for guest final snapshot (stop / quit with guest connected) ---
+
+    private volatile CountDownLatch awaitingGuestFinalLatch;
+    private volatile boolean guestFinalReceived;
+
+    /** Arm a latch the host waits on while the guest sends its final snapshot. */
+    public void beginAwaitGuestFinal() {
+        guestFinalReceived = false;
+        awaitingGuestFinalLatch = new CountDownLatch(1);
+    }
+
+    private void signalGuestFinalReceived() {
+        guestFinalReceived = true;
+        final CountDownLatch latch = awaitingGuestFinalLatch;
+        if (latch != null) {
+            latch.countDown();
+        }
+    }
+
+    private void clearAwaitingGuestFinal() {
+        final CountDownLatch latch = awaitingGuestFinalLatch;
+        awaitingGuestFinalLatch = null;
+        guestFinalReceived = false;
+        if (latch != null) {
+            latch.countDown();
+        }
+    }
+
+    /**
+     * Host: wait for a final partner snapshot (or timeout). Call after sending a
+     * graceful disconnect so the guest runs its Leave final-snap path.
+     *
+     * @return true if a final snapshot was applied before timeout
+     */
+    public boolean awaitGuestFinalSnapshot(final long timeoutMs) {
+        final CountDownLatch latch = awaitingGuestFinalLatch;
+        if (latch == null) {
+            return guestFinalReceived;
+        }
+        try {
+            final boolean ok = latch.await(Math.max(500L, timeoutMs), TimeUnit.MILLISECONDS);
+            return ok && guestFinalReceived;
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return guestFinalReceived;
+        } finally {
+            clearAwaitingGuestFinal();
         }
     }
 

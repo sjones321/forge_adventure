@@ -4,6 +4,7 @@ import forge.adventure.util.Controls;
 import com.badlogic.gdx.scenes.scene2d.ui.SelectBox;
 import com.badlogic.gdx.scenes.scene2d.Actor;
 import com.badlogic.gdx.scenes.scene2d.InputEvent;
+import com.badlogic.gdx.scenes.scene2d.ui.CheckBox;
 import com.badlogic.gdx.scenes.scene2d.ui.Image;
 import com.badlogic.gdx.scenes.scene2d.ui.ImageButton;
 import com.badlogic.gdx.scenes.scene2d.ui.TextField;
@@ -55,6 +56,7 @@ public class NewGameScene extends MenuScene {
     private final Selector starterEdition;
     private Selector planeFormat;
     private TextraLabel planeFormatLabel;
+    private CheckBox coopWorld;
     private SelectBox<String> sealedSetBox;
     private java.util.List<CardEdition> sealedSets;
     private final TextraLabel starterEditionLabel;
@@ -135,6 +137,12 @@ public class NewGameScene extends MenuScene {
         if (planeFormat != null) {
             planeFormat.setTextList(PlaneFormat.CHOICES);
             planeFormat.setCurrentIndex(0); // Bellwarden Standard
+        }
+        coopWorld = ui.findActor("coopWorld");
+        if (coopWorld != null) {
+            // CO5: co-op worlds are Ascendant-only; hide the option elsewhere.
+            coopWorld.setVisible(Config.ascendant());
+            coopWorld.setChecked(false);
         }
         // Visibility follows the selected mode (hidden for Commander-like modes).
         originalEditionLabelText = starterEditionLabel.storedText;
@@ -403,7 +411,7 @@ public class NewGameScene extends MenuScene {
                     getStartingColor(),
                     Config.instance().getConfigData().difficulties[difficulty.getCurrentIndex()],
                     modes.get(mode.getCurrentIndex()), colorId.getCurrentIndex(),
-                    getStartingEdition(), 0, getSelectedHomePlaneFormat());
+                    getStartingEdition(), 0, getSelectedHomePlaneFormat(), isCoopWorldChecked());
             GamePlayerUtil.getGuiPlayer().setName(selectedName.getText());
             SoundSystem.instance.changeBackgroundTrack();
             WorldStage.getInstance().enterSpawnPOI();
@@ -414,6 +422,11 @@ public class NewGameScene extends MenuScene {
         };
         Forge.setTransitionScreen(new TransitionScreen(runnable, null, false, true, Forge.getLocalizer().getMessage("lblGeneratingWorld")));
         return true;
+    }
+
+    /** CO5: New Game "Co-op world" checkbox (Ascendant only). */
+    private boolean isCoopWorldChecked() {
+        return Config.ascendant() && coopWorld != null && coopWorld.isChecked();
     }
 
     /** Package K: home-plane format from the New Game selector (Ascendant only). */
@@ -468,7 +481,7 @@ public class NewGameScene extends MenuScene {
                     getStartingColor(),
                     Config.instance().getConfigData().difficulties[difficulty.getCurrentIndex()],
                     modes.get(mode.getCurrentIndex()), colorId.getCurrentIndex(),
-                    getStartingEdition(), 0, getSelectedHomePlaneFormat());
+                    getStartingEdition(), 0, getSelectedHomePlaneFormat(), isCoopWorldChecked());
             GamePlayerUtil.getGuiPlayer().setName(selectedName.getText());
             Forge.switchScene(GameScene.instance());
         }
