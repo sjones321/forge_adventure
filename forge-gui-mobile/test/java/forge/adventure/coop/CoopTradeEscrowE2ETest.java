@@ -335,17 +335,13 @@ public class CoopTradeEscrowE2ETest {
 
         static DualNet start(final File tempChars) throws Exception {
             Exception last = null;
-            for (int attempt = 0; attempt < 4; attempt++) {
-                DualNet dual = null;
+            for (int attempt = 0; attempt < 6; attempt++) {
                 try {
-                    dual = startOnce(tempChars);
-                    return dual;
+                    return startOnce(tempChars);
                 } catch (final Exception | AssertionError e) {
-                    if (dual != null) {
-                        dual.close();
-                    }
+                    // startOnce closes Netty on failure — do not leave listeners bound.
                     last = e instanceof Exception ? (Exception) e : new Exception(e);
-                    Thread.sleep(150L * (attempt + 1));
+                    Thread.sleep(200L * (attempt + 1));
                 }
             }
             throw last != null ? last : new IllegalStateException("DualNet.start failed");
@@ -406,111 +402,131 @@ public class CoopTradeEscrowE2ETest {
                 }
             });
 
-            final CoopOverworldServer server = new CoopOverworldServer(port, new CoopMessageListener() {
-                @Override public void onConnected() { }
-                @Override public void onDisconnected(final String reason) { }
-                @Override public void onError(final String message, final Throwable cause) {
-                    netError.compareAndSet(null, "host netty: " + message);
-                }
-                @Override
-                public void onMessage(final NetEvent event) {
-                    final CoopOverworldServer srv = serverRef.get();
-                    final DualNet d = self.get();
-                    if (event instanceof CoopHelloEvent) {
-                        final CoopHelloEvent h = (CoopHelloEvent) event;
-                        if (!CoopSessionCode.matches(code, h.getSessionCode())) {
-                            srv.rejectAndClose("bad code");
+            CoopOverworldServer server = null;
+            CoopOverworldClient client = null;
+            boolean handedOff = false;
+            try {
+                server = new CoopOverworldServer(port, new CoopMessageListener() {
+                    @Override public void onConnected() { }
+                    @Override public void onDisconnected(final String reason) { }
+                    @Override public void onError(final String message, final Throwable cause) {
+                        netError.compareAndSet(null, "host netty: " + message);
+                    }
+                    @Override
+                    public void onMessage(final NetEvent event) {
+                        final CoopOverworldServer srv = serverRef.get();
+                        final DualNet d = self.get();
+                        if (event instanceof CoopHelloEvent) {
+                            final CoopHelloEvent h = (CoopHelloEvent) event;
+                            if (!CoopSessionCode.matches(code, h.getSessionCode())) {
+                                srv.rejectAndClose("bad code");
+                                return;
+                            }
+                            srv.markGuestAuthenticated();
+                            srv.send(new CoopWorldOfferEvent("Host", "plane", "hash",
+                                    1L, "wh", CoopPorts.GAME_PORT, port));
                             return;
                         }
-                        srv.markGuestAuthenticated();
-                        srv.send(new CoopWorldOfferEvent("Host", "plane", "hash",
-                                1L, "wh", CoopPorts.GAME_PORT, port));
-                        return;
+                        if (event instanceof CoopSessionReadyEvent) {
+                            ready.countDown();
+                            return;
+                        }
+                        if (d == null || !d.hostLinked) {
+                            return;
+                        }
+                        // onTrade* postGl themselves.
+                        dispatch(d.hostRt, event);
                     }
-                    if (event instanceof CoopSessionReadyEvent) {
-                        ready.countDown();
-                        return;
-                    }
-                    if (d == null || !d.hostLinked) {
-                        return;
-                    }
-                    // onTrade* postGl themselves.
-                    dispatch(d.hostRt, event);
-                }
-            });
-            serverRef.set(server);
-            server.start();
-            Assert.assertTrue(server.awaitBound(5000));
+                });
+                serverRef.set(server);
+                server.start();
+                Assert.assertTrue(server.awaitBound(10000));
 
-            final CoopOverworldClient client = new CoopOverworldClient("127.0.0.1", port,
-                    new CoopMessageListener() {
-                        @Override public void onConnected() {
-                            clientRef.get().send(new CoopHelloEvent(CoopPorts.PROTOCOL_VERSION,
-                                    CoopVersion.buildHash(), CoopVersion.cardDataHash(),
-                                    "Guest", "GuestHero", code));
-                        }
-                        @Override public void onDisconnected(final String reason) { }
-                        @Override public void onError(final String message, final Throwable cause) {
-                            netError.compareAndSet(null, "guest netty: " + message);
-                        }
-                        @Override
-                        public void onMessage(final NetEvent event) {
-                            final DualNet d = self.get();
-                            if (event instanceof CoopWorldOfferEvent) {
-                                clientRef.get().send(new CoopSessionReadyEvent(false, "Guest", "local"));
-                                ready.countDown();
-                                return;
+                client = new CoopOverworldClient("127.0.0.1", port,
+                        new CoopMessageListener() {
+                            @Override public void onConnected() {
+                                clientRef.get().send(new CoopHelloEvent(CoopPorts.PROTOCOL_VERSION,
+                                        CoopVersion.buildHash(), CoopVersion.cardDataHash(),
+                                        "Guest", "GuestHero", code));
                             }
-                            if (d == null || !d.guestLinked) {
-                                return;
+                            @Override public void onDisconnected(final String reason) { }
+                            @Override public void onError(final String message, final Throwable cause) {
+                                netError.compareAndSet(null, "guest netty: " + message);
                             }
-                            dispatch(d.guestRt, event);
-                        }
-                    });
-            clientRef.set(client);
-            client.connect();
-            Assert.assertTrue(client.awaitConnected(5000));
-            Assert.assertTrue(ready.await(5, TimeUnit.SECONDS),
-                    "session ready" + (netError.get() != null ? " (" + netError.get() + ")" : ""));
+                            @Override
+                            public void onMessage(final NetEvent event) {
+                                final DualNet d = self.get();
+                                if (event instanceof CoopWorldOfferEvent) {
+                                    clientRef.get().send(new CoopSessionReadyEvent(false, "Guest", "local"));
+                                    ready.countDown();
+                                    return;
+                                }
+                                if (d == null || !d.guestLinked) {
+                                    return;
+                                }
+                                dispatch(d.guestRt, event);
+                            }
+                        });
+                clientRef.set(client);
+                client.connect();
+                Assert.assertTrue(client.awaitConnected(10000));
+                Assert.assertTrue(ready.await(15, TimeUnit.SECONDS),
+                        "session ready" + (netError.get() != null ? " (" + netError.get() + ")" : ""));
 
-            final DualNet dual = new DualNet(hostRt, guestRt, hostPlayer, guestPlayer,
-                    hostPeerId, guestPeerId, server, client, hostWorldFile);
-            self.set(dual);
+                final DualNet dual = new DualNet(hostRt, guestRt, hostPlayer, guestPlayer,
+                        hostPeerId, guestPeerId, server, client, hostWorldFile);
+                self.set(dual);
 
-            final Consumer<NetEvent> hostSend = ev -> {
-                if (ev == null || !dual.guestLinked) {
-                    return;
-                }
-                if (dual.dropEscrowWire && (ev instanceof CoopTradeEscrowedEvent
-                        || ev instanceof CoopTradeDeliveredEvent)) {
-                    return;
-                }
-                server.send(ev);
-            };
-            final Consumer<NetEvent> guestSend = ev -> {
-                if (ev == null || !dual.hostLinked) {
-                    return;
-                }
-                if (dual.dropEscrowWire && (ev instanceof CoopTradeEscrowedEvent
-                        || ev instanceof CoopTradeDeliveredEvent)) {
-                    return;
-                }
-                client.send(ev);
-            };
+                final Consumer<NetEvent> hostSend = ev -> {
+                    if (ev == null || !dual.guestLinked) {
+                        return;
+                    }
+                    if (dual.dropEscrowWire && (ev instanceof CoopTradeEscrowedEvent
+                            || ev instanceof CoopTradeDeliveredEvent)) {
+                        return;
+                    }
+                    server.send(ev);
+                };
+                final Consumer<NetEvent> guestSend = ev -> {
+                    if (ev == null || !dual.hostLinked) {
+                        return;
+                    }
+                    if (dual.dropEscrowWire && (ev instanceof CoopTradeEscrowedEvent
+                            || ev instanceof CoopTradeDeliveredEvent)) {
+                        return;
+                    }
+                    client.send(ev);
+                };
 
-            hostRt.setSendOverride(hostSend);
-            guestRt.setSendOverride(guestSend);
-            hostRt.setPlayerOverride(hostPlayer::get);
-            guestRt.setPlayerOverride(guestPlayer::get);
-            hostRt.setHostOverride(() -> Boolean.TRUE);
-            guestRt.setHostOverride(() -> Boolean.FALSE);
-            hostRt.setPeerIdOverride(hostPeerId::get);
-            guestRt.setPeerIdOverride(guestPeerId::get);
-            hostRt.setSkipSessionListener(true);
-            guestRt.setSkipSessionListener(true);
-            hostRt.attachForTest();
-            guestRt.attachForTest();
-            return dual;
+                hostRt.setSendOverride(hostSend);
+                guestRt.setSendOverride(guestSend);
+                hostRt.setPlayerOverride(hostPlayer::get);
+                guestRt.setPlayerOverride(guestPlayer::get);
+                hostRt.setHostOverride(() -> Boolean.TRUE);
+                guestRt.setHostOverride(() -> Boolean.FALSE);
+                hostRt.setPeerIdOverride(hostPeerId::get);
+                guestRt.setPeerIdOverride(guestPeerId::get);
+                hostRt.setSkipSessionListener(true);
+                guestRt.setSkipSessionListener(true);
+                hostRt.attachForTest();
+                guestRt.attachForTest();
+                handedOff = true;
+                return dual;
+            } finally {
+                if (!handedOff) {
+                    if (client != null) {
+                        try { client.disconnect(); } catch (final Exception ignored) { }
+                    }
+                    if (server != null) {
+                        try { server.stop(); } catch (final Exception ignored) { }
+                    }
+                    CoopTradeRuntime.setGlPoster(null);
+                    CoopTradeGlOps.setSaveOverride(null);
+                    try { Thread.sleep(100); } catch (final InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
         }
 
         static void dispatch(final CoopTradeRuntime rt, final NetEvent event) {
