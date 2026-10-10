@@ -1349,13 +1349,13 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
     }
 
     /**
-     * DS4: snapshot only for the human's own top-level land, cast, or non-mana activation.
-     * Mana abilities are excluded — they are payment steps more often than misclicks.
+     * DS4: snapshot only for the human's own top-level land play or spell cast.
+     * Activated abilities (including planeswalker) and mana abilities never get a snapshot.
      */
     private static boolean isTakeBackTopLevelAction(final SpellAbility sa) {
-        if (sa == null || sa.isManaAbility()) {
+        if (sa == null) {
             return false;
         }
-        return sa.isLandAbility() || sa.isSpell() || sa.isActivatedAbility();
+        return sa.isLandAbility() || sa.isSpell();
     }
 }

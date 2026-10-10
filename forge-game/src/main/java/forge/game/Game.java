@@ -303,39 +303,50 @@ public class Game {
      * On failure the board is left unchanged when the backup restore succeeds.
      * If the backup also fails, returns {@link TakeBackResult#CATASTROPHIC}.
      */
+    /**
+     * Test seam: when non-null, {@link #takeBack} uses this snapshot as the post-failure
+     * backup instead of copying the live board (so both restore paths can be forced to fail).
+     */
+    GameSnapshot takeBackBackupOverride = null;
+
     public TakeBackResult takeBack(final Player player) {
-        if (!canTakeBack(player)) {
-            return TakeBackResult.NOT_AVAILABLE;
-        }
-        final GameSnapshot toRestore = takeBackSnapshot;
-        GameSnapshot backup = null;
-        try {
-            backup = new GameSnapshot(this);
-            backup.makeCopy();
-        } catch (final RuntimeException e) {
-            clearTakeBackSnapshot();
-            return TakeBackResult.RESTORE_FAILED;
-        }
-        try {
-            toRestore.restoreGameState(this);
-            clearTakeBackSnapshot();
-            getStack().clearUndoStack();
-            // Critical 2: a later cancel must not re-apply the taken-back action.
-            resetPreviousGameStateAfterTakeBack();
-            bumpInformationEpoch();
-            return TakeBackResult.SUCCESS;
-        } catch (final RuntimeException e) {
-            boolean backupOk = false;
-            try {
-                if (backup != null) {
-                    backup.restoreGameState(this);
-                    backupOk = true;
-                }
-            } catch (final RuntimeException ignored) {
-                backupOk = false;
+        // M3: serialise against concurrent GUI / pool-thread mutations.
+        synchronized (this) {
+            if (!canTakeBack(player)) {
+                return TakeBackResult.NOT_AVAILABLE;
             }
-            clearTakeBackSnapshot();
-            return backupOk ? TakeBackResult.RESTORE_FAILED : TakeBackResult.CATASTROPHIC;
+            final GameSnapshot toRestore = takeBackSnapshot;
+            GameSnapshot backup = takeBackBackupOverride;
+            if (backup == null) {
+                try {
+                    backup = new GameSnapshot(this);
+                    backup.makeCopy();
+                } catch (final RuntimeException | Error e) {
+                    clearTakeBackSnapshot();
+                    return TakeBackResult.RESTORE_FAILED;
+                }
+            }
+            try {
+                toRestore.restoreGameState(this);
+                clearTakeBackSnapshot();
+                getStack().clearUndoStack();
+                // Critical 2: a later cancel must not re-apply the taken-back action.
+                resetPreviousGameStateAfterTakeBack();
+                bumpInformationEpoch();
+                return TakeBackResult.SUCCESS;
+            } catch (final RuntimeException | Error e) {
+                boolean backupOk = false;
+                try {
+                    if (backup != null) {
+                        backup.restoreGameState(this);
+                        backupOk = true;
+                    }
+                } catch (final RuntimeException | Error ignored) {
+                    backupOk = false;
+                }
+                clearTakeBackSnapshot();
+                return backupOk ? TakeBackResult.RESTORE_FAILED : TakeBackResult.CATASTROPHIC;
+            }
         }
     }
 

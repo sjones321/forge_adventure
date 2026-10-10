@@ -2792,11 +2792,8 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
 
     @Override
     public void takeBackLastAction() {
-        if (!ThreadUtil.isGameThread()) {
-            ThreadUtil.invokeInGameThread(this::tryTakeBackLastAction);
-            return;
-        }
-        tryTakeBackLastAction();
+        // M3: serialise via GameAction.invoke (same path as other in-game UI mutations).
+        getGame().getAction().invoke(this::tryTakeBackLastAction);
     }
 
     /**
@@ -2806,7 +2803,7 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
      */
     public boolean tryTakeBackLastAction() {
         if (!ThreadUtil.isGameThread()) {
-            ThreadUtil.invokeInGameThread(this::tryTakeBackLastAction);
+            getGame().getAction().invoke(this::tryTakeBackLastAction);
             return false;
         }
         if (!canTakeBackLastAction()) {
@@ -2838,8 +2835,8 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
             if (getGui() != null) {
                 getGui().showMatchNote(Localizer.getInstance().getMessage("lblTakeBackCatastrophic"));
             }
-            // End cleanly rather than leave a half-restored board.
-            player.concede();
+            // H2: end cleanly via the controller concede path (not player.concede alone).
+            this.concede();
             return false;
         }
         if (result == TakeBackResult.RESTORE_FAILED && getGui() != null) {

@@ -88,6 +88,8 @@ public class ChooseCardEffect extends SpellAbilityEffect {
         int validAmount;
         if (amountValue.equals("Random")) {
             validAmount = Aggregates.randomInt(0, choices.size());
+            // M1: random amount choice locks take-back.
+            game.bumpInformationEpoch();
         } else {
             validAmount = AbilityUtils.calculateAmount(host, amountValue, sa);
         }

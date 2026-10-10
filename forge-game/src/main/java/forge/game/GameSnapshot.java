@@ -189,9 +189,8 @@ public class GameSnapshot {
         newPlayer.setSpellsCastLastTurn(origPlayer.getSpellsCastLastTurn());
         newPlayer.setCommitedCrimeThisTurn(origPlayer.getCommittedCrimeThisTurn());
         newPlayer.setExpentThisTurn(origPlayer.getExpentThisTurn());
-        for (int j = 0; j < origPlayer.getSpellsCastThisTurn(); j++) {
-            newPlayer.addSpellCastThisTurn();
-        }
+        // Exact game cast count — do not re-increment via addSpellCastThisTurn (C3).
+        newPlayer.setSpellsCastThisGame(origPlayer.getSpellsCastThisGame());
         newPlayer.setMaxHandSize(origPlayer.getMaxHandSize());
         newPlayer.setUnlimitedHandSize(origPlayer.isUnlimitedHandSize());
         newPlayer.setCrankCounter(origPlayer.getCrankCounter());
@@ -224,69 +223,146 @@ public class GameSnapshot {
 
     private void copyStack(Game fromGame, Game toGame) {
         if (restore) {
-            // Critical 1: fully revert the stack — drop instances that aren't in the
-            // snapshot, clear simultaneous/pending triggers, and reset storm / thisTurnCast.
-            toGame.getStack().clearForTakeBackRestore();
-            toGame.getTriggerHandler().clearWaitingTriggers();
-            // Snapshot was taken before the action: rebuild whatever the snapshot had.
-            for (SpellAbilityStackInstance origEntry : fromGame.getStack()) {
-                addStackInstanceFromSnapshot(origEntry, toGame);
+            // C1: remove only entries not in the snapshot (by instance id). Never re-push
+            // existing ones — an opponent trigger that was already on the stack must survive.
+            final Map<Integer, SpellAbilityStackInstance> snapById = new HashMap<>();
+            for (final SpellAbilityStackInstance si : fromGame.getStack()) {
+                snapById.put(si.getId(), si);
             }
-            // Storm / thisTurnCast: snapshot list wins (usually empty when undoing a cast).
-            toGame.getStack().setThisTurnCastForRestore(
-                    Lists.newArrayList(fromGame.getStack().getSpellsCastThisTurn()));
+            final List<SpellAbilityStackInstance> remove = Lists.newArrayList();
+            for (final SpellAbilityStackInstance live : toGame.getStack()) {
+                if (!snapById.containsKey(live.getId())) {
+                    remove.add(live);
+                }
+            }
+            for (final SpellAbilityStackInstance si : remove) {
+                toGame.getStack().remove(si);
+            }
+            // Add only snapshot instances that are missing on the live stack (cancel path).
+            for (final SpellAbilityStackInstance origEntry : fromGame.getStack()) {
+                if (toGame.getStack().getStackInstanceById(origEntry.getId()) == null) {
+                    restoreStackInstanceWithoutCastEffects(origEntry, toGame);
+                }
+            }
+            // Pending triggers from the taken-back action must not linger.
+            toGame.getStack().clearSimultaneousStack();
+            toGame.getTriggerHandler().clearWaitingTriggers();
+            // C3: exact thisTurnCast / thisTurnActivated from the snapshot (with remapped activators).
+            restoreTurnLists(fromGame, toGame);
             return;
         }
 
-        // Copy path (storing a snapshot): add missing instances into the copy.
-        Map<Integer, SpellAbilityStackInstance> stackIds = new HashMap<>();
-        for (SpellAbilityStackInstance toEntry : toGame.getStack()) {
-            stackIds.put(toEntry.getId(), toEntry);
-        }
-
+        // Store path: add missing instances into the copy without cast side effects,
+        // then copy turn cast/activation lists so restore has exact storm data.
         for (SpellAbilityStackInstance origEntry : fromGame.getStack()) {
-            int id = origEntry.getId();
-            SpellAbilityStackInstance instance = stackIds.getOrDefault(id, null);
-
-            if (instance != null) {
-                System.out.println("Might need to alter " + origEntry.getSpellAbility() + " on stack");
+            if (toGame.getStack().getStackInstanceById(origEntry.getId()) != null) {
                 continue;
             }
-
-            System.out.println("Adding " + origEntry.getSpellAbility() + " to stack");
-            addStackInstanceFromSnapshot(origEntry, toGame);
+            restoreStackInstanceWithoutCastEffects(origEntry, toGame);
         }
+        toGame.getStack().copyTurnListsFrom(fromGame.getStack());
     }
 
-    private void addStackInstanceFromSnapshot(SpellAbilityStackInstance origEntry, Game toGame) {
+    /**
+     * Place a snapshot stack instance onto {@code toGame} without {@link forge.game.zone.MagicStack#add}
+     * (which would re-fire cast triggers and re-append thisTurnCast — C2).
+     */
+    private void restoreStackInstanceWithoutCastEffects(SpellAbilityStackInstance origEntry, Game toGame) {
         SpellAbility origSa = origEntry.getSpellAbility();
         Card origHostCard = origSa.getHostCard();
         Card newCard = findBy(toGame, origHostCard);
 
+        if (newCard == null && origHostCard != null) {
+            final Player owner = origHostCard.getOwner() != null
+                    ? findBy(toGame, origHostCard.getOwner()) : null;
+            if (owner != null) {
+                newCard = createCardCopy(toGame, owner, origHostCard);
+            }
+        }
         if (newCard == null) {
-            newCard = createCardCopy(toGame, findBy(toGame, origHostCard.getOwner()), origHostCard);
+            return;
         }
 
-        SpellAbility newSa = null;
-        if (origSa.isSpell()) {
-            newSa = findSAInCard(origSa, newCard);
+        final Player newActivator = origSa.getActivatingPlayer() == null
+                ? null : findBy(toGame, origSa.getActivatingPlayer());
+        // Always LKI-copy: preserves modes, X, kicker/optional costs, and the chosen
+        // subability chain. findSAInCard would return a fresh unmoded SA (C2).
+        SpellAbility newSa = origSa.copy(newCard,
+                newActivator != null ? newActivator : newCard.getController(), true);
+        if (newSa == null) {
+            return;
         }
 
-        if (newSa != null) {
-            newSa.setActivatingPlayer(findBy(toGame, origSa.getActivatingPlayer()));
-            if (origSa.usesTargeting()) {
-                for (GameObject o : origSa.getTargets()) {
-                    if (o instanceof Card) {
-                        newSa.getTargets().add(findBy(toGame, (Card) o));
-                    } else if (o instanceof Player) {
-                        newSa.getTargets().add(findBy(toGame, (Player) o));
-                    } else {
-                        System.out.println("Failed to restore target " + o + " for " + origSa);
+        if (newActivator != null) {
+            newSa.setActivatingPlayer(newActivator);
+        }
+        newSa.setXManaCostPaid(origSa.getXManaCostPaid());
+        for (final forge.game.spellability.OptionalCost opt : origSa.getOptionalCosts()) {
+            if (!newSa.isOptionalCostPaid(opt)) {
+                newSa.addOptionalCost(opt);
+            }
+        }
+        if (origSa.usesTargeting()) {
+            newSa.getTargets().clear();
+            for (GameObject o : origSa.getTargets()) {
+                if (o instanceof Card) {
+                    final Card mapped = findBy(toGame, (Card) o);
+                    if (mapped != null) {
+                        newSa.getTargets().add(mapped);
                     }
+                } else if (o instanceof Player) {
+                    final Player mapped = findBy(toGame, (Player) o);
+                    if (mapped != null) {
+                        newSa.getTargets().add(mapped);
+                    }
+                } else {
+                    System.out.println("Failed to restore target " + o + " for " + origSa);
                 }
             }
-            toGame.getStack().add(newSa, origEntry.getId());
         }
+        toGame.getStack().pushForRestore(newSa, origEntry.getId());
+    }
+
+    private void restoreTurnLists(final Game fromGame, final Game toGame) {
+        final List<SpellAbility> casts = Lists.newArrayList();
+        for (final SpellAbility sa : fromGame.getStack().getSpellsCastThisTurn()) {
+            final SpellAbility mapped = remapTurnListSa(sa, toGame);
+            if (mapped != null) {
+                casts.add(mapped);
+            }
+        }
+        toGame.getStack().setThisTurnCastForRestore(casts);
+
+        final List<SpellAbility> activated = Lists.newArrayList();
+        for (final SpellAbility sa : fromGame.getStack().getAbilityActivatedThisTurn()) {
+            final SpellAbility mapped = remapTurnListSa(sa, toGame);
+            if (mapped != null) {
+                activated.add(mapped);
+            }
+        }
+        toGame.getStack().setThisTurnActivatedForRestore(activated);
+    }
+
+    private SpellAbility remapTurnListSa(final SpellAbility sa, final Game toGame) {
+        if (sa == null) {
+            return null;
+        }
+        final Player act = sa.getActivatingPlayer();
+        if (act == null) {
+            return sa;
+        }
+        final Player mapped = findBy(toGame, act);
+        if (mapped == null) {
+            return sa;
+        }
+        if (mapped == act) {
+            return sa;
+        }
+        // Do not mutate snapshot SAs — copy with the live activator so
+        // Player.getSpellsCastThisTurn() (filters by activator identity) is exact (C3).
+        final Card host = sa.getHostCard();
+        final Card mappedHost = host == null ? null : findBy(toGame, host);
+        return sa.copy(mappedHost != null ? mappedHost : host, mapped, true);
     }
 
     public void copyGameState(Game fromGame, Game toGame) {
@@ -511,25 +587,6 @@ public class GameSnapshot {
     private static boolean isMelded(Card c) {
         return c.getZone() instanceof PlayerZoneBattlefield battlefield
                 && battlefield.getMeldedCards().contains(c);
-    }
-
-    private static SpellAbility findSAInCard(SpellAbility sa, Card c) {
-        String saDesc = sa.getDescription();
-        for (SpellAbility cardSa : c.getAllSpellAbilities()) {
-            if (saDesc.equals(cardSa.getDescription())) {
-                return cardSa;
-            }
-        }
-
-        Map<String, String> origMap = sa.getOriginalMapParams();
-        for (SpellAbility cardSa : c.getAllSpellAbilities()) {
-            if (origMap.equals(cardSa.getOriginalMapParams())) {
-                return cardSa;
-            }
-        }
-
-
-        return null;
     }
 
     private record UnorderedEntities(

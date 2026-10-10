@@ -2338,6 +2338,10 @@ public class Player extends GameEntity implements Comparable<Player> {
     public final void resetSpellCastThisGame() {
         spellsCastThisGame = 0;
     }
+    /** Snapshot restore: set exact game cast count without achievement side effects. */
+    public final void setSpellsCastThisGame(final int n) {
+        spellsCastThisGame = Math.max(0, n);
+    }
 
     public final int getLifeGainedByTeamThisTurn() {
         return lifeGainedByTeamThisTurn;

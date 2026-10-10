@@ -549,10 +549,11 @@ public class ConfigData {
 
     /**
      * When true (Ascendant default), single-player adventure duels enable Take back of the
-     * player's last land, spell or non-mana activation via a dedicated {@code GameSnapshot}
-     * taken right before that action, while the information epoch is unchanged. Unlimited
-     * uses; no turn restart. Does not enable {@code EXPERIMENTAL_RESTORE_SNAPSHOT}.
-     * Disabled in co-op duels. Old saves omit this key and keep the default.
+     * player's last land play or spell cast via a dedicated {@code GameSnapshot} taken right
+     * before that action, while the information epoch is unchanged. Activated abilities
+     * (including planeswalkers) never get a snapshot. Unlimited uses; no turn restart.
+     * Does not enable {@code EXPERIMENTAL_RESTORE_SNAPSHOT}. Disabled in co-op duels.
+     * Old saves omit this key and keep the default.
      */
     public boolean duelTakeBackEnabled = true;
 

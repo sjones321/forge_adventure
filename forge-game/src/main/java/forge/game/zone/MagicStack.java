@@ -313,11 +313,10 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
         // The ability is added to stack HERE
         push(sp, si, id);
 
-        // DS4: a trigger on the stack, or another player's spell/ability, locks take-back.
-        // The owner's own just-cast spell must not lock itself.
+        // DS4: another player's spell/ability/trigger on the stack locks take-back.
+        // The owner's own cast (and prowess / cast-triggers from it) must stay take-back-eligible.
         final Player takeBackOwner = game.getTakeBackOwner();
-        if (sp.isTrigger()
-                || (takeBackOwner != null && activator != null && !takeBackOwner.equals(activator))) {
+        if (takeBackOwner != null && activator != null && !takeBackOwner.equals(activator)) {
             game.bumpInformationEpoch();
         }
 
@@ -858,38 +857,67 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
 
     public final void addSimultaneousStackEntry(final SpellAbility sa) {
         simultaneousStackEntryList.add(sa);
-        // DS4: pending cast/ETB/landfall triggers are new information.
+        // DS4: only opponent/other-player pending triggers lock take-back. The owner's own
+        // cast-triggered abilities (prowess, etc.) must remain take-back-eligible until
+        // they are ordered by someone else or other new information arrives.
         if (sa != null && sa.isTrigger()) {
-            game.bumpInformationEpoch();
+            final Player takeBackOwner = game.getTakeBackOwner();
+            Player activator = sa.getActivatingPlayer();
+            if (activator == null && sa.getHostCard() != null) {
+                activator = sa.getHostCard().getController();
+            }
+            if (takeBackOwner != null && activator != null && !takeBackOwner.equals(activator)) {
+                game.bumpInformationEpoch();
+            }
         }
     }
 
     /**
-     * DS4 take-back restore: drop every stack instance, simultaneous entries, frozen
-     * entries and this-turn cast/activation lists so {@link forge.game.GameSnapshot}
-     * can rebuild from the snapshot.
+     * DS4 / cancel restore: place a stack instance by id without cast/activation side effects
+     * (no thisTurnCast, no cast triggers, no prowess).
      */
-    public final void clearForTakeBackRestore() {
-        stack.clear();
-        simultaneousStackEntryList.clear();
-        activePlayerSAs.clear();
-        frozenStack.clear();
-        thisTurnCast.clear();
-        thisTurnActivated.clear();
-        primaryAbility = null;
-        frozen = false;
-        bResolving = false;
-        curResolvingCard = null;
-        clearUndoStack();
+    public final void pushForRestore(final SpellAbility sp, final int id) {
+        if (sp.getActivatingPlayer() == null) {
+            sp.setActivatingPlayer(sp.getHostCard().getController());
+        }
+        final SpellAbilityStackInstance si = new SpellAbilityStackInstance(sp, id);
+        stack.addFirst(si);
         game.updateStackForView();
+        game.fireEvent(new GameEventSpellAbilityCast(sp, si, stack.size() - 1));
     }
 
-    /** Replace this-turn cast list after a take-back restore (storm / cast counts). */
+    public final SpellAbilityStackInstance getStackInstanceById(final int id) {
+        for (final SpellAbilityStackInstance si : stack) {
+            if (si.getId() == id) {
+                return si;
+            }
+        }
+        return null;
+    }
+
+    /** Replace this-turn cast list after a snapshot restore (storm / cast counts). */
     public final void setThisTurnCastForRestore(final List<SpellAbility> casts) {
         thisTurnCast.clear();
         if (casts != null) {
             thisTurnCast.addAll(casts);
         }
+    }
+
+    /** Replace this-turn activated list after a snapshot restore. */
+    public final void setThisTurnActivatedForRestore(final List<SpellAbility> activated) {
+        thisTurnActivated.clear();
+        if (activated != null) {
+            thisTurnActivated.addAll(activated);
+        }
+    }
+
+    /** Copy turn cast/activation lists when storing a snapshot (no remapping). */
+    public final void copyTurnListsFrom(final MagicStack from) {
+        thisTurnCast.clear();
+        thisTurnCast.addAll(from.thisTurnCast);
+        thisTurnActivated.clear();
+        thisTurnActivated.addAll(from.thisTurnActivated);
+        lastTurnCast = Lists.newArrayList(from.lastTurnCast);
     }
 
     public boolean addAllTriggeredAbilitiesToStack() {

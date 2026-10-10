@@ -3002,6 +3002,8 @@ public class CardFactoryUtil {
                         // because it doesn't work other wise
                         c.setForetoldCostByEffect(true);
                     }
+                    // M1: foretell is a special action — lock take-back.
+                    game.bumpInformationEpoch();
                     game.fireEvent(new GameEventCardForetold(PlayerView.get(getActivatingPlayer())));
                 }
             };

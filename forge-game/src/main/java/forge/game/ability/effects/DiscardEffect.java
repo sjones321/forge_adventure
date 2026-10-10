@@ -194,6 +194,8 @@ public class DiscardEffect extends SpellAbilityEffect {
                 List<Card> list = CardLists.getValidCards(p.getCardsIn(ZoneType.Hand), valid, source.getController(), source, sa);
 
                 toBeDiscarded = new CardCollection(Aggregates.random(list, numCards));
+                // M1: random discard is new information.
+                game.bumpInformationEpoch();
                 toBeDiscarded = GameActionUtil.orderCardsByTheirOwners(game, toBeDiscarded, ZoneType.Graveyard, sa);
             }
             else if (mode.equals("TgtChoose") && sa.hasParam("UnlessType")) {
