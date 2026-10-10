@@ -240,6 +240,11 @@ public class Forge implements ApplicationListener {
 
         textureFiltering = getForgePreferences().getPrefBoolean(FPref.UI_LIBGDX_TEXTURE_FILTERING);
         showFPS = getForgePreferences().getPrefBoolean(FPref.UI_SHOW_FPS);
+        // DS3: restore local hover-preview on/off + details (not networked).
+        // Do not set magnify=true here — that enables hover for Android gamepad users
+        // before any mouse move; mouseMoved / M sets magnify when appropriate.
+        magnifyToggle = getForgePreferences().getPrefBoolean(FPref.UI_MAGNIFIER_TOGGLE);
+        magnifyShowDetails = getForgePreferences().getPrefBoolean(FPref.UI_MAGNIFIER_SHOW_DETAILS);
         reversedPrompt = getForgePreferences().getPrefBoolean(FPref.UI_REVERSE_PROMPT_BUTTON);
         autoAIDeckSelection = getForgePreferences().getPrefBoolean(FPref.UI_AUTO_AIDECK_SELECTION);
         altPlayerLayout = getForgePreferences().getPrefBoolean(FPref.UI_ALT_PLAYERINFOLAYOUT);
@@ -1443,6 +1448,22 @@ public class Forge implements ApplicationListener {
             try {
                 for (FDisplayObject listener : potentialListeners) {
                     if (listener.tap(listener.screenToLocalX(x), listener.screenToLocalY(y), count)) {
+                        return true;
+                    }
+                }
+                return false;
+            } catch (Exception ex) {
+                BugReporter.reportException(ex);
+                return true;
+            }
+        }
+
+        @Override
+        public boolean rightClick(float x, float y) {
+            // No Shift+flick — right-click must not select a whole stack.
+            try {
+                for (FDisplayObject listener : potentialListeners) {
+                    if (listener.rightClick(listener.screenToLocalX(x), listener.screenToLocalY(y))) {
                         return true;
                     }
                 }

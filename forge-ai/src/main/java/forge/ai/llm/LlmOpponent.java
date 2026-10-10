@@ -34,6 +34,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,6 +48,10 @@ import java.util.regex.Pattern;
  * {@code forge.llm.dir}). The API key is local-only and is never logged. HTTP runs on a
  * dedicated thread with the configured timeout so the game/GL threads never hang on the
  * network.
+ *
+ * <p>AI1: at or below {@link LlmSettings#getMulliganMinHandSize()} the LLM is skipped and Forge
+ * AI decides. An LLM decision budget falls back to Forge AI if a decision stalls. Tests may stub
+ * the HTTP client via {@link #setAskClientForTests}.
  */
 public final class LlmOpponent {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -61,6 +66,8 @@ public final class LlmOpponent {
 
     private static volatile boolean active;
     private static volatile LlmSettings settings = new LlmSettings();
+    /** Test-only stub: when non-null, {@link #ask} uses this instead of HTTP. */
+    private static volatile Function<String, String> askClientForTests;
 
     private LlmOpponent() {
     }
@@ -100,6 +107,145 @@ public final class LlmOpponent {
     public static void deactivateForTests() {
         active = false;
         settings = new LlmSettings();
+        askClientForTests = null;
+    }
+
+    /**
+     * Test-only: replace the HTTP chat client. Pass {@code null} to restore real HTTP.
+     * The stub must return promptly (or null); no real network calls.
+     */
+    public static void setAskClientForTests(Function<String, String> client) {
+        askClientForTests = client;
+    }
+
+    /** Test-only: invoke the timed ask path (stub or HTTP). Never log the API key. */
+    public static String askForTests(String prompt) {
+        return ask(prompt);
+    }
+
+    /**
+     * Apply Ascendant {@code ConfigData} AI1 tunables onto the live settings (after load).
+     * Values already present in {@code llm_opponent.properties} win; config.json is only a fallback.
+     */
+    public static void applyAscendantTunables(int mulliganMinHandSize, int decisionBudgetSeconds) {
+        LlmSettings s = settings;
+        if (s == null) {
+            return;
+        }
+        if (!s.isMulliganMinHandSizeFromProperties()) {
+            s.setMulliganMinHandSize(mulliganMinHandSize);
+        }
+        if (!s.isDecisionBudgetFromProperties()) {
+            s.setDecisionBudgetSeconds(decisionBudgetSeconds);
+        }
+    }
+
+    /** AI1 mulligan floor from the active settings (default 5). */
+    public static int getMulliganMinHandSize() {
+        LlmSettings s = settings;
+        return s == null ? LlmSettings.DEFAULT_MULLIGAN_MIN_HAND_SIZE : s.getMulliganMinHandSize();
+    }
+
+    /** AI1 LLM decision budget seconds (default 30). */
+    public static int getDecisionBudgetSeconds() {
+        LlmSettings s = settings;
+        return s == null ? LlmSettings.DEFAULT_DECISION_BUDGET_SECONDS : s.getDecisionBudgetSeconds();
+    }
+
+    /** @deprecated use {@link #getDecisionBudgetSeconds()} */
+    public static int getPriorityWatchdogSeconds() {
+        return getDecisionBudgetSeconds();
+    }
+
+    /**
+     * Log a decision-budget fallback (never log the API key or prompt secrets).
+     * Log-only on purpose: Adventure scenes do not draw {@code FOptionPane}/{@code SOptionPane}
+     * reliably — do not pop a dialog here; use {@code llm_decisions.log} / the game battle log.
+     */
+    public static void logDecisionBudgetFallback(String decisionKind) {
+        log("----- DECISION BUDGET: AI made no progress on " + decisionKind
+                + " within " + getDecisionBudgetSeconds() + "s; falling back to Forge AI");
+    }
+
+    /** @deprecated use {@link #logDecisionBudgetFallback(String)} */
+    public static void logWatchdogFallback(String decisionKind) {
+        logDecisionBudgetFallback(decisionKind);
+    }
+
+    /** Per-decision deadline (nanoTime) for the AI1 LLM decision budget; 0 = none. */
+    private static final ThreadLocal<Long> DECISION_DEADLINE_NANOS = ThreadLocal.withInitial(() -> 0L);
+    private static final ThreadLocal<String> DECISION_KIND = new ThreadLocal<>();
+
+    /**
+     * AI1: run {@code action} under a wall-clock decision budget. LLM {@link #ask} calls abort when
+     * the deadline passes (Forge AI fallback). Runs on the calling thread so game state stays
+     * single-threaded. Does <em>not</em> swallow exceptions from {@code action} — Forge AI bugs
+     * must propagate. Nested budgets use {@code min(outer remaining, new budget)}.
+     */
+    public static <T> T runWithDecisionBudget(String decisionKind, java.util.concurrent.Callable<T> action) {
+        long previous = DECISION_DEADLINE_NANOS.get();
+        String previousKind = DECISION_KIND.get();
+        long newBudgetNanos = TimeUnit.SECONDS.toNanos(getDecisionBudgetSeconds());
+        long useNanos = newBudgetNanos;
+        if (previous > 0L) {
+            long outerRemaining = previous - System.nanoTime();
+            useNanos = Math.min(newBudgetNanos, Math.max(0L, outerRemaining));
+        }
+        long deadline = System.nanoTime() + useNanos;
+        DECISION_DEADLINE_NANOS.set(deadline);
+        DECISION_KIND.set(decisionKind == null ? "decision" : decisionKind);
+        try {
+            return action.call();
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Exception e) {
+            // Checked exceptions from Callable — wrap; do not treat as budget expiry.
+            throw new RuntimeException(e);
+        } finally {
+            if (previous > 0L) {
+                DECISION_DEADLINE_NANOS.set(previous);
+                DECISION_KIND.set(previousKind);
+            } else {
+                DECISION_DEADLINE_NANOS.remove();
+                DECISION_KIND.remove();
+            }
+        }
+    }
+
+    /** @deprecated use {@link #runWithDecisionBudget(String, java.util.concurrent.Callable)} */
+    public static <T> T runWithPriorityWatchdog(String decisionKind, java.util.concurrent.Callable<T> action) {
+        return runWithDecisionBudget(decisionKind, action);
+    }
+
+    /** Remaining nanoseconds until the decision budget fires, or {@link Long#MAX_VALUE} if none. */
+    public static long remainingDecisionBudgetNanos() {
+        long deadline = DECISION_DEADLINE_NANOS.get();
+        if (deadline <= 0L) {
+            return Long.MAX_VALUE;
+        }
+        return deadline - System.nanoTime();
+    }
+
+    /** Remaining seconds until the decision budget fires, or {@code Integer.MAX_VALUE} if none. */
+    static int remainingDecisionBudgetSeconds() {
+        long remainingNanos = remainingDecisionBudgetNanos();
+        if (remainingNanos == Long.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        if (remainingNanos <= 0L) {
+            return 0;
+        }
+        // Ceil to whole seconds for coarse callers; ask() uses nanos for on-time expiry.
+        long sec = TimeUnit.NANOSECONDS.toSeconds(remainingNanos);
+        if (TimeUnit.SECONDS.toNanos(sec) < remainingNanos) {
+            sec++;
+        }
+        return (int) Math.min(Integer.MAX_VALUE, sec);
+    }
+
+    /** @deprecated use {@link #remainingDecisionBudgetSeconds()} */
+    static int remainingWatchdogSeconds() {
+        return remainingDecisionBudgetSeconds();
     }
 
     // ---------------------------------------------------------------- decisions
@@ -128,16 +274,28 @@ public final class LlmOpponent {
 
     /**
      * Mulligan keep/mull. Returns {@link Boolean#TRUE} to keep, {@link Boolean#FALSE} to mull,
-     * or {@code null} to fall back to Forge AI.
+     * or {@code null} to fall back to Forge AI ({@code ComputerUtil.wantMulligan}).
+     *
+     * <p>AI1: when the current hand is at or below {@link LlmSettings#getMulliganMinHandSize()},
+     * or when an LLM mulligan would leave the hand below that floor, the LLM is not used and
+     * Forge AI decides. The engine empty-hand keep still ends the London mulligan loop.
      */
     public static Boolean chooseKeepHand(Player ai, int cardsToReturn) {
         if (!active || settings == null || !settings.canActivate()) {
             return null;
         }
+        int handSize = ai.getCardsIn(ZoneType.Hand).size();
+        int floor = settings.getMulliganMinHandSize();
+        if (handSize <= floor) {
+            log("  -> hand size " + handSize + " at/below AI1 floor " + floor + ", using Forge AI for mulligan");
+            return null;
+        }
         StringBuilder prompt = new StringBuilder(describeState(ai));
         prompt.append("\nMulligan decision. Cards you would put back if you mulligan: ")
                 .append(Math.max(0, cardsToReturn))
-                .append(".\nDecide whether to keep this hand. Reply only with JSON: "
+                .append(". Current hand size: ").append(handSize)
+                .append(". Do not mulligan below ").append(floor).append(" cards.")
+                .append("\nDecide whether to keep this hand. Reply only with JSON: "
                         + "{\"keep\": true|false, \"reason\": \"<one sentence>\"}");
         String answer = ask(prompt.toString());
         Boolean keep = findBoolean(answer, "keep");
@@ -145,8 +303,27 @@ public final class LlmOpponent {
             log("  -> unusable mulligan answer, using Forge AI");
             return null;
         }
+        if (!keep) {
+            int nextHand = estimateHandAfterMulligan(ai, cardsToReturn);
+            if (nextHand < floor) {
+                log("  -> LLM mulligan would leave ~" + nextHand + " cards (floor " + floor
+                        + "); using Forge AI");
+                return null;
+            }
+        }
         note(ai, keep ? "keeps hand" : "mulligans");
         return keep;
+    }
+
+    /**
+     * Rough post-mulligan hand size for London-style (redraw to max, tuck {@code cardsToReturn+1}
+     * after the free/paid accounting already reflected in {@code cardsToReturn} at decision time).
+     * Conservative: next paid tuck is at least {@code cardsToReturn} and usually one more.
+     */
+    static int estimateHandAfterMulligan(Player ai, int cardsToReturn) {
+        int max = ai.getMaxHandSize();
+        int tuck = Math.max(0, cardsToReturn) + 1;
+        return Math.max(0, max - tuck);
     }
 
     /**
@@ -547,37 +724,69 @@ public final class LlmOpponent {
     // ---------------------------------------------------------------- HTTP + JSON
 
     /**
-     * Sends a chat completion on the HTTP executor and enforces the timeout. Returns null on
-     * any failure. Never logs the API key.
+     * Sends a chat completion on the HTTP executor and enforces a hard timeout. Returns null on
+     * any failure (timeout, error, empty). Never logs the API key. Tests may stub via
+     * {@link #setAskClientForTests}.
      */
     static String ask(String prompt) {
         LlmSettings s = settings;
         if (s == null || !s.canActivate()) {
             return null;
         }
+        long budgetLeftNanos = remainingDecisionBudgetNanos();
+        if (budgetLeftNanos <= 0L) {
+            String kind = DECISION_KIND.get();
+            logDecisionBudgetFallback(kind == null ? "llm-ask" : kind);
+            return null;
+        }
         long start = System.currentTimeMillis();
         log("\n----- PROMPT " + LocalTime.now().format(TIME) + " -----\n" + prompt);
-        int timeout = s.getTimeoutSeconds();
-        Callable<String> call = () -> sendChat(s, prompt, false);
+        // Hard timeout: configured request timeout, capped by the remaining decision budget.
+        // Deadline-based wait (nanos) so the budget fires on time — no +2s slack.
+        long timeoutNanos = TimeUnit.SECONDS.toNanos(s.getTimeoutSeconds());
+        if (budgetLeftNanos != Long.MAX_VALUE) {
+            timeoutNanos = Math.min(timeoutNanos, budgetLeftNanos);
+        }
+        if (timeoutNanos <= 0L) {
+            String kind = DECISION_KIND.get();
+            logDecisionBudgetFallback(kind == null ? "llm-ask" : kind);
+            return null;
+        }
+        Function<String, String> stub = askClientForTests;
+        Callable<String> call = stub != null
+                ? () -> stub.apply(prompt)
+                : () -> sendChat(s, prompt, false);
         try {
-            String content;
-            if (Thread.currentThread().getName().startsWith("llm-opponent-http")) {
-                content = call.call();
-            } else {
-                Future<String> future = HTTP_EXEC.submit(call);
-                try {
-                    content = future.get(timeout + 2L, TimeUnit.SECONDS);
-                } catch (TimeoutException te) {
-                    future.cancel(true);
-                    log("----- ERROR: timeout after " + timeout + "s");
+            ExecutorService exec = Thread.currentThread().getName().startsWith("llm-opponent-http")
+                    ? Executors.newSingleThreadExecutor(r -> {
+                        Thread t = new Thread(r, "llm-opponent-ask");
+                        t.setDaemon(true);
+                        return t;
+                    })
+                    : HTTP_EXEC;
+            boolean owned = exec != HTTP_EXEC;
+            Future<String> future = exec.submit(call);
+            try {
+                String content = future.get(timeoutNanos, TimeUnit.NANOSECONDS);
+                if (content == null) {
                     return null;
                 }
-            }
-            if (content == null) {
+                log("----- ANSWER (" + (System.currentTimeMillis() - start) + " ms) -----\n" + content);
+                return content;
+            } catch (TimeoutException te) {
+                future.cancel(true);
+                long elapsedMs = System.currentTimeMillis() - start;
+                log("----- ERROR: timeout after " + elapsedMs + " ms");
+                if (budgetLeftNanos != Long.MAX_VALUE && timeoutNanos >= budgetLeftNanos) {
+                    String kind = DECISION_KIND.get();
+                    logDecisionBudgetFallback(kind == null ? "llm-ask" : kind);
+                }
                 return null;
+            } finally {
+                if (owned) {
+                    exec.shutdownNow();
+                }
             }
-            log("----- ANSWER (" + (System.currentTimeMillis() - start) + " ms) -----\n" + content);
-            return content;
         } catch (ExecutionException e) {
             log("----- ERROR: " + s.redact(safeMessage(e.getCause() != null ? e.getCause() : e)));
             return null;

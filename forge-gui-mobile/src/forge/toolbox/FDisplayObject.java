@@ -163,6 +163,14 @@ public abstract class FDisplayObject {
         return false;
     }
 
+    /**
+     * Desktop right-click. Default: ignore. Only duel card panels open CardZoom;
+     * buttons, avatars, stack items, and item-manager rows must not treat this as a tap.
+     */
+    public boolean rightClick(float x, float y) {
+        return false;
+    }
+
     public boolean flick(float x, float y) {
         return false;
     }

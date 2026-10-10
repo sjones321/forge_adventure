@@ -789,8 +789,14 @@ public class PlayerControllerAi extends PlayerController {
 
     @Override
     public boolean mulliganKeepHand(Player firstPlayer, int cardsToReturn)  {
+        // Empty hand must keep: London can reach 0; a further "mulligan" is a no-op that
+        // used to leave MulliganService spinning forever.
+        if (player.getCardsIn(ZoneType.Hand).isEmpty()) {
+            return true;
+        }
         if (LlmOpponent.isActive()) {
-            Boolean keep = LlmOpponent.chooseKeepHand(player, cardsToReturn);
+            Boolean keep = LlmOpponent.runWithDecisionBudget("mulligan",
+                    () -> LlmOpponent.chooseKeepHand(player, cardsToReturn));
             if (keep != null) {
                 return keep;
             }
@@ -844,17 +850,35 @@ public class PlayerControllerAi extends PlayerController {
 
     @Override
     public void declareAttackers(Player attacker, Combat combat) {
-        brains.declareAttackers(attacker, combat);
+        if (!LlmOpponent.isActive()) {
+            brains.declareAttackers(attacker, combat);
+            return;
+        }
+        LlmOpponent.runWithDecisionBudget("attackers", () -> {
+            brains.declareAttackers(attacker, combat);
+            return null;
+        });
     }
 
     @Override
     public void declareBlockers(Player defender, Combat combat) {
-        brains.declareBlockersFor(defender, combat);
+        if (!LlmOpponent.isActive()) {
+            brains.declareBlockersFor(defender, combat);
+            return;
+        }
+        LlmOpponent.runWithDecisionBudget("blockers", () -> {
+            brains.declareBlockersFor(defender, combat);
+            return null;
+        });
     }
 
     @Override
     public List<SpellAbility> chooseSpellAbilityToPlay() {
-        return brains.chooseSpellAbilityToPlay();
+        if (!LlmOpponent.isActive()) {
+            return brains.chooseSpellAbilityToPlay();
+        }
+        // AI1 decision budget: LLM asks honor the deadline; on expiry Forge AI picks.
+        return LlmOpponent.runWithDecisionBudget("priority", () -> brains.chooseSpellAbilityToPlay());
     }
 
     @Override

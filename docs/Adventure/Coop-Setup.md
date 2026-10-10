@@ -1,7 +1,7 @@
-# Bellwarden: Planes of Nothing co-op setup (CO1)
+# Shandalar Ascendant co-op setup (CO1)
 
 Direct, no servers. One player **hosts**; the other **joins** over LAN or Tailscale.
-Bellwarden: Planes of Nothing only — stock Forge / other Adventure worlds do not show Host / Join.
+Shandalar Ascendant only — stock Forge / other Adventure worlds do not show Host / Join.
 
 ## Building it on a second PC (for the guest)
 
@@ -21,7 +21,7 @@ mvn -B install -DskipTests -pl forge-gui-mobile,forge-gui-mobile-dev -am
 The first build downloads dependencies and takes a while; later builds can add `-o` (offline).
 
 Run the game with **`play-adventure.cmd`** in the repo root (Windows). It starts Forge from the `forge-gui` folder
-so it finds its `res` data, with the Java options Forge needs. In Adventure, start or load a **Bellwarden: Planes of Nothing**
+so it finds its `res` data, with the Java options Forge needs. In Adventure, start or load a **Shandalar Ascendant**
 game; co-op only exists in that world. Then follow **Join** below.
 
 To update later: `git pull`, check the commit hash matches the host's again, and rebuild.
@@ -30,14 +30,14 @@ To update later: `git pull`, check the commit hash matches the host's again, and
 
 | Port  | Role |
 |------:|------|
-| **36744** | Bellwarden: Planes of Nothing co-op overworld session (handshake, world sync, CO2). |
+| **36744** | Shandalar Ascendant co-op overworld session (handshake, world sync, CO2). |
 | **36743** | Forge game / duel port — started **only for co-op duels** (CO3), bound to `coopBindAddress` when set, same session auth as 36744. Stock online play is unchanged. |
 
 Tunable in the mode `config.json` (`forge-gui/res/adventure/Shandalar Ascendant/config.json`) as `coopOverworldPort` / `coopGamePort`.
 
 ## Host
 
-1. Play **Bellwarden: Planes of Nothing**, Load or Continue a save (the host's save owns the world).
+1. Play **Shandalar Ascendant**, Load or Continue a save (the host's save owns the world).
 2. From the Adventure main menu, tap **Host**.
 3. Note the **8-character session code** on the Hosting screen — the guest must type it.
 4. Share one of the listed addresses (LAN IP or Tailscale `100.x`) plus that session code.
@@ -73,12 +73,12 @@ Scope rules to the Java/Forge program and to Tailscale or the local subnet — d
 
 ```powershell
 # Run as Administrator
-New-NetFirewallRule -DisplayName "Bellwarden: Planes of Nothing Co-op Overworld (Tailscale)" `
+New-NetFirewallRule -DisplayName "Shandalar Ascendant Co-op Overworld (Tailscale)" `
   -Direction Inbound -Protocol TCP -LocalPort 36744 -Action Allow -Profile Private `
   -RemoteAddress 100.64.0.0/10 `
   -Program "C:\Path\To\java.exe"
 
-New-NetFirewallRule -DisplayName "Bellwarden: Planes of Nothing Co-op Duels (Tailscale)" `
+New-NetFirewallRule -DisplayName "Shandalar Ascendant Co-op Duels (Tailscale)" `
   -Direction Inbound -Protocol TCP -LocalPort 36743 -Action Allow -Profile Private `
   -RemoteAddress 100.64.0.0/10 `
   -Program "C:\Path\To\java.exe"
@@ -90,12 +90,12 @@ Replace the `-Program` path with the `java.exe` (or Forge launcher) you actually
 
 ```powershell
 # Run as Administrator
-New-NetFirewallRule -DisplayName "Bellwarden: Planes of Nothing Co-op Overworld (LAN)" `
+New-NetFirewallRule -DisplayName "Shandalar Ascendant Co-op Overworld (LAN)" `
   -Direction Inbound -Protocol TCP -LocalPort 36744 -Action Allow -Profile Private `
   -RemoteAddress LocalSubnet `
   -Program "C:\Path\To\java.exe"
 
-New-NetFirewallRule -DisplayName "Bellwarden: Planes of Nothing Co-op Duels (LAN)" `
+New-NetFirewallRule -DisplayName "Shandalar Ascendant Co-op Duels (LAN)" `
   -Direction Inbound -Protocol TCP -LocalPort 36743 -Action Allow -Profile Private `
   -RemoteAddress LocalSubnet `
   -Program "C:\Path\To\java.exe"
@@ -208,13 +208,13 @@ Firewall: allow inbound TCP 36743–36744 on loopback / Private profile (see Win
 
 ### Host steps
 
-1. Launch Bellwarden: Planes of Nothing with the **host** user dir; Load/Continue a save.
+1. Launch Shandalar Ascendant with the **host** user dir; Load/Continue a save.
 2. Adventure menu → **Host** → note the **8-character session code**.
 3. Wait until the Hosting screen shows listening (overworld 36744).
 
 ### Guest steps
 
-1. Launch Bellwarden: Planes of Nothing with the **guest** user dir; Load/Continue a **different** character.
+1. Launch Shandalar Ascendant with the **guest** user dir; Load/Continue a **different** character.
 2. Adventure menu → **Join** → address `127.0.0.1` (or `localhost`), paste the session code.
 3. Confirm the guest enters the session world (normal save slots untouched).
 

@@ -496,7 +496,7 @@ public class PlayerSkills {
 
     public String canBuyRank(Skill skill, String nodeId) {
         if (!rulesOn())
-            return "Skill trees are only available in Bellwarden: Planes of Nothing.";
+            return "Skill trees are only available in Shandalar Ascendant.";
         SkillTreeData tree = SkillTreeListData.get(skill);
         SkillTreeNodeData node = tree.findNode(nodeId);
         if (node == null)
@@ -544,7 +544,7 @@ public class PlayerSkills {
 
     public String canSlotPerk(String nodeId) {
         if (!rulesOn())
-            return "Skill trees are only available in Bellwarden: Planes of Nothing.";
+            return "Skill trees are only available in Shandalar Ascendant.";
         SkillTreeNodeData node = SkillTreeListData.findNode(nodeId);
         if (node == null || !node.duelPerk)
             return "Not a duel perk.";
@@ -574,7 +574,7 @@ public class PlayerSkills {
      */
     public String respec(Skill skill) {
         if (!rulesOn())
-            return "Skill trees are only available in Bellwarden: Planes of Nothing.";
+            return "Skill trees are only available in Shandalar Ascendant.";
         int spent = talentPointsSpent(skill);
         if (spent <= 0 && !hasSkillCape(skill))
             return "Nothing to respec.";

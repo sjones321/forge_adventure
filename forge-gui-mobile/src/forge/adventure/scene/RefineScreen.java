@@ -48,7 +48,7 @@ public class RefineScreen extends FScreen {
     @Override
     public void onActivate() {
         if (!Config.ascendant()) {
-            FOptionPane.showMessageDialog("Refining is only available in Bellwarden: Planes of Nothing.",
+            FOptionPane.showMessageDialog("Refining is only available in Shandalar Ascendant.",
                     "Refine", FOptionPane.INFORMATION_ICON, result -> Forge.back());
             return;
         }

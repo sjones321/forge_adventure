@@ -12,7 +12,11 @@ public class LondonMulligan extends AbstractMulligan {
 
     @Override
     public boolean canMulligan() {
-        return !kept && tuckCardsDuringMulligan() <= player.getMaxHandSize();
+        // Once the hand is empty (London can tuck down to 0), further mulligans are a no-op;
+        // refuse so the keep loop can finish and the game can start.
+        return !kept
+                && !player.getCardsIn(ZoneType.Hand).isEmpty()
+                && tuckCardsDuringMulligan() <= player.getMaxHandSize();
     }
 
     @Override

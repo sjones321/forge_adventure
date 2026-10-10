@@ -8,7 +8,6 @@ import com.badlogic.gdx.utils.Timer;
 import com.badlogic.gdx.utils.Timer.Task;
 
 import forge.Forge;
-import forge.assets.FSkin;
 import forge.haptic.HapticEngine;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.util.Utils;
@@ -18,6 +17,8 @@ public abstract class FGestureAdapter extends InputAdapter {
     public abstract boolean longPress(float x, float y);
     public abstract boolean release(float x, float y);
     public abstract boolean tap(float x, float y, int count);
+    /** Desktop right-click; must not route through {@link #tap} (avoids activating buttons etc.). */
+    public abstract boolean rightClick(float x, float y);
     public abstract boolean flick(float x, float y);
     public abstract boolean fling(float velocityX, float velocityY);
     public abstract boolean pan(float x, float y, float deltaX, float deltaY, boolean moreVertical);
@@ -37,26 +38,33 @@ public abstract class FGestureAdapter extends InputAdapter {
     private final Vector2 prevPointer2 = new Vector2();
     private final Vector2 focalPoint = new Vector2();
 
-    private final Task longPressTask = new Task() {
-        @Override
-        public void run() {
-            if (pressed) {
-                if (Gdx.input.isTouched(0)) {
-                    if (!longPressed) {
-                        longPressed = true;
-                        if (longPress(pointer1.x, pointer1.y)) {
-                            HapticEngine.vibrate(FPref.UI_VIBRATE_ON_LONG_PRESS, 25);
-                            endPress(pointer1.x, pointer1.y); //end press immediately if long press handled
-                            longPressHandled = true;
+    private Task longPressTask;
+
+    private Task longPressTask() {
+        if (longPressTask == null) {
+            longPressTask = new Task() {
+                @Override
+                public void run() {
+                    if (pressed) {
+                        if (Gdx.input.isTouched(0)) {
+                            if (!longPressed) {
+                                longPressed = true;
+                                if (longPress(pointer1.x, pointer1.y)) {
+                                    HapticEngine.vibrate(FPref.UI_VIBRATE_ON_LONG_PRESS, 25);
+                                    endPress(pointer1.x, pointer1.y); //end press immediately if long press handled
+                                    longPressHandled = true;
+                                }
+                            }
+                        }
+                        else { //end press immediately if finger no longer down
+                            endPress(pointer1.x, pointer1.y);
                         }
                     }
                 }
-                else { //end press immediately if finger no longer down
-                    endPress(pointer1.x, pointer1.y);
-                }
-            }
+            };
         }
-    };
+        return longPressTask;
+    }
 
     public FGestureAdapter() {
         this(Utils.AVG_FINGER_WIDTH / 2f, 0.25f, 0.5f, 0.15f);
@@ -83,9 +91,17 @@ public abstract class FGestureAdapter extends InputAdapter {
     public boolean touchDown(int x, int y, int pointer, int button) {
         return touchDown((float)x, (float)y, pointer, button);
     }
-    private boolean touchDown(float x, float y, int pointer, int button) {
+    /** Package-visible for DS3 input-path tests (real adapter, not flag-setting). */
+    boolean touchDown(float x, float y, int pointer, int button) {
         if (button == Input.Buttons.RIGHT) {
-            //catch right click
+            // Track for rightClick only — never start press/long-press or toggle magnifier.
+            pointer1.set(x, y);
+            tracker.start(x, y, eventTimeNanos());
+            inTapSquare = true;
+            panning = false;
+            pinching = false;
+            tapSquareCenterX = x;
+            tapSquareCenterY = y;
             return true;
         }
         if (pointer > 1) { return false; }
@@ -94,7 +110,7 @@ public abstract class FGestureAdapter extends InputAdapter {
             pointer1.set(x, y);
             if (!Gdx.input.isTouched(1)) {
                 // handle single finger press
-                tracker.start(x, y, Gdx.input.getCurrentEventTime());
+                tracker.start(x, y, eventTimeNanos());
                 inTapSquare = true;
                 panning = false;
                 pinching = false;
@@ -148,7 +164,7 @@ public abstract class FGestureAdapter extends InputAdapter {
         }
 
         // update tracker
-        tracker.update(x, y, Gdx.input.getCurrentEventTime());
+        tracker.update(x, y, eventTimeNanos());
 
         // check if we are still tapping.
         if (inTapSquare && !isWithinTapSquare(x, y, tapSquareCenterX, tapSquareCenterY)) {
@@ -165,6 +181,14 @@ public abstract class FGestureAdapter extends InputAdapter {
         return false;
     }
 
+    /** Event time for tap counting; falls back when Gdx.input is unavailable (tests). */
+    private static long eventTimeNanos() {
+        if (Gdx.input != null) {
+            return Gdx.input.getCurrentEventTime();
+        }
+        return System.nanoTime();
+    }
+
     @Override
     public boolean touchCancelled(int x, int y, int pointer, int button) {
         return touchUp((float)x, (float)y, pointer, button);
@@ -174,34 +198,17 @@ public abstract class FGestureAdapter extends InputAdapter {
     public boolean touchUp(int x, int y, int pointer, int button) {
         return touchUp((float)x, (float)y, pointer, button);
     }
-    private boolean touchUp(float x, float y, int pointer, int button) {
+    /** Package-visible for DS3 input-path tests (real adapter, not flag-setting). */
+    boolean touchUp(float x, float y, int pointer, int button) {
         if (button == Input.Buttons.RIGHT) {
-            //catch right click and set toggle magnify
-            if (inTapSquare) {
-                // handle taps
-                long time = Gdx.input.getCurrentEventTime();
-                if (tapCount == 2 //treat 3rd tap as a first tap, and 4th as a double tap
-                        || lastTapButton != button
-                        || lastTapPointer != pointer
-                        || time - lastTapTime > tapCountInterval
-                        || !isWithinTapSquare(x, y, lastTapX, lastTapY)) {
-                    Forge.magnifyShowDetails = !Forge.magnifyShowDetails;
-                    tapCount = 0;
-                }
-                tapCount++;
-                lastTapTime = time;
-                lastTapX = x;
-                lastTapY = y;
-                lastTapButton = button;
-                lastTapPointer = pointer;
-                Forge.magnifyToggle = !Forge.magnifyToggle;
-                Forge.magnify = Forge.magnifyToggle;
-                if (Forge.magnifyToggle) {
-                    Forge.setCursor(FSkin.getCursor().get(1), "1");
-                } else {
-                    Forge.setCursor(FSkin.getCursor().get(2), "2");
-                }
+            // Dedicated rightClick path (CardZoom on card panels only). Not tap —
+            // so FButton / avatar / stack / ItemManager rows stay inert. Magnifier
+            // stays keyboard-only (M / Shift+M). Not Shift+flick.
+            if (inTapSquare && isWithinTapSquare(x, y, tapSquareCenterX, tapSquareCenterY)) {
+                inTapSquare = false;
+                return rightClick(x, y);
             }
+            inTapSquare = false;
             return false;
         }
         if (pointer > 1) { return false; }
@@ -224,7 +231,7 @@ public abstract class FGestureAdapter extends InputAdapter {
 
         if (inTapSquare) {
             // handle taps
-            long time = Gdx.input.getCurrentEventTime();
+            long time = eventTimeNanos();
             if (tapCount == 2 //treat 3rd tap as a first tap, and 4th as a double tap
                     || lastTapButton != button
                     || lastTapPointer != pointer
@@ -257,7 +264,7 @@ public abstract class FGestureAdapter extends InputAdapter {
         if (wasPanning) { // handle no longer panning
             handled = panStop(x, y);
 
-            long time = Gdx.input.getCurrentEventTime();
+            long time = eventTimeNanos();
             if (time - tracker.lastTime < flingDelay) { // handle flick/fling if needed
                 tracker.update(x, y, time);
                 float velocityX = tracker.getVelocityX();
@@ -279,13 +286,16 @@ public abstract class FGestureAdapter extends InputAdapter {
             pressed = true;
             press(pointer1.x, pointer1.y);
         }
-        if (!longPressTask.isScheduled()) {
-            Timer.schedule(longPressTask, longPressDelay);
+        final Task task = longPressTask();
+        if (!task.isScheduled()) {
+            Timer.schedule(task, longPressDelay);
         }
     }
 
     private void endPress(float x, float y) {
-        longPressTask.cancel();
+        if (longPressTask != null) {
+            longPressTask.cancel();
+        }
 
         longPressed = false;
         if (pressed) {

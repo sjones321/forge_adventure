@@ -571,10 +571,12 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
             }
         }
 
-        private void runSingleTapAction() {
+        private void runSingleTapAction(final int buttonAtPress) {
             //must invoke in game thread in case a dialog needs to be shown
             ThreadUtil.invokeInGameThread(() -> {
-                if (GuiBase.getInterface().isRunningOnDesktop() && Forge.mouseButtonID == Input.Buttons.RIGHT) {
+                // Capture button at press/tap time — Forge.mouseButtonID may change
+                // before a deferred modern single-tap fires.
+                if (GuiBase.getInterface().isRunningOnDesktop() && buttonAtPress == Input.Buttons.RIGHT) {
                     FThreads.invokeInEdtLater(CardAreaPanel.this::showZoom);
                 } else if (!selectCard(false)) {
                     //if no cards in stack can be selected, just show zoom/details for card
@@ -582,6 +584,16 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
                         FThreads.invokeInEdtLater(CardAreaPanel.this::showZoom);
                 }
             });
+        }
+
+        @Override
+        public boolean rightClick(float x, float y) {
+            if (!renderedCardContains(x, y)) {
+                return false;
+            }
+            // Immediate CardZoom — not tap (no select/activate, no Shift+flick, no deferral).
+            FThreads.invokeInEdtLater(CardAreaPanel.this::showZoom);
+            return true;
         }
 
         @Override
@@ -604,6 +616,8 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
                 if (modern) {
                     ModernDuelController.get().markTouchInput();
                 }
+                // Button at press time (deferred modern path must not re-read later).
+                final int buttonAtPress = Forge.mouseButtonID;
                 // Defer modern single-tap until the double-tap window passes so the
                 // first tap of a double-tap does not select/activate the card.
                 if (ModernDuelGestures.shouldDeferSingleTap(modern, count)) {
@@ -612,13 +626,13 @@ public abstract class VCardDisplayArea extends VDisplayArea implements ActivateH
                         @Override
                         public void run() {
                             deferredSingleTap = null;
-                            runSingleTapAction();
+                            runSingleTapAction(buttonAtPress);
                         }
                     };
                     Timer.schedule(deferredSingleTap, ModernDuelGestures.DOUBLE_TAP_WINDOW_SEC);
                     return true;
                 }
-                runSingleTapAction();
+                runSingleTapAction(buttonAtPress);
                 return true;
             }
             return false;
