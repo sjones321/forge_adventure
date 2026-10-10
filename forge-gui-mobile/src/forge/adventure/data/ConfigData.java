@@ -87,6 +87,50 @@ public class ConfigData {
     /** Adventure house rule: mulligans that cost no card, for both the player and enemies (Ascendant sets 1). */
     public int adventureFreeMulligans = 0;
 
+    // ---- AI1: LLM opponent tunables (Ascendant). Forge AI remains the fallback. ----
+
+    /**
+     * AI1: minimum hand size the LLM opponent may mulligan down to. At or below this floor the
+     * LLM is skipped and Forge's {@code ComputerUtil.wantMulligan} decides instead.
+     * London can otherwise reach 0 cards and stall the mulligan loop.
+     * Overridden by {@code mulliganMinHandSize} in {@code llm_opponent.properties} when that key
+     * is present.
+     */
+    public int llmMulliganMinHandSize = 5;
+
+    /**
+     * AI1: wall-clock seconds for one LLM-backed decision before Forge AI takes over. Default 30.
+     * Overridden by {@code decisionBudgetSeconds} in {@code llm_opponent.properties} when present.
+     */
+    public int llmDecisionBudgetSeconds = 30;
+
+    /**
+     * Deprecated alias for {@link #llmDecisionBudgetSeconds}. Still read from older config.json
+     * files when the new key is absent ({@code -1} means unset).
+     */
+    public int llmPriorityWatchdogSeconds = -1;
+
+    /**
+     * Prefer {@link #llmDecisionBudgetSeconds}; fall back to the legacy
+     * {@link #llmPriorityWatchdogSeconds} alias when the new key was never set in JSON.
+     */
+    public int resolvedLlmDecisionBudgetSeconds() {
+        if (llmDecisionBudgetSeconds >= 0 && llmPriorityWatchdogSeconds < 0) {
+            return llmDecisionBudgetSeconds;
+        }
+        if (llmPriorityWatchdogSeconds >= 0 && llmDecisionBudgetSeconds == 30
+                && llmPriorityWatchdogSeconds != 30) {
+            return llmPriorityWatchdogSeconds;
+        }
+        if (llmDecisionBudgetSeconds >= 0) {
+            return llmDecisionBudgetSeconds;
+        }
+        if (llmPriorityWatchdogSeconds >= 0) {
+            return llmPriorityWatchdogSeconds;
+        }
+        return 30;
+    }
+
     /** Extra gold on top of the difficulty's starting money for a sealed start. */
     public int sealedStartBonusGold = 500;
 

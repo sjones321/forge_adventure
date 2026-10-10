@@ -649,6 +649,9 @@ public class DuelScene extends ForgeScene {
         if (Config.ascendant()) {
             System.setProperty("forge.llm.dir", ForgeConstants.USER_DIR);
             LlmOpponent.setActive(true);
+            ConfigData llmCfg = Config.instance().getConfigData();
+            LlmOpponent.applyAscendantTunables(llmCfg.llmMulliganMinHandSize,
+                    llmCfg.resolvedLlmDecisionBudgetSeconds());
         }
         hostedMatch.startMatch(rules, appliedVariants, players, guiMap, bossBattle ? MusicPlaylist.BOSS : MusicPlaylist.MATCH);
         MatchController.instance.setGameView(hostedMatch.getGameView());

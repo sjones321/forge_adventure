@@ -34,7 +34,12 @@ public abstract class AbstractMulligan {
 
     public void mulligan() {
         CardCollection toMulligan = new CardCollection(player.getCardsIn(ZoneType.Hand));
-        if (toMulligan.isEmpty()) return;
+        // Empty hand: cannot reshuffle anything. Must keep, or MulliganService loops forever
+        // (London can still report canMulligan while tuckCards <= maxHandSize).
+        if (toMulligan.isEmpty()) {
+            keep();
+            return;
+        }
         revealPreMulligan(toMulligan);
         for (final Card c : toMulligan) {
             player.getGame().getAction().moveToLibrary(c, null);
