@@ -37,6 +37,8 @@ public final class GameMenu {
         final JMenu menu = new JMenu(localizer.getMessage("lblGame"));
         menu.setMnemonic(KeyEvent.VK_G);
         menu.add(getMenuItem_Undo());
+        final SkinnedMenuItem takeBackItem = getMenuItem_TakeBack();
+        menu.add(takeBackItem);
         menu.add(getMenuItem_Concede());
         menu.add(getMenuItem_OfferDraw());
         menu.add(getMenuItem_EndTurn());
@@ -52,6 +54,8 @@ public final class GameMenu {
         menu.addMenuListener(new MenuListener() {
             @Override public void menuSelected(final MenuEvent e) {
                 autoPassItem.setState(prefs.getPrefBoolean(FPref.YIELD_AUTO_PASS_NO_ACTIONS));
+                final forge.interfaces.IGameController gc = matchUI.getGameController();
+                takeBackItem.setEnabled(gc != null && gc.canTakeBackLastAction());
             }
             @Override public void menuDeselected(final MenuEvent e) {}
             @Override public void menuCanceled(final MenuEvent e) {}
@@ -71,6 +75,19 @@ public final class GameMenu {
         final SkinnedMenuItem menuItem = new SkinnedMenuItem(localizer.getMessage("lblUndo"));
         setAcceleratorFromPref(menuItem, FPref.SHORTCUT_UNDO);
         menuItem.addActionListener(e -> matchUI.getGameController().undoLastAction());
+        return menuItem;
+    }
+
+    /** DS4: Take back last land play or spell cast (snapshot restore). Ctrl+Z is on KeyboardShortcuts only. */
+    private SkinnedMenuItem getMenuItem_TakeBack() {
+        final Localizer localizer = Localizer.getInstance();
+        final SkinnedMenuItem menuItem = new SkinnedMenuItem(localizer.getMessage("lblTakeBack"));
+        menuItem.addActionListener(e -> {
+            final forge.interfaces.IGameController gc = matchUI.getGameController();
+            if (gc != null && gc.canTakeBackLastAction()) {
+                gc.takeBackLastAction();
+            }
+        });
         return menuItem;
     }
 

@@ -228,6 +228,8 @@ public class FlipCoinEffect extends SpellAbilityEffect {
         }
 
         flipper.getGame().fireEvent(new GameEventFlipCoin());
+        // DS4: coin flips / random outcomes lock take-back.
+        flipper.getGame().bumpInformationEpoch();
         flipper.getGame().getAction().notifyOfValue(sa, flipper, outcome, null);
 
         flipper.flip();

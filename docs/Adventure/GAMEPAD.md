@@ -91,4 +91,13 @@ Controls:
   | Target spells / abilities | During a selection prompt, **DPAD** to the target; amber arrow from the prompt source follows focus **after the pad has been used** (never at match start before input); **A** confirms (stock select). No pick-up. Touch clears stale pad focus so arrows follow the touched source. |
   | Zoom card | **Y** (controller). Touch: **double-tap** a card to zoom — the first tap is deferred so it does not select/activate; only the double-tap zooms (hand long-press peeks). Desktop: **right-click** opens CardZoom (same as rewards/shop). |
   | Hover preview (desktop) | **M** on/off; **Shift+M** details — HUD note with state + local prefs; not toggled by right-click |
+  | Take back last action (DS4) | **Start**, or **Ctrl+Z** / gamepad **Z**, when a Take back snapshot is available. Button appears on the prompt only while eligible. Unlimited uses until a draw, shuffle, reveal, random choice, opponent action, resolved trigger or phase/priority change locks it. Stock mana Undo on Cancel is unchanged. Hidden / disabled in co-op duels (short note if pressed). |
   | Zone tabs / player panels / prompts | **R1** / **L1** / triggers (unchanged) |
+
+- Match/Battle — Take back (DS4; Shandalar Ascendant single-player adventure duels)
+
+  | Action | Binding |
+  | --- | --- |
+  | Take back last land / spell / ability | Prompt **Take back** button (only when a snapshot succeeded), **Ctrl+Z**, or controller **Start** / **Z** |
+  | Stock mana undo | Cancel button when it shows Undo (unchanged) |
+  | Co-op duel | Button hidden; **Ctrl+Z** / **Start** show a short “single-player only” note (no wire / no protocol bump) |

@@ -152,6 +152,7 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
         boolean turnEnded = false;
 
         game.getStack().clearUndoStack(); //can't undo action from previous phase
+        game.bumpInformationEpoch(); // DS4: phase change locks take-back
 
         if (bRepeatCleanup) { // for when Cleanup needs to repeat itself
             bRepeatCleanup = false;
@@ -1055,6 +1056,13 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
 
                 chosenSa = pPlayerPriority.getController().chooseSpellAbilityToPlay();
 
+                // M3: take-back requested from the GUI released InputPassPriority — run restore
+                // on THIS game-loop thread before treating the return as a pass or play.
+                if (game.hasPendingTakeBack(pPlayerPriority)) {
+                    pPlayerPriority.getController().resolvePendingTakeBack();
+                    continue;
+                }
+
                 // this needs to come after chosenSa so it sees you conceding on own turn
                 if (playerTurn.hasLost() && pPlayerPriority.equals(playerTurn) && pFirstPriority.equals(playerTurn)) {
                     // If the active player has lost, and they have priority, set the next player to have priority
@@ -1064,10 +1072,17 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                 }
 
                 if (chosenSa == null) {
+                    // DS4: passing priority locks take-back (priority has moved on).
+                    game.bumpInformationEpoch();
                     break; // that means 'I pass'
                 }
                 if (DEBUG_PHASES) {
                     System.out.print("... " + pPlayerPriority + " plays " + chosenSa);
+                }
+
+                // DS4: opponent / AI decisions lock any prior take-back (fail-safe).
+                if (pPlayerPriority.getController().isAI()) {
+                    game.bumpInformationEpoch();
                 }
 
                 boolean rollback = false;
@@ -1076,12 +1091,31 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                     final Zone originZone = saHost.getZone();
                     final CardZoneTable triggerList = new CardZoneTable(game.getLastStateBattlefield(), game.getLastStateGraveyard());
 
+                    // DS4: dedicated snapshot only right before the human's own top-level land/spell.
+                    // H-A: any other owner action (activated/PW ability, suspend/plot/unmorph, …)
+                    // after a captured spell must invalidate the prior snapshot.
+                    // D3: mana abilities are exempt — GameSnapshot already restores mana pool + tapped.
+                    boolean captured = false;
+                    if (game.TAKE_BACK_ENABLED && !pPlayerPriority.getController().isAI()) {
+                        if (isTakeBackTopLevelAction(sa)) {
+                            captured = game.captureTakeBackSnapshot(pPlayerPriority);
+                        } else if (game.canTakeBack(pPlayerPriority) && !sa.isManaAbility()) {
+                            game.invalidateTakeBack();
+                        }
+                    }
+
                     if (pPlayerPriority.getController().playChosenSpellAbility(sa)) {
                         // 117.3c If a player has priority when they cast a spell, activate an ability, [play a land]
                         // that player receives priority afterward.
                         pFirstPriority = pPlayerPriority; // all opponents have to pass before stack is allowed to resolve
-                    } else if (game.EXPERIMENTAL_RESTORE_SNAPSHOT) {
-                        rollback = true;
+                        // Snapshot already captured before the action; no retain of cancel-path state.
+                    } else {
+                        if (captured) {
+                            game.invalidateTakeBack();
+                        }
+                        if (game.EXPERIMENTAL_RESTORE_SNAPSHOT) {
+                            rollback = true;
+                        }
                     }
 
                     saHost = game.getCardState(saHost);
@@ -1324,5 +1358,16 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                 game.getCleanup().executeUntil(p);
             }
         }
+    }
+
+    /**
+     * DS4: snapshot only for the human's own top-level land play or spell cast.
+     * Activated abilities (including planeswalker) and mana abilities never get a snapshot.
+     */
+    private static boolean isTakeBackTopLevelAction(final SpellAbility sa) {
+        if (sa == null) {
+            return false;
+        }
+        return sa.isLandAbility() || sa.isSpell();
     }
 }

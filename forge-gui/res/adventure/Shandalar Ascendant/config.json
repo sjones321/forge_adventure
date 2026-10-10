@@ -138,6 +138,7 @@
   "lt1FallbackEntryXFraction": 0.5,
   "lt1FallbackEntryYFraction": 0.15,
   "lt1StarterTownPoiName": "StarterTown",
+  "duelTakeBackEnabled": true,
   "screenWidth": 480,
   "screenHeight": 270,
   "skin": "skin/ui_skin.json",

@@ -84,6 +84,10 @@ public enum ProtocolMethod implements IHasForgeLog {
     // the threads that're supposed to give that response
     useMana                   (Mode.CLIENT, Void.TYPE, Byte.TYPE),
     undoLastAction            (Mode.CLIENT, Void.TYPE),
+    // DS4 takeBackLastAction is intentionally NOT a ProtocolMethod: Ascendant take-back
+    // is single-player only (co-op UI hides it). Java serialization sends enums by name,
+    // but keeping a mid-CLIENT entry still risks ordinal confusion and would put take-back
+    // on the wire for no reason. NetGameController inherits IGameController's no-op default.
     selectPlayer              (Mode.CLIENT, Void.TYPE, PlayerView.class, ITriggerEvent.class),
     selectCard                (Mode.CLIENT, Void.TYPE, CardView.class, List.class, ITriggerEvent.class),
     selectButtonOk            (Mode.CLIENT, Void.TYPE),

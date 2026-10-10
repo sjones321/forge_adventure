@@ -39,6 +39,22 @@ public interface IGameController {
 
     void undoLastAction();
 
+    /**
+     * DS4: whether this controller's player may take back their last land play or spell cast.
+     * Default false for watchers / stubs.
+     */
+    default boolean canTakeBackLastAction() {
+        return false;
+    }
+
+    /**
+     * DS4: restore the retained pre-action snapshot for this controller's player.
+     * No-op when {@link #canTakeBackLastAction()} is false.
+     * Single-player / Ascendant only — not a network ProtocolMethod (co-op hides take-back).
+     */
+    default void takeBackLastAction() {
+    }
+
     IDevModeCheats cheat();
 
     IMacroSystem macros();

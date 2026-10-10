@@ -180,6 +180,10 @@ public class SetStateEffect extends SpellAbilityEffect {
                 }
             }
             if (hasTransformed) {
+                // M1: unmorph / face-up special actions lock take-back.
+                if (sa.isMorphUp() || sa.isManifestUp() || sa.isDisguiseUp() || sa.isCloakUp()) {
+                    game.bumpInformationEpoch();
+                }
                 if (sa.isMorphUp()) {
                     String sb = p + " has unmorphed " + gameCard.getDisplayName();
                     game.fireEvent(new GameEventAddLog(GameLogEntryType.STACK_RESOLVE, sb));

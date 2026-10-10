@@ -13,6 +13,7 @@ import forge.assets.TextRenderer;
 import forge.card.CardZoom;
 import forge.game.card.CardView;
 import forge.menu.FMagnifyView;
+import forge.screens.match.TakeBackActions;
 import forge.toolbox.FButton;
 import forge.toolbox.FButton.Corner;
 import forge.toolbox.FContainer;
@@ -37,7 +38,7 @@ public class VPrompt extends FContainer {
         return FSkinColor.get(Colors.CLR_TEXT);
     }
 
-    private final FButton btnOk, btnCancel;
+    private final FButton btnOk, btnCancel, btnTakeBack;
     private final MessageLabel lblMessage;
     private String message;
     private CardView card;
@@ -70,12 +71,18 @@ public class VPrompt extends FContainer {
         lblMessage.setHeight(HEIGHT);
         btnOk = add(new FButton(okText, guard(okCommand)));
         btnCancel = add(new FButton(cancelText, guard(cancelCommand)));
+        // DS4: Take back — only visible when a snapshot was retained successfully.
+        btnTakeBack = add(new FButton(TakeBackActions.buttonLabel(),
+                guard(e -> TakeBackActions.takeBack())));
         btnOk.setSize(BTN_WIDTH, HEIGHT);
         btnCancel.setSize(BTN_WIDTH, HEIGHT);
+        btnTakeBack.setSize(BTN_WIDTH, HEIGHT);
         btnOk.setCorner(Corner.BottomLeft);
         btnCancel.setCorner(Corner.BottomRight);
         btnOk.setEnabled(false); //disable buttons until first input queued
         btnCancel.setEnabled(false);
+        btnTakeBack.setVisible(false);
+        btnTakeBack.setEnabled(false);
     }
 
     public FButton getBtnOk() {
@@ -84,6 +91,19 @@ public class VPrompt extends FContainer {
 
     public FButton getBtnCancel() {
         return btnCancel;
+    }
+
+    public FButton getBtnTakeBack() {
+        return btnTakeBack;
+    }
+
+    /** DS4: show Take back only when a dedicated snapshot succeeded and remains eligible. */
+    public void refreshTakeBackButton() {
+        final boolean show = TakeBackActions.featureEnabled() && TakeBackActions.canTakeBack();
+        btnTakeBack.setText(TakeBackActions.buttonLabel());
+        btnTakeBack.setVisible(show);
+        btnTakeBack.setEnabled(show);
+        revalidate();
     }
 
     public String getMessage() {
@@ -124,14 +144,30 @@ public class VPrompt extends FContainer {
 
     @Override
     protected void doLayout(float width, float height) {
-        lblMessage.setWidth(width - 2 * BTN_WIDTH);
+        final boolean takeBack = btnTakeBack.isVisible();
+        final float takeW = takeBack ? BTN_WIDTH : 0f;
+        lblMessage.setWidth(width - 2 * BTN_WIDTH - takeW);
         if (Forge.reversedPrompt) {
             btnOk.setCorner(Corner.BottomRight);
             btnCancel.setCorner(Corner.BottomLeft);
+            btnCancel.setLeft(0);
+            if (takeBack) {
+                btnTakeBack.setLeft(btnCancel.getRight());
+                lblMessage.setLeft(btnTakeBack.getRight());
+            } else {
+                lblMessage.setLeft(btnCancel.getRight());
+            }
             btnOk.setLeft(lblMessage.getRight());
         } else {
             btnOk.setCorner(Corner.BottomLeft);
             btnCancel.setCorner(Corner.BottomRight);
+            btnOk.setLeft(0);
+            if (takeBack) {
+                btnTakeBack.setLeft(btnOk.getRight());
+                lblMessage.setLeft(btnTakeBack.getRight());
+            } else {
+                lblMessage.setLeft(btnOk.getRight());
+            }
             btnCancel.setLeft(lblMessage.getRight());
         }
     }

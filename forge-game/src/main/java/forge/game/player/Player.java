@@ -1167,6 +1167,10 @@ public class Player extends GameEntity implements Comparable<Player> {
                 game.getAction().revealTo(e.getValue(), e.getKey(), "Revealing cards drawn from ");
             }
         }
+        // DS4: drawing cards reveals hidden information — lock take-back.
+        if (!drawn.isEmpty() && game.getAge().ordinal() > GameStage.Mulligan.ordinal()) {
+            game.bumpInformationEpoch();
+        }
         return drawn;
     }
 
@@ -1629,6 +1633,8 @@ public class Player extends GameEntity implements Comparable<Player> {
 
         // Play the shuffle sound
         game.fireEvent(new GameEventShuffle(this));
+        // DS4: shuffle randomizes hidden info — lock take-back.
+        game.bumpInformationEpoch();
     }
 
     public final Card playLand(final Card land, SpellAbility cause) {
@@ -2332,6 +2338,10 @@ public class Player extends GameEntity implements Comparable<Player> {
     public final void resetSpellCastThisGame() {
         spellsCastThisGame = 0;
     }
+    /** Snapshot restore: set exact game cast count without achievement side effects. */
+    public final void setSpellsCastThisGame(final int n) {
+        spellsCastThisGame = Math.max(0, n);
+    }
 
     public final int getLifeGainedByTeamThisTurn() {
         return lifeGainedByTeamThisTurn;
@@ -2624,6 +2634,11 @@ public class Player extends GameEntity implements Comparable<Player> {
         view.updateAvatarCardImageKey(this);
         view.setAvatarLifeDifference(0);
         view.setHasLost(false);
+    }
+
+    /** DS4: whether this player currently has a take-back snapshot. */
+    public void updateTakeBackAvailable(final boolean available) {
+        view.updateCanTakeBack(available);
     }
 
     public void updateSleeve() {

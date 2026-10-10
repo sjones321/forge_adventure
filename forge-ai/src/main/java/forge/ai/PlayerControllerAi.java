@@ -338,6 +338,11 @@ public class PlayerControllerAi extends PlayerController {
 
     @Override
     public <T extends GameEntity> T chooseSingleEntityForEffect(FCollectionView<T> optionList, DelayedReveal delayedReveal, SpellAbility sa, String title, boolean isOptional, Player targetedPlayer, Map<String, Object> params) {
+        // M1: AI entity choice during human priority / cast.
+        if (getGame().TAKE_BACK_ENABLED && getGame().getTakeBackOwner() != null
+                && !player.equals(getGame().getTakeBackOwner())) {
+            getGame().bumpInformationEpoch();
+        }
         if (delayedReveal != null) {
             reveal(delayedReveal);
         }
@@ -1445,6 +1450,10 @@ public class PlayerControllerAi extends PlayerController {
 
     @Override
     public boolean chooseTargetsFor(SpellAbility currentAbility) {
+        // M1: AI/opponent choice during a human cast locks take-back.
+        if (getGame().TAKE_BACK_ENABLED) {
+            getGame().bumpInformationEpoch();
+        }
         return brains.doTrigger(currentAbility, true);
     }
 

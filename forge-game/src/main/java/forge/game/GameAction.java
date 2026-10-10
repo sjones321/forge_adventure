@@ -2227,6 +2227,8 @@ public class GameAction {
         for (final Player p : to) {
             p.getController().reveal(cards, zone, owner, messagePrefix, addSuffix);
         }
+        // DS4: looking at / revealing / peeking hidden cards locks take-back.
+        game.bumpInformationEpoch();
     }
 
     public void reveal(CardCollectionView cards, Player cardOwner) {
@@ -2255,6 +2257,10 @@ public class GameAction {
                 continue;
             }
             p.getController().reveal(cards, zt, cardOwner, messagePrefix, msgAddSuffix);
+        }
+        // DS4: revealing cards locks take-back.
+        if (cards != null && !cards.isEmpty()) {
+            game.bumpInformationEpoch();
         }
     }
 
@@ -2708,6 +2714,10 @@ public class GameAction {
             final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
             runParams.put(AbilityKey.Cards, milled);
             game.getTriggerHandler().runTrigger(TriggerType.MilledAll, runParams, false);
+            // DS4 D5: milling reveals previously hidden library cards (graveyard is public).
+            // ShowMilledCards only adds a dialog via reveal(); bump even without that param
+            // so CostMill (Millikin, etc.) locks take-back.
+            game.bumpInformationEpoch();
         }
 
         return milled;

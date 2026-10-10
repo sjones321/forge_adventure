@@ -251,6 +251,8 @@ public class CharmEffect extends SpellAbilityEffect {
             }
             if (random) {
                 List<AbilitySub> randomChosen = Aggregates.random(choices, num);
+                // M1: random modal choice locks take-back.
+                activator.getGame().bumpInformationEpoch();
                 chainAbilities(sa, randomChosen);
                 if (!randomChosen.isEmpty()) {
                     final Map<AbilityKey, Object> runParams = AbilityKey.mapFromPlayer(activator);

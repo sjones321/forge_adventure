@@ -100,6 +100,9 @@ public class MatchScreen extends FScreen {
     private ViewWinLose viewWinLose = null;
     private static List<FDisplayObject> potentialListener;
     private int selectedPlayer;
+    /** DS4: short duel-screen note (e.g. take-back failed). Drawn in {@link #drawOverlay}. */
+    private String duelNote;
+    private long duelNoteUntilMs;
 
 
     private final Map<Integer, Vector2> endpoints;
@@ -369,6 +372,42 @@ public class MatchScreen extends FScreen {
 
     private static final FSkinFont ADVICE_TITLE_FONT = FSkinFont.get(24);
     private static final FSkinFont ADVICE_FONT = FSkinFont.get(18);
+    private static final FSkinFont DUEL_NOTE_FONT = FSkinFont.get(16);
+    private static final long DUEL_NOTE_MS = 4000L;
+
+    /**
+     * DS4: show a short note on the duel screen (Classic.render path). Prefer this over
+     * {@code FOptionPane} / GameHUD notifications during an adventure duel.
+     */
+    public void showDuelNote(final String message) {
+        if (message == null || message.isEmpty()) {
+            duelNote = null;
+            duelNoteUntilMs = 0L;
+            return;
+        }
+        duelNote = message;
+        duelNoteUntilMs = System.currentTimeMillis() + DUEL_NOTE_MS;
+    }
+
+    private void drawDuelNote(final Graphics g) {
+        if (duelNote == null) {
+            return;
+        }
+        if (System.currentTimeMillis() > duelNoteUntilMs) {
+            duelNote = null;
+            return;
+        }
+        final float pad = Utils.scale(10);
+        final float w = Math.min(getWidth() * 0.72f, Utils.scale(420));
+        final float h = DUEL_NOTE_FONT.getLineHeight() * 2.4f + pad;
+        final float x = (getWidth() - w) / 2f;
+        // Sit just above the bottom prompt so it stays readable on both classic and modern.
+        final float y = getHeight() - VPrompt.HEIGHT - h - Utils.scale(8);
+        g.fillRect(new Color(0.06f, 0.08f, 0.1f, 0.92f), x, y, w, h);
+        g.drawRect(Utils.scale(2), new Color(0.95f, 0.55f, 0.35f, 1f), x, y, w, h);
+        g.drawText(duelNote, DUEL_NOTE_FONT, Color.WHITE, x + pad, y + pad * 0.5f,
+                w - 2 * pad, h - pad, true, Align.center, true);
+    }
 
     /** While deciding on a mulligan, show the advisor's verdict and reasons large in the middle of the screen. */
     private void drawMulliganAdvice(Graphics g) {
@@ -435,6 +474,7 @@ public class MatchScreen extends FScreen {
         ModernDuelController.get().drawOverlay(g);
         CardFlightOverlay.draw(g, bottomPlayerPanel.getPlayer(), getHeight());
         drawMulliganAdvice(g);
+        drawDuelNote(g);
         // Hover magnifier is drawn from Classic.render after FOverlays so menus
         // cannot cover it; see drawHoverMagnifierAfterOverlays.
     }
@@ -782,10 +822,32 @@ public class MatchScreen extends FScreen {
                     return true;
                 }
                 break;
-            case Keys.Z: //undo on Ctrl+Z
+            case Keys.Z: // DS4 take-back on Ctrl+Z (Ascendant); else stock mana undo
                 if (KeyInputAdapter.isCtrlKeyDown() || Forge.hasGamepad()) {
+                    if (TakeBackActions.featureEnabled()) {
+                        if (TakeBackActions.isCoopDuel()) {
+                            TakeBackActions.notifyUnavailableInCoop();
+                            return true;
+                        }
+                        if (TakeBackActions.canTakeBack()) {
+                            TakeBackActions.takeBack();
+                            return true;
+                        }
+                    }
                     getGameController().undoLastAction();
                     return true;
+                }
+                break;
+            case Keys.BUTTON_START: // DS4 take-back on Start (gamepad; unused in match otherwise)
+                if (TakeBackActions.featureEnabled()) {
+                    if (TakeBackActions.isCoopDuel()) {
+                        TakeBackActions.notifyUnavailableInCoop();
+                        return true;
+                    }
+                    if (TakeBackActions.canTakeBack()) {
+                        TakeBackActions.takeBack();
+                        return true;
+                    }
                 }
                 break;
             case Keys.Y: //auto-yield, always yes, Ctrl+Y on Android, Y when running on desktop

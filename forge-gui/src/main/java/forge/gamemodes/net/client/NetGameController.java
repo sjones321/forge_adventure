@@ -56,6 +56,9 @@ public class NetGameController implements IGameController {
         send(ProtocolMethod.undoLastAction);
     }
 
+    // DS4: no takeBackLastAction override — SP-only; inherit IGameController no-op.
+    // Do not add a ProtocolMethod for this (see ProtocolMethod CLIENT comment).
+
     @Override
     public void selectPlayer(final PlayerView playerView, final ITriggerEvent triggerEvent) {
         send(ProtocolMethod.selectPlayer, playerView, null/*triggerEvent*/); //some platform don't have mousetriggerevent class or it will not allow them to click/tap

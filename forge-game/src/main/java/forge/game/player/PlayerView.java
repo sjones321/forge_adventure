@@ -280,6 +280,15 @@ public class PlayerView extends GameEntityView {
         set(TrackableProperty.NumLandThisTurn, p.getLandsPlayedThisTurn());
     }
 
+    /** DS4: true when this player may take back their last land play or spell cast. */
+    public boolean canTakeBack() {
+        final Boolean v = get(TrackableProperty.CanTakeBack);
+        return v != null && v.booleanValue();
+    }
+    void updateCanTakeBack(final boolean available) {
+        set(TrackableProperty.CanTakeBack, available);
+    }
+
     public int getNumManaShards() {
         return get(TrackableProperty.NumManaShards);
     }

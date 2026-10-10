@@ -105,12 +105,17 @@ public class KeyboardShortcuts {
             }
         };
 
-        /** Undo last action. */
+        /** Undo last action — DS4 take-back wins when a snapshot is eligible. */
         final Action actUndo = new AbstractAction() {
             @Override
             public void actionPerformed(final ActionEvent e) {
                 if (!Singletons.getControl().getCurrentScreen().isMatchScreen()) { return; }
                 if (matchUI == null) { return; }
+                final forge.interfaces.IGameController gc = matchUI.getGameController();
+                if (gc != null && gc.canTakeBackLastAction()) {
+                    gc.takeBackLastAction();
+                    return;
+                }
                 matchUI.getGameController().undoLastAction();
             }
         };

@@ -452,6 +452,11 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         postGl(() -> applyGuestLocalResult(event));
     }
 
+    /** True while a co-op HostedMatch is live (DS4 UI uses this to hide Take back). */
+    public boolean isDuelActive() {
+        return activeHostedMatch != null && activeHostedMatch.getGame() != null;
+    }
+
     /** Session peer disconnected — host continues (guest concedes), guest abandons. */
     public void onSessionPeerDisconnected() {
         final CoopSessionRole role = CoopSession.get().getRole();
@@ -852,6 +857,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
 
             final HostedMatch hostedMatch = MatchController.hostMatch();
             activeHostedMatch = hostedMatch;
+            // DS4 take-back is single-player only — never enable in co-op duels.
             guestRegisteredPlayer = guestRp;
             final GameRules rules = new GameRules(GameType.Adventure);
             rules.setGamesPerMatch(mob.getData() != null ? mob.getData().gamesPerMatch : 1);

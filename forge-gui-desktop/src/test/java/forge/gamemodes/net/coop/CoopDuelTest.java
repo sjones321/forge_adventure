@@ -26,8 +26,8 @@ public class CoopDuelTest {
     @Test
     public void protocolVersionIsExactlyElevenForRw1() {
         // CO2=5; CO3=6; MV1=7; MV2=8; EN2 lootRolls=9; Package K planeFormat=10;
-        // RW1 guest loot credit=11. Exact equality only (set-start + 1 at review).
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
+        // RW1 guest loot credit=11. DS4 adds no wire — keep equal to base.
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 12);
     }
 
     @Test
