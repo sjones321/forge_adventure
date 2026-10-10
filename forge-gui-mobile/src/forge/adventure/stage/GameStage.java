@@ -477,7 +477,9 @@ public abstract class GameStage extends Stage {
         }
         if (keycode == Input.Keys.F5)//todo config
         {
-            if (TileMapScene.instance().currentMap().isInMap()) {
+            // Ascendant SV1: quicksave inside maps; stock stays world-map only.
+            if (TileMapScene.instance().currentMap().isInMap()
+                    && !forge.adventure.util.InteriorMapSave.allowsManualSave()) {
                 DialogData noQuicksave = new DialogData();
                 DialogData noQuicksaveOK = new DialogData();
                 noQuicksave.text = Forge.getLocalizer().getMessageorUseDefault("lblQuicksaveOnlyOnWorldMap", "Game not saved. Quicksave is only available on the world map.");
@@ -494,9 +496,10 @@ public abstract class GameStage extends Stage {
         }
         if (keycode == Input.Keys.F8)//todo config
         {
-            if (!TileMapScene.instance().currentMap().isInMap()) {
+            if (!TileMapScene.instance().currentMap().isInMap()
+                    || forge.adventure.util.InteriorMapSave.saveAnywhereEnabled()) {
                 WorldSave.getCurrentSave().quickLoad();
-                enter();
+                Forge.switchScene(forge.adventure.util.InteriorMapSave.sceneAfterLoad());
             }
         }
         if (keycode == Input.Keys.F11) {

@@ -74,10 +74,14 @@ public class GameScene extends HudScene {
         MapStage.getInstance().clearIsInMap();
         Forge.clearTransitionScreen();
         Forge.clearCurrentScreen();
+        // SV1: when a load restored an interior map, enter that scene instead of the overworld.
+        if (forge.adventure.util.InteriorMapSave.hasPending()
+                && forge.adventure.util.InteriorMapSave.prepareRestoredMap()) {
+            Forge.switchScene(TileMapScene.instance());
+            return;
+        }
         super.enter();
-        // This causes the infinite load of POI if the two collision point is too close.
-        // IIRC This is used before and the player will start inside the POI.
-        // but we don't allow saving inside the POI anymore.
+        // Avoid auto-entering a POI from overworld collision on load (can soft-lock).
         // WorldStage.getInstance().handlePointsOfInterestCollision();
     }
 
