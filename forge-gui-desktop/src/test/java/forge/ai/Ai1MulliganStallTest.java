@@ -33,8 +33,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * AI1: mulligan-to-0 must not stall the game; LLM forever-mulligan stops at the floor;
+ * AI1: mulligan-to-0 must not stall the game; LLM forever-mulligan stops consulting at the floor;
  * empty-hand AI still takes turns. Uses forge.test.userDir; stubs the LLM (no network).
+ *
+ * <p>The forced-mulligan controller always answers keep=false (even on an empty hand) so the
+ * engine empty-hand keep in {@code AbstractMulligan}/{@code LondonMulligan} is what ends the loop.
  */
 public class Ai1MulliganStallTest extends AITest {
 
@@ -75,16 +78,73 @@ public class Ai1MulliganStallTest extends AITest {
         s.setModel("stub");
         s.setApiKey("");
         s.setTimeoutSeconds(1);
-        // Floor 0 so ForcedMulliganController can reach an empty hand; LLM stub unused for mulligan.
         s.setMulliganMinHandSize(0);
-        s.setPriorityWatchdogSeconds(5);
+        s.setDecisionBudgetSeconds(5);
         LlmOpponent.activateForTests(s);
         LlmOpponent.setAskClientForTests(prompt -> null);
         runForcedMulliganGame();
     }
 
+    /**
+     * Engine-loop regression: controller always says mulligan (including on empty hand).
+     * With the AbstractMulligan/LondonMulligan empty-hand keep, the game reaches play quickly.
+     * Without those fixes this times out (see revert-proof in the PR notes).
+     */
+    @Test(timeOut = 15_000)
+    public void emptyHandMulliganControllerDoesNotStallEngineLoop() throws Exception {
+        ForcedMulliganLobby forced = new ForcedMulliganLobby("mulliganer");
+        LobbyPlayerAi other = new LobbyPlayerAi("keeper", null);
+        Match match = createMatch(forced, other);
+        Game game = match.createGame();
+        game.AI_TIMEOUT = 3;
+
+        Player tracked = null;
+        for (Player p : game.getRegisteredPlayers()) {
+            if ("mulliganer".equals(p.getName())) {
+                tracked = p;
+                break;
+            }
+        }
+        AssertJUnit.assertNotNull(tracked);
+        final Player mulliganer = tracked;
+
+        CountDownLatch reachedPlay = new CountDownLatch(1);
+        AtomicInteger handAtPlay = new AtomicInteger(-1);
+        AtomicReference<Throwable> gameError = new AtomicReference<>();
+
+        Thread t = new Thread(() -> {
+            try {
+                match.startGame(game, () -> {
+                    handAtPlay.set(mulliganer.getCardsIn(ZoneType.Hand).size());
+                    reachedPlay.countDown();
+                    for (Player p : new ArrayList<>(game.getRegisteredPlayers())) {
+                        if (!p.hasLost()) {
+                            p.concede();
+                        }
+                    }
+                });
+            } catch (Throwable e) {
+                gameError.set(e);
+                reachedPlay.countDown();
+            }
+        }, "ai1-engine-loop");
+        t.setDaemon(true);
+        t.start();
+
+        // Short await: with the engine fix this completes in ~1s; without it, times out here.
+        AssertJUnit.assertTrue(
+                "engine must leave mulligan (empty-hand keep). If this times out, AbstractMulligan/"
+                        + "LondonMulligan empty-hand fix is missing",
+                reachedPlay.await(8, TimeUnit.SECONDS));
+        if (gameError.get() != null) {
+            throw new AssertionError("game thread failed", gameError.get());
+        }
+        AssertJUnit.assertEquals(0, handAtPlay.get());
+        t.join(5_000);
+    }
+
     @Test(timeOut = 30_000)
-    public void foreverMulliganLlmStubStopsAtFloorAndGameStarts() throws Exception {
+    public void foreverMulliganLlmStubStopsAskingAtFloorAndGameStarts() throws Exception {
         LlmSettings s = new LlmSettings();
         s.setEnabled(true);
         s.setBaseUrl("http://127.0.0.1:9/v1");
@@ -92,7 +152,7 @@ public class Ai1MulliganStallTest extends AITest {
         s.setApiKey("");
         s.setTimeoutSeconds(1);
         s.setMulliganMinHandSize(5);
-        s.setPriorityWatchdogSeconds(5);
+        s.setDecisionBudgetSeconds(5);
         LlmOpponent.activateForTests(s);
         AtomicInteger asks = new AtomicInteger();
         LlmOpponent.setAskClientForTests(prompt -> {
@@ -108,13 +168,11 @@ public class Ai1MulliganStallTest extends AITest {
         Player tracked = game.getRegisteredPlayers().get(0);
 
         CountDownLatch reachedPlay = new CountDownLatch(1);
-        AtomicInteger handAtPlay = new AtomicInteger(-1);
         AtomicReference<Throwable> gameError = new AtomicReference<>();
 
         Thread t = new Thread(() -> {
             try {
                 match.startGame(game, () -> {
-                    handAtPlay.set(tracked.getCardsIn(ZoneType.Hand).size());
                     reachedPlay.countDown();
                     for (Player p : new ArrayList<>(game.getRegisteredPlayers())) {
                         if (!p.hasLost()) {
@@ -135,15 +193,16 @@ public class Ai1MulliganStallTest extends AITest {
         if (gameError.get() != null) {
             throw new AssertionError("game thread failed", gameError.get());
         }
-        AssertJUnit.assertTrue("LLM forever-mulligan must stop at floor (hand >= 5), got "
-                + handAtPlay.get(), handAtPlay.get() >= 5);
         AssertJUnit.assertTrue("stub should have been asked while above floor", asks.get() >= 1);
+        // At/below floor the LLM is skipped (Forge AI decides); asks must not grow unboundedly.
+        AssertJUnit.assertTrue("forever-mulligan LLM must stop being asked at the floor, asks="
+                + asks.get(), asks.get() <= 8);
         t.join(5_000);
         AssertJUnit.assertFalse("game thread should not still be stuck in mulligan", t.isAlive());
     }
 
     @Test
-    public void chooseKeepHandFloorStopsForeverMulliganStub() {
+    public void chooseKeepHandFloorFallsBackToForgeAi() {
         LlmSettings s = new LlmSettings();
         s.setEnabled(true);
         s.setBaseUrl("http://127.0.0.1:9/v1");
@@ -160,7 +219,6 @@ public class Ai1MulliganStallTest extends AITest {
         Game game = initAndCreateGame();
         Player ai = game.getPlayers().get(1);
         fillLibrary(ai, 40);
-        // Build a 7-card hand, then shrink to simulate London post-tuck sizes.
         for (int i = 0; i < 7; i++) {
             addCardToZone("Plains", ai, ZoneType.Hand);
         }
@@ -172,8 +230,25 @@ public class Ai1MulliganStallTest extends AITest {
         while (ai.getCardsIn(ZoneType.Hand).size() > 5) {
             game.getAction().moveTo(ZoneType.Exile, ai.getCardsIn(ZoneType.Hand).get(0), null, null);
         }
-        AssertJUnit.assertEquals(Boolean.TRUE, LlmOpponent.chooseKeepHand(ai, 2));
+        AssertJUnit.assertNull("at floor → Forge AI (null)", LlmOpponent.chooseKeepHand(ai, 2));
         AssertJUnit.assertEquals("only hands above the floor ask the LLM", 2, asks.get());
+    }
+
+    @Test
+    public void forgeAiExceptionInsideDecisionBudgetPropagates() {
+        LlmSettings s = new LlmSettings();
+        s.setEnabled(true);
+        s.setBaseUrl("http://127.0.0.1:9/v1");
+        s.setModel("stub");
+        LlmOpponent.activateForTests(s);
+        try {
+            LlmOpponent.runWithDecisionBudget("boom", () -> {
+                throw new IllegalStateException("forge-ai-bug");
+            });
+            AssertJUnit.fail("expected IllegalStateException to propagate");
+        } catch (IllegalStateException e) {
+            AssertJUnit.assertEquals("forge-ai-bug", e.getMessage());
+        }
     }
 
     @Test
@@ -302,7 +377,10 @@ public class Ai1MulliganStallTest extends AITest {
         return deck;
     }
 
-    /** AI lobby that always mulligans until the hand is empty (then keep). */
+    /**
+     * Always answers mulligan ({@code false}), even on an empty hand — no floor or keep shortcut.
+     * The engine empty-hand keep is what must end the MulliganService loop.
+     */
     private static final class ForcedMulliganLobby extends LobbyPlayerAi {
         ForcedMulliganLobby(String name) {
             super(name, null);
@@ -323,9 +401,6 @@ public class Ai1MulliganStallTest extends AITest {
 
         @Override
         public boolean mulliganKeepHand(Player firstPlayer, int cardsToReturn) {
-            if (getPlayer().getCardsIn(ZoneType.Hand).isEmpty()) {
-                return true;
-            }
             return false;
         }
     }

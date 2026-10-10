@@ -795,7 +795,7 @@ public class PlayerControllerAi extends PlayerController {
             return true;
         }
         if (LlmOpponent.isActive()) {
-            Boolean keep = LlmOpponent.runWithPriorityWatchdog("mulligan",
+            Boolean keep = LlmOpponent.runWithDecisionBudget("mulligan",
                     () -> LlmOpponent.chooseKeepHand(player, cardsToReturn));
             if (keep != null) {
                 return keep;
@@ -854,7 +854,7 @@ public class PlayerControllerAi extends PlayerController {
             brains.declareAttackers(attacker, combat);
             return;
         }
-        LlmOpponent.runWithPriorityWatchdog("attackers", () -> {
+        LlmOpponent.runWithDecisionBudget("attackers", () -> {
             brains.declareAttackers(attacker, combat);
             return null;
         });
@@ -866,7 +866,7 @@ public class PlayerControllerAi extends PlayerController {
             brains.declareBlockersFor(defender, combat);
             return;
         }
-        LlmOpponent.runWithPriorityWatchdog("blockers", () -> {
+        LlmOpponent.runWithDecisionBudget("blockers", () -> {
             brains.declareBlockersFor(defender, combat);
             return null;
         });
@@ -877,8 +877,8 @@ public class PlayerControllerAi extends PlayerController {
         if (!LlmOpponent.isActive()) {
             return brains.chooseSpellAbilityToPlay();
         }
-        // AI1 watchdog: LLM asks honor the deadline; on expiry Forge AI is used for the pick.
-        return LlmOpponent.runWithPriorityWatchdog("priority", () -> brains.chooseSpellAbilityToPlay());
+        // AI1 decision budget: LLM asks honor the deadline; on expiry Forge AI picks.
+        return LlmOpponent.runWithDecisionBudget("priority", () -> brains.chooseSpellAbilityToPlay());
     }
 
     @Override

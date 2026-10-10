@@ -35,9 +35,11 @@ public final class LlmSettings {
     public static final String PROP_API_KEY = "apiKey";
     public static final String PROP_MODEL = "model";
     public static final String PROP_TIMEOUT = "timeoutSeconds";
-    /** AI1: LLM must not mulligan below this hand size (Forge AI / keep instead). */
+    /** AI1: LLM must not mulligan below this hand size (Forge AI decides instead). */
     public static final String PROP_MULLIGAN_MIN_HAND = "mulliganMinHandSize";
-    /** AI1: seconds of no AI priority progress before Forge AI takes that decision. */
+    /** AI1: wall-clock budget for one LLM-backed decision before Forge AI takes over. */
+    public static final String PROP_DECISION_BUDGET = "decisionBudgetSeconds";
+    /** Deprecated alias for {@link #PROP_DECISION_BUDGET}. Still read when the new key is absent. */
     public static final String PROP_PRIORITY_WATCHDOG = "priorityWatchdogSeconds";
 
     public static final String DEFAULT_BASE_URL = "http://localhost:11434/v1";
@@ -48,9 +50,15 @@ public final class LlmSettings {
     public static final int DEFAULT_MULLIGAN_MIN_HAND_SIZE = 5;
     public static final int MIN_MULLIGAN_MIN_HAND_SIZE = 0;
     public static final int MAX_MULLIGAN_MIN_HAND_SIZE = 10;
-    public static final int DEFAULT_PRIORITY_WATCHDOG_SECONDS = 30;
-    public static final int MIN_PRIORITY_WATCHDOG_SECONDS = 1;
-    public static final int MAX_PRIORITY_WATCHDOG_SECONDS = 300;
+    public static final int DEFAULT_DECISION_BUDGET_SECONDS = 30;
+    public static final int MIN_DECISION_BUDGET_SECONDS = 1;
+    public static final int MAX_DECISION_BUDGET_SECONDS = 300;
+    /** @deprecated use {@link #DEFAULT_DECISION_BUDGET_SECONDS} */
+    public static final int DEFAULT_PRIORITY_WATCHDOG_SECONDS = DEFAULT_DECISION_BUDGET_SECONDS;
+    /** @deprecated use {@link #MIN_DECISION_BUDGET_SECONDS} */
+    public static final int MIN_PRIORITY_WATCHDOG_SECONDS = MIN_DECISION_BUDGET_SECONDS;
+    /** @deprecated use {@link #MAX_DECISION_BUDGET_SECONDS} */
+    public static final int MAX_PRIORITY_WATCHDOG_SECONDS = MAX_DECISION_BUDGET_SECONDS;
 
     private boolean enabled;
     private String baseUrl = DEFAULT_BASE_URL;
@@ -58,7 +66,11 @@ public final class LlmSettings {
     private String model = DEFAULT_MODEL;
     private int timeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
     private int mulliganMinHandSize = DEFAULT_MULLIGAN_MIN_HAND_SIZE;
-    private int priorityWatchdogSeconds = DEFAULT_PRIORITY_WATCHDOG_SECONDS;
+    private int decisionBudgetSeconds = DEFAULT_DECISION_BUDGET_SECONDS;
+    /** True when {@link #PROP_MULLIGAN_MIN_HAND} was present in the loaded properties file. */
+    private boolean mulliganMinHandSizeFromProperties;
+    /** True when decision-budget key (new or alias) was present in the loaded properties file. */
+    private boolean decisionBudgetFromProperties;
 
     public boolean isEnabled() {
         return enabled;
@@ -125,7 +137,8 @@ public final class LlmSettings {
     }
 
     /**
-     * AI1: floor for LLM mulligan decisions. At or below this hand size the LLM is skipped.
+     * AI1: floor for LLM mulligan decisions. At or below this hand size the LLM is skipped and
+     * Forge AI ({@code ComputerUtil.wantMulligan}) decides.
      */
     public int getMulliganMinHandSize() {
         return mulliganMinHandSize;
@@ -142,21 +155,40 @@ public final class LlmSettings {
     }
 
     /**
-     * AI1: if the AI makes no progress on priority for this many seconds, Forge AI takes over
-     * for that decision.
+     * AI1: wall-clock seconds allowed for one LLM-backed decision before Forge AI takes over.
      */
-    public int getPriorityWatchdogSeconds() {
-        return priorityWatchdogSeconds;
+    public int getDecisionBudgetSeconds() {
+        return decisionBudgetSeconds;
     }
 
-    public synchronized void setPriorityWatchdogSeconds(int priorityWatchdogSeconds) {
-        if (priorityWatchdogSeconds < MIN_PRIORITY_WATCHDOG_SECONDS) {
-            this.priorityWatchdogSeconds = MIN_PRIORITY_WATCHDOG_SECONDS;
-        } else if (priorityWatchdogSeconds > MAX_PRIORITY_WATCHDOG_SECONDS) {
-            this.priorityWatchdogSeconds = MAX_PRIORITY_WATCHDOG_SECONDS;
+    public synchronized void setDecisionBudgetSeconds(int decisionBudgetSeconds) {
+        if (decisionBudgetSeconds < MIN_DECISION_BUDGET_SECONDS) {
+            this.decisionBudgetSeconds = MIN_DECISION_BUDGET_SECONDS;
+        } else if (decisionBudgetSeconds > MAX_DECISION_BUDGET_SECONDS) {
+            this.decisionBudgetSeconds = MAX_DECISION_BUDGET_SECONDS;
         } else {
-            this.priorityWatchdogSeconds = priorityWatchdogSeconds;
+            this.decisionBudgetSeconds = decisionBudgetSeconds;
         }
+    }
+
+    /** @deprecated use {@link #getDecisionBudgetSeconds()} */
+    public int getPriorityWatchdogSeconds() {
+        return getDecisionBudgetSeconds();
+    }
+
+    /** @deprecated use {@link #setDecisionBudgetSeconds(int)} */
+    public synchronized void setPriorityWatchdogSeconds(int priorityWatchdogSeconds) {
+        setDecisionBudgetSeconds(priorityWatchdogSeconds);
+    }
+
+    /** Whether {@link #PROP_MULLIGAN_MIN_HAND} was explicitly present when loaded from disk. */
+    public boolean isMulliganMinHandSizeFromProperties() {
+        return mulliganMinHandSizeFromProperties;
+    }
+
+    /** Whether the decision-budget key (or legacy alias) was explicitly present when loaded. */
+    public boolean isDecisionBudgetFromProperties() {
+        return decisionBudgetFromProperties;
     }
 
     /**
@@ -181,7 +213,9 @@ public final class LlmSettings {
         s.model = model;
         s.timeoutSeconds = timeoutSeconds;
         s.mulliganMinHandSize = mulliganMinHandSize;
-        s.priorityWatchdogSeconds = priorityWatchdogSeconds;
+        s.decisionBudgetSeconds = decisionBudgetSeconds;
+        s.mulliganMinHandSizeFromProperties = mulliganMinHandSizeFromProperties;
+        s.decisionBudgetFromProperties = decisionBudgetFromProperties;
         return s;
     }
 
@@ -219,17 +253,25 @@ public final class LlmSettings {
         } catch (NumberFormatException ignored) {
             s.timeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
         }
-        try {
-            s.setMulliganMinHandSize(Integer.parseInt(
-                    p.getProperty(PROP_MULLIGAN_MIN_HAND, String.valueOf(DEFAULT_MULLIGAN_MIN_HAND_SIZE)).trim()));
-        } catch (NumberFormatException ignored) {
-            s.mulliganMinHandSize = DEFAULT_MULLIGAN_MIN_HAND_SIZE;
+        if (p.containsKey(PROP_MULLIGAN_MIN_HAND)) {
+            s.mulliganMinHandSizeFromProperties = true;
+            try {
+                s.setMulliganMinHandSize(Integer.parseInt(p.getProperty(PROP_MULLIGAN_MIN_HAND).trim()));
+            } catch (NumberFormatException ignored) {
+                s.mulliganMinHandSize = DEFAULT_MULLIGAN_MIN_HAND_SIZE;
+            }
         }
-        try {
-            s.setPriorityWatchdogSeconds(Integer.parseInt(
-                    p.getProperty(PROP_PRIORITY_WATCHDOG, String.valueOf(DEFAULT_PRIORITY_WATCHDOG_SECONDS)).trim()));
-        } catch (NumberFormatException ignored) {
-            s.priorityWatchdogSeconds = DEFAULT_PRIORITY_WATCHDOG_SECONDS;
+        String budgetRaw = p.getProperty(PROP_DECISION_BUDGET);
+        if (budgetRaw == null) {
+            budgetRaw = p.getProperty(PROP_PRIORITY_WATCHDOG);
+        }
+        if (budgetRaw != null) {
+            s.decisionBudgetFromProperties = true;
+            try {
+                s.setDecisionBudgetSeconds(Integer.parseInt(budgetRaw.trim()));
+            } catch (NumberFormatException ignored) {
+                s.decisionBudgetSeconds = DEFAULT_DECISION_BUDGET_SECONDS;
+            }
         }
         return s;
     }
@@ -244,14 +286,13 @@ public final class LlmSettings {
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new IOException("Could not create settings directory: " + parent);
         }
-        // Snapshot under the instance lock so concurrent setters cannot tear a write.
         final boolean snapEnabled;
         final String snapBaseUrl;
         final String snapApiKey;
         final String snapModel;
         final int snapTimeout;
         final int snapMulliganMin;
-        final int snapWatchdog;
+        final int snapBudget;
         synchronized (this) {
             snapEnabled = enabled;
             snapBaseUrl = baseUrl == null ? "" : baseUrl;
@@ -259,9 +300,11 @@ public final class LlmSettings {
             snapModel = model == null ? "" : model;
             snapTimeout = timeoutSeconds;
             snapMulliganMin = mulliganMinHandSize;
-            snapWatchdog = priorityWatchdogSeconds;
+            snapBudget = decisionBudgetSeconds;
+            // Once saved, these keys are explicit in the file for the next load.
+            mulliganMinHandSizeFromProperties = true;
+            decisionBudgetFromProperties = true;
         }
-        // Restrict BEFORE writing the key: create an empty owner-only file, then store.
         prepareOwnerOnlyFile(file);
         Runnable beforeWrite = beforeWriteForTests;
         if (beforeWrite != null) {
@@ -274,7 +317,7 @@ public final class LlmSettings {
         p.setProperty(PROP_MODEL, snapModel);
         p.setProperty(PROP_TIMEOUT, Integer.toString(snapTimeout));
         p.setProperty(PROP_MULLIGAN_MIN_HAND, Integer.toString(snapMulliganMin));
-        p.setProperty(PROP_PRIORITY_WATCHDOG, Integer.toString(snapWatchdog));
+        p.setProperty(PROP_DECISION_BUDGET, Integer.toString(snapBudget));
         try (OutputStream out = new FileOutputStream(file)) {
             p.store(out, "Forge Adventure LLM opponent (local only; not part of the save)");
         }
@@ -335,7 +378,6 @@ public final class LlmSettings {
         } catch (IOException ignored) {
         }
         try {
-            // Clear broader access, then grant owner read/write only.
             file.setReadable(false, false);
             file.setWritable(false, false);
             file.setExecutable(false, false);
@@ -402,7 +444,7 @@ public final class LlmSettings {
                 + ", model='" + model + '\''
                 + ", timeoutSeconds=" + timeoutSeconds
                 + ", mulliganMinHandSize=" + mulliganMinHandSize
-                + ", priorityWatchdogSeconds=" + priorityWatchdogSeconds
+                + ", decisionBudgetSeconds=" + decisionBudgetSeconds
                 + ", apiKey=" + (hasApiKey() ? "set" : "unset")
                 + '}';
     }

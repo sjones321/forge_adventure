@@ -91,16 +91,45 @@ public class ConfigData {
 
     /**
      * AI1: minimum hand size the LLM opponent may mulligan down to. At or below this floor the
-     * LLM is skipped and Forge's {@code ComputerUtil.wantMulligan} (or keep) is used instead.
+     * LLM is skipped and Forge's {@code ComputerUtil.wantMulligan} decides instead.
      * London can otherwise reach 0 cards and stall the mulligan loop.
+     * Overridden by {@code mulliganMinHandSize} in {@code llm_opponent.properties} when that key
+     * is present.
      */
     public int llmMulliganMinHandSize = 5;
 
     /**
-     * AI1: if the AI makes no progress on its own priority for this many seconds, fall back to
-     * Forge AI for that decision. Default 30. Does not apply when the LLM opponent is off.
+     * AI1: wall-clock seconds for one LLM-backed decision before Forge AI takes over. Default 30.
+     * Overridden by {@code decisionBudgetSeconds} in {@code llm_opponent.properties} when present.
      */
-    public int llmPriorityWatchdogSeconds = 30;
+    public int llmDecisionBudgetSeconds = 30;
+
+    /**
+     * Deprecated alias for {@link #llmDecisionBudgetSeconds}. Still read from older config.json
+     * files when the new key is absent ({@code -1} means unset).
+     */
+    public int llmPriorityWatchdogSeconds = -1;
+
+    /**
+     * Prefer {@link #llmDecisionBudgetSeconds}; fall back to the legacy
+     * {@link #llmPriorityWatchdogSeconds} alias when the new key was never set in JSON.
+     */
+    public int resolvedLlmDecisionBudgetSeconds() {
+        if (llmDecisionBudgetSeconds >= 0 && llmPriorityWatchdogSeconds < 0) {
+            return llmDecisionBudgetSeconds;
+        }
+        if (llmPriorityWatchdogSeconds >= 0 && llmDecisionBudgetSeconds == 30
+                && llmPriorityWatchdogSeconds != 30) {
+            return llmPriorityWatchdogSeconds;
+        }
+        if (llmDecisionBudgetSeconds >= 0) {
+            return llmDecisionBudgetSeconds;
+        }
+        if (llmPriorityWatchdogSeconds >= 0) {
+            return llmPriorityWatchdogSeconds;
+        }
+        return 30;
+    }
 
     /** Extra gold on top of the difficulty's starting money for a sealed start. */
     public int sealedStartBonusGold = 500;
