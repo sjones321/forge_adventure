@@ -1059,8 +1059,13 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                 // M3: take-back requested from the GUI released InputPassPriority — run restore
                 // on THIS game-loop thread before treating the return as a pass or play.
                 if (game.hasPendingTakeBack(pPlayerPriority)) {
-                    pPlayerPriority.getController().resolvePendingTakeBack();
-                    continue;
+                    if (chosenSa == null) {
+                        pPlayerPriority.getController().resolvePendingTakeBack();
+                        continue;
+                    }
+                    // A card tap won the race with the take-back press (or the request was aimed at an
+                    // earlier priority window): the chosen action stands and the request is dropped.
+                    game.clearPendingTakeBack();
                 }
 
                 // this needs to come after chosenSa so it sees you conceding on own turn

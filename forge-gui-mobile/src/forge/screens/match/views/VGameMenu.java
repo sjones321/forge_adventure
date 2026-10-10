@@ -24,7 +24,7 @@ public class VGameMenu extends FDropDownMenu {
     protected void buildMenu() {
         if (TakeBackActions.featureEnabled()) {
             final FMenuItem takeBack = new FMenuItem(TakeBackActions.buttonLabel(), FSkinImage.DELETE, e ->
-                    ThreadUtil.invokeInGameThread(TakeBackActions::takeBack));
+                    TakeBackActions.takeBack());
             takeBack.setEnabled(TakeBackActions.canTakeBack());
             addItem(takeBack);
         }

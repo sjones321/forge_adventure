@@ -119,7 +119,9 @@ public class Game {
     private long informationEpoch = 0L;
     private long takeBackEpoch = -1L;
     /** Player who requested take-back while InputPassPriority was blocked (M3). */
-    private Player pendingTakeBackPlayer = null;
+    private volatile Player pendingTakeBackPlayer = null;
+    /** The priority input the pending request stopped; a request only counts for that input. */
+    private volatile Object pendingTakeBackToken = null;
     /** True while {@link #takeBack} is restoring — inputs must reject clicks (M3). */
     private volatile boolean takeBackInProgress = false;
     private CardCollection lastStateBattlefield = new CardCollection();
@@ -309,7 +311,17 @@ public class Game {
      * pool thread via {@code GameAction.invoke}.
      */
     public void requestTakeBack(final Player player) {
+        requestTakeBack(player, null);
+    }
+
+    /** Queue a take-back that only counts for the priority input {@code token} it stopped. */
+    public void requestTakeBack(final Player player, final Object token) {
+        pendingTakeBackToken = token;
         pendingTakeBackPlayer = player;
+    }
+
+    public Object getPendingTakeBackToken() {
+        return pendingTakeBackToken;
     }
 
     public boolean hasPendingTakeBack(final Player player) {
@@ -324,6 +336,7 @@ public class Game {
     public Player clearPendingTakeBack() {
         final Player p = pendingTakeBackPlayer;
         pendingTakeBackPlayer = null;
+        pendingTakeBackToken = null;
         return p;
     }
 
