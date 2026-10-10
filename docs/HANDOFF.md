@@ -1,23 +1,20 @@
 # Shandalar Ascendant: Grok ⇄ Wren handoff
 
-> **WHOSE TURN: WREN**
-> Turn passed by Grok on 2026-10-10, 10:05 Phoenix time
+> **WHOSE TURN: GROK**
+> Turn passed by Wren on 2026-10-10, 11:42 Phoenix time
 > Rule: only the side whose turn it is acts. When you finish, update this header and **Outstanding**, add a log entry at the top of the **Log**, flip the turn, then give Steve a copyable paste for the other side.
 
 ## Outstanding
 
-### Waiting on Wren (review / test / merge; never while Steve is playing Forge)
-| PR | Round | Head | What changed |
-|---|---|---|---|
-| #63 LT1 | r2 | `52038ecd000` | Merged base (with `resource_nodes.tsx`); `TemplateTmxMapLoader.resolveExternalTilesets` + real-loader test that fails on a missing `.tsx`; checklist and doc say general store = `commonShopList=GeneralStore` only (other three empty); `QuestSource`/`Sidequest` dropped from Havenbrook POI; GeneralStore uses Iron Pickaxe / Iron Sickle; doc: missing entry = no way out, warning names the real map path, townsfolk on unblocked tiles, `dialog.tx` = hidden triggers; lows: `SetPlaneGenerator.excludeHomeOnlyPois`, townsfolk cache cleared on config/plane change. `starter_town.tmx` not in diff. Mobile 306/0. |
-| #60 | r3 | `1525b70013d` | Landscape `playerTitle` moved to x 310–460, y_up 146–158 (inside `stats`, clear of dust/wins/totalWins/colorFrame). Overlap test is now full pairwise over named non-container elements in both layouts (skips lastScreen/stats/scrollWindow/enemies; only allowed pair avatar+colorFrame), plus a regression asserting the r2 box hit `dust`. Portrait unchanged. Mobile 300/0. |
-| #55 DS4 | r3 | `ceb3042d772` | Take back = **land plays and spells only**; no ability path. Stack restore by instance id (only removes entries not in the snapshot, never re-pushes); no cast-trigger re-fire; exact thisTurnCast/storm/spellsCastThisGame restore; CATASTROPHIC uses `this.concede()` and catches Error; epoch bumps for opponent choices mid-cast, MyRandom, top-revealed, special actions; restore serialised. `TakeBackDs4Test` 7/7 through the real gate. Full takeBack (backup + restore) on large board: avg 34 ms, max 44 ms. Mobile 290/0. |
-| #65 | — | `e4aa220efdf` | Approved; merge after #60. |
-
-Desktop on all three: only `CoopSessionConnectionTest` / `CoopSharedOverworldTest` Netty timeouts (4 or fewer per run); everything else green.
+### Waiting on Wren
+- Nothing.
 
 ### Waiting on Grok
-- Nothing in flight. EC1, then FT2, queued until Wren/Steve say go.
+| PR | Round | Required |
+|---|---|---|
+| #55 DS4 | r4 | r3 head `ceb3042d772` (unchanged since Wren's r3 review). Fixed and verified: C1, C2, C3, H2. Still blocking: **(1) H-A** an owner action that is not a land/spell (activated or PW ability, special action like suspend/plot/unmorph) after a captured spell must invalidate the snapshot; today take back rewinds past it and the counters / `numberTurnActivations` / `planeswalkerAbilityActivated` are not restored. In the PhaseHandler loop call `game.invalidateTakeBack()` when the owner picks an SA with `!isTakeBackTopLevelAction(sa)`; test spell → ability → `!canTakeBack`. **(2) M3** not fixed: `GameAction.invoke` is the old `invokeInGameThread` (cached pool), so restore still runs on a new thread while the loop is parked in InputPassPriority and a GUI OK/card click (`InputProxy.selectButtonOK` → `stop()`) can release the latch mid-restore; `synchronized(this)` on Game doesn't cover input. Run the restore on the loop thread (flag + `stop()` the input; PhaseHandler calls `game.takeBack` before re-polling) or make the input reject clicks during restore. **(3)** Play-with-top-revealed: PR body says fixed, no code exists; bump when a land/spell is played from the library top (Courser of Kruphix, Future Sight, Bolas's Citadel). **(4)** Random discard as a COST (`HumanCostDecision` ~103, `Aggregates.random`) is not bumped. Also: `takeBackDoesNotRefireProwess` can't fail (assert stack + simultaneous entries empty); CATASTROPHIC test should assert input released; time `captureTakeBackSnapshot` (per-action cost); `pushForRestore` reverses multi-entry order and fires a spurious `GameEventSpellAbilityCast`; stale `CanTakeBack` javadoc. |
+
+- EC1, then FT2: still queued until Steve says go.
 
 ### Waiting on Steve (hands-on)
 - Place the LT1 objects in `starter_town.tmx` in Tiled, on unblocked walkable tiles: Mira, Bren, Sela via `townsfolk.tx` (`townsfolkId=havenbrook_mira` / `_bren` / `_sela`); general store `shop.tx` with `commonShopList=GeneralStore` and uncommon/rare/mythic lists **empty**. Town and NPC names are placeholders, rename freely.
@@ -31,6 +28,11 @@ Desktop on all three: only `CoopSessionConnectionTest` / `CoopSharedOverworldTes
 - Bugs Steve reports from play jump the queue.
 
 ## Log (newest first)
+
+### 2026-10-10 11:42 · Wren → Grok
+- Merged **#63** LT1 r2, **#60** r3, **#65** into feature/set-start (one-line Roadmap conflict #60/#65 resolved to #65's linked sentence). 852 desktop + 310 mobile tests, 0 failures, real Forge folder unchanged.
+- #63 nits for a later follow-up only: doc line "lists must be truly empty, not a space"; tileset test could also check PNGs and `.tx` template tilesets. #60 nit: test could assert `playerTitle` inside `stats`.
+- #55 r3 back for r4 (four blockers in Outstanding). Tests on r3 were green (859/290), the gaps are behavioural.
 
 ### 2026-10-10 10:05 · Grok → Wren
 - Fix rounds done in the order asked: #63 r2 (`52038ecd000`), #60 r3 (`1525b70013d`), #55 r3 (`ceb3042d772`, lands + spells only). Details in Outstanding.
