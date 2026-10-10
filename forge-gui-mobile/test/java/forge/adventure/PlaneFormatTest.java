@@ -39,17 +39,24 @@ import java.lang.reflect.Field;
 public class PlaneFormatTest {
 
     private AdventureModes savedAdventureMode;
+    private Boolean savedStrictOverworld;
 
     @BeforeMethod
     public void clearGuestFollow() {
         CoopSession.get().testClearGuestPlaneFollow();
         CoopSession.get().testClearHostingForHello();
         savedAdventureMode = null;
+        savedStrictOverworld = null;
+        // Suite-order: CS0 / other classes may leave Config or the reward pool dirty.
+        Assert.assertNotNull(Config.instance(), "Adventure bootstrap must provide Config");
+        Assert.assertNotNull(Config.instance().getConfigData(), "ConfigData required for K tunables");
+        RewardData.invalidateCardPool();
     }
 
     @AfterMethod
     public void tearDown() throws Exception {
         restoreAdventureMode();
+        restoreStrictOverworld();
         CoopSession.get().testClearGuestPlaneFollow();
         CoopSession.get().testClearHostingForHello();
         RewardData.invalidateCardPool();
@@ -301,12 +308,12 @@ public class PlaneFormatTest {
         Assert.assertNotNull(cfg);
         Assert.assertFalse(cfg.kStrictOverworldLegalDecks);
         Assert.assertFalse(PlaneFormat.strictOverworldLegalDecks());
-        final boolean previous = cfg.kStrictOverworldLegalDecks;
+        savedStrictOverworld = cfg.kStrictOverworldLegalDecks;
         try {
             cfg.kStrictOverworldLegalDecks = true;
             Assert.assertTrue(PlaneFormat.strictOverworldLegalDecks());
         } finally {
-            cfg.kStrictOverworldLegalDecks = previous;
+            restoreStrictOverworld();
         }
     }
 
@@ -343,5 +350,16 @@ public class PlaneFormatTest {
             f.set(p, savedAdventureMode);
         }
         savedAdventureMode = null;
+    }
+
+    private void restoreStrictOverworld() {
+        if (savedStrictOverworld == null) {
+            return;
+        }
+        ConfigData cfg = Config.instance() != null ? Config.instance().getConfigData() : null;
+        if (cfg != null) {
+            cfg.kStrictOverworldLegalDecks = savedStrictOverworld;
+        }
+        savedStrictOverworld = null;
     }
 }

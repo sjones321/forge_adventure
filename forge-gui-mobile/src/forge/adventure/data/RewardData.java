@@ -321,19 +321,37 @@ public class RewardData implements Serializable {
     static private void initializeAllCards() {
         Predicate<PaperCard> filter = adventureRewardFilter();
 
-        // Filter out specific cards.
-        List<PaperCard> basePool = CardUtil.getFullCardPool(false).stream()
-                .filter(filter)
-                .collect(Collectors.toList());
+        // Filter out specific cards. Unique pool (CS0 keeps useAllCardVariants false).
+        List<PaperCard> basePool;
+        try {
+            Collection<PaperCard> full = CardUtil.getFullCardPool(false);
+            if (full == null) {
+                allCards = new ArrayList<>();
+                allEnemyCards = allCards;
+                return;
+            }
+            basePool = full.stream().filter(filter).collect(Collectors.toList());
+        } catch (Throwable t) {
+            // Headless / empty card DB (suite order): leave an empty cache, not a crash.
+            allCards = new ArrayList<>();
+            allEnemyCards = allCards;
+            return;
+        }
 
         // Package K: plane format favors the shop/reward card pool. Bellwarden Standard
         // keeps the rotating window; Pauper prefers commons; Historic/Commander use the
         // broader adventure pool (enemies still use basePool via allEnemyCards).
         // Commander-mode runs always take the Commander breadth path.
-        StandardWindow window = AdventurePlayer.current().getStandardWindow();
+        AdventurePlayer player = null;
+        try {
+            player = AdventurePlayer.current();
+        } catch (Throwable ignored) {
+        }
+        StandardWindow window = player != null ? player.getStandardWindow() : null;
         boolean commander = cardPoolUsesCommanderBreadth()
-                || AdventurePlayer.current().hasCommanderDeck();
-        if (forge.adventure.world.PlaneFormat.favorsStandardWindowPool() && window.isActive()) {
+                || (player != null && player.hasCommanderDeck());
+        if (forge.adventure.world.PlaneFormat.favorsStandardWindowPool()
+                && window != null && window.isActive()) {
             allCards = basePool.stream().filter(pc -> window.allows(pc, commander)).collect(Collectors.toList());
         } else if (forge.adventure.world.PlaneFormat.favorsPauperPool()) {
             forge.game.GameFormat pauper = forge.model.FModel.getFormats() != null
@@ -401,8 +419,10 @@ public class RewardData implements Serializable {
 
     public Array<Reward> generate(boolean isForEnemy, Iterable<PaperCard> cards, boolean useSeedlessRandom, boolean isNoSell) {
         boolean allCardVariants = SourcePrintings.useAllCardVariants();
+        // Shop / map rewards keep the world-seeded Random so pick identity is stable across
+        // loads. CS0 only rematches the printing (edition/art) of each pick — it does not
+        // replace this RNG. Loot uses a fresh Random when useSeedlessRandom is true.
         Random rewardRandom = useSeedlessRandom ? new Random() : WorldSave.getCurrentSave().getWorld().getRandom();
-        //Keep using same generation method for shop rewards, but fully randomize loot drops by not using the instance pre-seeded by the map
 
         if (allCards==null)
             initializeAllCards();

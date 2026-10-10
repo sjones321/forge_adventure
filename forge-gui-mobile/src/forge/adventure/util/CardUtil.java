@@ -929,15 +929,16 @@ public class CardUtil {
 
     public static PaperCard getCardByName(String cardName) {
         if (SourcePrintings.enabled()) {
-            // CS0: rotation / most-recent normal (filters online, funny, collector,
-            // restrictedEditions, PLST/MB1, special sheets via isNormalPrinting).
+            // CS0: single path — rotation / most-recent normal (filters online, funny,
+            // collector, restrictedEditions, PLST/MB1, special sheets). Do not fall
+            // through to the stock unique/variants picker (that would reintroduce
+            // world-random printings under Ascendant).
             PaperCard fromSource = SourcePrintings.printingFromRotation(cardName);
-            if (fromSource != null) {
-                return fromSource;
-            }
+            return fromSource != null ? fromSource : getReplacement(cardName, "Wastes");
         }
         List<PaperCard> validCards;
         ConfigData configData = Config.instance().getConfigData();
+        // Stock worlds: honour useAllCardVariants; pick with the world-seeded Random.
         if (SourcePrintings.useAllCardVariants()) {
             Predicate<PaperCard> editionFilter;
             if (configData.allowedEditions != null && configData.allowedEditions.length > 0) {
