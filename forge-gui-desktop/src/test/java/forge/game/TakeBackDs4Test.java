@@ -79,14 +79,10 @@ public class TakeBackDs4Test extends AITest {
         final Player p = game.getPlayers().get(1);
         fillLibrary(p, 8);
         fillLibrary(game.getPlayers().get(0), 8);
-        addCard("Forest", p);
-        final Card bear = addCardToZone("Runeclaw Bear", p, ZoneType.Hand);
-        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, p);
-        game.getAction().checkStateEffects(true);
-
-        // Pay {G} from the Forest then cast the bear through the real SA path.
-        final Card forest = findCardWithName(game, "Forest");
-        Assert.assertNotNull(forest);
+        // 0-mana artifact creature so AI payment cannot fail; still a real cast path.
+        final Card memnite = addCardToZone("Memnite", p, ZoneType.Hand);
+        // Floating mana that casting must not consume (sanity for "mana restored").
+        final Card forest = addCard("Forest", p);
         SpellAbility manaSa = null;
         for (final SpellAbility sa : forest.getAllPossibleAbilities(p, true)) {
             if (sa.isManaAbility()) {
@@ -96,31 +92,29 @@ public class TakeBackDs4Test extends AITest {
         }
         Assert.assertNotNull(manaSa);
         playAndRetain(game, p, manaSa);
+        final int manaAfterTap = p.getManaPool().totalMana();
+        Assert.assertTrue(manaAfterTap >= 1, "forest should have added mana");
 
         SpellAbility castSa = null;
-        for (final SpellAbility sa : bear.getAllPossibleAbilities(p, true)) {
+        for (final SpellAbility sa : memnite.getAllPossibleAbilities(p, true)) {
             if (sa.isSpell()) {
                 castSa = sa;
                 break;
             }
         }
         Assert.assertNotNull(castSa);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, p);
+        game.getAction().checkStateEffects(true);
         playAndRetain(game, p, castSa);
 
-        Assert.assertTrue(bear.isInPlay() || !game.getStack().isEmpty() || bear.isInZone(ZoneType.Battlefield)
-                || bear.isInZone(ZoneType.Stack)
-                || countCardsWithName(game, "Runeclaw Bear", ZoneType.Battlefield) == 1
-                || countCardsWithName(game, "Runeclaw Bear", ZoneType.Stack) == 1
-                || !bear.isInZone(ZoneType.Hand));
-
-        final int manaBefore = p.getManaPool().totalMana();
+        Assert.assertEquals(countCardsWithName(game, "Memnite", ZoneType.Hand), 0, "spell left hand");
         Assert.assertTrue(game.canTakeBack(p));
         Assert.assertEquals(game.takeBack(p), TakeBackResult.SUCCESS);
-        Assert.assertTrue(bear.isInZone(ZoneType.Hand), "spell card restored to hand");
-        // Mana from the cast is restored; forest may be untapped depending on whether
-        // take-back undid only the cast (last action) or included the mana tap.
-        Assert.assertTrue(p.getManaPool().totalMana() >= manaBefore
-                || !forest.isTapped() || bear.isInZone(ZoneType.Hand));
+        // After snapshot restore, look up by name — Card references may be remapped.
+        Assert.assertEquals(countCardsWithName(game, "Memnite", ZoneType.Hand), 1,
+                "spell card restored to hand");
+        Assert.assertEquals(p.getManaPool().totalMana(), manaAfterTap, "floating mana restored");
+        Assert.assertNotNull(memnite); // keep reference live for GC clarity in failure dumps
     }
 
     @Test
