@@ -121,7 +121,8 @@ against the enemy, using Forge's existing network duel code. Connection is direc
 
 1. **Co-op foundation**: session and connection (CO1), shared overworld (CO2), co-op duels (CO3).
 2. **Own identity**: name, launcher, app, separate from stock Forge. **Official name: Shandalar Ascendant**
-   (this Forge adventure build). **Bellwarden** is Steve's separate Godot game (see `docs/Bellwarden/`).
+   (this Forge adventure build). Steve's separate game, **Bellwarden**, is documented under
+   [`docs/Bellwarden/`](../Bellwarden/).
    Avoid "NeoForge" (Minecraft mod loader), "___ of Eternity" (Pillars of Eternity), and
    "Death Watch"/"Deathwatch" in the title (Star Wars / Warhammer 40K); the canon name is fine inside the game.
 3. **Controller-first** outside duels.

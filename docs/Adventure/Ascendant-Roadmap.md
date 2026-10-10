@@ -3,7 +3,7 @@
 Official player-facing name: **Shandalar Ascendant**. The content-pack folder, save keys, and
 `Config.ascendant()` stay on that Ascendant id (no save migration). The Standard format displays as
 **Shandalar Standard** (old **Bellwarden** / **Bellwarden Standard** input aliases still resolve).
-The Godot game named Bellwarden lives under `docs/Bellwarden/`.
+Steve's separate game, **Bellwarden**, is documented under [`docs/Bellwarden/`](../Bellwarden/).
 
 This roadmap replaces Phases 2 and 3 of `Ascendant-Crafting-Brief.md`. Phase 1 (wildcard dust) is merged.
 The **ground rules** in that brief still apply to every package here: Ascendant only (`Config.ascendant()`),
