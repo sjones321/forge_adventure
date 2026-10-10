@@ -85,6 +85,30 @@ public final class FightRewards {
     }
 
     /**
+     * True when RW1 should rewrite the card loot of a single-player fight. Themed enemies always
+     * qualify (see {@link #applies}); with {@code rw1AllRegularFights} any other regular enemy does
+     * too (dungeon, town and cave enemies, unthemed overworld spawns). Bosses, quest fights and
+     * enemies with a prepared deck (gyms, League) keep their own tables.
+     */
+    public static boolean appliesToFight(EnemyData enemy, boolean questFight) {
+        if (applies(enemy)) {
+            return true;
+        }
+        if (enemy == null || enemy.boss || questFight || enemy.preparedDeck != null) {
+            return false;
+        }
+        try {
+            if (!Config.ascendant()) {
+                return false;
+            }
+            ConfigData cfg = Config.instance().getConfigData();
+            return cfg == null || (cfg.rw1FightRewards && cfg.rw1AllRegularFights);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
      * Set plane → that set's code; home / non-set → newest set in the player's
      * current Standard rotation. Empty when neither is available.
      */

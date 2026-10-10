@@ -533,6 +533,13 @@ public class ConfigData {
      * the rest (if any) still come from the enemy deck as today.
      */
     public float rw1CurrentSetCardShare = 1.0f;
+    /**
+     * When true (Ascendant default), every regular fight uses the RW1 card rewards, not only themed
+     * overworld spawns: dungeon, town and cave enemies and unthemed overworld enemies draw their card
+     * rewards from the current set too (no signature card without a theme). Bosses, gyms, the League
+     * and quest fights keep their own tables.
+     */
+    public boolean rw1AllRegularFights = true;
 
     // ---- Ascendant card styles (Package CS0): source printings, no random variants. ----
 

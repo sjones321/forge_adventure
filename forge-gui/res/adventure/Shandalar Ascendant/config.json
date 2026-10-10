@@ -131,6 +131,7 @@
   "rw1FightRewards": true,
   "rw1SignatureCardCount": 1,
   "rw1CurrentSetCardShare": 1.0,
+  "rw1AllRegularFights": true,
   "cs0SourcePrintings": true,
   "lt1LivingTowns": true,
   "lt1WarnMissingMapObjects": true,
