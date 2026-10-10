@@ -28,7 +28,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Player-facing rename: Shandalar Standard / Shandalar Completionist.
@@ -281,13 +283,28 @@ public class ShandalarStandardNamingTest {
     }
 
     /**
-     * Status {@code playerTitle} must not overlap playerName, avatar, or blessingInfo
-     * in either statistic layout (same stage-rect approach as AC1 Awards).
+     * Status layouts: every named non-container element against every other
+     * (skip lastScreen / stats / scrollWindow / enemies). Pre-existing
+     * avatar+colorFrame nesting is allowed; everything else must be clear —
+     * including {@code playerTitle} vs dust / wins / colorFrame (r2 landscape bug).
      */
     @Test
-    public void playerTitleLabelClearOfNameAvatarBlessingInBothLayouts() throws Exception {
-        assertPlayerTitleClear(resolveUi("statistic.json"));
-        assertPlayerTitleClear(resolveUi("statistic_portrait.json"));
+    public void statisticNamedElementsDoNotOverlapInBothLayouts() throws Exception {
+        assertNamedElementsClear(resolveUi("statistic.json"));
+        assertNamedElementsClear(resolveUi("statistic_portrait.json"));
+    }
+
+    /**
+     * Regression: the r2 landscape {@code playerTitle} box (x 368–468, yDown 94)
+     * must overlap {@code dust} under the widened pairwise rules.
+     */
+    @Test
+    public void r2LandscapePlayerTitleWouldOverlapDust() {
+        // y_up 164–176 → yDown 94, h 12 at layoutH 270.
+        float[] badTitle = new float[] { 368, 270 - 94 - 12, 100, 12 };
+        float[] dust = new float[] { 310, 270 - 95 - 16, 150, 16 };
+        Assert.assertTrue(rectsOverlap(badTitle, dust),
+                "widened overlap test must detect r2 playerTitle vs dust");
     }
 
     private static Path resolveUi(String fileName) throws Exception {
@@ -303,13 +320,16 @@ public class ShandalarStandardNamingTest {
         throw new IllegalStateException("UI layout not found: " + fileName);
     }
 
-    private static void assertPlayerTitleClear(Path layoutFile) {
+    private static final Set<String> OVERLAP_SKIP = new HashSet<>(
+            Arrays.asList("lastScreen", "stats", "scrollWindow", "enemies"));
+
+    private static void assertNamedElementsClear(Path layoutFile) {
         UIData data = new Json().fromJson(UIData.class, new FileHandle(layoutFile.toFile()));
         Assert.assertTrue(data.yDown, layoutFile + " must be yDown");
         float layoutH = data.height;
-        float[] title = null;
-        List<float[]> others = new ArrayList<>();
+        List<float[]> rects = new ArrayList<>();
         List<String> names = new ArrayList<>();
+        boolean sawTitle = false;
         for (OrderedMap<String, String> el : data.elements) {
             if (el == null) {
                 continue;
@@ -334,27 +354,38 @@ public class ShandalarStandardNamingTest {
                     h = asFloat(val);
                 }
             }
-            if (name == null || name.isEmpty() || "lastScreen".equals(name)) {
+            if (name == null || name.isEmpty() || OVERLAP_SKIP.contains(name)) {
                 continue;
             }
             if (x == null || y == null || w == null || h == null || w <= 0 || h <= 0) {
                 continue;
             }
-            float[] stage = new float[] { x, layoutH - y - h, w, h };
             if ("playerTitle".equals(name)) {
-                title = stage;
-            } else if ("playerName".equals(name) || "avatar".equals(name)
-                    || "blessingInfo".equals(name)) {
-                others.add(stage);
-                names.add(name);
+                sawTitle = true;
+            }
+            rects.add(new float[] { x, layoutH - y - h, w, h });
+            names.add(name);
+        }
+        Assert.assertTrue(sawTitle, "playerTitle missing from " + layoutFile.getFileName());
+        for (int i = 0; i < rects.size(); i++) {
+            for (int j = i + 1; j < rects.size(); j++) {
+                String a = names.get(i);
+                String b = names.get(j);
+                if (isAvatarColorFramePair(a, b)) {
+                    continue;
+                }
+                Assert.assertFalse(rectsOverlap(rects.get(i), rects.get(j)),
+                        a + " " + Arrays.toString(rects.get(i))
+                                + " overlaps " + b + " "
+                                + Arrays.toString(rects.get(j)) + " in "
+                                + layoutFile.getFileName());
             }
         }
-        Assert.assertNotNull(title, "playerTitle missing from " + layoutFile.getFileName());
-        for (int i = 0; i < others.size(); i++) {
-            Assert.assertFalse(rectsOverlap(title, others.get(i)),
-                    "playerTitle " + Arrays.toString(title) + " overlaps " + names.get(i)
-                            + " " + Arrays.toString(others.get(i)) + " in " + layoutFile.getFileName());
-        }
+    }
+
+    private static boolean isAvatarColorFramePair(String a, String b) {
+        return ("avatar".equals(a) && "colorFrame".equals(b))
+                || ("colorFrame".equals(a) && "avatar".equals(b));
     }
 
     private static Float asFloat(Object v) {
