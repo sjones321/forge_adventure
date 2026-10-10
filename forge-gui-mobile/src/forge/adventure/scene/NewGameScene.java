@@ -134,7 +134,7 @@ public class NewGameScene extends MenuScene {
         planeFormatLabel = ui.findActor("planeFormatL");
         if (planeFormat != null) {
             planeFormat.setTextList(PlaneFormat.CHOICES);
-            planeFormat.setCurrentIndex(0); // Bellwarden Standard
+            planeFormat.setCurrentIndex(0); // Shandalar Standard
         }
         // Visibility follows the selected mode (hidden for Commander-like modes).
         originalEditionLabelText = starterEditionLabel.storedText;

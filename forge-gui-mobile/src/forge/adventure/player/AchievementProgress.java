@@ -21,6 +21,12 @@ public final class AchievementProgress {
     /** Set codes whose main card list is fully owned (at least one of each name). */
     private final Set<String> completedSets = new LinkedHashSet<>();
     private final Set<String> titles = new LinkedHashSet<>();
+    /**
+     * Currently equipped title id (same string stored in {@link #titles}).
+     * Kept as the historical id (e.g. {@code Bellwarden Completionist}); UI uses
+     * {@link forge.adventure.util.AdventureTitles#titleDisplayName(String)}.
+     */
+    private String equippedTitle;
     private final Set<String> trophies = new LinkedHashSet<>();
     /**
      * CS1 hook: unlocked card-style ids. Stored now so achievement rewards of
@@ -88,6 +94,23 @@ public final class AchievementProgress {
             return false;
         }
         return titles.add(title);
+    }
+
+    /** Stored equipped title id, or null when none. */
+    public String getEquippedTitle() {
+        return equippedTitle;
+    }
+
+    /**
+     * Equip a owned title by stored id. Cleared when {@code titleId} is null/empty.
+     * Unknown ids are still accepted on load so old saves never drop an equipped title.
+     */
+    public void setEquippedTitle(String titleId) {
+        if (titleId == null || titleId.isEmpty()) {
+            equippedTitle = null;
+            return;
+        }
+        equippedTitle = titleId;
     }
 
     public Set<String> getTrophies() {
@@ -168,6 +191,9 @@ public final class AchievementProgress {
         root.put("unlocked", new LinkedHashMap<>(unlocked));
         root.put("completedSets", new ArrayList<>(completedSets));
         root.put("titles", new ArrayList<>(titles));
+        if (equippedTitle != null && !equippedTitle.isEmpty()) {
+            root.put("equippedTitle", equippedTitle);
+        }
         root.put("trophies", new ArrayList<>(trophies));
         root.put("cardStyles", new ArrayList<>(cardStyles));
         List<Map<String, Object>> pending = new ArrayList<>();
@@ -210,6 +236,13 @@ public final class AchievementProgress {
         }
         addStrings(p.completedSets, root.get("completedSets"));
         addStrings(p.titles, root.get("titles"));
+        Object equipped = root.get("equippedTitle");
+        if (equipped != null) {
+            String eq = String.valueOf(equipped);
+            if (!eq.isEmpty()) {
+                p.equippedTitle = eq;
+            }
+        }
         addStrings(p.trophies, root.get("trophies"));
         addStrings(p.cardStyles, root.get("cardStyles"));
         Object pendingObj = root.get("pendingCardStyles");

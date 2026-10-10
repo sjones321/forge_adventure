@@ -1,10 +1,12 @@
 package forge.adventure.scene;
 
 import com.badlogic.gdx.scenes.scene2d.Actor;
+import com.badlogic.gdx.scenes.scene2d.InputEvent;
 import com.badlogic.gdx.scenes.scene2d.Touchable;
 import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
 import com.badlogic.gdx.scenes.scene2d.ui.Table;
 import com.badlogic.gdx.scenes.scene2d.ui.Window;
+import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
 import com.badlogic.gdx.utils.Align;
 import com.github.tommyettinger.textra.TextraButton;
 import com.github.tommyettinger.textra.TypingLabel;
@@ -12,7 +14,9 @@ import forge.Adventure;
 import forge.Forge;
 import forge.adventure.data.AchievementData;
 import forge.adventure.data.AchievementListData;
+import forge.adventure.player.AchievementProgress;
 import forge.adventure.player.AchievementService;
+import forge.adventure.util.AdventureTitles;
 import forge.adventure.util.Config;
 import forge.adventure.util.Controls;
 
@@ -156,7 +160,42 @@ public class AchievementsScene extends UIScene {
                 addRow(rowText);
             }
         }
+        addTitlePicker(svc);
         performTouch(scrollPaneOfActor(list));
+    }
+
+    /** Owned titles with display names; tap to equip (stored id unchanged). */
+    private void addTitlePicker(AchievementService svc) {
+        AchievementProgress progress = svc.getProgress();
+        if (progress.getTitles().isEmpty()) {
+            return;
+        }
+        header("Titles");
+        String equipped = progress.getEquippedTitle();
+        String equippedDisplay = equipped == null || equipped.isEmpty()
+                ? "None"
+                : AdventureTitles.titleDisplayName(equipped);
+        note("Equipped: " + equippedDisplay + "  (tap a title to equip)");
+        for (String titleId : progress.getTitles()) {
+            String display = AdventureTitles.titleDisplayName(titleId);
+            boolean isEquipped = titleId.equals(equipped);
+            String mark = isEquipped ? "[FOREST]● " : "[DARK_GRAY]○ ";
+            TextraButton row = Controls.newTextButton(mark + display);
+            row.getColor().a = 1f;
+            rowButtons.add(row);
+            addToSelectable(row);
+            final String id = titleId;
+            row.addListener(new ClickListener() {
+                @Override
+                public void clicked(InputEvent event, float x, float y) {
+                    progress.setEquippedTitle(id);
+                    svc.saveQuietly();
+                    build();
+                }
+            });
+            list.add(row).align(Align.left).growX().padLeft(12).padRight(8).padTop(2);
+            list.row();
+        }
     }
 
     private void addRow(String text) {

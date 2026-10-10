@@ -33,4 +33,12 @@ public class AdventureTitlesTest {
         Assert.assertEquals(AdventureTitles.planeIdFromDisplayName("Shandalar"), "Shandalar");
         Assert.assertFalse(AdventureTitles.isAscendantPlaneId("Shandalar"));
     }
+
+    @Test
+    public void completionistTitleIdMapsToShandalarDisplay() {
+        Assert.assertEquals(AdventureTitles.titleDisplayName(AdventureTitles.COMPLETIONIST_TITLE_ID),
+                "Shandalar Completionist");
+        Assert.assertEquals(AdventureTitles.titleDisplayName("Centurion"), "Centurion");
+        Assert.assertEquals(AdventureTitles.titleDisplayName(null), "");
+    }
 }

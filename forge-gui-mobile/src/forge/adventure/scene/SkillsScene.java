@@ -106,6 +106,16 @@ public class SkillsScene extends UIScene {
             addRow("[BLACK]Gym badges", "[BLACK]" + Current.player().getBadgeCount() + "/8",
                     "[DARK_GRAY]" + league);
             addRow("[BLACK]Plane format", "", "[DARK_GRAY]" + planeFmt);
+            try {
+                String equipped = forge.adventure.player.AchievementService.get()
+                        .getProgress().getEquippedTitle();
+                if (equipped != null && !equipped.isEmpty()) {
+                    addRow("[BLACK]Title", "", "[DARK_GRAY]"
+                            + forge.adventure.util.AdventureTitles.titleDisplayName(equipped));
+                }
+            } catch (Throwable ignored) {
+                // Achievement service unavailable in some test harnesses.
+            }
         }
 
         StandardWindow window = Current.player().getStandardWindow();

@@ -1,8 +1,9 @@
 # Shandalar Ascendant — Roadmap: Gathering, Crafting, World and Gyms
 
 Official player-facing name: **Shandalar Ascendant**. The content-pack folder, save keys, and
-`Config.ascendant()` stay on that Ascendant id (no save migration). **Bellwarden** in format names
-(e.g. Bellwarden Standard) is unchanged; the Godot game named Bellwarden lives under `docs/Bellwarden/`.
+`Config.ascendant()` stay on that Ascendant id (no save migration). The Standard format displays as
+**Shandalar Standard** (old **Bellwarden** / **Bellwarden Standard** input aliases still resolve).
+The Godot game named Bellwarden lives under `docs/Bellwarden/`.
 
 This roadmap replaces Phases 2 and 3 of `Ascendant-Crafting-Brief.md`. Phase 1 (wildcard dust) is merged.
 The **ground rules** in that brief still apply to every package here: Ascendant only (`Config.ascendant()`),
@@ -23,7 +24,7 @@ with a second progression track of **gym badges and a League**.
 - **One continuous world, no New Game+ reset.** You progress by mastering sets and opening portals to new planes;
   your prime base stays reachable. The only resets are Standard rotation (cards become Historic, nothing is lost)
   and **prestige**, which is what New Game+ means from now on (2026-10-08).
-- **Formats: Bellwarden Standard, Historic, Pauper and Commander**, each with its 2HG version for co-op. Real-world
+- **Formats: Shandalar Standard, Historic, Pauper and Commander**, each with its 2HG version for co-op. Real-world
   Standard is not offered. The format is set **per plane** (package K) and decides what that plane's enemies, gyms
   and events play.
 - **Nothing you earn is ever locked away by format.** Crafted and earned cards stay in the collection; rotation only
@@ -229,9 +230,9 @@ perk layer with a tree per skill so more levels matter and builds differ:
   tree screen reached from the Skills screen. Existing saves: refund color perks into points automatically.
 
 ### K. Formats per plane (revised 2026-10-08; replaces "run formats and New Game+")
-- Formats: **Bellwarden Standard** (the in-game rotation window), **Historic**, **Pauper**, **Commander**. Co-op
+- Formats: **Shandalar Standard** (the in-game rotation window), **Historic**, **Pauper**, **Commander**. Co-op
   duels use each format's 2HG version.
-- **The home plane's format** is chosen on the New Game screen (default Bellwarden Standard) and again at each
+- **The home plane's format** is chosen on the New Game screen (default Shandalar Standard) and again at each
   prestige (M).
 - **Each new set plane picks its format when it is opened** (the portal dialog in MV2; default = the format of the
   plane you came from). Once chosen it is fixed for that plane. This keeps commitment early while letting the
@@ -823,7 +824,7 @@ with him.
   merfolk, e.g. merfolk tribal, krakens/octopus, leviathans. A spawned enemy picks one theme at random and keeps
   it, so not every merfolk plays the same deck.
 - Each theme has a version for **every format**: Historic, Pauper and Commander are fixed deck lists (several per
-  theme where possible). **Bellwarden Standard** versions are built from a **theme recipe** (colors, creature
+  theme where possible). **Shandalar Standard** versions are built from a **theme recipe** (colors, creature
   types, key cards and mechanics to look for) filled from the sets in the current Standard window, because fixed
   Standard lists go stale on rotation.
 - 2HG: co-op fights pair two themed decks of the plane's format.
@@ -883,7 +884,7 @@ nothing for the player's current set progress.
   the Nothing.
 - **Set completion**: owning every card in a set (each distinct card in the set's main card list) grants a trophy
   for the trophy hall and an exclusive style for one of that set's cards.
-- **Completing every set in Bellwarden** grants something unique: a title, a card style no other source gives and
+- **Completing every set in Shandalar** grants something unique: a title, a card style no other source gives and
   its own Hall of Fame entry.
 - Forge has an achievement system in its other game modes; reuse its pieces only if they fit cleanly.
 
