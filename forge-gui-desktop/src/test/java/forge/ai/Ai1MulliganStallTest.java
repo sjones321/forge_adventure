@@ -6,7 +6,6 @@ import forge.ai.llm.LlmSettings;
 import forge.deck.Deck;
 import forge.game.Game;
 import forge.game.GameRules;
-import forge.game.GameStage;
 import forge.game.GameType;
 import forge.game.Match;
 import forge.game.card.Card;
