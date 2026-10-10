@@ -99,7 +99,10 @@ public class VPrompt extends FContainer {
 
     /** DS4: show Take back only when a snapshot succeeded and remains eligible. */
     public void refreshTakeBackButton() {
-        final boolean show = TakeBackActions.featureEnabled() && TakeBackActions.canTakeBack();
+        // Opt-in screenshot path: -Dforge.ds4.forceTakeBackButton=true (Ascendant adventure only).
+        final boolean force = Boolean.getBoolean("forge.ds4.forceTakeBackButton")
+                && TakeBackActions.featureEnabled() && !TakeBackActions.isCoopDuel();
+        final boolean show = force || (TakeBackActions.featureEnabled() && TakeBackActions.canTakeBack());
         btnTakeBack.setText(TakeBackActions.buttonLabel());
         btnTakeBack.setVisible(show);
         btnTakeBack.setEnabled(show);
