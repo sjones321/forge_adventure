@@ -1,7 +1,7 @@
 package forge.adventure.data;
 
 /**
- * EN1 Bellwarden Standard recipe for an enemy theme.
+ * EN1 Shandalar Standard recipe for an enemy theme.
  * Filled at runtime from the current Standard window so fixed Standard lists
  * do not go stale on rotation.
  */

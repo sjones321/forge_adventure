@@ -95,7 +95,7 @@ Firstborn. Losses are real; dialog stays skippable; the stakes live in the world
 
 - **Skills 1-99** with talent trees (built).
 - **Collection** grows through rewards, crafting (dust + color reagents) and set mastery (built).
-- **Formats per plane**: Bellwarden Standard, Historic, Pauper or Commander (with 2HG for co-op). You pick the
+- **Formats per plane**: Shandalar Standard, Historic, Pauper or Commander (with 2HG for co-op). You pick the
   home plane's format at the start and each new plane's format when you open it. Enemies, gyms and events on a
   plane play its format. Gyms and the League are built; tournaments and Grand Prix are planned.
 - **Achievements and card styles**: account-wide achievements, set completion rewards (and something unique for

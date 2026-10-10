@@ -74,7 +74,7 @@ public class AchievementsAc1Test {
             + "  {\"id\":\"set_collector\",\"name\":\"Set Collector\",\"description\":\"Own a set.\","
             + "\"category\":\"collection\",\"condition\":{\"type\":\"setComplete\"},\"hidden\":false,"
             + "\"reward\":{\"type\":\"trophy\",\"id\":\"set_complete\"}},\n"
-            + "  {\"id\":\"bellwarden_completionist\",\"name\":\"Bellwarden Completionist\","
+            + "  {\"id\":\"bellwarden_completionist\",\"name\":\"Shandalar Completionist\","
             + "\"description\":\"Own every set.\",\"category\":\"collection\","
             + "\"condition\":{\"type\":\"allSetsComplete\"},\"hidden\":false,"
             + "\"reward\":{\"type\":\"cardStyle\",\"id\":\"all_sets_style\"}},\n"

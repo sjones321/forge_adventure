@@ -254,7 +254,7 @@ public class WorldSave {
 
     /**
      * @param homePlaneFormat Package K: format for the home plane (null → config default /
-     *                        Bellwarden Standard). Ascendant only.
+     *                        Shandalar Standard). Ascendant only.
      */
     public static WorldSave generateNewWorld(String name, boolean male, int race, int avatarIndex, ColorSet startingColorIdentity, DifficultyData diff, AdventureModes mode, int customDeckIndex, CardEdition starterEdition, long seed, String homePlaneFormat) {
         Forge.getLocalizer().loadAdventureBundle(Config.instance().getPlanePath(Config.instance().getSettingData().plane) + "languages/");

@@ -14,8 +14,41 @@ public final class AdventureTitles {
     public static final String STOCK_SHANDALAR_PLANE_ID = "Shandalar";
     /** Official game title for this Forge Ascendant content pack / mode. */
     public static final String GAME_TITLE = "Shandalar Ascendant";
+    /**
+     * Stored achievement title reward id (saves / account JSON). Do not rename —
+     * old saves keep this string; use {@link #titleDisplayName(String)} for UI.
+     */
+    public static final String COMPLETIONIST_TITLE_ID = "Bellwarden Completionist";
+    /** Player-facing label for {@link #COMPLETIONIST_TITLE_ID}. */
+    public static final String COMPLETIONIST_TITLE_DISPLAY = "Shandalar Completionist";
+    /** Player-facing Standard format label (canonical stored value stays {@code Standard}). */
+    public static final String STANDARD_FORMAT_DISPLAY = "Shandalar Standard";
 
     private AdventureTitles() {
+    }
+
+    /**
+     * Display label for an owned / equipped title id. Stored ids stay unchanged
+     * so old account files keep the title.
+     */
+    public static String titleDisplayName(String titleId) {
+        if (titleId == null || titleId.isEmpty()) {
+            return "";
+        }
+        if (COMPLETIONIST_TITLE_ID.equals(titleId)) {
+            return COMPLETIONIST_TITLE_DISPLAY;
+        }
+        return titleId;
+    }
+
+    /**
+     * Text for the Status {@code playerTitle} label. Empty when nothing is equipped.
+     */
+    public static String statusTitleLabelText(String equippedTitleId) {
+        if (equippedTitleId == null || equippedTitleId.isEmpty()) {
+            return "";
+        }
+        return "[%80][DARK_GRAY]" + titleDisplayName(equippedTitleId);
     }
 
     /** Label shown in world / mode pickers for a plane folder id. */

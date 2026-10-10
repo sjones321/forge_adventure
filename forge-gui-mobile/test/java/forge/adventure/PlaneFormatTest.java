@@ -63,13 +63,18 @@ public class PlaneFormatTest {
     }
 
     @Test
-    public void normalizeMapsBellwardenAliasesToStandard() {
+    public void normalizeMapsStandardAliasesOldAndNew() {
         Assert.assertEquals(PlaneFormat.normalize("Bellwarden Standard"), GymUtil.FORMAT_STANDARD);
         Assert.assertEquals(PlaneFormat.normalize("Bellwarden"), GymUtil.FORMAT_STANDARD);
+        Assert.assertEquals(PlaneFormat.normalize("Shandalar Standard"), GymUtil.FORMAT_STANDARD);
+        Assert.assertEquals(PlaneFormat.normalize("Shandalar"), GymUtil.FORMAT_STANDARD);
         Assert.assertEquals(PlaneFormat.normalize("standard"), GymUtil.FORMAT_STANDARD);
         Assert.assertEquals(PlaneFormat.normalize("Pauper"), GymUtil.FORMAT_PAUPER);
         Assert.assertEquals(PlaneFormat.normalize("Historic"), GymUtil.FORMAT_HISTORIC);
         Assert.assertEquals(PlaneFormat.normalize("Commander"), GymUtil.FORMAT_COMMANDER);
+        Assert.assertEquals(PlaneFormat.displayName(GymUtil.FORMAT_STANDARD), "Shandalar Standard");
+        Assert.assertTrue(PlaneFormat.isKnown("Shandalar Standard"));
+        Assert.assertTrue(PlaneFormat.isKnown("Bellwarden Standard"));
     }
 
     @Test
@@ -297,8 +302,8 @@ public class PlaneFormatTest {
         for (String label : PlaneFormat.CHOICES) {
             String canonical = PlaneFormat.fromChoiceLabel(label);
             Assert.assertTrue(PlaneFormat.isKnown(canonical), label);
-            Assert.assertEquals(PlaneFormat.displayName(canonical), label.equals("Bellwarden Standard")
-                    ? "Bellwarden Standard" : canonical);
+            Assert.assertEquals(PlaneFormat.displayName(canonical), label.equals("Shandalar Standard")
+                    ? "Shandalar Standard" : canonical);
         }
     }
 

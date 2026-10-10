@@ -47,7 +47,7 @@ import java.util.regex.Pattern;
 /**
  * EN1: enemy decks by format and theme.
  * Ordinary overworld enemies pick a theme at spawn and keep it across save/load.
- * Historic / Pauper / Commander use fixed {@code .dck} lists; Bellwarden Standard
+ * Historic / Pauper / Commander use fixed {@code .dck} lists; Shandalar Standard
  * fills a theme recipe from the current Standard window (or falls back to the
  * theme's fixed Historic list when the window is inactive or the recipe is thin).
  * <p>
@@ -443,7 +443,7 @@ public final class EnemyThemeDecks {
     }
 
     /**
-     * Builds a Bellwarden Standard deck from the theme recipe using only cards
+     * Builds a Shandalar Standard deck from the theme recipe using only cards
      * legal in {@code window}. Requires an active window; never treats an inactive
      * window as "everything legal". When the on-theme floor cannot be met even
      * after relaxing tribe then colors, returns an empty deck so the caller can
@@ -1281,10 +1281,16 @@ public final class EnemyThemeDecks {
             return FORMAT_HISTORIC;
         if (f.equalsIgnoreCase(FORMAT_COMMANDER))
             return FORMAT_COMMANDER;
-        if (f.equalsIgnoreCase(FORMAT_STANDARD) || f.equalsIgnoreCase("Bellwarden")
-                || f.equalsIgnoreCase("Bellwarden Standard"))
+        if (f.equalsIgnoreCase(FORMAT_STANDARD)
+                || f.equalsIgnoreCase("Shandalar") || f.equalsIgnoreCase("Shandalar Standard")
+                || f.equalsIgnoreCase("Bellwarden") || f.equalsIgnoreCase("Bellwarden Standard"))
             return FORMAT_STANDARD;
         return f;
+    }
+
+    /** Package K / tests: EN1 format token normalizer (aliases included). */
+    public static String normalizeFormatForTest(String format) {
+        return normalizeFormat(format);
     }
 
     private static String formatFileToken(String format) {
@@ -1294,7 +1300,7 @@ public final class EnemyThemeDecks {
 
     /**
      * Package K: EN1 reads the current plane's format through {@link forge.adventure.world.PlaneFormat}.
-     * Commander-mode runs resolve to Commander. Falls back to Bellwarden Standard when unset.
+     * Commander-mode runs resolve to Commander. Falls back to Shandalar Standard when unset.
      */
     private static String resolveFormat() {
         try {
@@ -1715,7 +1721,7 @@ public final class EnemyThemeDecks {
     }
 
     /**
-     * Bellwarden Standard for enemy recipes: printed in a set currently in the
+     * Shandalar Standard for enemy recipes: printed in a set currently in the
      * window (or a basic land). Inactive / null window → non-basics are illegal
      * (never "everything is legal").
      */
