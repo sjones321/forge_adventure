@@ -27,8 +27,10 @@ import java.util.regex.Pattern;
  * <p>Does not depend on specific tile art or layer contents — only documented object types.
  */
 public final class LivingTownMapSupport {
+    // Prefer self-closing first: a greedy `[^>]*` before `>` would treat `...16"/>`
+    // as an open tag and swallow later objects until `</object>`.
     private static final Pattern OBJECT_TAG = Pattern.compile(
-            "<object\\b([^>]*)>(.*?)</object>|<object\\b([^>]*)/>",
+            "<object\\b([^>]*?)\\s*/>|<object\\b([^>]*)>(.*?)</object>",
             Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
     private static final Pattern ATTR = Pattern.compile("(\\w+)\\s*=\\s*\"([^\"]*)\"");
     private static final Pattern PROP = Pattern.compile(
@@ -159,8 +161,8 @@ public final class LivingTownMapSupport {
         }
         Matcher m = OBJECT_TAG.matcher(xml);
         while (m.find()) {
-            String attrs = m.group(1) != null ? m.group(1) : m.group(3);
-            String body = m.group(2) != null ? m.group(2) : "";
+            String attrs = m.group(1) != null ? m.group(1) : m.group(2);
+            String body = m.group(1) != null ? "" : (m.group(3) != null ? m.group(3) : "");
             Map<String, String> attrMap = attrs(attrs);
             Map<String, String> props = props(body);
             TmxObjectInfo info = new TmxObjectInfo();
