@@ -1,5 +1,6 @@
 package forge.adventure;
 
+import com.badlogic.gdx.controllers.Controllers;
 import com.badlogic.gdx.math.Rectangle;
 import forge.adventure.character.EnemySprite;
 import forge.adventure.character.PlayerSprite;
@@ -279,7 +280,23 @@ public class SaveAnywhereSv1Test {
         });
     }
 
+    /**
+     * forge-gui-mobile test classpath has controllers-core only (desktop manager lives in
+     * forge-gui-mobile-dev). Prefer the stub so TileMapScene/GameHUD can construct under GL.
+     */
+    private static void preferStubControllers() {
+        Controllers.preferredManager = "com.badlogic.gdx.controllers.ControllerManagerStub";
+        try {
+            Field listener = Class.forName("forge.adventure.scene.Scene")
+                    .getDeclaredField("listener");
+            listener.setAccessible(true);
+            listener.set(null, null);
+        } catch (Exception ignored) {
+        }
+    }
+
     private static PointOfInterest generateWorldAndPickDungeon() {
+        preferStubControllers();
         PointOfInterestData.clearRuntimeCacheForTests();
         forge.adventure.data.DifficultyData diff =
                 Config.instance().getConfigData().difficulties[0];
