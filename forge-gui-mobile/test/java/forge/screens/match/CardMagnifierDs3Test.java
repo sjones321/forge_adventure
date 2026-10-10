@@ -23,6 +23,8 @@ import com.badlogic.gdx.Input;
 import forge.Forge;
 import forge.adventure.AdventureTestUserDir;
 import forge.card.CardMagnifierControls;
+import forge.card.HoverMagnifierPreview;
+import forge.util.CardRendererUtils;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.model.FModel;
 import forge.toolbox.FGestureAdapter;
@@ -136,6 +138,19 @@ public class CardMagnifierDs3Test {
         Forge.magnifyToggle = true;
         CardMagnifierControls.loadFromPreferences();
         Assert.assertFalse(Forge.magnifyToggle);
+    }
+
+    @Test
+    public void hoverPreviewUsesCleanArtNeverBattlefieldMarkers() {
+        Assert.assertEquals(HoverMagnifierPreview.styleFor(false),
+                HoverMagnifierPreview.Style.CLEAN_IMAGE);
+        Assert.assertEquals(HoverMagnifierPreview.styleFor(true),
+                HoverMagnifierPreview.Style.DETAILS_TEXT);
+        Assert.assertFalse(HoverMagnifierPreview.drawsBattlefieldMarkersOnPreview(),
+                "preview must not draw counters/P/T/damage overlays on art");
+        // magnify=true must suppress damage cracks even when a damaged card is supplied.
+        Assert.assertFalse(CardRendererUtils.drawCracks(null, true));
+        Assert.assertFalse(HoverMagnifierPreview.drawsDamageCracksOnPreview(null));
     }
 
     @Test

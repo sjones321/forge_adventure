@@ -18,6 +18,7 @@ import forge.card.CardImageRenderer;
 import forge.card.CardMagnifierControls;
 import forge.card.CardRenderer;
 import forge.card.CardZoom;
+import forge.card.HoverMagnifierPreview;
 import forge.game.spellability.StackItemView;
 import forge.screens.match.views.VField;
 import forge.screens.match.views.VReveal;
@@ -512,14 +513,7 @@ public class MatchScreen extends FScreen {
                             cardY = bottomPlayerPrompt.screenPos.y - (cardH - adjY);
                         }
                     }
-                    if (Forge.magnifyShowDetails) {
-                        CardImageRenderer.drawDetails(g, cardView, MatchController.instance.getGameView(),
-                                false, cardX, cardY, cardW, cardH);
-                    } else {
-                        // Clean card image only — no counters / P/T / damage overlays on preview art.
-                        CardRenderer.drawCard(g, cardView, cardX, cardY, cardW, cardH,
-                                CardRenderer.CardStackPosition.Top, rotate, false, false, true);
-                    }
+                    drawHoverMagnifierCard(g, cardView, cardX, cardY, cardW, cardH, rotate);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -537,18 +531,30 @@ public class MatchScreen extends FScreen {
                         if ((cardY + cardH) > bottomPlayerPrompt.screenPos.y) {
                             cardY = bottomPlayerPrompt.screenPos.y - cardH;
                         }
-                        if (Forge.magnifyShowDetails) {
-                            CardImageRenderer.drawDetails(g, cardView, MatchController.instance.getGameView(),
-                                    false, cardX, cardY, cardW, cardH);
-                        } else {
-                            CardRenderer.drawCard(g, cardView, cardX, cardY, cardW, cardH,
-                                    CardRenderer.CardStackPosition.Top, false, false, false, true);
-                        }
+                        drawHoverMagnifierCard(g, cardView, cardX, cardY, cardW, cardH, false);
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
+        }
+    }
+
+    /**
+     * Draws the hover magnifier for one card. Clean image (no BF markers) or details —
+     * never {@link CardRenderer#drawCardWithOverlays}.
+     */
+    static void drawHoverMagnifierCard(Graphics g, CardView cardView, float cardX, float cardY,
+                                       float cardW, float cardH, boolean rotate) {
+        // DS3: battlefield markers stay on the source card (see HoverMagnifierPreview).
+        if (HoverMagnifierPreview.styleFor(Forge.magnifyShowDetails)
+                == HoverMagnifierPreview.Style.DETAILS_TEXT) {
+            CardImageRenderer.drawDetails(g, cardView, MatchController.instance.getGameView(),
+                    false, cardX, cardY, cardW, cardH);
+        } else {
+            // magnify=true suppresses damage cracks (clean art).
+            CardRenderer.drawCard(g, cardView, cardX, cardY, cardW, cardH,
+                    CardRenderer.CardStackPosition.Top, rotate, false, false, true);
         }
     }
 
