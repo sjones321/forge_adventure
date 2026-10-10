@@ -27,6 +27,10 @@ import forge.card.HoverMagnifierPreview;
 import forge.util.CardRendererUtils;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.model.FModel;
+import forge.screens.match.views.VAvatar;
+import forge.screens.match.views.VStack;
+import forge.toolbox.FButton;
+import forge.toolbox.FDisplayObject;
 import forge.toolbox.FGestureAdapter;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
@@ -34,12 +38,13 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.file.Paths;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * DS3: duel CardZoom on right-click; M / Shift+M for hover magnifier.
+ * DS3: duel CardZoom on right-click (card panels only); M / Shift+M for hover magnifier.
  * Drives {@link FGestureAdapter} and the same key handler {@link MatchScreen} uses.
  */
 public class CardMagnifierDs3Test {
@@ -47,6 +52,8 @@ public class CardMagnifierDs3Test {
     private Input previousInput;
     private Graphics previousGraphics;
     private boolean shiftHeld;
+    private boolean ctrlHeld;
+    private boolean altHeld;
     private boolean savedToggle;
     private boolean savedDetails;
     private boolean savedEnable;
@@ -84,6 +91,8 @@ public class CardMagnifierDs3Test {
             Gdx.graphics = stubGraphics();
         }
         shiftHeld = false;
+        ctrlHeld = false;
+        altHeld = false;
         Gdx.input = stubInput();
     }
 
@@ -102,42 +111,89 @@ public class CardMagnifierDs3Test {
     }
 
     @Test
-    public void rightClickViaFGestureAdapterOpensZoomPathAndLeavesMagnifierUnchanged() {
+    public void rightClickViaFGestureAdapterFiresRightClickNotTap() {
         final AtomicInteger tapCount = new AtomicInteger();
-        final RecordingAdapter adapter = new RecordingAdapter(tapCount);
+        final AtomicInteger rightClickCount = new AtomicInteger();
+        final RecordingAdapter adapter = new RecordingAdapter(tapCount, rightClickCount);
 
         final boolean beforeToggle = Forge.magnifyToggle;
         final boolean beforeDetails = Forge.magnifyShowDetails;
 
-        // Real input path: public FGestureAdapter.touchDown/Up with RIGHT (same as MainInputProcessor).
         Assert.assertTrue(adapter.touchDown(40, 60, 0, Input.Buttons.RIGHT));
         Assert.assertTrue(adapter.touchUp(40, 60, 0, Input.Buttons.RIGHT));
 
-        Assert.assertEquals(tapCount.get(), 1, "right-click must fire tap (CardZoom path)");
+        Assert.assertEquals(rightClickCount.get(), 1, "right-click must fire rightClick (CardZoom path)");
+        Assert.assertEquals(tapCount.get(), 0, "right-click must not fire tap");
         Assert.assertEquals(Forge.magnifyToggle, beforeToggle, "right-click must not toggle magnifier");
         Assert.assertEquals(Forge.magnifyShowDetails, beforeDetails, "right-click must not toggle details");
 
-        // Second right-click also must not flip details (old double-right-click behaviour).
         Assert.assertTrue(adapter.touchDown(40, 60, 0, Input.Buttons.RIGHT));
         Assert.assertTrue(adapter.touchUp(40, 60, 0, Input.Buttons.RIGHT));
-        Assert.assertEquals(tapCount.get(), 2);
+        Assert.assertEquals(rightClickCount.get(), 2);
+        Assert.assertEquals(tapCount.get(), 0);
         Assert.assertEquals(Forge.magnifyToggle, beforeToggle);
         Assert.assertEquals(Forge.magnifyShowDetails, beforeDetails);
     }
 
     @Test
-    public void mKeyTogglesMagnifierAndPersists() {
+    public void rightClickOnNonCardControlsDoesNothing() {
+        // Default FDisplayObject.rightClick is a no-op; FButton / VAvatar / VStack item /
+        // ItemManager rows must not override it to act like tap.
+        Assert.assertFalse(declaresRightClick(FButton.class),
+                "FButton must not implement rightClick (OK/Cancel/End Turn stay left-click)");
+        Assert.assertFalse(declaresRightClick(VAvatar.class),
+                "VAvatar must not implement rightClick (avatar select stays left-click)");
+        Assert.assertFalse(declaresRightClick(VStack.StackInstanceDisplay.class),
+                "VStack item must not implement rightClick");
+        Assert.assertFalse(declaresRightClick(forge.itemmanager.views.ItemListView.class),
+                "ItemManager list view must not implement rightClick");
+        Assert.assertFalse(declaresRightClick(forge.itemmanager.views.ImageView.class),
+                "ItemManager image view must not implement rightClick");
+        // Runtime: default rightClick returns false (no activation).
+        final FDisplayObject inert = new FDisplayObject() {
+            @Override
+            public void draw(forge.Graphics g) {
+            }
+        };
+        Assert.assertFalse(inert.rightClick(1, 1));
+    }
+
+    @Test
+    public void cardAreaPanelImplementsRightClickForCardZoom() {
+        Assert.assertTrue(declaresRightClick(forge.screens.match.views.VCardDisplayArea.CardAreaPanel.class),
+                "CardAreaPanel must implement rightClick → CardZoom");
+    }
+
+    @Test
+    public void mKeyTogglesMagnifierAndPersistsWithStateHud() {
         Assert.assertTrue(Forge.magnifyToggle);
-        // Same handler MatchScreen.keyDown / ItemManager.keyDown call.
         Assert.assertTrue(CardMagnifierControls.handleKeyDown(Input.Keys.M));
         Assert.assertFalse(Forge.magnifyToggle);
-        Assert.assertEquals(CardMagnifierControls.getHudNote(), CardMagnifierControls.HUD_NOTE);
+        Assert.assertEquals(CardMagnifierControls.getHudNote(), "Hover preview: off");
         Assert.assertFalse(FModel.getPreferences().getPrefBoolean(FPref.UI_MAGNIFIER_TOGGLE));
 
-        // Survive "restart" via loadFromPreferences.
+        Assert.assertTrue(CardMagnifierControls.handleKeyDown(Input.Keys.M));
+        Assert.assertTrue(Forge.magnifyToggle);
+        Assert.assertEquals(CardMagnifierControls.getHudNote(), "Hover preview: on");
+
+        // Survive "restart" via loadFromPreferences (magnify flag not forced on).
         Forge.magnifyToggle = true;
+        Forge.magnify = false;
         CardMagnifierControls.loadFromPreferences();
-        Assert.assertFalse(Forge.magnifyToggle);
+        Assert.assertTrue(Forge.magnifyToggle);
+        Assert.assertFalse(Forge.magnify, "loadFromPreferences must not set magnify=true");
+    }
+
+    @Test
+    public void ctrlOrAltMDoesNotToggle() {
+        Assert.assertTrue(Forge.magnifyToggle);
+        ctrlHeld = true;
+        Assert.assertFalse(CardMagnifierControls.handleKeyDown(Input.Keys.M));
+        Assert.assertTrue(Forge.magnifyToggle);
+        ctrlHeld = false;
+        altHeld = true;
+        Assert.assertFalse(CardMagnifierControls.handleKeyDown(Input.Keys.M));
+        Assert.assertTrue(Forge.magnifyToggle);
     }
 
     @Test
@@ -148,9 +204,17 @@ public class CardMagnifierDs3Test {
                 HoverMagnifierPreview.Style.DETAILS_TEXT);
         Assert.assertFalse(HoverMagnifierPreview.drawsBattlefieldMarkersOnPreview(),
                 "preview must not draw counters/P/T/damage overlays on art");
-        // magnify=true must suppress damage cracks even when a damaged card is supplied.
         Assert.assertFalse(CardRendererUtils.drawCracks(null, true));
         Assert.assertFalse(HoverMagnifierPreview.drawsDamageCracksOnPreview(null));
+    }
+
+    @Test
+    public void detailsModeIsWhatReplacesArtWithTextNotBattlefieldMarkers() {
+        // Steve: "markers covering preview" was a misdiagnosis — details mode replaces art.
+        Assert.assertEquals(HoverMagnifierPreview.styleFor(true),
+                HoverMagnifierPreview.Style.DETAILS_TEXT,
+                "Shift+M details mode is the text panel covering card art");
+        Assert.assertFalse(HoverMagnifierPreview.drawsBattlefieldMarkersOnPreview());
     }
 
     @Test
@@ -159,17 +223,28 @@ public class CardMagnifierDs3Test {
         shiftHeld = true;
         Assert.assertTrue(CardMagnifierControls.handleKeyDown(Input.Keys.M));
         Assert.assertTrue(Forge.magnifyShowDetails);
-        Assert.assertEquals(CardMagnifierControls.getHudNote(), CardMagnifierControls.HUD_NOTE);
+        Assert.assertEquals(CardMagnifierControls.getHudNote(), "Hover preview: details on");
         Assert.assertTrue(FModel.getPreferences().getPrefBoolean(FPref.UI_MAGNIFIER_SHOW_DETAILS));
 
         final boolean toggleBefore = Forge.magnifyToggle;
         final AtomicInteger taps = new AtomicInteger();
-        final RecordingAdapter adapter = new RecordingAdapter(taps);
+        final AtomicInteger rights = new AtomicInteger();
+        final RecordingAdapter adapter = new RecordingAdapter(taps, rights);
         adapter.touchDown(10, 10, 0, Input.Buttons.RIGHT);
         adapter.touchUp(10, 10, 0, Input.Buttons.RIGHT);
         Assert.assertEquals(Forge.magnifyShowDetails, true, "right-click must not clear details");
         Assert.assertEquals(Forge.magnifyToggle, toggleBefore);
-        Assert.assertEquals(taps.get(), 1);
+        Assert.assertEquals(rights.get(), 1);
+        Assert.assertEquals(taps.get(), 0);
+    }
+
+    private static boolean declaresRightClick(final Class<?> type) {
+        for (Method m : type.getDeclaredMethods()) {
+            if ("rightClick".equals(m.getName()) && m.getParameterCount() == 2) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Input stubInput() {
@@ -204,7 +279,16 @@ public class CardMagnifierDs3Test {
     private Object defaultStub(final String name, final Class<?> rt, final Object[] args) {
         if ("isKeyPressed".equals(name)) {
             final int key = (Integer) args[0];
-            return shiftHeld && (key == Input.Keys.SHIFT_LEFT || key == Input.Keys.SHIFT_RIGHT);
+            if (shiftHeld && (key == Input.Keys.SHIFT_LEFT || key == Input.Keys.SHIFT_RIGHT)) {
+                return true;
+            }
+            if (ctrlHeld && (key == Input.Keys.CONTROL_LEFT || key == Input.Keys.CONTROL_RIGHT)) {
+                return true;
+            }
+            if (altHeld && (key == Input.Keys.ALT_LEFT || key == Input.Keys.ALT_RIGHT)) {
+                return true;
+            }
+            return false;
         }
         if ("getCurrentEventTime".equals(name)) {
             return System.nanoTime();
@@ -227,14 +311,15 @@ public class CardMagnifierDs3Test {
         return null;
     }
 
-    /** Records tap() from the real {@link FGestureAdapter} right-click path. */
+    /** Records rightClick/tap from the real {@link FGestureAdapter} path. */
     private static final class RecordingAdapter extends FGestureAdapter {
         private final AtomicInteger tapCount;
+        private final AtomicInteger rightClickCount;
 
-        RecordingAdapter(final AtomicInteger tapCount) {
-            // Explicit sizes avoid Utils.AVG_FINGER_* if graphics stub races clinit.
+        RecordingAdapter(final AtomicInteger tapCount, final AtomicInteger rightClickCount) {
             super(16f, 0.25f, 0.5f, 0.15f);
             this.tapCount = tapCount;
+            this.rightClickCount = rightClickCount;
         }
 
         @Override
@@ -255,6 +340,12 @@ public class CardMagnifierDs3Test {
         @Override
         public boolean tap(float x, float y, int count) {
             tapCount.incrementAndGet();
+            return true;
+        }
+
+        @Override
+        public boolean rightClick(float x, float y) {
+            rightClickCount.incrementAndGet();
             return true;
         }
 

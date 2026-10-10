@@ -23,16 +23,16 @@ import forge.game.card.CardView;
 /**
  * DS3 hover-magnifier drawing policy (headless-testable).
  *
- * <p>The duel hover preview must never paint battlefield markers (counters, P/T
- * overlays, damage cracks) on top of the preview art. When details mode is off it
- * uses {@link CardRenderer#drawCard} with {@code magnify=true}; when details is on
- * it uses oracle text via {@link CardImageRenderer#drawDetails}.
+ * <p>The duel hover preview never paints battlefield markers onto the preview.
+ * Clean image mode uses {@link CardRenderer#drawCard} with {@code magnify=true}.
+ * Details mode ({@code Shift+M}) replaces the image with an oracle/details panel —
+ * that text panel is what covers the card art when details is on (not BF markers).
  */
 public final class HoverMagnifierPreview {
     public enum Style {
         /** Clean card image via {@code CardRenderer.drawCard(..., magnify=true)}. */
         CLEAN_IMAGE,
-        /** Oracle / details panel — no battlefield marker overlays on art. */
+        /** Oracle / details panel — replaces art; no battlefield marker overlays. */
         DETAILS_TEXT
     }
 

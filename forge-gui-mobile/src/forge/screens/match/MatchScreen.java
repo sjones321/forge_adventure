@@ -435,22 +435,20 @@ public class MatchScreen extends FScreen {
         ModernDuelController.get().drawOverlay(g);
         CardFlightOverlay.draw(g, bottomPlayerPanel.getPlayer(), getHeight());
         drawMulliganAdvice(g);
-        // Hover magnifier is drawn after all children (see draw) so battlefield
-        // markers (counters, P/T tabs) cannot cover the preview.
-    }
-
-    @Override
-    public void draw(Graphics g) {
-        super.draw(g);
-        drawHoverMagnifier(g);
-        CardMagnifierControls.drawHudNote(g, getWidth(), getHeight());
+        // Hover magnifier is drawn from Classic.render after FOverlays so menus
+        // cannot cover it; see drawHoverMagnifierAfterOverlays.
     }
 
     /**
-     * Clean card-image hover preview (no in-game overlays on the preview art).
-     * Drawn after the full widget tree so counters/markers on the source card
-     * cannot paint over it.
+     * Clean card-image hover preview. Called from {@link forge.Classic} after
+     * FOverlays so dropdowns/menus cannot cover the preview (or its details text).
+     * Preview art never uses battlefield marker overlays — when details mode is
+     * on it shows oracle text instead of the card image.
      */
+    public void drawHoverMagnifierAfterOverlays(Graphics g) {
+        drawHoverMagnifier(g);
+    }
+
     private void drawHoverMagnifier(Graphics g) {
         if (!FModel.getPreferences().getPrefBoolean(ForgePreferences.FPref.UI_ENABLE_MAGNIFIER)
                 || !Forge.magnify || !Forge.magnifyToggle) {
@@ -541,18 +539,23 @@ public class MatchScreen extends FScreen {
     }
 
     /**
-     * Draws the hover magnifier for one card. Clean image (no BF markers) or details —
-     * never {@link CardRenderer#drawCardWithOverlays}.
+     * Draws the hover magnifier for one card.
+     * <ul>
+     *   <li>Details mode ({@code Shift+M}): oracle/details panel — this replaces the
+     *       card image (the usual cause of “text covering” the art).</li>
+     *   <li>Clean image: {@code magnify=true} suppresses damage cracks; never
+     *       {@link CardRenderer#drawCardWithOverlays}.</li>
+     * </ul>
+     * Battlefield markers on the source card are separate; they do not paint onto
+     * this preview.
      */
     static void drawHoverMagnifierCard(Graphics g, CardView cardView, float cardX, float cardY,
                                        float cardW, float cardH, boolean rotate) {
-        // DS3: battlefield markers stay on the source card (see HoverMagnifierPreview).
         if (HoverMagnifierPreview.styleFor(Forge.magnifyShowDetails)
                 == HoverMagnifierPreview.Style.DETAILS_TEXT) {
             CardImageRenderer.drawDetails(g, cardView, MatchController.instance.getGameView(),
                     false, cardX, cardY, cardW, cardH);
         } else {
-            // magnify=true suppresses damage cracks (clean art).
             CardRenderer.drawCard(g, cardView, cardX, cardY, cardW, cardH,
                     CardRenderer.CardStackPosition.Top, rotate, false, false, true);
         }

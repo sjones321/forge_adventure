@@ -30,12 +30,12 @@ import forge.util.Utils;
 /**
  * Desktop hover-preview / duel magnifier controls (DS3).
  *
- * <p>Right-click opens {@link CardZoom} via the normal tap path and must never
- * toggle the magnifier. {@code M} toggles hover preview on/off; {@code Shift+M}
- * toggles details. Choices persist in preferences (local only — no network).
+ * <p>Right-click opens {@link CardZoom} via {@code rightClick} on card panels only
+ * and must never toggle the magnifier. {@code M} toggles hover preview on/off;
+ * {@code Shift+M} toggles details. Plain M only — Ctrl/Alt+M is ignored. Choices
+ * persist in preferences (local only — no network).
  */
 public final class CardMagnifierControls {
-    public static final String HUD_NOTE = "Hover preview on/off";
     private static final float HUD_NOTE_SEC = 1.6f;
 
     private static String hudNote;
@@ -51,16 +51,21 @@ public final class CardMagnifierControls {
         }
         Forge.magnifyToggle = FModel.getPreferences().getPrefBoolean(FPref.UI_MAGNIFIER_TOGGLE);
         Forge.magnifyShowDetails = FModel.getPreferences().getPrefBoolean(FPref.UI_MAGNIFIER_SHOW_DETAILS);
-        Forge.magnify = Forge.magnifyToggle;
+        // Do not set Forge.magnify from toggle — startup/Android gamepad must stay off
+        // until mouseMoved (desktop) or an explicit M toggle.
         applyCursor();
     }
 
     /**
-     * Handle {@code M} / {@code Shift+M} for magnifier toggles.
+     * Handle plain {@code M} / {@code Shift+M} for magnifier toggles.
+     * Ctrl/Alt modifiers are ignored.
      * @return true if consumed
      */
     public static boolean handleKeyDown(final int keyCode) {
         if (keyCode != Input.Keys.M) {
+            return false;
+        }
+        if (Forge.KeyInputAdapter.isCtrlKeyDown() || Forge.KeyInputAdapter.isAltKeyDown()) {
             return false;
         }
         if (GuiBase.getInterface() == null || !GuiBase.getInterface().isRunningOnDesktop()) {
@@ -78,20 +83,28 @@ public final class CardMagnifierControls {
         return true;
     }
 
-    /** Toggle hover preview on/off, persist, update cursor, show HUD note. */
+    /** Toggle hover preview on/off, persist, update cursor, show HUD note with state. */
     public static void toggleMagnifier() {
         Forge.magnifyToggle = !Forge.magnifyToggle;
         Forge.magnify = Forge.magnifyToggle;
         persist(FPref.UI_MAGNIFIER_TOGGLE, Forge.magnifyToggle);
         applyCursor();
-        showHudNote(HUD_NOTE);
+        showHudNote(hudNoteForToggle());
     }
 
-    /** Toggle magnifier details mode, persist, show HUD note. Never via right-click. */
+    /** Toggle magnifier details mode, persist, show HUD note with state. Never via right-click. */
     public static void toggleShowDetails() {
         Forge.magnifyShowDetails = !Forge.magnifyShowDetails;
         persist(FPref.UI_MAGNIFIER_SHOW_DETAILS, Forge.magnifyShowDetails);
-        showHudNote(HUD_NOTE);
+        showHudNote(hudNoteForDetails());
+    }
+
+    public static String hudNoteForToggle() {
+        return Forge.magnifyToggle ? "Hover preview: on" : "Hover preview: off";
+    }
+
+    public static String hudNoteForDetails() {
+        return Forge.magnifyShowDetails ? "Hover preview: details on" : "Hover preview: details off";
     }
 
     public static void showHudNote(final String note) {

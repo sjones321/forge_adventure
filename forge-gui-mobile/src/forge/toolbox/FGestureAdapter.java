@@ -17,6 +17,8 @@ public abstract class FGestureAdapter extends InputAdapter {
     public abstract boolean longPress(float x, float y);
     public abstract boolean release(float x, float y);
     public abstract boolean tap(float x, float y, int count);
+    /** Desktop right-click; must not route through {@link #tap} (avoids activating buttons etc.). */
+    public abstract boolean rightClick(float x, float y);
     public abstract boolean flick(float x, float y);
     public abstract boolean fling(float velocityX, float velocityY);
     public abstract boolean pan(float x, float y, float deltaX, float deltaY, boolean moreVertical);
@@ -92,8 +94,7 @@ public abstract class FGestureAdapter extends InputAdapter {
     /** Package-visible for DS3 input-path tests (real adapter, not flag-setting). */
     boolean touchDown(float x, float y, int pointer, int button) {
         if (button == Input.Buttons.RIGHT) {
-            // Track a tap so duel/shop cards can open CardZoom. Do not start
-            // press/long-press, and never toggle the hover magnifier here (M / Shift+M).
+            // Track for rightClick only — never start press/long-press or toggle magnifier.
             pointer1.set(x, y);
             tracker.start(x, y, eventTimeNanos());
             inTapSquare = true;
@@ -163,7 +164,7 @@ public abstract class FGestureAdapter extends InputAdapter {
         }
 
         // update tracker
-                tracker.update(x, y, eventTimeNanos());
+        tracker.update(x, y, eventTimeNanos());
 
         // check if we are still tapping.
         if (inTapSquare && !isWithinTapSquare(x, y, tapSquareCenterX, tapSquareCenterY)) {
@@ -200,25 +201,12 @@ public abstract class FGestureAdapter extends InputAdapter {
     /** Package-visible for DS3 input-path tests (real adapter, not flag-setting). */
     boolean touchUp(float x, float y, int pointer, int button) {
         if (button == Input.Buttons.RIGHT) {
-            // DS3: right-click fires tap (CardZoom on duel cards). Magnifier
-            // on/off and details are keyboard-only (M / Shift+M) — never here.
+            // Dedicated rightClick path (CardZoom on card panels only). Not tap —
+            // so FButton / avatar / stack / ItemManager rows stay inert. Magnifier
+            // stays keyboard-only (M / Shift+M). Not Shift+flick.
             if (inTapSquare && isWithinTapSquare(x, y, tapSquareCenterX, tapSquareCenterY)) {
-                long time = eventTimeNanos();
-                if (tapCount == 2 //treat 3rd tap as a first tap, and 4th as a double tap
-                        || lastTapButton != button
-                        || lastTapPointer != pointer
-                        || time - lastTapTime > tapCountInterval
-                        || !isWithinTapSquare(x, y, lastTapX, lastTapY)) {
-                    tapCount = 0;
-                }
-                tapCount++;
-                lastTapTime = time;
-                lastTapX = x;
-                lastTapY = y;
-                lastTapButton = button;
-                lastTapPointer = pointer;
                 inTapSquare = false;
-                return tap(x, y, tapCount);
+                return rightClick(x, y);
             }
             inTapSquare = false;
             return false;
