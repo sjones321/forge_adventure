@@ -534,4 +534,15 @@ public class ConfigData {
      */
     public float rw1CurrentSetCardShare = 1.0f;
 
+    // ---- Ascendant card styles (Package CS0): source printings, no random variants. ----
+
+    /**
+     * When true (Ascendant default), cards from rewards, shops, packs and the Spell Smith
+     * use the printing from their source set (pack set, set plane, shop pool). Sources with
+     * no set context use a normal printing from the player's current rotation, falling back
+     * to the most recent normal (non-promo, non-showcase) printing. Also ignores the
+     * {@code useAllCardVariants} setting for those paths. Stock worlds leave this unused.
+     */
+    public boolean cs0SourcePrintings = true;
+
 }
