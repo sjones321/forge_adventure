@@ -1,6 +1,6 @@
-# LLM opponent (Bellwarden: Planes of Nothing AI1)
+# LLM opponent (Shandalar Ascendant AI1)
 
-Optional language-model opponent for **Bellwarden: Planes of Nothing** only. Forge’s normal AI always
+Optional language-model opponent for **Shandalar Ascendant** only. Forge’s normal AI always
 remains the fallback. Stock Adventure worlds are unchanged.
 
 Settings live in-game under **Settings → LLM opponent…** (controller, keyboard, and mouse).
@@ -49,7 +49,7 @@ Examples (verify current model ids and prices on the provider’s site):
 | [OpenRouter](https://openrouter.ai/docs) | `https://openrouter.ai/api/v1` | Dashboard API key |
 | [DeepInfra](https://docs.deepinfra.com/) | `https://api.deepinfra.com/v1/openai` | Dashboard token |
 
-**Cost:** Planes of Nothing only calls the model for key decisions (not every priority pass), so a
+**Cost:** Ascendant only calls the model for key decisions (not every priority pass), so a
 match is typically dozens of small prompts rather than hundreds. Exact cost depends on the
 model’s input/output price and how long the board text gets; check the provider’s pricing
 page. Prefer mid-size instruct models that follow JSON instructions reliably over the
@@ -60,7 +60,7 @@ catalog (follow their docs for the exact slug). Use the in-game **Test** button 
 
 ## Local models (no key required)
 
-Install a local OpenAI-compatible server, load a model, then point Bellwarden: Planes of Nothing at it. Leave the
+Install a local OpenAI-compatible server, load a model, then point Shandalar Ascendant at it. Leave the
 API key blank (or use a placeholder like `ollama` if a client insists — Forge omits the
 Authorization header when the key is empty).
 
@@ -100,9 +100,9 @@ On Windows these are **different stacks** — pick the one that matches your too
 | Path | What it is | Use with |
 |---|---|---|
 | **Vulkan** | Portable GPU compute via the Adrenalin Vulkan driver | **llama.cpp**, **LM Studio**, and **Ollama** (their usual / recommended Windows GPU path for local chat servers) |
-| **ROCm 7.2 + HIP / PyTorch** | AMD’s HIP SDK / ROCm Windows stack ([system requirements](https://rocm.docs.amd.com/projects/install-on-windows/en/docs-7.2/reference/system-requirements.html) list RX 9070 / 9070 XT as supported) | **PyTorch**-based training and inference (and other HIP apps). This is *not* the default path Bellwarden: Planes of Nothing expects for llama.cpp / LM Studio / Ollama |
+| **ROCm 7.2 + HIP / PyTorch** | AMD’s HIP SDK / ROCm Windows stack ([system requirements](https://rocm.docs.amd.com/projects/install-on-windows/en/docs-7.2/reference/system-requirements.html) list RX 9070 / 9070 XT as supported) | **PyTorch**-based training and inference (and other HIP apps). This is *not* the default path Shandalar Ascendant expects for llama.cpp / LM Studio / Ollama |
 
-For Bellwarden: Planes of Nothing’s local OpenAI-compatible servers on an RX 9070-class card:
+For Shandalar Ascendant’s local OpenAI-compatible servers on an RX 9070-class card:
 
 1. Prefer **Vulkan** in LM Studio (Vulkan runtime), llama.cpp (Vulkan build), and Ollama
    (Vulkan is enabled by default on Windows when the backend is present; see
@@ -133,7 +133,7 @@ Vulkan backend rather than assuming a PyTorch ROCm install will fix it.
 | Symptom | What to try |
 |---|---|
 | Test fails immediately | Check URL ends with `/v1` (or `/v1/openai` for DeepInfra). Confirm the server is running and the model id matches. |
-| Test succeeds, duel still uses Forge AI | Enable the checkbox; Planes of Nothing only. Co-op: configure the **host**. |
+| Test succeeds, duel still uses Forge AI | Enable the checkbox; Ascendant only. Co-op: configure the **host**. |
 | Slow turns / timeouts | Raise timeout slightly, use a smaller/faster model, or disable LLM (Forge AI continues). |
 | Malformed / ignored answers | Prefer instruct models that follow “reply only with JSON”. Forge AI is used for that decision. |
 | Key worries | Clear the key field and save; delete `apiKey` from `llm_opponent.properties`; never paste the key into chat logs. |
@@ -142,4 +142,4 @@ Vulkan backend rather than assuming a PyTorch ROCm install will fix it.
 
 - `forge-ai/.../llm/LlmOpponent.java`, `LlmSettings.java` — HTTP, decisions, fallback
 - `forge-gui-mobile/.../scene/LlmSettingsScene.java` — settings UI
-- Solo activation: `DuelScene` (Planes of Nothing). Co-op host: `CoopDuelRuntime`
+- Solo activation: `DuelScene` (Ascendant). Co-op host: `CoopDuelRuntime`

@@ -1,11 +1,11 @@
-# Bellwarden: Planes of Nothing — Roadmap: Gathering, Crafting, World and Gyms
+# Shandalar Ascendant — Roadmap: Gathering, Crafting, World and Gyms
 
-Official player-facing name: **Bellwarden: Planes of Nothing**. The content-pack folder, save keys, and
-`Config.ascendant()` remain `Shandalar Ascendant` / Ascendant until a later migration. **Bellwarden** in format
-names (e.g. Bellwarden Standard) still means the home world.
+Official player-facing name: **Shandalar Ascendant**. The content-pack folder, save keys, and
+`Config.ascendant()` stay on that Ascendant id (no save migration). **Bellwarden** in format names
+(e.g. Bellwarden Standard) is unchanged; the Godot game named Bellwarden lives under `docs/Bellwarden/`.
 
 This roadmap replaces Phases 2 and 3 of `Ascendant-Crafting-Brief.md`. Phase 1 (wildcard dust) is merged.
-The **ground rules** in that brief still apply to every package here: Planes of Nothing only (`Config.ascendant()`),
+The **ground rules** in that brief still apply to every package here: Ascendant only (`Config.ascendant()`),
 tunables in `ConfigData` + the mode `config.json`, old saves must load, one PR per work package, build before PR,
 no unused imports, JSON without BOM.
 
@@ -147,7 +147,7 @@ Gathering gets better through four layers:
 Upgrades and camps are data (`world/gathering_methods.json`).
 
 ### C. World generation rework (no dependency; new games only)
-- Give Bellwarden: Planes of Nothing its own copies of `world/biomes/*.json` and `world/points_of_interest.json` so stock worlds
+- Give Shandalar Ascendant its own copies of `world/biomes/*.json` and `world/points_of_interest.json` so stock worlds
   are untouched.
 - **Bigger map**: mode `world/world.json` width/height from 700 to ~1000 (test generation time and memory;
   the minimap is `miniMapTileSize` px per tile).
@@ -247,7 +247,7 @@ perk layer with a tree per skill so more levels matter and builds differ:
   Pauper option in the deck format cycle.
 - The current plane's format is shown on the status screen and in the portal dialog.
 
-### EC1. Game-based card economy (Planes of Nothing; replaces real-world prices)
+### EC1. Game-based card economy (Ascendant; replaces real-world prices)
 Card prices come from the game, not from real-world market data, so no card is a jackpot (an early Badlands is
 worth what its rarity and power say, not hundreds of dollars).
 - **Base value by rarity** (tunable table in the mode config): common, uncommon, rare, mythic, special. Basic
@@ -263,7 +263,7 @@ worth what its rarity and power say, not hundreds of dollars).
 - **Selling pays a fixed share** of the current local price (tunable, about 30%). Auto-sell and bulk sell use the same.
 - **One source of value**: dust refine and craft costs (A2), salvage yields and shop restock prices read the same
   value function, so buying, crafting and salvaging stay consistent.
-- Replace `CardUtil.getCardPrice` usage in Planes of Nothing with the new function; the stock world keeps real prices.
+- Replace `CardUtil.getCardPrice` usage in Ascendant with the new function; the stock world keeps real prices.
 - Tests: a ZEN common vs a ZEN rare by ranking; Badlands priced by rarity/power (no market data); selling five copies
   in one town lowers that town's price and not another's; drift back over time; sale share applied; stock world
   unchanged.
@@ -395,7 +395,7 @@ These packages turn the single big map into a home plane plus an endless chain o
 - **Planar portal** objects (reuse `PortalActor`) move the player between planes, keeping position per plane.
 - The player's collection, skills, materials and items are account-level; plane state (enemies, POI changes,
   nodes) is per plane.
-- Old Planes of Nothing saves load as a single home plane.
+- Old Ascendant saves load as a single home plane.
 
 ### MV2. Plane-per-set generator (depends on MV1)
 - Generate a set plane from a template (smaller map than the home plane, e.g. 300-400 tiles) plus the set's data:
@@ -433,7 +433,7 @@ with team slots (`ServerGameLobby`, `LobbySlot.team`, default port 36743), and m
 remote human can be added through `guiMap`. Nothing in Adventure knows about a second human yet.
 
 ### CO1. Session and connection (start now)
-- **Host / Join** from the Adventure main menu (Planes of Nothing only). Join takes an address (Tailscale `100.x` or LAN).
+- **Host / Join** from the Adventure main menu (Ascendant only). Join takes an address (Tailscale `100.x` or LAN).
 - **Two ports**: Forge's game port (36743, existing) and a new overworld port (36744). Document the Windows firewall
   rules; skip UPnP when the address is a Tailscale address.
 - **Hard version check**: co-op refuses to connect unless both builds and card databases match (the existing login
@@ -699,9 +699,9 @@ All input still goes through `getGameController().selectCard/selectPlayer`, so i
 - **Drag to reorder the hand.**
 - **Controller**: every action above also has a controller path (focus cursor, A to pick up/drop, B cancel).
 - Works in solo and co-op duels and in stock Forge matches on the mobile/libGDX client; gate anything that changes
-  stock behaviour behind a preference defaulting to the new UI only in Planes of Nothing until it's proven.
+  stock behaviour behind a preference defaulting to the new UI only in Ascendant until it's proven.
 
-### DS2. Clear counter and fizzle banner (small; Planes of Nothing duel screen and the classic one)
+### DS2. Clear counter and fizzle banner (small; Ascendant duel screen and the classic one)
 - When a spell or ability **you** control is countered, show a banner in the middle of the duel screen with both
   cards side by side: "Your Lightning Bolt was countered by Cancel". Same banner when your spell or ability fizzles
   because its target became illegal ("Your Lightning Bolt fizzled: its target is gone"), and when an opponent's
@@ -887,15 +887,15 @@ nothing for the player's current set progress.
   its own Hall of Fame entry.
 - Forge has an achievement system in its other game modes; reuse its pieces only if they fit cleanly.
 
-### CS0. Printings come from where you got them (small, do first; Planes of Nothing only)
+### CS0. Printings come from where you got them (small, do first; Ascendant only)
 - Every card the player receives uses the printing from its source: a pack gives that pack's set printing, a set
   plane's rewards and shops give that set's printing, a shop gives the printing from its own set pool. Anything with
   no set context (generic loot, junk shops) uses the card's normal printing from a set in the player's current
   rotation, falling back to its most recent normal (non-promo, non-showcase) printing.
-- No random variants anywhere in Planes of Nothing: ignore the `useAllCardVariants` setting for rewards, shops, packs and the
+- No random variants anywhere in Ascendant: ignore the `useAllCardVariants` setting for rewards, shops, packs and the
   Spell Smith. The stock world keeps today's behaviour.
 - Tests: rewards, shop stock and pack contents from a ZEN source are all ZEN printings; a junk-shop card uses a
-  printing inside the rotation; `useAllCardVariants=true` changes nothing in Planes of Nothing.
+  printing inside the rotation; `useAllCardVariants=true` changes nothing in Ascendant.
 
 ### CS1. Card styles: alternate arts, special versions and foils (depends on CS0; AC1 for some sources)
 - **A style is cosmetic, not a different card.** Alternate art, showcase, borderless, foil and reprint art from other

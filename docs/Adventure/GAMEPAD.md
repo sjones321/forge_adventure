@@ -23,7 +23,7 @@ Controls:
   - Button Y - Decrease Difficulty in NewGame Plus/Zoom or Text Mode in Deck Editor
   - Left/Right Shoulder Button - Scroll Up or Scroll Down on some UIScenes
 
-- Achievements (Bellwarden: Planes of Nothing Status → Awards)
+- Achievements (Shandalar Ascendant Status → Awards)
   - DPAD Up/Down - Move between Back / Status / Skills / Quests and scroll the list
   - Button A - Activate the focused button
   - Button B - Back to Status
@@ -67,7 +67,7 @@ Controls:
   - Button Y - Show Zoom
   - Button Back - Show Menu Tabs
 
-- Match/Battle — modern duel screen (Auto = Adventure duels in Bellwarden: Planes of Nothing only; or Settings → Modern duel screen = Always)
+- Match/Battle — modern duel screen (Auto = Adventure duels in Shandalar Ascendant only; or Settings → Modern duel screen = Always)
 
   Stock bindings above still apply when you are not in a modern pad mode. Modern modes use **X** as the mode key (unused in stock match) and **B** to back out of any modern mode. **A** on a **castable** hand card **picks it up** (view-based castability — lands you can still play, or CMC ≤ mana in pool **plus untapped lands**; the engine still validates). A second **A** on the **same** hand card or while aimed at the board **casts**; a second **A** on a **different** hand card **reorders**. **A** picks up your creature while **InputAttack** / **InputBlock** is up for attack/block aiming. Otherwise **A** is stock tap/activate (mana, abilities, loyalty, uncastable hand).
 

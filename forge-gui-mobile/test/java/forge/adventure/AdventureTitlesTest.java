@@ -13,10 +13,10 @@ public class AdventureTitlesTest {
     public void ascendantPlaneShowsOfficialGameTitle() {
         Assert.assertEquals(AdventureTitles.planeDisplayName(AdventureTitles.ASCENDANT_PLANE_ID),
                 AdventureTitles.GAME_TITLE);
-        Assert.assertEquals(AdventureTitles.GAME_TITLE, "Bellwarden: Planes of Nothing");
+        Assert.assertEquals(AdventureTitles.GAME_TITLE, "Shandalar Ascendant");
         Assert.assertEquals(
                 AdventureTitles.resolveWindowTitle(AdventureTitles.ASCENDANT_PLANE_ID, "1.2.3"),
-                "Bellwarden: Planes of Nothing - 1.2.3");
+                "Shandalar Ascendant - 1.2.3");
         Assert.assertEquals(
                 AdventureTitles.planeIdFromDisplayName(AdventureTitles.GAME_TITLE),
                 AdventureTitles.ASCENDANT_PLANE_ID);

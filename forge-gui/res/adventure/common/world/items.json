@@ -2312,7 +2312,7 @@
   },
   {
     "name": "Fortress Banner",
-    "description": "Plant on walkable land away from towns to claim a fortress site (Bellwarden: Planes of Nothing). One per plane.",
+    "description": "Plant on walkable land away from towns to claim a fortress site (Shandalar Ascendant). One per plane.",
     "iconName": "StrangeKey",
     "cost": 100,
     "usableOnWorldMap": true,

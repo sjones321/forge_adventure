@@ -112,7 +112,7 @@ public class AchievementsScene extends UIScene {
         rowButtons.clear();
 
         if (!Config.ascendant()) {
-            note("Achievements are part of Bellwarden: Planes of Nothing.");
+            note("Achievements are part of Shandalar Ascendant.");
             return;
         }
         AchievementService svc = AchievementService.get();

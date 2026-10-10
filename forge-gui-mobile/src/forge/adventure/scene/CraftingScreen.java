@@ -74,7 +74,7 @@ public class CraftingScreen extends FScreen {
     @Override
     public void onActivate() {
         if (!Config.ascendant()) {
-            FOptionPane.showMessageDialog("Crafting is only available in Bellwarden: Planes of Nothing.",
+            FOptionPane.showMessageDialog("Crafting is only available in Shandalar Ascendant.",
                     "Crafting", FOptionPane.INFORMATION_ICON, result -> Forge.back());
             return;
         }
