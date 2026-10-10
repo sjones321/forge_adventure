@@ -5826,4 +5826,21 @@
         "startDate": 2021
       }]
   }
+,
+  {
+    "name": "GeneralStore",
+    "description": "Havenbrook General Store",
+    "spriteAtlas": "maps/tileset/buildings.atlas",
+    "sprite": "ItemShop",
+    "rewards": [
+      { "count": 4, "colors": ["white"], "rarity": ["Common"] },
+      { "count": 4, "colors": ["blue"], "rarity": ["Common"] },
+      { "count": 4, "colors": ["black"], "rarity": ["Common"] },
+      { "count": 4, "colors": ["red"], "rarity": ["Common"] },
+      { "count": 4, "colors": ["green"], "rarity": ["Common"] },
+      { "type": "item", "count": 1, "itemName": "Farmer's Tools" },
+      { "type": "item", "count": 1, "itemName": "Iron Hatchet" },
+      { "type": "life", "count": 1 }
+    ]
+  }
 ]

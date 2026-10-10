@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Mira",
+    "text": "Welcome to Havenbrook. Beds upstairs, stew on the fire — rest when you need it.",
+    "condition": [],
+    "options": [
+      { "name": "Thanks." }
+    ]
+  }
+]

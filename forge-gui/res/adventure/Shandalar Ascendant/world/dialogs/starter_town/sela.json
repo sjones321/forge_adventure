@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Sela",
+    "text": "You're new. Inn's west if you're tired; Bren's shop has what travelers forget to pack.",
+    "condition": [],
+    "options": [
+      { "name": "Good to know." }
+    ]
+  }
+]

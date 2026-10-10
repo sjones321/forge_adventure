@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Bren",
+    "text": "General store's open. Commons on the shelves, tools in the back. Fair prices.",
+    "condition": [],
+    "options": [
+      { "name": "I'll look around." }
+    ]
+  }
+]
