@@ -499,11 +499,11 @@ public final class GymUtil {
         StandardWindow window = player.getStandardWindow();
         boolean commander = FORMAT_COMMANDER.equals(player.getRunFormat()) || player.isCommanderMode();
         if (preferred != null && !preferred.isEmpty()) {
-            PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(preferred);
-            if (pc == null)
-                pc = CardUtil.getCardByName(preferred);
-            if (pc != null && (commander || !window.isActive() || window.isStandardLegal(pc.getName())))
-                return pc;
+            PaperCard picked = tryStaplePrinting(preferred, window, commander);
+            if (picked != null) {
+                return picked;
+            }
+            // Preferred rematch failed (missing / illegal / CS0 allow-list) — try other staples.
         }
         List<String> pool = new ArrayList<>();
         if (window.isActive()) {
@@ -516,14 +516,38 @@ public final class GymUtil {
             String name = Aggregates.removeRandom(pool);
             if (name == null || name.isEmpty())
                 continue;
-            if (!commander && window.isActive() && !window.isStandardLegal(name))
+            // Prefer already tried; skip it so we do not loop on the same null rematch.
+            if (preferred != null && preferred.equalsIgnoreCase(name))
                 continue;
-            PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(name);
-            if (pc == null)
-                pc = CardUtil.getCardByName(name);
-            if (pc != null)
-                return pc;
+            PaperCard picked = tryStaplePrinting(name, window, commander);
+            if (picked != null) {
+                return picked;
+            }
         }
         return null;
+    }
+
+    /**
+     * Resolve one staple name to a printable card. Returns null when missing, outside
+     * the window, or when CS0 rematch yields no allow-listed printing — callers try the next.
+     */
+    private static PaperCard tryStaplePrinting(String name, StandardWindow window, boolean commander) {
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        if (!commander && window != null && window.isActive() && !window.isStandardLegal(name)) {
+            return null;
+        }
+        PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(name);
+        if (pc == null) {
+            pc = CardUtil.getCardByName(name);
+        }
+        if (pc == null) {
+            return null;
+        }
+        if (!SourcePrintings.enabled()) {
+            return pc;
+        }
+        return SourcePrintings.resolve(pc, (String[]) null);
     }
 }

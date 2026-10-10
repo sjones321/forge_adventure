@@ -321,19 +321,37 @@ public class RewardData implements Serializable {
     static private void initializeAllCards() {
         Predicate<PaperCard> filter = adventureRewardFilter();
 
-        // Filter out specific cards.
-        List<PaperCard> basePool = CardUtil.getFullCardPool(false).stream()
-                .filter(filter)
-                .collect(Collectors.toList());
+        // Filter out specific cards. Unique pool (CS0 keeps useAllCardVariants false).
+        List<PaperCard> basePool;
+        try {
+            Collection<PaperCard> full = CardUtil.getFullCardPool(false);
+            if (full == null) {
+                allCards = new ArrayList<>();
+                allEnemyCards = allCards;
+                return;
+            }
+            basePool = full.stream().filter(filter).collect(Collectors.toList());
+        } catch (Throwable t) {
+            // Headless / empty card DB (suite order): leave an empty cache, not a crash.
+            allCards = new ArrayList<>();
+            allEnemyCards = allCards;
+            return;
+        }
 
         // Package K: plane format favors the shop/reward card pool. Shandalar Standard
         // keeps the rotating window; Pauper prefers commons; Historic/Commander use the
         // broader adventure pool (enemies still use basePool via allEnemyCards).
         // Commander-mode runs always take the Commander breadth path.
-        StandardWindow window = AdventurePlayer.current().getStandardWindow();
+        AdventurePlayer player = null;
+        try {
+            player = AdventurePlayer.current();
+        } catch (Throwable ignored) {
+        }
+        StandardWindow window = player != null ? player.getStandardWindow() : null;
         boolean commander = cardPoolUsesCommanderBreadth()
-                || AdventurePlayer.current().hasCommanderDeck();
-        if (forge.adventure.world.PlaneFormat.favorsStandardWindowPool() && window.isActive()) {
+                || (player != null && player.hasCommanderDeck());
+        if (forge.adventure.world.PlaneFormat.favorsStandardWindowPool()
+                && window != null && window.isActive()) {
             allCards = basePool.stream().filter(pc -> window.allows(pc, commander)).collect(Collectors.toList());
         } else if (forge.adventure.world.PlaneFormat.favorsPauperPool()) {
             forge.game.GameFormat pauper = forge.model.FModel.getFormats() != null
@@ -400,9 +418,11 @@ public class RewardData implements Serializable {
     }
 
     public Array<Reward> generate(boolean isForEnemy, Iterable<PaperCard> cards, boolean useSeedlessRandom, boolean isNoSell) {
-        boolean allCardVariants = Config.instance().getSettingData().useAllCardVariants;
+        boolean allCardVariants = SourcePrintings.useAllCardVariants();
+        // Shop / map rewards keep the world-seeded Random so pick identity is stable across
+        // loads. CS0 only rematches the printing (edition/art) of each pick — it does not
+        // replace this RNG. Loot uses a fresh Random when useSeedlessRandom is true.
         Random rewardRandom = useSeedlessRandom ? new Random() : WorldSave.getCurrentSave().getWorld().getRandom();
-        //Keep using same generation method for shop rewards, but fully randomize loot drops by not using the instance pre-seeded by the map
 
         if (allCards==null)
             initializeAllCards();
@@ -420,20 +440,58 @@ public class RewardData implements Serializable {
                     for (RewardData r : cardUnion) {
                         if (r.cardName != null && !r.cardName.isEmpty() ) {
                             PaperCard pc;
+                            CardDb.CardRequest req = CardDb.CardRequest.fromString(r.cardName);
                             if (allCardVariants) {
-                                CardDb.CardRequest req = CardDb.CardRequest.fromString(r.cardName);
                                 pc = (req.edition != null)
                                     ? CardUtil.getCardByNameAndEdition(req.cardName, req.edition)
                                     : CardUtil.getCardByName(req.cardName);
                             } else {
                                 pc = StaticData.instance().getCommonCards().getCard(r.cardName);
                             }
-                            if (pc != null)
-                                pool.add(pc);
+                            if (pc != null) {
+                                // CS0: honour Union sub-entry editions and Name|SET pins.
+                                if (SourcePrintings.enabled()) {
+                                    if (req.edition != null && !req.edition.isEmpty()) {
+                                        pc = SourcePrintings.resolve(pc, new String[]{req.edition});
+                                    } else {
+                                        pc = SourcePrintings.resolve(pc, r);
+                                    }
+                                }
+                                if (pc != null) {
+                                    pool.add(pc);
+                                }
+                            }
                         } else if (r.sourceDeck != null && !r.sourceDeck.isEmpty() ) {
-                            pool.addAll(CardUtil.getDeck(r.sourceDeck, false, false, "", false, false).getAllCardsInASinglePool().toFlatList());
+                            List<PaperCard> fromDeck = CardUtil.getDeck(r.sourceDeck, false, false, "", false, false)
+                                    .getAllCardsInASinglePool().toFlatList();
+                            if (SourcePrintings.enabled()) {
+                                for (PaperCard pc : fromDeck) {
+                                    if (pc == null) {
+                                        continue;
+                                    }
+                                    PaperCard resolved = SourcePrintings.resolve(pc, r);
+                                    if (resolved != null) {
+                                        pool.add(resolved);
+                                    }
+                                }
+                            } else {
+                                pool.addAll(fromDeck);
+                            }
                         } else {
-                            pool.addAll(CardUtil.getPredicateResult(allCards, r));
+                            List<PaperCard> fromFilter = CardUtil.getPredicateResult(allCards, r);
+                            if (SourcePrintings.enabled()) {
+                                for (PaperCard pc : fromFilter) {
+                                    if (pc == null) {
+                                        continue;
+                                    }
+                                    PaperCard resolved = SourcePrintings.resolve(pc, r);
+                                    if (resolved != null) {
+                                        pool.add(resolved);
+                                    }
+                                }
+                            } else {
+                                pool.addAll(fromFilter);
+                            }
                         }
                     }
                     ArrayList<PaperCard> finalPool = new ArrayList<>(pool);
@@ -448,6 +506,7 @@ public class RewardData implements Serializable {
                                         ret.add(new Reward(finalCard, isNoSell));
                                 }
                             } else {
+                                // World-seeded pick (identity stable); CS0 rematch already applied above.
                                 PaperCard card = finalPool.get(rewardRandom.nextInt(finalPool.size()));
                                 if (card != null)
                                     ret.add(new Reward(card, isNoSell));
@@ -471,11 +530,22 @@ public class RewardData implements Serializable {
                                 }
                             }
                         } else {
+                            CardDb.CardRequest namedReq = CardDb.CardRequest.fromString(cardName);
                             for (int i = 0; i < count + addedCount; i++) {
                                 PaperCard card = StaticData.instance().getCommonCards().getCard(cardName);
-                                if (card != null)
-                                    ret.add(new Reward(card, isNoSell));
-                                else
+                                if (card != null) {
+                                    if (SourcePrintings.enabled()) {
+                                        // Honour Name|SET pins; else RewardData.editions / rotation.
+                                        if (namedReq.edition != null && !namedReq.edition.isEmpty()) {
+                                            card = SourcePrintings.resolve(card, new String[]{namedReq.edition});
+                                        } else {
+                                            card = SourcePrintings.resolve(card, this);
+                                        }
+                                    }
+                                    if (card != null) {
+                                        ret.add(new Reward(card, isNoSell));
+                                    }
+                                } else
                                     System.err.println("Missing card: " + cardName);
                             }
                         }
@@ -485,10 +555,11 @@ public class RewardData implements Serializable {
                                 ret.add(new Reward(card, isNoSell));
                         }
                     } else {
-                        // Rotating Standard: shops pinned to a set outside the window would come up empty,
-                        // so the window replaces their set restriction (color/type/rarity filters still apply).
+                        // Rotating Standard (stock / pre-CS0): shops pinned to a set outside the window would
+                        // come up empty, so the window replaces their set restriction.
                         RewardData filter = this;
-                        if (!isForEnemy && editions != null && AdventurePlayer.current().getStandardWindow().isActive()) {
+                        if (!isForEnemy && editions != null && AdventurePlayer.current().getStandardWindow().isActive()
+                                && !SourcePrintings.enabled()) {
                             filter = new RewardData(this);
                             filter.editions = null;
                         }
@@ -504,6 +575,16 @@ public class RewardData implements Serializable {
                                 cardPool = setPool;
                             }
                             // else: keep window/base pool so shops stay stocked
+                        }
+                        // CS0: keep set-pinned shops only when the pin has enough non-basic
+                        // cards in the window pool (same floor as SetPlaneRules.setPoolIsUsable).
+                        // Basics / Commander reprints in 40K or AFR must not keep a dead pin.
+                        if (SourcePrintings.enabled() && !isForEnemy && editions != null && editions.length > 0
+                                && AdventurePlayer.current().getStandardWindow().isActive()
+                                && filter.editions != null
+                                && !SourcePrintings.pinnedEditionsUsable(cardPool, editions)) {
+                            filter = new RewardData(this);
+                            filter.editions = null;
                         }
                         for (PaperCard card : CardUtil.generateCards(cardPool, filter, count + addedCount, rewardRandom)) {
                             if (card != null)
@@ -655,7 +736,7 @@ public class RewardData implements Serializable {
     static public List<PaperCard> rewardsToCards(Iterable<Reward> dataList) {
         ArrayList<PaperCard> ret = new ArrayList<PaperCard>();
 
-        boolean allCardVariants = Config.instance().getSettingData().useAllCardVariants;
+        boolean allCardVariants = SourcePrintings.useAllCardVariants();
 
         if (allCardVariants) {
             String basicLandEdition = "";

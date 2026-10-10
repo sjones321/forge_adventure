@@ -73,6 +73,7 @@ public class Config {
     public static void installConfigDataForTest(ConfigData data) {
         Config cfg = instance();
         cfg.configData = data == null ? new ConfigData() : data;
+        SourcePrintings.clearCaches();
     }
 
     private Config() {
@@ -135,6 +136,7 @@ public class Config {
             e.printStackTrace();
             configData = new ConfigData();
         }
+        SourcePrintings.clearCaches();
         // MV2: register PlanarGate so saves with gates resolve after restart.
         if (configData != null && configData.ascendantRules) {
             try {
