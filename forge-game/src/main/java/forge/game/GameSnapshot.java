@@ -238,11 +238,14 @@ public class GameSnapshot {
             for (final SpellAbilityStackInstance si : remove) {
                 toGame.getStack().remove(si);
             }
-            // Add only snapshot instances that are missing on the live stack (cancel path).
+            // Add only snapshot instances that are missing on the live stack (cancel path),
+            // inserted at their snapshot index so mixed stacks keep order (D4).
+            int indexFromTop = 0;
             for (final SpellAbilityStackInstance origEntry : fromGame.getStack()) {
                 if (toGame.getStack().getStackInstanceById(origEntry.getId()) == null) {
-                    restoreStackInstanceWithoutCastEffects(origEntry, toGame);
+                    restoreStackInstanceWithoutCastEffects(origEntry, toGame, indexFromTop);
                 }
+                indexFromTop++;
             }
             // Pending triggers from the taken-back action must not linger.
             toGame.getStack().clearSimultaneousStack();
@@ -266,8 +269,14 @@ public class GameSnapshot {
     /**
      * Place a snapshot stack instance onto {@code toGame} without {@link forge.game.zone.MagicStack#add}
      * (which would re-fire cast triggers and re-append thisTurnCast — C2).
+     * {@code indexFromTop} is the snapshot position (0 = top); used so mixed restores keep order (D4).
      */
     private void restoreStackInstanceWithoutCastEffects(SpellAbilityStackInstance origEntry, Game toGame) {
+        restoreStackInstanceWithoutCastEffects(origEntry, toGame, toGame.getStack().size());
+    }
+
+    private void restoreStackInstanceWithoutCastEffects(SpellAbilityStackInstance origEntry, Game toGame,
+            final int indexFromTop) {
         SpellAbility origSa = origEntry.getSpellAbility();
         Card origHostCard = origSa.getHostCard();
         Card newCard = findBy(toGame, origHostCard);
@@ -320,7 +329,7 @@ public class GameSnapshot {
                 }
             }
         }
-        toGame.getStack().pushForRestore(newSa, origEntry.getId());
+        toGame.getStack().pushForRestore(newSa, origEntry.getId(), indexFromTop);
     }
 
     private void restoreTurnLists(final Game fromGame, final Game toGame) {

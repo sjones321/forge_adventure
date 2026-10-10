@@ -875,15 +875,28 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
     /**
      * DS4 / cancel restore: place a stack instance by id without cast/activation side effects
      * (no thisTurnCast, no cast triggers, no prowess, no {@link GameEventSpellAbilityCast}).
-     * Uses {@code addLast} so iterating the snapshot top-to-bottom preserves order
-     * (normal {@link #push} uses {@code addFirst} and would reverse a multi-entry copy).
+     * Inserts at {@code indexFromTop} so mixed restore (some live entries kept) preserves
+     * the snapshot order (D4). Index 0 is the top of the stack.
      */
     public final void pushForRestore(final SpellAbility sp, final int id) {
+        pushForRestore(sp, id, stack.size());
+    }
+
+    public final void pushForRestore(final SpellAbility sp, final int id, final int indexFromTop) {
         if (sp.getActivatingPlayer() == null) {
             sp.setActivatingPlayer(sp.getHostCard().getController());
         }
         final SpellAbilityStackInstance si = new SpellAbilityStackInstance(sp, id);
-        stack.addLast(si);
+        if (indexFromTop <= 0) {
+            stack.addFirst(si);
+        } else if (indexFromTop >= stack.size()) {
+            stack.addLast(si);
+        } else {
+            final List<SpellAbilityStackInstance> ordered = Lists.newArrayList(stack);
+            ordered.add(indexFromTop, si);
+            stack.clear();
+            stack.addAll(ordered);
+        }
         game.updateStackForView();
     }
 

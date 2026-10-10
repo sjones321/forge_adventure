@@ -290,6 +290,10 @@ public class CostExile extends CostPartWithList {
     protected Card doPayment(Player payer, SpellAbility ability, Card targetCard, final boolean effect) {
         Map<AbilityKey, Object> moveParams = AbilityKey.newMap();
         AbilityKey.addCardZoneTableParams(moveParams, table);
+        // DS4 D5: exile-from-library-top (and any library exile cost) reveals hidden cards.
+        if (from.contains(ZoneType.Library)) {
+            targetCard.getGame().bumpInformationEpoch();
+        }
         Card newCard = targetCard.getGame().getAction().exile(targetCard, null, moveParams);
         SpellAbilityEffect.handleExiledWith(newCard, ability);
         return newCard;

@@ -1094,11 +1094,12 @@ public class PhaseHandler implements java.io.Serializable, IHasForgeLog {
                     // DS4: dedicated snapshot only right before the human's own top-level land/spell.
                     // H-A: any other owner action (activated/PW ability, suspend/plot/unmorph, …)
                     // after a captured spell must invalidate the prior snapshot.
+                    // D3: mana abilities are exempt — GameSnapshot already restores mana pool + tapped.
                     boolean captured = false;
                     if (game.TAKE_BACK_ENABLED && !pPlayerPriority.getController().isAI()) {
                         if (isTakeBackTopLevelAction(sa)) {
                             captured = game.captureTakeBackSnapshot(pPlayerPriority);
-                        } else if (game.canTakeBack(pPlayerPriority)) {
+                        } else if (game.canTakeBack(pPlayerPriority) && !sa.isManaAbility()) {
                             game.invalidateTakeBack();
                         }
                     }

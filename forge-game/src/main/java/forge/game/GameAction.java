@@ -2714,6 +2714,10 @@ public class GameAction {
             final Map<AbilityKey, Object> runParams = AbilityKey.newMap();
             runParams.put(AbilityKey.Cards, milled);
             game.getTriggerHandler().runTrigger(TriggerType.MilledAll, runParams, false);
+            // DS4 D5: milling reveals previously hidden library cards (graveyard is public).
+            // ShowMilledCards only adds a dialog via reveal(); bump even without that param
+            // so CostMill (Millikin, etc.) locks take-back.
+            game.bumpInformationEpoch();
         }
 
         return milled;

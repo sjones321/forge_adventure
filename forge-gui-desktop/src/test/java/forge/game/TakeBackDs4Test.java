@@ -102,10 +102,6 @@ public class TakeBackDs4Test extends AITest {
                     whilePriority = null;
                     r.run();
                 }
-                // M3: pending take-back after InputPassPriority.stop() from the GUI path.
-                if (getGame().hasPendingTakeBack(getPlayer())) {
-                    return null;
-                }
                 return null;
             } finally {
                 if (getInputQueue().getInput() == input) {
@@ -231,6 +227,21 @@ public class TakeBackDs4Test extends AITest {
         return null;
     }
 
+    /** Find an activated ability whose description contains {@code needle}. */
+    private SpellAbility findAbilityContaining(final Card c, final Player p, final String needle) {
+        for (final SpellAbility sa : c.getAllPossibleAbilities(p, true)) {
+            if (sa.getDescription() != null && sa.getDescription().contains(needle)) {
+                return sa;
+            }
+        }
+        for (final SpellAbility sa : c.getSpellAbilities()) {
+            if (sa.getDescription() != null && sa.getDescription().contains(needle)) {
+                return sa;
+            }
+        }
+        return null;
+    }
+
     private boolean driveUntil(final Game game, final java.util.function.BooleanSupplier done) {
         for (int i = 0; i < 60 && !game.isGameOver(); i++) {
             game.getPhaseHandler().mainLoopStep();
@@ -241,16 +252,9 @@ public class TakeBackDs4Test extends AITest {
         return done.getAsBoolean();
     }
 
-    /** {@link PlayerControllerHuman#tryTakeBackLastAction()} requires a Game-* thread name. */
+    /** Test helper: restore inline while already on the driving thread with IPP installed. */
     private static boolean tryTakeBackOnGameThread(final PlayerControllerHuman ctrl) {
-        final Thread t = Thread.currentThread();
-        final String old = t.getName();
-        t.setName("Game-test");
-        try {
-            return ctrl.tryTakeBackLastAction();
-        } finally {
-            t.setName(old);
-        }
+        return ctrl.tryTakeBackLastAction();
     }
 
     private void addFloatingMana(final Player p, final byte color, final int amount) {
@@ -425,36 +429,82 @@ public class TakeBackDs4Test extends AITest {
         Assert.assertFalse(offered.get(), "no take-back after ability");
     }
 
-    /** H-A: spell then activated ability must invalidate the prior spell snapshot. */
+    /**
+     * H-A: a successful non-mana activation after a land play invalidates take-back.
+     * (Sorcery-speed Outlast with a spell on the stack never activated — use tap ability.)
+     */
     @Test
-    public void abilityAfterSpellInvalidatesTakeBack() {
+    public void tapAbilityAfterLandInvalidatesTakeBack() {
         final Game game = enableTakeBackHuman();
         final Player p = game.getPlayers().get(1);
+        final Player opp = game.getPlayers().get(0);
         fillLibrary(p, 8);
-        fillLibrary(game.getPlayers().get(0), 8);
-        addCards("Plains", 3, p);
-        final Card memnite = addCardToZone("Memnite", p, ZoneType.Hand);
-        final Card herald = addCard("Herald of Anafenza", p);
-        herald.setSickness(false);
+        fillLibrary(opp, 8);
+        final Card forest = addCardToZone("Forest", p, ZoneType.Hand);
+        final Card mage = addCard("Prodigal Sorcerer", p);
+        mage.setSickness(false);
         game.getPhaseHandler().devModeSet(PhaseType.MAIN1, p);
         game.getAction().checkStateEffects(true);
 
         final ScriptedPch ctrl = pch(p);
-        final SpellAbility cast = spellAbility(memnite, p);
-        final SpellAbility outlast = findSAWithPrefix(herald, "Outlast");
-        Assert.assertNotNull(cast);
-        Assert.assertNotNull(outlast);
-        ctrl.queue(cast);
-        ctrl.queue(outlast);
+        final SpellAbility playLand = landAbility(forest, p);
+        final SpellAbility tap = findAbilityContaining(mage, p, "deals 1 damage");
+        Assert.assertNotNull(playLand);
+        Assert.assertNotNull(tap, "Prodigal Sorcerer tap ability");
+        ctrl.queue(playLand);
+        ctrl.queue(tap);
         final AtomicBoolean afterAbility = new AtomicBoolean(false);
         ctrl.whilePriority(() -> {
-            // After ability activation: prior spell snapshot must be gone.
             afterAbility.set(true);
-            Assert.assertFalse(game.canTakeBack(p), "H-A: ability after spell must invalidate take-back");
+            Assert.assertTrue(mage.isTapped(), "tap ability must have resolved successfully");
+            Assert.assertFalse(game.canTakeBack(p), "H-A: successful tap ability after land must invalidate");
             Assert.assertFalse(ctrl.canTakeBackLastAction());
         });
         Assert.assertTrue(driveUntil(game, afterAbility::get));
         Assert.assertFalse(game.canTakeBack(p));
+    }
+
+    /** D3: mana abilities do not invalidate; snapshot restores mana pool + tapped state. */
+    @Test
+    public void manaAbilityDoesNotInvalidateTakeBack() {
+        final Game game = enableTakeBackHuman();
+        final Player p = game.getPlayers().get(1);
+        fillLibrary(p, 8);
+        fillLibrary(game.getPlayers().get(0), 8);
+        final Card forestHand = addCardToZone("Forest", p, ZoneType.Hand);
+        final Card forestBf = addCard("Forest", p);
+        forestBf.setSickness(false);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, p);
+        game.getAction().checkStateEffects(true);
+
+        final ScriptedPch ctrl = pch(p);
+        SpellAbility mana = null;
+        for (final SpellAbility sa : forestBf.getAllPossibleAbilities(p, true)) {
+            if (sa.isManaAbility()) {
+                mana = sa;
+                break;
+            }
+        }
+        Assert.assertNotNull(mana);
+        final SpellAbility manaSa = mana;
+
+        // Stay in the same priority window after the land (a pass would bump the epoch).
+        ctrl.queue(landAbility(forestHand, p));
+        final AtomicBoolean afterMana = new AtomicBoolean(false);
+        ctrl.whilePriority(() -> {
+            Assert.assertTrue(forestHand.isInZone(ZoneType.Battlefield));
+            Assert.assertTrue(game.canTakeBack(p), "land play should retain take-back");
+            Assert.assertTrue(PlaySpellAbility.playSpellAbility(ctrl, p, manaSa));
+            Assert.assertTrue(forestBf.isTapped(), "mana ability must have tapped the land");
+            Assert.assertFalse(p.getManaPool().isEmpty(), "mana must be in pool");
+            Assert.assertTrue(game.canTakeBack(p), "D3: mana ability must not invalidate take-back");
+            Assert.assertTrue(tryTakeBackOnGameThread(ctrl));
+            Assert.assertTrue(forestHand.isInZone(ZoneType.Hand), "land play undone");
+            Assert.assertFalse(forestBf.isTapped(), "snapshot restores untapped state");
+            Assert.assertTrue(p.getManaPool().isEmpty(), "snapshot restores empty mana pool");
+            afterMana.set(true);
+        });
+        Assert.assertTrue(driveUntil(game, afterMana::get));
     }
 
     /** Play-with-top-revealed: Courser land from library top bumps the epoch. */
@@ -519,9 +569,13 @@ public class TakeBackDs4Test extends AITest {
         Assert.assertFalse(game.canTakeBack(p));
     }
 
-    /** M3: restore runs on the game-loop thread; clicks during restore are rejected. */
+    /**
+     * D1: when IPP is already gone (cast started), a pool "Game-*" thread must clear pending
+     * and must not restore mid-cast. Identity of the loop thread is captured separately —
+     * not via {@code startsWith("Game")} (pool threads also match that).
+     */
     @Test
-    public void takeBackRestoreRunsOnGameLoopThreadAndRejectsClicks() throws Exception {
+    public void takeBackPoolThreadClearsPendingInsteadOfRestoringMidCast() throws Exception {
         final Game game = enableTakeBackHuman();
         final Player p = game.getPlayers().get(1);
         fillLibrary(p, 8);
@@ -531,29 +585,16 @@ public class TakeBackDs4Test extends AITest {
         Assert.assertTrue(PlaySpellAbility.playSpellAbility(pch(p), p, landAbility(land, p)));
 
         final ScriptedPch ctrl = pch(p);
-        final AtomicReference<String> restoreThread = new AtomicReference<>();
-        final AtomicBoolean clickAccepted = new AtomicBoolean(false);
-        final CountDownLatch inRestore = new CountDownLatch(1);
-        final CountDownLatch clickDone = new CountDownLatch(1);
-
+        final AtomicReference<Thread> restoreThread = new AtomicReference<>();
         final GameSnapshot real = new GameSnapshot(game);
         real.makeCopy();
         final GameSnapshot instrumented = new GameSnapshot(game) {
             @Override
             public void restoreGameState(final Game currentGame) {
-                restoreThread.set(Thread.currentThread().getName());
-                Assert.assertTrue(currentGame.isTakeBackInProgress());
-                inRestore.countDown();
-                try {
-                    Assert.assertTrue(clickDone.await(3, TimeUnit.SECONDS), "click probe timed out");
-                } catch (final InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    Assert.fail("interrupted");
-                }
+                restoreThread.set(Thread.currentThread());
                 real.restoreGameState(currentGame);
             }
         };
-        // Point the instrumented wrapper at the same copied board as `real`.
         final java.lang.reflect.Field ng = GameSnapshot.class.getDeclaredField("newGame");
         ng.setAccessible(true);
         ng.set(instrumented, ng.get(real));
@@ -567,58 +608,190 @@ public class TakeBackDs4Test extends AITest {
         owner.set(game, p);
         epoch.set(game, game.getInformationEpoch());
 
-        final CountDownLatch loopReady = new CountDownLatch(1);
-        final CountDownLatch loopDone = new CountDownLatch(1);
-        final AtomicReference<Throwable> loopError = new AtomicReference<>();
-        final Thread loop = new Thread(() -> {
+        // Simulate race: pending set, then IPP replaced by cast (no longer InputPassPriority).
+        game.requestTakeBack(p);
+        Assert.assertTrue(game.hasPendingTakeBack(p));
+        // No IPP installed — mid-cast.
+        Assert.assertFalse(ctrl.getInputQueue().getInput() instanceof InputPassPriority);
+
+        final CountDownLatch poolDone = new CountDownLatch(1);
+        final AtomicReference<Thread> poolThread = new AtomicReference<>();
+        forge.util.ThreadUtil.invokeInGameThread(() -> {
+            poolThread.set(Thread.currentThread());
+            Assert.assertTrue(forge.util.ThreadUtil.isGameThread(), "pool is named Game-*");
+            ctrl.takeBackLastAction();
+            poolDone.countDown();
+        });
+        Assert.assertTrue(poolDone.await(3, TimeUnit.SECONDS));
+        Assert.assertNotNull(poolThread.get());
+        Assert.assertTrue(poolThread.get().getName().startsWith("Game"));
+        Assert.assertFalse(game.hasPendingTakeBack(p), "D1: pool path clears pending instead of restoring");
+        Assert.assertNull(restoreThread.get(), "D1: must not restore on pool thread");
+        Assert.assertTrue(game.canTakeBack(p), "snapshot retained when restore was abandoned");
+        Assert.assertTrue(land.isInZone(ZoneType.Battlefield));
+    }
+
+    /**
+     * D1/M3: render-thread takeBackLastAction only pending+stop; PhaseHandler {@code continue}
+     * restores on the real game-loop thread (identity, not name prefix). Clicks rejected mid-restore.
+     */
+    @Test
+    public void takeBackPhaseHandlerContinueRestoresOnLoopThread() throws Exception {
+        final Game game = enableTakeBackHuman();
+        final Player p = game.getPlayers().get(1);
+        fillLibrary(p, 8);
+        fillLibrary(game.getPlayers().get(0), 8);
+        final Card plains = addCardToZone("Plains", p, ZoneType.Hand);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, p);
+        game.getAction().checkStateEffects(true);
+
+        final ScriptedPch ctrl = pch(p);
+        final AtomicReference<Thread> loopThread = new AtomicReference<>();
+        final AtomicReference<Thread> restoreThread = new AtomicReference<>();
+        final CountDownLatch inRestore = new CountDownLatch(1);
+        final CountDownLatch clickDone = new CountDownLatch(1);
+        final AtomicBoolean restored = new AtomicBoolean(false);
+        final AtomicReference<Throwable> clickError = new AtomicReference<>();
+
+        final Thread clickProbe = new Thread(() -> {
             try {
-                final InputPassPriority ipp = new InputPassPriority(ctrl) {
+                Assert.assertTrue(inRestore.await(5, TimeUnit.SECONDS), "restore did not start");
+                final InputPassPriority probe = new InputPassPriority(ctrl);
+                ctrl.getInputQueue().setInput(probe);
+                probe.showMessageInitial();
+                ctrl.selectButtonOk();
+                Assert.assertSame(ctrl.getInputQueue().getInput(), probe,
+                        "OK click must be rejected during take-back restore");
+            } catch (final Throwable t) {
+                clickError.set(t);
+            } finally {
+                clickDone.countDown();
+            }
+        }, "click-probe");
+        clickProbe.start();
+
+        // Land + take-back in one priority window so a pass cannot bump the epoch first.
+        ctrl.queue(landAbility(plains, p));
+        ctrl.whilePriority(() -> {
+            try {
+                Assert.assertTrue(plains.isInZone(ZoneType.Battlefield));
+                Assert.assertTrue(game.canTakeBack(p));
+                loopThread.set(Thread.currentThread());
+
+                final GameSnapshot real = new GameSnapshot(game);
+                real.makeCopy();
+                final GameSnapshot instrumented = new GameSnapshot(game) {
                     @Override
-                    public void showAndWait() {
-                        // Signal only once the latch wait is about to block.
-                        getController().getInputQueue().setInput(this);
-                        loopReady.countDown();
-                        awaitLatchRelease();
+                    public void restoreGameState(final Game currentGame) {
+                        restoreThread.set(Thread.currentThread());
+                        Assert.assertTrue(currentGame.isTakeBackInProgress());
+                        inRestore.countDown();
+                        try {
+                            Assert.assertTrue(clickDone.await(5, TimeUnit.SECONDS), "click probe timed out");
+                        } catch (final InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            Assert.fail("interrupted");
+                        }
+                        real.restoreGameState(currentGame);
                     }
                 };
-                ipp.showMessageInitial();
-                ipp.showAndWait(); // released by takeBackLastAction → stop()
-                // PhaseHandler equivalent: consume pending on the loop thread.
-                Assert.assertTrue(game.hasPendingTakeBack(p), "pending take-back after input release");
-                ctrl.resolvePendingTakeBack();
-            } catch (final Throwable t) {
-                loopError.set(t);
-            } finally {
-                loopDone.countDown();
+                final java.lang.reflect.Field ng = GameSnapshot.class.getDeclaredField("newGame");
+                ng.setAccessible(true);
+                ng.set(instrumented, ng.get(real));
+                final java.lang.reflect.Field snap = Game.class.getDeclaredField("takeBackSnapshot");
+                snap.setAccessible(true);
+                final java.lang.reflect.Field owner = Game.class.getDeclaredField("takeBackOwner");
+                owner.setAccessible(true);
+                final java.lang.reflect.Field epoch = Game.class.getDeclaredField("takeBackEpoch");
+                epoch.setAccessible(true);
+                snap.set(game, instrumented);
+                owner.set(game, p);
+                epoch.set(game, game.getInformationEpoch());
+
+                // Mobile/render path: call straight from a non-pool thread (no invokeInGameThread).
+                final Thread render = new Thread(ctrl::takeBackLastAction, "GL-render");
+                render.start();
+                render.join(3000);
+                Assert.assertTrue(game.hasPendingTakeBack(p), "render takeBack must set pending + stop IPP");
+            } catch (final Exception e) {
+                throw new RuntimeException(e);
             }
-        }, "Game-loop");
-        loop.start();
-        Assert.assertTrue(loopReady.await(3, TimeUnit.SECONDS));
+        });
 
-        // GUI-thread request: sets pending + stops input (no GameAction.invoke).
-        final Thread gui = new Thread(ctrl::takeBackLastAction, "EDT-fake");
-        gui.start();
-        gui.join(3000);
-
-        Assert.assertTrue(inRestore.await(3, TimeUnit.SECONDS), "restore did not start");
-        // Probe click while restore is in progress. Accepted OK would stop() and remove the input.
-        final InputPassPriority probe = new InputPassPriority(ctrl);
-        ctrl.getInputQueue().setInput(probe);
-        probe.showMessageInitial();
-        ctrl.selectButtonOk();
-        Assert.assertSame(ctrl.getInputQueue().getInput(), probe,
-                "OK click must be rejected during take-back restore (input must stay)");
-        clickAccepted.set(ctrl.getInputQueue().getInput() != probe);
-        clickDone.countDown();
-
-        Assert.assertTrue(loopDone.await(5, TimeUnit.SECONDS));
-        if (loopError.get() != null) {
-            throw new AssertionError(loopError.get());
+        Assert.assertTrue(driveUntil(game, () -> {
+            if (restoreThread.get() != null && !game.hasPendingTakeBack(p)) {
+                restored.set(true);
+                return true;
+            }
+            return false;
+        }));
+        clickProbe.join(5000);
+        if (clickError.get() != null) {
+            throw new AssertionError(clickError.get());
         }
+        Assert.assertTrue(restored.get(), "PhaseHandler continue must complete take-back");
+        Assert.assertNotNull(loopThread.get());
         Assert.assertNotNull(restoreThread.get());
-        Assert.assertTrue(restoreThread.get().startsWith("Game"),
-                "restore must run on game-loop thread, was: " + restoreThread.get());
+        Assert.assertSame(loopThread.get(), restoreThread.get(),
+                "D1: restore must run on the PhaseHandler loop thread identity, not a Game-* pool thread");
         Assert.assertFalse(game.isTakeBackInProgress());
+        // Instrumented snapshot was taken after the land; board may stay post-land — thread identity is the point.
+    }
+
+    /** D5: Millikin CostMill reveals a library card — bumps epoch even without ShowMilledCards. */
+    @Test
+    public void millCostBumpsEpoch() {
+        final Game game = enableTakeBackHuman();
+        final Player p = game.getPlayers().get(1);
+        fillLibrary(p, 8);
+        fillLibrary(game.getPlayers().get(0), 8);
+        final Card millikin = addCard("Millikin", p);
+        millikin.setSickness(false);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, p);
+        game.getAction().checkStateEffects(true);
+
+        Assert.assertTrue(game.captureTakeBackSnapshot(p));
+        final long epochBefore = game.getInformationEpoch();
+        final ScriptedPch ctrl = pch(p);
+        SpellAbility millMana = findAbilityContaining(millikin, p, "Mill");
+        if (millMana == null) {
+            for (final SpellAbility sa : millikin.getAllPossibleAbilities(p, true)) {
+                if (sa.getPayCosts() != null
+                        && sa.getPayCosts().hasSpecificCostType(forge.game.cost.CostMill.class)) {
+                    millMana = sa;
+                    break;
+                }
+            }
+        }
+        Assert.assertNotNull(millMana, "Millikin must expose T + Mill mana ability");
+        // Pay through the real cost path (avoids a priority pass bumping the epoch first).
+        Assert.assertTrue(PlaySpellAbility.playSpellAbility(ctrl, p, millMana));
+        Assert.assertTrue(game.getInformationEpoch() > epochBefore,
+                "D5: CostMill via GameAction.mill must bump information epoch");
+        Assert.assertFalse(game.canTakeBack(p));
+    }
+
+    /** D5: ExileFromTop cost (Thought Lash) reveals library cards — bumps epoch. */
+    @Test
+    public void exileFromLibraryTopCostBumpsEpoch() {
+        final Game game = enableTakeBackHuman();
+        final Player p = game.getPlayers().get(1);
+        fillLibrary(p, 8);
+        fillLibrary(game.getPlayers().get(0), 8);
+        final Card lash = addCard("Thought Lash", p);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, p);
+        game.getAction().checkStateEffects(true);
+
+        Assert.assertTrue(game.captureTakeBackSnapshot(p));
+        final long epochBefore = game.getInformationEpoch();
+        final ScriptedPch ctrl = pch(p);
+        final SpellAbility prevent = findAbilityContaining(lash, p, "Prevent the next 1 damage");
+        Assert.assertNotNull(prevent, "Thought Lash prevent-damage ability");
+        Assert.assertTrue(PlaySpellAbility.playSpellAbility(ctrl, p, prevent));
+        Assert.assertTrue(game.getInformationEpoch() > epochBefore,
+                "D5: ExileFromTop cost must bump information epoch");
+        Assert.assertFalse(game.canTakeBack(p));
+        Assert.assertTrue(p.getCardsIn(ZoneType.Exile).size() >= 1, "top card should be exiled");
     }
 
     /** pushForRestore keeps multi-entry order and does not fire cast events. */
@@ -647,9 +820,9 @@ public class TakeBackDs4Test extends AITest {
         };
         game.subscribeToEvents(subscriber);
 
-        // Snapshot order top→bottom when iterating: first pushed-for-restore with addLast is top.
-        game.getStack().pushForRestore(saA, 1001);
-        game.getStack().pushForRestore(saB, 1002);
+        // Snapshot order top→bottom: index 0 is top.
+        game.getStack().pushForRestore(saA, 1001, 0);
+        game.getStack().pushForRestore(saB, 1002, 1);
         Assert.assertFalse(castEvent.get(), "pushForRestore must not fire GameEventSpellAbilityCast");
 
         final Iterator<SpellAbilityStackInstance> it = game.getStack().iterator();
@@ -657,6 +830,41 @@ public class TakeBackDs4Test extends AITest {
         Assert.assertEquals(it.next().getId(), 1001, "first restored entry stays on top");
         Assert.assertTrue(it.hasNext());
         Assert.assertEquals(it.next().getId(), 1002, "second restored entry stays below");
+        Assert.assertFalse(it.hasNext());
+    }
+
+    /** D4: restoring a missing middle entry inserts at its snapshot index, not the bottom. */
+    @Test
+    public void pushForRestoreInsertsMissingEntryAtSnapshotIndex() {
+        final Game game = enableTakeBackHuman();
+        final Player p = game.getPlayers().get(1);
+        final Player opp = game.getPlayers().get(0);
+        final Card a = addCard("Memnite", p);
+        final Card x = addCard("Runeclaw Bear", p);
+        final Card b = addCard("Grizzly Bears", opp);
+        final SpellAbility saA = new AbilityStatic(a, Cost.Zero, null) {
+            @Override public void resolve() { }
+        };
+        final SpellAbility saX = new AbilityStatic(x, Cost.Zero, null) {
+            @Override public void resolve() { }
+        };
+        final SpellAbility saB = new AbilityStatic(b, Cost.Zero, null) {
+            @Override public void resolve() { }
+        };
+        saA.setActivatingPlayer(p);
+        saX.setActivatingPlayer(p);
+        saB.setActivatingPlayer(opp);
+
+        // Live stack has A (top) and B — missing middle X from the snapshot.
+        game.getStack().pushForRestore(saA, 1001, 0);
+        game.getStack().pushForRestore(saB, 1003, 1);
+        // Insert X at snapshot index 1 (between A and B).
+        game.getStack().pushForRestore(saX, 1002, 1);
+
+        final Iterator<SpellAbilityStackInstance> it = game.getStack().iterator();
+        Assert.assertEquals(it.next().getId(), 1001, "top stays A");
+        Assert.assertEquals(it.next().getId(), 1002, "D4: missing X restored in the middle");
+        Assert.assertEquals(it.next().getId(), 1003, "B stays below");
         Assert.assertFalse(it.hasNext());
     }
 

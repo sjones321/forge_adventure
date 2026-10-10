@@ -7,7 +7,6 @@ import forge.adventure.coop.CoopSessionRole;
 import forge.adventure.util.Config;
 import forge.interfaces.IGameController;
 import forge.util.Localizer;
-import forge.util.ThreadUtil;
 
 /**
  * DS4: Ascendant-gated take-back entry points for both duel screens.
@@ -46,8 +45,11 @@ public final class TakeBackActions {
     }
 
     /**
-     * Perform take-back for the local player on the game thread. In a co-op duel,
-     * shows a short note and does nothing (no wire events).
+     * Request take-back from the render/UI thread. {@link IGameController#takeBackLastAction()}
+     * only sets a pending flag and stops {@code InputPassPriority} — restore runs later on
+     * the real game-loop thread (D1). Do not hop to {@link ThreadUtil#invokeInGameThread};
+     * that pool is also named "Game-*" and isGameThread() is true there.
+     * In a co-op duel, shows a short note and does nothing (no wire events).
      */
     public static void takeBack() {
         if (!featureEnabled()) {
@@ -55,10 +57,6 @@ public final class TakeBackActions {
         }
         if (isCoopDuel()) {
             notifyUnavailableInCoop();
-            return;
-        }
-        if (!ThreadUtil.isGameThread()) {
-            ThreadUtil.invokeInGameThread(TakeBackActions::takeBack);
             return;
         }
         final IGameController gc = MatchController.instance.getGameController();

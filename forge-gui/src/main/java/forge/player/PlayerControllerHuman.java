@@ -2792,20 +2792,35 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
 
     @Override
     public void takeBackLastAction() {
-        // M3: do NOT GameAction.invoke (pool thread). Request restore on the game-loop
-        // thread by releasing InputPassPriority; PhaseHandler calls resolvePendingTakeBack.
+        // D1/M3: safe on the render/EDT thread — only sets pending + stop().
+        // Never restore here (no GameAction.invoke, no pool-thread inline fallback).
+        // PhaseHandler.mainLoopStep runs resolvePendingTakeBack on the game-loop thread.
+        final Input current = inputQueue.getInput();
+        if (!(current instanceof InputPassPriority)) {
+            // Pool-thread race: cast already replaced IPP — abandon pending, do not restore.
+            if (ThreadUtil.isGameThread()) {
+                getGame().clearPendingTakeBack();
+            }
+            return;
+        }
         if (!canTakeBackLastAction()) {
             return;
         }
-        getGame().requestTakeBack(player);
-        final Input current = inputQueue.getInput();
-        if (current instanceof InputPassPriority ipp) {
+        // Atomic check-and-stop: only set pending if that same IPP is still current.
+        synchronized (inputQueue) {
+            final Input still = inputQueue.getInput();
+            if (still != current || !(still instanceof InputPassPriority ipp)) {
+                if (ThreadUtil.isGameThread()) {
+                    getGame().clearPendingTakeBack();
+                }
+                return;
+            }
+            if (player == null || !getGame().canTakeBack(player)
+                    || getGame().costPaymentStack.peek() != null) {
+                return;
+            }
+            getGame().requestTakeBack(player);
             ipp.stop();
-            return;
-        }
-        // Already on the game-loop thread with no blocking input — restore inline.
-        if (ThreadUtil.isGameThread()) {
-            resolvePendingTakeBack();
         }
     }
 
@@ -2823,15 +2838,11 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
     }
 
     /**
-     * DS4: restore while already on the game-loop thread in {@link InputPassPriority}
-     * (tests / inline path). On failure shows a message; CATASTROPHIC concedes cleanly.
+     * DS4: restore while already on the true game-loop thread in {@link InputPassPriority}
+     * (unit-test helper). On failure shows a message; CATASTROPHIC concedes cleanly.
+     * Do not call from {@link forge.util.ThreadUtil}'s "Game-*" pool — that is not the loop.
      */
     public boolean tryTakeBackLastAction() {
-        if (!ThreadUtil.isGameThread()) {
-            // Never restore on a pool thread — bounce through the pending/stop path.
-            takeBackLastAction();
-            return false;
-        }
         if (!canTakeBackLastAction()) {
             return false;
         }
