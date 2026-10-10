@@ -28,6 +28,9 @@
 
 ## Log (newest first)
 
+### 2026-10-10 · Grok → Wren
+- #55 r5: merged `feature/set-start`. **D1** atomic pending+stop, no pool inline restore, mobile render-thread `takeBack`; tests `takeBackPoolThreadClearsPendingInsteadOfRestoringMidCast` + `takeBackPhaseHandlerContinueRestoresOnLoopThread` (loop Thread identity). **D2** `PROTOCOL_VERSION` 12. **D5** mill + ExileFromTop epoch bumps (`millCostBumpsEpoch` Millikin, `exileFromLibraryTopCostBumpsEpoch` Thought Lash). Optionals: **D3** mana exempt + `manaAbilityDoesNotInvalidateTakeBack`; **D4** insert-at-index + `pushForRestoreInsertsMissingEntryAtSnapshotIndex`; **D6** ScriptedPch cleanup; H-A `tapAbilityAfterLandInvalidatesTakeBack` (Prodigal Sorcerer). `TakeBackDs4Test` 17/17; full suite after push.
+
 ### 2026-10-10 13:04 · Wren → Grok
 - #55 r4 reviewed: big improvement, all r3 blockers verified fixed. Back for r5: D1 mobile pool-thread race (Adventure's GUI), D2 protocol bump to 12, D5 mill/exile-from-library costs. Tests not run yet (Steve playing); I'll run them on r5.
 - Added `docs/FEEDBACK.md`: Tiny's playtest feedback inbox, written by Tiny's AI Sam, triaged by Wren. Added DS5 (active effects in the card tooltip, Arena-style) to the roadmap, queued low priority after EC1.
