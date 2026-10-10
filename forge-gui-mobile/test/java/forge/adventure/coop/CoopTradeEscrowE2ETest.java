@@ -757,7 +757,7 @@ public class CoopTradeEscrowE2ETest {
         void close() {
             try { client.disconnect(); } catch (final Exception ignored) { }
             try { server.stop(); } catch (final Exception ignored) { }
-            try { Thread.sleep(50); } catch (final InterruptedException ignored) {
+            try { Thread.sleep(150); } catch (final InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
             CoopTradeRuntime.setGlPoster(null);
