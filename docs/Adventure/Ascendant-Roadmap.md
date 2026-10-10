@@ -750,6 +750,55 @@ direction, pasting a Moxfield deck link into Forge is one step.
 - A URL import is parsed through the shared loader. Use a fixture, no network in tests.
 - The stock world is unchanged.
 
+## Quests (Steve, 2026-10-10)
+
+### QL1. Choose which quest the arrow tracks (urgent; next after DS4)
+Today the navigation arrow always points at one quest's target, with no way to change it. In Steve's game it points
+at town for a "do a side quest" stage, so he can't find the side-quest locations.
+- The quest log gets a **Track** button per active quest; the arrow, map marker and HUD line follow the tracked quest.
+  One tracked quest at a time; tracking is saved.
+- Stages that say "do any side quest" point at the **nearest** valid target (nearest `QuestSource` / `Sidequest` POI
+  the player has discovered), or show "no known location" instead of pointing at town.
+- Controller: Track is reachable from the quest list. New quests don't steal tracking unless nothing is tracked.
+- Tests: track B while A is active → arrow targets B; save/load keeps it; finishing the tracked quest moves tracking
+  to the next active one; "any side quest" picks the nearest discovered target.
+
+### QL2. Quest log overhaul (after the duel screen work)
+A full redesign of the quest log: active, available and completed tabs; each quest shows its giver, reward, current
+stage and all stage objectives with progress; filter by town or type; map pins for known objectives; abandon with
+confirmation; clear "turn in at X" states. Controller-first layout.
+
+## Deck builder
+
+### DB1. A deck builder as good as Moxfield's (after MX1; extends its import)
+Steve: there should be no reason building a deck here is harder than on Moxfield.
+- **Import from any site that exports for MTG Arena** (Moxfield, Archidekt, MTGGoldfish, AetherHub, Untapped,
+  17lands...): the Arena text format (`4 Card Name (SET) 123`, `Deck` / `Sideboard` / `Commander` / `Companion`
+  headers), plus plain `4 Card Name` lists. Forge's `DeckRecognizer` already parses these; MX1 adds URLs. Import is
+  always limited to the collection with the missing list (MX1 rules).
+- **Search** with Scryfall-style syntax (`t:creature c:br cmc<=3 o:"draw a card" r:rare set:zen`) plus quick filter
+  chips (color, type, cost, rarity, set, owned/unowned, legal in this plane's format).
+- **Views**: group by type, cost or color; list, text and visual (card image) views; drag between deck, sideboard and
+  a **maybeboard**.
+- **Stats panel**: mana curve, color pie vs land sources, type breakdown, average cost; land count suggestion.
+- **Sample hand** (draw 7, mulligan, draw next) and **legality** shown live with the reason for each illegal card.
+- **Deck tags and folders**, duplicate deck, and **export** in Arena text (feeds Moxfield) per MX1.
+- Controller and mouse both first-class. Works for every format the planes use (60-card, 40-card limited, Commander).
+- Tests: Arena-format text with headers imports to the right sections; the search syntax parses the listed keys;
+  stats match a known deck; legality flags a card out of rotation.
+
+## Gathering
+
+### GN1. More variety in gather nodes (note from play, 2026-10-10)
+Steve gets lots of scrap and trees and nothing else. Cause: every world biome maps to exactly one material family
+(`MaterialListData.materialBiomeForWorldBiome` + `WorldStage.pickBiomeFamily`): wastes (the home plane around the
+start) only gives scrap, plus the 30% trees that grow everywhere. Forest and mountain are the only two-family biomes.
+- Give every biome a primary family (~50%), trees (~20%) and a mix of the others (~30%), weighted toward families
+  that fit the biome (plains: stone + plants, island: waters + crystal/pearls, swamp: dead + plants, wastes: scrap +
+  stone + ash, mountain: ore + ash + gems).
+- Make the shares tunable in `config.json`. Tests: over many rolls each biome yields its primary most, and every
+  listed secondary family appears.
+
 ## Duel screen
 
 ### DS1. Arena-style duel screen (rewritten 2026-10-10; queued after MX1)
