@@ -63,6 +63,16 @@ public class MaterialData implements Serializable {
     }
 
     public Sprite sprite() {
+        // Ascendant: the material's own icon (region = id) when the sheet has one, else the borrowed item icon.
+        if (Config.ascendant() && id != null && !id.isEmpty()) {
+            try {
+                Sprite own = Config.instance().getAtlasSprite(forge.adventure.util.Paths.MATERIAL_ICONS_ATLAS, id);
+                if (own != null)
+                    return own;
+            } catch (RuntimeException ignored) {
+                // Missing atlas: fall back to the item icon.
+            }
+        }
         return Config.instance().getItemSprite(iconName != null ? iconName : "Item");
     }
 
