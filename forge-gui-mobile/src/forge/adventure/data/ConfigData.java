@@ -87,6 +87,21 @@ public class ConfigData {
     /** Adventure house rule: mulligans that cost no card, for both the player and enemies (Ascendant sets 1). */
     public int adventureFreeMulligans = 0;
 
+    // ---- AI1: LLM opponent tunables (Ascendant). Forge AI remains the fallback. ----
+
+    /**
+     * AI1: minimum hand size the LLM opponent may mulligan down to. At or below this floor the
+     * LLM is skipped and Forge's {@code ComputerUtil.wantMulligan} (or keep) is used instead.
+     * London can otherwise reach 0 cards and stall the mulligan loop.
+     */
+    public int llmMulliganMinHandSize = 5;
+
+    /**
+     * AI1: if the AI makes no progress on its own priority for this many seconds, fall back to
+     * Forge AI for that decision. Default 30. Does not apply when the LLM opponent is off.
+     */
+    public int llmPriorityWatchdogSeconds = 30;
+
     /** Extra gold on top of the difficulty's starting money for a sealed start. */
     public int sealedStartBonusGold = 500;
 

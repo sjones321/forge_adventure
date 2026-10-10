@@ -35,18 +35,30 @@ public final class LlmSettings {
     public static final String PROP_API_KEY = "apiKey";
     public static final String PROP_MODEL = "model";
     public static final String PROP_TIMEOUT = "timeoutSeconds";
+    /** AI1: LLM must not mulligan below this hand size (Forge AI / keep instead). */
+    public static final String PROP_MULLIGAN_MIN_HAND = "mulliganMinHandSize";
+    /** AI1: seconds of no AI priority progress before Forge AI takes that decision. */
+    public static final String PROP_PRIORITY_WATCHDOG = "priorityWatchdogSeconds";
 
     public static final String DEFAULT_BASE_URL = "http://localhost:11434/v1";
     public static final String DEFAULT_MODEL = "";
     public static final int DEFAULT_TIMEOUT_SECONDS = 30;
     public static final int MIN_TIMEOUT_SECONDS = 1;
     public static final int MAX_TIMEOUT_SECONDS = 300;
+    public static final int DEFAULT_MULLIGAN_MIN_HAND_SIZE = 5;
+    public static final int MIN_MULLIGAN_MIN_HAND_SIZE = 0;
+    public static final int MAX_MULLIGAN_MIN_HAND_SIZE = 10;
+    public static final int DEFAULT_PRIORITY_WATCHDOG_SECONDS = 30;
+    public static final int MIN_PRIORITY_WATCHDOG_SECONDS = 1;
+    public static final int MAX_PRIORITY_WATCHDOG_SECONDS = 300;
 
     private boolean enabled;
     private String baseUrl = DEFAULT_BASE_URL;
     private String apiKey = "";
     private String model = DEFAULT_MODEL;
     private int timeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
+    private int mulliganMinHandSize = DEFAULT_MULLIGAN_MIN_HAND_SIZE;
+    private int priorityWatchdogSeconds = DEFAULT_PRIORITY_WATCHDOG_SECONDS;
 
     public boolean isEnabled() {
         return enabled;
@@ -113,6 +125,41 @@ public final class LlmSettings {
     }
 
     /**
+     * AI1: floor for LLM mulligan decisions. At or below this hand size the LLM is skipped.
+     */
+    public int getMulliganMinHandSize() {
+        return mulliganMinHandSize;
+    }
+
+    public synchronized void setMulliganMinHandSize(int mulliganMinHandSize) {
+        if (mulliganMinHandSize < MIN_MULLIGAN_MIN_HAND_SIZE) {
+            this.mulliganMinHandSize = MIN_MULLIGAN_MIN_HAND_SIZE;
+        } else if (mulliganMinHandSize > MAX_MULLIGAN_MIN_HAND_SIZE) {
+            this.mulliganMinHandSize = MAX_MULLIGAN_MIN_HAND_SIZE;
+        } else {
+            this.mulliganMinHandSize = mulliganMinHandSize;
+        }
+    }
+
+    /**
+     * AI1: if the AI makes no progress on priority for this many seconds, Forge AI takes over
+     * for that decision.
+     */
+    public int getPriorityWatchdogSeconds() {
+        return priorityWatchdogSeconds;
+    }
+
+    public synchronized void setPriorityWatchdogSeconds(int priorityWatchdogSeconds) {
+        if (priorityWatchdogSeconds < MIN_PRIORITY_WATCHDOG_SECONDS) {
+            this.priorityWatchdogSeconds = MIN_PRIORITY_WATCHDOG_SECONDS;
+        } else if (priorityWatchdogSeconds > MAX_PRIORITY_WATCHDOG_SECONDS) {
+            this.priorityWatchdogSeconds = MAX_PRIORITY_WATCHDOG_SECONDS;
+        } else {
+            this.priorityWatchdogSeconds = priorityWatchdogSeconds;
+        }
+    }
+
+    /**
      * Ready for duel use when enabled, URL and model are set. API key is optional (local
      * OpenAI-compatible servers often ignore it).
      */
@@ -133,6 +180,8 @@ public final class LlmSettings {
         s.apiKey = apiKey;
         s.model = model;
         s.timeoutSeconds = timeoutSeconds;
+        s.mulliganMinHandSize = mulliganMinHandSize;
+        s.priorityWatchdogSeconds = priorityWatchdogSeconds;
         return s;
     }
 
@@ -170,6 +219,18 @@ public final class LlmSettings {
         } catch (NumberFormatException ignored) {
             s.timeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
         }
+        try {
+            s.setMulliganMinHandSize(Integer.parseInt(
+                    p.getProperty(PROP_MULLIGAN_MIN_HAND, String.valueOf(DEFAULT_MULLIGAN_MIN_HAND_SIZE)).trim()));
+        } catch (NumberFormatException ignored) {
+            s.mulliganMinHandSize = DEFAULT_MULLIGAN_MIN_HAND_SIZE;
+        }
+        try {
+            s.setPriorityWatchdogSeconds(Integer.parseInt(
+                    p.getProperty(PROP_PRIORITY_WATCHDOG, String.valueOf(DEFAULT_PRIORITY_WATCHDOG_SECONDS)).trim()));
+        } catch (NumberFormatException ignored) {
+            s.priorityWatchdogSeconds = DEFAULT_PRIORITY_WATCHDOG_SECONDS;
+        }
         return s;
     }
 
@@ -189,12 +250,16 @@ public final class LlmSettings {
         final String snapApiKey;
         final String snapModel;
         final int snapTimeout;
+        final int snapMulliganMin;
+        final int snapWatchdog;
         synchronized (this) {
             snapEnabled = enabled;
             snapBaseUrl = baseUrl == null ? "" : baseUrl;
             snapApiKey = apiKey == null ? "" : apiKey;
             snapModel = model == null ? "" : model;
             snapTimeout = timeoutSeconds;
+            snapMulliganMin = mulliganMinHandSize;
+            snapWatchdog = priorityWatchdogSeconds;
         }
         // Restrict BEFORE writing the key: create an empty owner-only file, then store.
         prepareOwnerOnlyFile(file);
@@ -208,6 +273,8 @@ public final class LlmSettings {
         p.setProperty(PROP_API_KEY, snapApiKey);
         p.setProperty(PROP_MODEL, snapModel);
         p.setProperty(PROP_TIMEOUT, Integer.toString(snapTimeout));
+        p.setProperty(PROP_MULLIGAN_MIN_HAND, Integer.toString(snapMulliganMin));
+        p.setProperty(PROP_PRIORITY_WATCHDOG, Integer.toString(snapWatchdog));
         try (OutputStream out = new FileOutputStream(file)) {
             p.store(out, "Forge Adventure LLM opponent (local only; not part of the save)");
         }
@@ -334,6 +401,8 @@ public final class LlmSettings {
                 + ", baseUrl='" + baseUrl + '\''
                 + ", model='" + model + '\''
                 + ", timeoutSeconds=" + timeoutSeconds
+                + ", mulliganMinHandSize=" + mulliganMinHandSize
+                + ", priorityWatchdogSeconds=" + priorityWatchdogSeconds
                 + ", apiKey=" + (hasApiKey() ? "set" : "unset")
                 + '}';
     }

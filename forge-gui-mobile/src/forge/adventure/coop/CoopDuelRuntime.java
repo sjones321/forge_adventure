@@ -829,6 +829,8 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             if (Config.ascendant()) {
                 System.setProperty("forge.llm.dir", ForgeConstants.USER_DIR);
                 LlmOpponent.setActive(true);
+                ConfigData llmCfg = Config.instance().getConfigData();
+                LlmOpponent.applyAscendantTunables(llmCfg.llmMulliganMinHandSize, llmCfg.llmPriorityWatchdogSeconds);
             }
             hostedMatch.startMatch(rules, variants, players, guiMap,
                     mob.getData() != null && mob.getData().boss ? MusicPlaylist.BOSS : MusicPlaylist.MATCH);

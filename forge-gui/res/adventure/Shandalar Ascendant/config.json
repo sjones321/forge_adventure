@@ -1,6 +1,8 @@
 {
   "ascendantRules": true,
   "adventureFreeMulligans": 1,
+  "llmMulliganMinHandSize": 5,
+  "llmPriorityWatchdogSeconds": 30,
   "enemyLifeEarly": 0.75,
   "enemyLifeNormalLevel": 30,
   "enemyLifeLate": 1.25,

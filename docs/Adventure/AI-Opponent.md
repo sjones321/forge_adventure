@@ -15,6 +15,8 @@ They are stored locally in `llm_opponent.properties` in the Forge user folder
 | Model | Exact model id the server expects. |
 | API key | Masked in the UI. Required for hosted APIs; optional for most local servers. |
 | Timeout | Seconds per request. On timeout, Forge AI takes over for that decision. |
+| Mulligan floor (AI1) | Tunable (`llmMulliganMinHandSize` in Ascendant `config.json` / `mulliganMinHandSize` in settings). The LLM may not mulligan below this many cards (default **5**); at or below the floor Forge AI decides (or keep). |
+| Priority watchdog (AI1) | Tunable (`llmPriorityWatchdogSeconds` / `priorityWatchdogSeconds`, default **30**). If the AI makes no progress on its priority for that long, Forge AI takes the decision. |
 | Test | One small chat request; shows success or a clear error **without** the key. |
 
 ## What the LLM decides
@@ -136,6 +138,7 @@ Vulkan backend rather than assuming a PyTorch ROCm install will fix it.
 | Test succeeds, duel still uses Forge AI | Enable the checkbox; Planes of Nothing only. Co-op: configure the **host**. |
 | Slow turns / timeouts | Raise timeout slightly, use a smaller/faster model, or disable LLM (Forge AI continues). |
 | Malformed / ignored answers | Prefer instruct models that follow “reply only with JSON”. Forge AI is used for that decision. |
+| AI stuck after mulligan to 0 / never acts | AI1 mulligan floor (default 5) and empty-hand keep fix stop London from looping. If still stuck, disable LLM (Forge AI) or lower timeout; check `llm_decisions.log` for WATCHDOG lines (key is never logged). |
 | Key worries | Clear the key field and save; delete `apiKey` from `llm_opponent.properties`; never paste the key into chat logs. |
 
 ## Related code

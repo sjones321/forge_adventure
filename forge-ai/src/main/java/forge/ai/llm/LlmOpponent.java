@@ -34,6 +34,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,6 +48,10 @@ import java.util.regex.Pattern;
  * {@code forge.llm.dir}). The API key is local-only and is never logged. HTTP runs on a
  * dedicated thread with the configured timeout so the game/GL threads never hang on the
  * network.
+ *
+ * <p>AI1: mulligan answers that would leave the hand below {@link LlmSettings#getMulliganMinHandSize()}
+ * are ignored (Forge AI / keep). A priority watchdog falls back to Forge AI if a decision
+ * stalls. Tests may stub the HTTP client via {@link #setAskClientForTests}.
  */
 public final class LlmOpponent {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -61,6 +66,8 @@ public final class LlmOpponent {
 
     private static volatile boolean active;
     private static volatile LlmSettings settings = new LlmSettings();
+    /** Test-only stub: when non-null, {@link #ask} uses this instead of HTTP. */
+    private static volatile Function<String, String> askClientForTests;
 
     private LlmOpponent() {
     }
@@ -100,6 +107,92 @@ public final class LlmOpponent {
     public static void deactivateForTests() {
         active = false;
         settings = new LlmSettings();
+        askClientForTests = null;
+    }
+
+    /**
+     * Test-only: replace the HTTP chat client. Pass {@code null} to restore real HTTP.
+     * The stub must return promptly (or null); no real network calls.
+     */
+    public static void setAskClientForTests(Function<String, String> client) {
+        askClientForTests = client;
+    }
+
+    /** Test-only: invoke the timed ask path (stub or HTTP). Never log the API key. */
+    public static String askForTests(String prompt) {
+        return ask(prompt);
+    }
+
+    /** Apply Ascendant {@code ConfigData} AI1 tunables onto the live settings (after load). */
+    public static void applyAscendantTunables(int mulliganMinHandSize, int priorityWatchdogSeconds) {
+        LlmSettings s = settings;
+        if (s == null) {
+            return;
+        }
+        s.setMulliganMinHandSize(mulliganMinHandSize);
+        s.setPriorityWatchdogSeconds(priorityWatchdogSeconds);
+    }
+
+    /** AI1 mulligan floor from the active settings (default 5). */
+    public static int getMulliganMinHandSize() {
+        LlmSettings s = settings;
+        return s == null ? LlmSettings.DEFAULT_MULLIGAN_MIN_HAND_SIZE : s.getMulliganMinHandSize();
+    }
+
+    /** AI1 priority watchdog seconds (default 30). */
+    public static int getPriorityWatchdogSeconds() {
+        LlmSettings s = settings;
+        return s == null ? LlmSettings.DEFAULT_PRIORITY_WATCHDOG_SECONDS : s.getPriorityWatchdogSeconds();
+    }
+
+    /** Log a watchdog fallback (never log the API key or prompt secrets). */
+    public static void logWatchdogFallback(String decisionKind) {
+        log("----- WATCHDOG: AI made no progress on " + decisionKind
+                + " within " + getPriorityWatchdogSeconds() + "s; falling back to Forge AI");
+    }
+
+    /** Per-decision deadline (nanoTime) for the AI1 priority watchdog; 0 = none. */
+    private static final ThreadLocal<Long> PRIORITY_DEADLINE_NANOS = ThreadLocal.withInitial(() -> 0L);
+    private static final ThreadLocal<String> PRIORITY_DECISION_KIND = new ThreadLocal<>();
+
+    /**
+     * AI1: run {@code action} under a wall-clock deadline. LLM {@link #ask} calls abort when the
+     * deadline passes (Forge AI fallback). Runs on the calling thread so game state stays
+     * single-threaded.
+     */
+    public static <T> T runWithPriorityWatchdog(String decisionKind, java.util.concurrent.Callable<T> action) {
+        long previous = PRIORITY_DEADLINE_NANOS.get();
+        String previousKind = PRIORITY_DECISION_KIND.get();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(getPriorityWatchdogSeconds());
+        PRIORITY_DEADLINE_NANOS.set(deadline);
+        PRIORITY_DECISION_KIND.set(decisionKind == null ? "decision" : decisionKind);
+        try {
+            return action.call();
+        } catch (Exception e) {
+            logWatchdogFallback(decisionKind);
+            return null;
+        } finally {
+            if (previous > 0L) {
+                PRIORITY_DEADLINE_NANOS.set(previous);
+                PRIORITY_DECISION_KIND.set(previousKind);
+            } else {
+                PRIORITY_DEADLINE_NANOS.remove();
+                PRIORITY_DECISION_KIND.remove();
+            }
+        }
+    }
+
+    /** Remaining seconds until the priority watchdog fires, or {@code Integer.MAX_VALUE} if none. */
+    static int remainingWatchdogSeconds() {
+        long deadline = PRIORITY_DEADLINE_NANOS.get();
+        if (deadline <= 0L) {
+            return Integer.MAX_VALUE;
+        }
+        long remainingNanos = deadline - System.nanoTime();
+        if (remainingNanos <= 0L) {
+            return 0;
+        }
+        return (int) Math.min(Integer.MAX_VALUE, TimeUnit.NANOSECONDS.toSeconds(remainingNanos) + 1);
     }
 
     // ---------------------------------------------------------------- decisions
@@ -129,15 +222,31 @@ public final class LlmOpponent {
     /**
      * Mulligan keep/mull. Returns {@link Boolean#TRUE} to keep, {@link Boolean#FALSE} to mull,
      * or {@code null} to fall back to Forge AI.
+     *
+     * <p>AI1: when the current hand is at or below {@link LlmSettings#getMulliganMinHandSize()},
+     * the LLM is not consulted (returns {@code null} so Forge AI / keep is used). An LLM
+     * "mulligan" that would leave the hand below the floor is treated as keep.
      */
     public static Boolean chooseKeepHand(Player ai, int cardsToReturn) {
         if (!active || settings == null || !settings.canActivate()) {
             return null;
         }
+        int handSize = ai.getCardsIn(ZoneType.Hand).size();
+        int floor = settings.getMulliganMinHandSize();
+        if (handSize <= floor) {
+            // AI1 floor: LLM must not take the hand lower. Prefer keep (Forge AI may still
+            // mulligan when the LLM path is skipped entirely via null — use keep here so a
+            // forever-"mulligan" stub cannot drive past the floor).
+            log("  -> hand size " + handSize + " at/below AI1 floor " + floor + "; keeping");
+            note(ai, "keeps hand (AI1 mulligan floor)");
+            return Boolean.TRUE;
+        }
         StringBuilder prompt = new StringBuilder(describeState(ai));
         prompt.append("\nMulligan decision. Cards you would put back if you mulligan: ")
                 .append(Math.max(0, cardsToReturn))
-                .append(".\nDecide whether to keep this hand. Reply only with JSON: "
+                .append(". Current hand size: ").append(handSize)
+                .append(". Do not mulligan below ").append(floor).append(" cards.")
+                .append("\nDecide whether to keep this hand. Reply only with JSON: "
                         + "{\"keep\": true|false, \"reason\": \"<one sentence>\"}");
         String answer = ask(prompt.toString());
         Boolean keep = findBoolean(answer, "keep");
@@ -145,8 +254,28 @@ public final class LlmOpponent {
             log("  -> unusable mulligan answer, using Forge AI");
             return null;
         }
+        // London redraws to max then tucks; refuse a mull that would land below the floor.
+        if (!keep) {
+            int nextHand = estimateHandAfterMulligan(ai, cardsToReturn);
+            if (nextHand < floor) {
+                log("  -> LLM mulligan would leave ~" + nextHand + " cards (floor " + floor + "); keeping");
+                note(ai, "keeps hand (AI1 mulligan floor)");
+                return Boolean.TRUE;
+            }
+        }
         note(ai, keep ? "keeps hand" : "mulligans");
         return keep;
+    }
+
+    /**
+     * Rough post-mulligan hand size for London-style (redraw to max, tuck {@code cardsToReturn+1}
+     * after the free/paid accounting already reflected in {@code cardsToReturn} at decision time).
+     * Conservative: next paid tuck is at least {@code cardsToReturn} and usually one more.
+     */
+    static int estimateHandAfterMulligan(Player ai, int cardsToReturn) {
+        int max = ai.getMaxHandSize();
+        int tuck = Math.max(0, cardsToReturn) + 1;
+        return Math.max(0, max - tuck);
     }
 
     /**
@@ -547,37 +676,60 @@ public final class LlmOpponent {
     // ---------------------------------------------------------------- HTTP + JSON
 
     /**
-     * Sends a chat completion on the HTTP executor and enforces the timeout. Returns null on
-     * any failure. Never logs the API key.
+     * Sends a chat completion on the HTTP executor and enforces a hard timeout. Returns null on
+     * any failure (timeout, error, empty). Never logs the API key. Tests may stub via
+     * {@link #setAskClientForTests}.
      */
     static String ask(String prompt) {
         LlmSettings s = settings;
         if (s == null || !s.canActivate()) {
             return null;
         }
+        int watchdogLeft = remainingWatchdogSeconds();
+        if (watchdogLeft <= 0) {
+            String kind = PRIORITY_DECISION_KIND.get();
+            logWatchdogFallback(kind == null ? "llm-ask" : kind);
+            return null;
+        }
         long start = System.currentTimeMillis();
         log("\n----- PROMPT " + LocalTime.now().format(TIME) + " -----\n" + prompt);
-        int timeout = s.getTimeoutSeconds();
-        Callable<String> call = () -> sendChat(s, prompt, false);
+        // Hard timeout: configured request timeout, capped by the priority watchdog budget.
+        int timeout = Math.min(s.getTimeoutSeconds(), watchdogLeft);
+        Function<String, String> stub = askClientForTests;
+        Callable<String> call = stub != null
+                ? () -> stub.apply(prompt)
+                : () -> sendChat(s, prompt, false);
         try {
-            String content;
-            if (Thread.currentThread().getName().startsWith("llm-opponent-http")) {
-                content = call.call();
-            } else {
-                Future<String> future = HTTP_EXEC.submit(call);
-                try {
-                    content = future.get(timeout + 2L, TimeUnit.SECONDS);
-                } catch (TimeoutException te) {
-                    future.cancel(true);
-                    log("----- ERROR: timeout after " + timeout + "s");
+            // Always enforce a hard timeout — never call HTTP (or a slow stub) inline without one.
+            ExecutorService exec = Thread.currentThread().getName().startsWith("llm-opponent-http")
+                    ? Executors.newSingleThreadExecutor(r -> {
+                        Thread t = new Thread(r, "llm-opponent-ask");
+                        t.setDaemon(true);
+                        return t;
+                    })
+                    : HTTP_EXEC;
+            boolean owned = exec != HTTP_EXEC;
+            Future<String> future = exec.submit(call);
+            try {
+                String content = future.get(timeout + 2L, TimeUnit.SECONDS);
+                if (content == null) {
                     return null;
                 }
-            }
-            if (content == null) {
+                log("----- ANSWER (" + (System.currentTimeMillis() - start) + " ms) -----\n" + content);
+                return content;
+            } catch (TimeoutException te) {
+                future.cancel(true);
+                log("----- ERROR: timeout after " + timeout + "s");
+                if (watchdogLeft <= timeout) {
+                    String kind = PRIORITY_DECISION_KIND.get();
+                    logWatchdogFallback(kind == null ? "llm-ask" : kind);
+                }
                 return null;
+            } finally {
+                if (owned) {
+                    exec.shutdownNow();
+                }
             }
-            log("----- ANSWER (" + (System.currentTimeMillis() - start) + " ms) -----\n" + content);
-            return content;
         } catch (ExecutionException e) {
             log("----- ERROR: " + s.redact(safeMessage(e.getCause() != null ? e.getCause() : e)));
             return null;
