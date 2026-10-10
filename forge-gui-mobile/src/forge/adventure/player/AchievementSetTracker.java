@@ -173,7 +173,6 @@ public final class AchievementSetTracker {
     /**
      * Shandalar sets that can actually get a set plane: CORE / EXPANSION / DRAFT
      * boosters with at least {@link #MIN_SET_PLANE_CARDS} reward-reachable main cards.
-     * Method name keeps the historical Bellwarden id for call sites.
      */
     public List<String> reachableBellwardenSetCodes() {
         List<String> cached = reachableCache;
