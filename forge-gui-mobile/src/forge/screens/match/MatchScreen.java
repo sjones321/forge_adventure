@@ -771,18 +771,30 @@ public class MatchScreen extends FScreen {
                 break;
             case Keys.Z: // DS4 take-back on Ctrl+Z (Ascendant); else stock mana undo
                 if (KeyInputAdapter.isCtrlKeyDown() || Forge.hasGamepad()) {
-                    if (TakeBackActions.featureEnabled() && TakeBackActions.canTakeBack()) {
-                        TakeBackActions.takeBack();
-                        return true;
+                    if (TakeBackActions.featureEnabled()) {
+                        if (TakeBackActions.isCoopDuel()) {
+                            TakeBackActions.notifyUnavailableInCoop();
+                            return true;
+                        }
+                        if (TakeBackActions.canTakeBack()) {
+                            TakeBackActions.takeBack();
+                            return true;
+                        }
                     }
                     getGameController().undoLastAction();
                     return true;
                 }
                 break;
             case Keys.BUTTON_START: // DS4 take-back on Start (gamepad; unused in match otherwise)
-                if (TakeBackActions.featureEnabled() && TakeBackActions.canTakeBack()) {
-                    TakeBackActions.takeBack();
-                    return true;
+                if (TakeBackActions.featureEnabled()) {
+                    if (TakeBackActions.isCoopDuel()) {
+                        TakeBackActions.notifyUnavailableInCoop();
+                        return true;
+                    }
+                    if (TakeBackActions.canTakeBack()) {
+                        TakeBackActions.takeBack();
+                        return true;
+                    }
                 }
                 break;
             case Keys.Y: //auto-yield, always yes, Ctrl+Y on Android, Y when running on desktop

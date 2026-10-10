@@ -41,9 +41,6 @@ public class WireClassFilterTest {
             "forge.gamemodes.net.event.coop.CoopGatherRequestEvent",
             "forge.gamemodes.net.event.coop.CoopNodeStateEvent",
             "forge.gamemodes.net.event.coop.CoopLocationInviteEvent",
-            // DS4 take-back
-            "forge.gamemodes.net.event.coop.CoopTakeBackRequestEvent",
-            "forge.gamemodes.net.event.coop.CoopTakeBackResultEvent",
     };
 
     private static final String[] REJECTED = {

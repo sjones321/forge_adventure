@@ -24,8 +24,7 @@
  * <p>Protocol: CO2 is 5; CO3 is 6; MV1 plane-follow ({@link CoopPlaneSwitchEvent}) is 7;
  * MV2 live-world hash + host {@link CoopPlanarGateEntry} list + {@code mv2SetCode} is 8;
  * EN2 lootRolls on {@link CoopDuelResultEvent} is 9; Package K {@code planeFormat} on
- * {@link CoopWorldOfferEvent} / {@link CoopPlaneSwitchEvent} is 10;
- * DS4 take-back ({@link CoopTakeBackRequestEvent} / {@link CoopTakeBackResultEvent}) is
- * set at review to {@code feature/set-start + 1}.
+ * {@link CoopWorldOfferEvent} / {@link CoopPlaneSwitchEvent} is 10.
+ * DS4 take-back is single-player only — no co-op wire events / no protocol bump.
  */
 package forge.gamemodes.net.event.coop;

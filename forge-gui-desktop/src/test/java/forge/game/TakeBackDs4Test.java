@@ -6,11 +6,6 @@ import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
-import forge.gamemodes.net.WireClassFilter;
-import forge.gamemodes.net.coop.CoopPorts;
-import forge.gamemodes.net.coop.CoopTakeBackAuthority;
-import forge.gamemodes.net.event.coop.CoopTakeBackRequestEvent;
-import forge.gamemodes.net.event.coop.CoopTakeBackResultEvent;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -225,61 +220,4 @@ public class TakeBackDs4Test extends AITest {
         return p;
     }
 
-    @Test
-    public void coopHostRestoreAndPartnerBlocks() {
-        final Game game = enableTakeBack();
-        final Player host = game.getPlayers().get(1);
-        final Player guest = game.getPlayers().get(0);
-        fillLibrary(host, 8);
-        fillLibrary(guest, 8);
-        final Card plains = addCardToZone("Plains", host, ZoneType.Hand);
-        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, host);
-        playAndRetain(game, host, landAbility(plains, host));
-
-        // Wrong requester name → refused.
-        final CoopTakeBackResultEvent denied = CoopTakeBackAuthority.handle(game,
-                new CoopTakeBackRequestEvent(1L, host.getId(), 0L), "NotTheHost");
-        Assert.assertFalse(denied.isAccepted());
-        Assert.assertTrue(plains.isInZone(ZoneType.Battlefield));
-
-        // Correct requester → host restores.
-        final String hostName = host.getLobbyPlayer().getName();
-        final CoopTakeBackResultEvent ok = CoopTakeBackAuthority.handle(game,
-                new CoopTakeBackRequestEvent(2L, host.getId(), 0L), hostName);
-        Assert.assertTrue(ok.isAccepted(), ok.getReason());
-        Assert.assertTrue(plains.isInZone(ZoneType.Hand));
-
-        // Partner acted after host's new action → host take-back blocked.
-        final Card island = addCardToZone("Island", host, ZoneType.Hand);
-        // land drop already used this turn if we only restored — play mana then partner.
-        final Card forest = addCard("Forest", host);
-        SpellAbility manaSa = null;
-        for (final SpellAbility sa : forest.getAllPossibleAbilities(host, true)) {
-            if (sa.isManaAbility()) {
-                manaSa = sa;
-                break;
-            }
-        }
-        playAndRetain(game, host, manaSa);
-        Assert.assertTrue(game.canTakeBack(host));
-        final Card swamp = addCardToZone("Swamp", guest, ZoneType.Hand);
-        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, guest);
-        playAndRetain(game, guest, landAbility(swamp, guest));
-        Assert.assertFalse(game.canTakeBack(host), "partner action blocks host take-back");
-
-        final CoopTakeBackResultEvent blocked = CoopTakeBackAuthority.handle(game,
-                new CoopTakeBackRequestEvent(3L, host.getId(), 0L), hostName);
-        Assert.assertFalse(blocked.isAccepted());
-        Assert.assertNotNull(island);
-    }
-
-    @Test
-    public void wireClassesAndProtocolBump() {
-        Assert.assertTrue(WireClassFilter.isAllowed(
-                "forge.gamemodes.net.event.coop.CoopTakeBackRequestEvent"));
-        Assert.assertTrue(WireClassFilter.isAllowed(
-                "forge.gamemodes.net.event.coop.CoopTakeBackResultEvent"));
-        // Review-time bump: feature/set-start was 10 → DS4 is 11.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
-    }
 }

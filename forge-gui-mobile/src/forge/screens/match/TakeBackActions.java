@@ -11,8 +11,8 @@ import forge.util.Localizer;
 
 /**
  * DS4: Ascendant-gated take-back entry points for both duel screens.
- * Solo / host use {@link IGameController#takeBackLastAction()}; co-op guests
- * send a plain-data {@code CoopTakeBackRequestEvent} for host-authoritative restore.
+ * Single-player only — co-op duels hide the button and show a short note if
+ * Take back / Ctrl+Z / Start is pressed (Bellwarden owns real co-op).
  */
 public final class TakeBackActions {
     private TakeBackActions() {
@@ -25,11 +25,19 @@ public final class TakeBackActions {
                 || Config.instance().getConfigData().duelTakeBackEnabled);
     }
 
+    /** True while an Ascendant co-op HostedMatch is live (host or guest). */
+    public static boolean isCoopDuel() {
+        final CoopSessionRole role = CoopSession.get().getRole();
+        return (role == CoopSessionRole.HOST || role == CoopSessionRole.GUEST)
+                && CoopDuelRuntime.get().isDuelActive();
+    }
+
     /**
      * Whether the local human may take back right now (snapshot retained and eligible).
+     * Always false during a co-op duel.
      */
     public static boolean canTakeBack() {
-        if (!featureEnabled()) {
+        if (!featureEnabled() || isCoopDuel()) {
             return false;
         }
         final PlayerView local = MatchController.instance.getCurrentPlayer();
@@ -41,20 +49,15 @@ public final class TakeBackActions {
     }
 
     /**
-     * Perform take-back for the local player. Co-op guests request via the host;
-     * everyone else calls the local/host game controller.
+     * Perform take-back for the local player. In a co-op duel, shows a short note
+     * and does nothing (no wire events).
      */
     public static void takeBack() {
         if (!featureEnabled()) {
             return;
         }
-        if (CoopSession.get().getRole() == CoopSessionRole.GUEST
-                && CoopDuelRuntime.get().isDuelActive()) {
-            final PlayerView local = MatchController.instance.getCurrentPlayer();
-            if (local == null) {
-                return;
-            }
-            CoopDuelRuntime.get().requestTakeBack(local.getId());
+        if (isCoopDuel()) {
+            notifyUnavailableInCoop();
             return;
         }
         final IGameController gc = MatchController.instance.getGameController();
@@ -77,6 +80,12 @@ public final class TakeBackActions {
      */
     public static void notifyFailed() {
         final String msg = Localizer.getInstance().getMessage("lblTakeBackFailed");
+        MatchController.instance.showMatchNote(msg);
+    }
+
+    /** Co-op duel: Take back is disabled — short note via MatchScreen overlay. */
+    public static void notifyUnavailableInCoop() {
+        final String msg = Localizer.getInstance().getMessage("lblTakeBackUnavailableInCoop");
         MatchController.instance.showMatchNote(msg);
     }
 }

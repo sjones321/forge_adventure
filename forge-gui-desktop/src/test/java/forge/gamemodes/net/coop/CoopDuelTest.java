@@ -26,8 +26,8 @@ public class CoopDuelTest {
     @Test
     public void protocolVersionIsExactlyTenForPackageK() {
         // CO2=5; CO3=6; MV1=7; MV2=8; EN2 lootRolls=9; Package K planeFormat=10.
-        // Exact equality only. Set to (feature/set-start) + 1 at review.
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
+        // DS4 take-back is single-player only (no co-op wire / no protocol bump).
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
     }
 
     @Test
@@ -283,10 +283,6 @@ public class CoopDuelTest {
                 "forge.gamemodes.net.event.coop.CoopFightLoadoutEvent"));
         Assert.assertTrue(WireClassFilter.isAllowed(
                 "forge.gamemodes.net.coop.CoopFightLoadout"));
-        Assert.assertTrue(WireClassFilter.isAllowed(
-                "forge.gamemodes.net.event.coop.CoopTakeBackRequestEvent"));
-        Assert.assertTrue(WireClassFilter.isAllowed(
-                "forge.gamemodes.net.event.coop.CoopTakeBackResultEvent"));
     }
 
     @Test

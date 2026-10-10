@@ -221,7 +221,7 @@ public class CoopSessionConnectionTest {
      */
     @Test
     public void oldProtocolNumberIsBelowPackageK() {
-        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 11);
+        Assert.assertEquals(CoopPorts.PROTOCOL_VERSION, 10);
         Assert.assertTrue(CoopPorts.PROTOCOL_VERSION - 1 >= 1);
     }
 
