@@ -2153,10 +2153,12 @@ public final class EnemyThemeDecks {
 
     /**
      * Final Commander main-deck size lock: exactly {@code 100 - |commanders|} cards.
-     * Trims basics then filler first; never removes core cards or interaction spells
-     * that would drop below {@link #MIN_COMMANDER_INTERACTION_SPELLS}. Fills with CI
-     * basics (within the land band) then missing core singletons. Fails loudly if
-     * the target cannot be reached without breaking those invariants.
+     * Trims basics then non-tribal filler first; never removes core cards, never
+     * strips interaction spells below {@link #MIN_COMMANDER_INTERACTION_SPELLS}, and
+     * never strips tribal creatures below {@link #MIN_TRIBAL_CREATURES_COMMANDER}.
+     * Fills with CI basics only while under {@link #MAX_LANDS_COMMANDER}, otherwise
+     * with missing on-theme nonland core / tribal filler. Fails loudly if the target
+     * cannot be reached without breaking those invariants.
      */
     public static void normalizeCommanderMainSize(Deck deck, EnemyThemeData theme) {
         if (deck == null)
@@ -2183,7 +2185,8 @@ public final class EnemyThemeDecks {
                 throw new IllegalStateException(
                         "normalizeCommanderMainSize: cannot trim main from "
                                 + main.countAll() + " to " + needMain
-                                + " without removing core cards or the interaction spell floor"
+                                + " without removing core cards, the interaction spell floor,"
+                                + " or the tribal creature floor"
                                 + (theme != null ? " (theme=" + theme.id + ")" : ""));
             }
             main.remove(remove);
@@ -2195,6 +2198,36 @@ public final class EnemyThemeDecks {
                 throw new IllegalStateException(
                         "normalizeCommanderMainSize: cannot fill main from "
                                 + main.countAll() + " to " + needMain
+                                + " without exceeding the land cap"
+                                + (theme != null ? " (theme=" + theme.id + ")" : ""));
+            }
+            main.add(preferPaperPrinting(add));
+        }
+        // Land-cap lock: swap excess basics for on-theme nonlands (never grow past max).
+        guard = 0;
+        while (countLands(deck) > MAX_LANDS_COMMANDER && guard++ < 200) {
+            PaperCard basic = null;
+            for (PaperCard pc : main.toFlatList()) {
+                if (pc != null && pc.getRules() != null && pc.getRules().getType().isBasicLand()) {
+                    basic = pc;
+                    break;
+                }
+            }
+            if (basic == null) {
+                throw new IllegalStateException(
+                        "normalizeCommanderMainSize: lands=" + countLands(deck)
+                                + " exceeds MAX_LANDS_COMMANDER=" + MAX_LANDS_COMMANDER
+                                + " and no basic left to swap"
+                                + (theme != null ? " (theme=" + theme.id + ")" : ""));
+            }
+            // Temporarily drop the basic so fill sees lands at/under the cap.
+            main.remove(basic);
+            PaperCard add = pickCommanderNormalizeFillCard(deck, theme, ci, pad);
+            if (add == null || (add.getRules() != null && add.getRules().getType().isLand())) {
+                main.add(basic);
+                throw new IllegalStateException(
+                        "normalizeCommanderMainSize: cannot swap excess basic for nonland"
+                                + " while lands=" + countLands(deck)
                                 + (theme != null ? " (theme=" + theme.id + ")" : ""));
             }
             main.add(preferPaperPrinting(add));
@@ -2204,6 +2237,20 @@ public final class EnemyThemeDecks {
                     "normalizeCommanderMainSize: main has " + main.countAll()
                             + " cards after normalize (need " + needMain + ")"
                             + (theme != null ? " theme=" + theme.id : ""));
+        }
+        if (countLands(deck) > MAX_LANDS_COMMANDER) {
+            throw new IllegalStateException(
+                    "normalizeCommanderMainSize: lands=" + countLands(deck)
+                            + " exceeds MAX_LANDS_COMMANDER=" + MAX_LANDS_COMMANDER
+                            + (theme != null ? " theme=" + theme.id : ""));
+        }
+        if (theme != null && isTribalTheme(theme)
+                && countTribalCreatures(deck, theme) < MIN_TRIBAL_CREATURES_COMMANDER) {
+            throw new IllegalStateException(
+                    "normalizeCommanderMainSize: tribal creatures="
+                            + countTribalCreatures(deck, theme)
+                            + " below floor " + MIN_TRIBAL_CREATURES_COMMANDER
+                            + " (theme=" + theme.id + ")");
         }
     }
 
@@ -2226,8 +2273,9 @@ public final class EnemyThemeDecks {
 
     /**
      * Trim victim for Commander size normalize: basics first (while lands stay at or
-     * above {@link #MIN_LANDS_COMMANDER} when possible), then non-core filler. Never
-     * core cards; never an interaction spell that would breach the floor.
+     * above {@link #MIN_LANDS_COMMANDER} when possible), then non-core non-tribal
+     * filler. Never core cards; never an interaction spell that would breach the
+     * spell floor; never a tribal creature that would breach the tribal floor.
      */
     private static PaperCard pickCommanderNormalizeTrimVictim(Deck deck, EnemyThemeData theme) {
         CardPool main = deck.getOrCreate(DeckSection.Main);
@@ -2242,7 +2290,7 @@ public final class EnemyThemeDecks {
                     return pc;
             }
         }
-        // Non-core filler creatures / non-interaction spells first.
+        // Non-core non-tribal filler first (never touch tribal while at/under the floor).
         for (PaperCard pc : main.toFlatList()) {
             if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
                 continue;
@@ -2251,7 +2299,22 @@ public final class EnemyThemeDecks {
             if (isCommanderInteractionName(pc.getName())
                     && countCommanderInteractionSpells(deck) <= MIN_COMMANDER_INTERACTION_SPELLS)
                 continue;
+            if (theme != null && isTribalTheme(theme) && countsAsTribalCreature(pc, theme))
+                continue;
             return pc;
+        }
+        // Non-core tribal creatures only while still strictly above the tribal floor.
+        if (theme != null && isTribalTheme(theme)
+                && countTribalCreatures(deck, theme) > MIN_TRIBAL_CREATURES_COMMANDER) {
+            for (PaperCard pc : main.toFlatList()) {
+                if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
+                    continue;
+                if (isInCore(pc.getName(), theme))
+                    continue;
+                if (!countsAsTribalCreature(pc, theme))
+                    continue;
+                return pc;
+            }
         }
         // Excess basics even at/under the land band — last resort before failing.
         for (PaperCard pc : main.toFlatList()) {
@@ -2264,43 +2327,111 @@ public final class EnemyThemeDecks {
     private static PaperCard pickCommanderNormalizeFillCard(Deck deck, EnemyThemeData theme,
                                                             byte ci, String[] pad) {
         CardPool main = deck.getOrCreate(DeckSection.Main);
-        // 1) Basics within the Commander land band.
+        // 1) Basics only while under the Commander land cap.
         if (countLands(deck) < MAX_LANDS_COMMANDER) {
             PaperCard land = cardByName(basicForColor(pad[main.countAll() % pad.length]));
             if (land != null)
                 return land;
         }
-        // 2) Missing core singletons (CI-legal, not the commander).
-        if (theme != null && theme.core != null) {
-            Set<String> cmdNames = new HashSet<>();
-            if (deck.getCommanders() != null) {
-                for (PaperCard cmd : deck.getCommanders()) {
-                    if (cmd != null)
-                        cmdNames.add(cmd.getName());
-                }
+        final boolean needTribal = theme != null && isTribalTheme(theme)
+                && countTribalCreatures(deck, theme) < MIN_TRIBAL_CREATURES_COMMANDER;
+        // 2) At land cap: restore tribal floor before other core filler.
+        PaperCard tribalCore = pickMissingCommanderNormalizeCoreNonland(deck, theme, ci, true);
+        if (tribalCore != null)
+            return tribalCore;
+        if (needTribal) {
+            PaperCard tribalDb = pickCommanderNormalizeTribalDbFiller(deck, theme, ci);
+            if (tribalDb != null)
+                return tribalDb;
+        }
+        PaperCard fromCore = pickMissingCommanderNormalizeCoreNonland(deck, theme, ci, false);
+        if (fromCore != null)
+            return fromCore;
+        // 3) On-theme tribal filler from the broader pool (nonland, CI-legal singleton).
+        PaperCard tribalDb = pickCommanderNormalizeTribalDbFiller(deck, theme, ci);
+        if (tribalDb != null)
+            return tribalDb;
+        // Do not add basics once at/over the land cap — fail loudly instead.
+        return null;
+    }
+
+    private static PaperCard pickCommanderNormalizeTribalDbFiller(Deck deck, EnemyThemeData theme,
+                                                                 byte ci) {
+        if (theme == null || !isTribalTheme(theme))
+            return null;
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        Set<String> have = new HashSet<>();
+        for (PaperCard pc : main.toFlatList()) {
+            if (pc != null)
+                have.add(pc.getName());
+        }
+        if (deck.getCommanders() != null) {
+            for (PaperCard cmd : deck.getCommanders()) {
+                if (cmd != null)
+                    have.add(cmd.getName());
             }
-            for (String name : theme.core) {
-                if (name == null || cmdNames.contains(name) || main.countByName(name) > 0)
-                    continue;
-                if (!isInCore(name, theme))
-                    continue;
-                PaperCard pc = cardByName(name);
+        }
+        try {
+            for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
                 if (pc == null || pc.getRules() == null)
                     continue;
                 if (pc.getRules().getType().isLand())
                     continue;
-                if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(name)
-                        || isEnemyBanned(name))
+                if (!countsAsTribalCreature(pc, theme))
+                    continue;
+                if (have.contains(pc.getName()))
+                    continue;
+                if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(pc.getName())
+                        || isEnemyBanned(pc.getName()))
                     continue;
                 if (ci != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
                         && !pc.getRules().getColorIdentity().isColorless())
                     continue;
-                return pc;
+                return preferPaperPrinting(pc);
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * Missing CI-legal nonland core card. When {@code tribalOnly}, only tribal
+     * creatures; otherwise only non-tribal nonlands (so the tribal pass runs first).
+     */
+    private static PaperCard pickMissingCommanderNormalizeCoreNonland(Deck deck,
+                                                                      EnemyThemeData theme,
+                                                                      byte ci,
+                                                                      boolean tribalOnly) {
+        if (theme == null || theme.core == null)
+            return null;
+        CardPool main = deck.getOrCreate(DeckSection.Main);
+        Set<String> cmdNames = new HashSet<>();
+        if (deck.getCommanders() != null) {
+            for (PaperCard cmd : deck.getCommanders()) {
+                if (cmd != null)
+                    cmdNames.add(cmd.getName());
             }
         }
-        // 3) One more basic even if at MAX lands — better than failing when short by 1–2.
-        PaperCard land = cardByName(basicForColor(pad[main.countAll() % pad.length]));
-        return land;
+        for (String name : theme.core) {
+            if (name == null || cmdNames.contains(name) || main.countByName(name) > 0)
+                continue;
+            PaperCard pc = cardByName(name);
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (pc.getRules().getType().isLand())
+                continue;
+            boolean tribal = countsAsTribalCreature(pc, theme);
+            if (tribalOnly != tribal)
+                continue;
+            if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(name)
+                    || isEnemyBanned(name))
+                continue;
+            if (ci != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
+                    && !pc.getRules().getColorIdentity().isColorless())
+                continue;
+            return pc;
+        }
+        return null;
     }
 
     /** Strip lands and rebuild exactly {@code landBudget} CI-matched basics + fixing. */
