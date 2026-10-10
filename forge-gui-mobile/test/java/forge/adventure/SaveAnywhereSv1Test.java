@@ -118,13 +118,13 @@ public class SaveAnywhereSv1Test {
             TileMapScene.instance().load(dungeon);
             MapStage map = MapStage.getInstance();
             Assert.assertTrue(map.isInMap());
-            Assert.assertFalse(map.enemies.isEmpty(), "Test dungeon must have enemies");
+            Assert.assertFalse(map.getEnemies().isEmpty(), "Test dungeon must have enemies");
 
-            EnemySprite victim = map.enemies.get(0);
+            EnemySprite victim = map.getEnemies().get(0);
             int victimId = victim.getId();
             map.getChanges().deleteObject(victimId);
             victim.remove();
-            map.enemies.remove(victim);
+            map.getEnemies().remove(victim);
 
             PlayerSprite player = map.getPlayerSprite();
             float savedX = player.getX() + 8f;
@@ -179,7 +179,7 @@ public class SaveAnywhereSv1Test {
         AdventureGlTestSupport.runOnGl(() -> {
             PointOfInterest dungeon = generateWorldAndPickDungeon();
             TileMapScene.instance().load(dungeon);
-            Assert.assertFalse(MapStage.getInstance().enemies.isEmpty());
+            Assert.assertFalse(MapStage.getInstance().getEnemies().isEmpty());
 
             File auto = new File(WorldSave.getSaveFile(WorldSave.AUTO_SAVE_SLOT));
             if (auto.isFile()) {
@@ -187,17 +187,17 @@ public class SaveAnywhereSv1Test {
             }
 
             PlayerSprite player = MapStage.getInstance().getPlayerSprite();
-            EnemySprite enemy = MapStage.getInstance().enemies.get(0);
+            EnemySprite enemy = MapStage.getInstance().getEnemies().get(0);
             DuelScene.instance().initDuels(player, enemy);
 
             Assert.assertTrue(auto.isFile(), "SV1 must write the rotating autosave at duel start");
             long written = auto.lastModified();
 
-            setCoopActiveHost();
             try {
+                setCoopActiveHost();
                 Thread.sleep(20L);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
             }
             InteriorMapSave.maybeAutosaveBeforeDuel();
             Assert.assertEquals(auto.lastModified(), written,

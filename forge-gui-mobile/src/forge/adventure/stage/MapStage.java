@@ -533,6 +533,11 @@ public class MapStage extends GameStage {
         return loadedMapPath != null ? loadedMapPath : "";
     }
 
+    /** Live enemy list for the current map (SV1 tests / diagnostics). */
+    public List<EnemySprite> getEnemies() {
+        return enemies;
+    }
+
     /** Entrance/spawn target id used for the current map load (SV1). */
     public int getLastSpawnTargetId() {
         return lastSpawnTargetId;
