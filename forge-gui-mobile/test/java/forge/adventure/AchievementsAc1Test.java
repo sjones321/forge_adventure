@@ -74,7 +74,7 @@ public class AchievementsAc1Test {
             + "  {\"id\":\"set_collector\",\"name\":\"Set Collector\",\"description\":\"Own a set.\","
             + "\"category\":\"collection\",\"condition\":{\"type\":\"setComplete\"},\"hidden\":false,"
             + "\"reward\":{\"type\":\"trophy\",\"id\":\"set_complete\"}},\n"
-            + "  {\"id\":\"bellwarden_completionist\",\"name\":\"Bellwarden Completionist\","
+            + "  {\"id\":\"bellwarden_completionist\",\"name\":\"Shandalar Completionist\","
             + "\"description\":\"Own every set.\",\"category\":\"collection\","
             + "\"condition\":{\"type\":\"allSetsComplete\"},\"hidden\":false,"
             + "\"reward\":{\"type\":\"cardStyle\",\"id\":\"all_sets_style\"}},\n"
@@ -234,7 +234,7 @@ public class AchievementsAc1Test {
     /**
      * Reachability: filtered name lists exclude restricted / no-script / never-rewardable
      * cards. Completing a set only requires the filtered names; "every set" is the
-     * Bellwarden reachable list (generatable set planes), not every booster.
+     * Shandalar reachable list (generatable set planes), not every booster.
      */
     @Test
     public void setCompletionUsesFilteredReachableNamesOnly() {
@@ -243,7 +243,7 @@ public class AchievementsAc1Test {
         // leave only A1/A2 — matching RewardData reachability exclusions.
         tracker.putFilteredNamesForTest("SET_A", Arrays.asList("A1", "A2"));
         tracker.putFilteredNamesForTest("SET_B", Arrays.asList("B1", "B2"));
-        // Unreachable booster (too few reward-reachable cards / not Bellwarden plane).
+        // Unreachable booster (too few reward-reachable cards / not a Shandalar set plane).
         tracker.putFilteredNamesForTest("PROMO", Collections.singletonList("PromoOnly"));
         tracker.setReachableForTest(Arrays.asList("SET_A", "SET_B"));
 
@@ -258,7 +258,7 @@ public class AchievementsAc1Test {
         List<String> reachable = tracker.reachableBellwardenSetCodes();
         Assert.assertEquals(reachable, Arrays.asList("SET_A", "SET_B"));
         Assert.assertFalse(reachable.contains("PROMO"),
-                "every set = Bellwarden generatable set planes only");
+                "every set = Shandalar generatable set planes only");
 
         List<String> newly = svc.applySetCompletions(Collections.singletonList("SET_A"), reachable);
         Assert.assertTrue(newly.contains("set_collector"));
@@ -291,7 +291,7 @@ public class AchievementsAc1Test {
         Assert.assertEquals(affected, new HashSet<>(Collections.singletonList("SET_A")));
         Assert.assertFalse(affected.contains("SET_B"));
 
-        // Unrelated name in an unreachable edition → no Bellwarden re-check.
+        // Unrelated name in an unreachable edition → no Shandalar set re-check.
         Set<String> none = tracker.affectedSets(
                 Collections.singletonList("Zzz"), Collections.singletonList("XYZ"));
         Assert.assertTrue(none.isEmpty());

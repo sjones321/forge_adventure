@@ -49,6 +49,7 @@ public class PlayerStatisticScene extends UIScene {
     TextraLabel winloss, lossWinRatio, eventLossWinRatio, eventMatchLossWinRatio;
     TextraLabel headerAchievements, headerAvatar, headerName, headerWinLoss;
     TypingLabel playerName;
+    TypingLabel playerTitle;
     TextraButton back, toggleAward;
     private final Table scrollContainer, achievementContainer;
     TextraLabel blessingScroll;
@@ -81,6 +82,7 @@ public class PlayerStatisticScene extends UIScene {
         avatar = ui.findActor("avatar");
         avatarBorder = ui.findActor("avatarBorder");
         playerName = ui.findActor("playerName");
+        playerTitle = ui.findActor("playerTitle");
         life = ui.findActor("lifePoints");
         money = ui.findActor("money");
         shards = ui.findActor("shards");
@@ -214,6 +216,21 @@ public class PlayerStatisticScene extends UIScene {
             String gender = Current.player().isFemale() ? "{GRADIENT=MAGENTA;MAUVE;1;1}\u2640{ENDGRADIENT}[BLACK] " : "{GRADIENT=CYAN;BLUE;1;1}\u2642{ENDGRADIENT}[BLACK] ";
             playerName.setText(gender + GamePlayerUtil.getGuiPlayer().getName());
             playerName.skipToTheEnd();
+        }
+        if (playerTitle != null) {
+            String titleText = "";
+            if (Config.ascendant()) {
+                try {
+                    String equipped = forge.adventure.player.AchievementService.get()
+                            .getProgress().getEquippedTitle();
+                    titleText = forge.adventure.util.AdventureTitles.statusTitleLabelText(equipped);
+                } catch (Throwable ignored) {
+                    // Achievement service unavailable in some test harnesses.
+                }
+            }
+            playerTitle.setText(titleText);
+            playerTitle.setVisible(titleText != null && !titleText.isEmpty());
+            playerTitle.skipToTheEnd();
         }
         if (avatar != null) {
             avatar.setDrawable(new TextureRegionDrawable(Current.player().avatar()));

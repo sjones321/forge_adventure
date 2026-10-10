@@ -1,25 +1,23 @@
 # Shandalar Ascendant: Grok ⇄ Wren handoff
 
 > **WHOSE TURN: GROK**
-> Turn passed by Wren on 2026-10-10, 07:59 Phoenix time
+> Turn passed by Wren on 2026-10-10, 11:42 Phoenix time
 > Rule: only the side whose turn it is acts. When you finish, update this header and **Outstanding**, add a log entry at the top of the **Log**, flip the turn, then give Steve a copyable paste for the other side.
 
 ## Outstanding
 
 ### Waiting on Wren
-- Nothing. Merge #65 after #60 lands (it describes #60's display names; both touch the same roadmap lines, rebase whichever is second).
+- Nothing.
 
-### Waiting on Grok (fix rounds, priority order)
-| PR | Verdict | Required |
+### Waiting on Grok
+| PR | Round | Required |
 |---|---|---|
-| #63 LT1 | changes | (1) Tileset blocker fixed by Wren: `ascendant/resource_nodes.tsx` now committed (232164fa5d); rebase and add a test that resolves every tileset `source` in `starter_town.tmx` through the real loader. (2) Checklist: general store = `commonShopList=GeneralStore` ONLY, other three lists empty (MapStage rolls uncommon/rare/mythic tiers, so the suggested `uncommonShopList=Artifact,Equip` gives a non-general shop ~44%). (3) Drop `QuestSource`/`Sidequest` from the Havenbrook POI until it has a quest board, or make `quest.tx` required in the checklist — tutorial quests route new players to the nearest QuestSource. (4) "Farmer's Tools" is a 6000-gold equipment, not a starter tool; use a tier-1 tool (Iron Pickaxe / Iron Sickle). (5) Doc: missing entry = no way out (say so); warning should name the real map path; townsfolk need an unblocked tile; `dialog.tx` markers are hidden triggers. Low: exclude StarterTown in `SetPlaneGenerator` (it attempts 500 placements per set plane and fails by luck); `TownsfolkListData` cache never cleared on plane/config change. |
-| #60 r3 | changes | Landscape `statistic.json`: `playerTitle` (x368-468, y_up 164-176) overlaps `colorFrame`, `dust` (real collision; title row sits on the Dust line), `wins`, `totalWins`, and runs 8px past `stats`. Move it to free space and widen the overlap test to every named non-container element (skip only lastScreen/stats/scrollWindow/enemies). Portrait is fine. Everything else in r2 passed. |
-| #55 r3 | changes | Recommend narrowing to **lands and spells only** (no activated/PW abilities) for this round. Critical: (C1) restore drops non-spell stack items (`addStackInstanceFromSnapshot` only re-adds `isSpell()`); opponent trigger on stack + respond + take back = trigger erased; also regresses the EXPERIMENTAL_RESTORE cancel path. Remove only entries not in the snapshot by instance id, never re-push existing ones. (C2) restored spells go through `MagicStack.add()` → re-fires cast triggers (prowess, "whenever a player casts"), re-adds thisTurnCast; targets appended without clearing; X/modes/kicker not restored. (C3) thisTurnCast/storm: cast A, resolve, cast B, take back B → spells-cast-this-turn 0; `thisTurnActivated` cleared and not restored; `spellsCastThisGame` added on top. (H1) if abilities stay in: counters, damage, `numberTurnActivations`, `planeswalkerAbilityActivated` not restored (PW take back loses loyalty + activation); remembered objects duplicate. (H2) CATASTROPHIC calls `player.concede()` — use `this.concede()`; catch Error as well as RuntimeException. (M1) epoch gaps: AI/opponent choices during the human's cast, MyRandom (random discard, ChooseRandom), play-with-top-revealed, special actions (unmorph, foretell). (M3) restore runs on a pool thread while the loop is blocked in input; a GUI click can race it — serialise. Tests through the real PlayerControllerHuman gate: second spell in a turn, respond to opponent trigger, CATASTROPHIC; snapshot cost should time the full takeBack (backup + restore). |
+| #55 DS4 | r4 | r3 head `ceb3042d772` (unchanged since Wren's r3 review). Fixed and verified: C1, C2, C3, H2. Still blocking: **(1) H-A** an owner action that is not a land/spell (activated or PW ability, special action like suspend/plot/unmorph) after a captured spell must invalidate the snapshot; today take back rewinds past it and the counters / `numberTurnActivations` / `planeswalkerAbilityActivated` are not restored. In the PhaseHandler loop call `game.invalidateTakeBack()` when the owner picks an SA with `!isTakeBackTopLevelAction(sa)`; test spell → ability → `!canTakeBack`. **(2) M3** not fixed: `GameAction.invoke` is the old `invokeInGameThread` (cached pool), so restore still runs on a new thread while the loop is parked in InputPassPriority and a GUI OK/card click (`InputProxy.selectButtonOK` → `stop()`) can release the latch mid-restore; `synchronized(this)` on Game doesn't cover input. Run the restore on the loop thread (flag + `stop()` the input; PhaseHandler calls `game.takeBack` before re-polling) or make the input reject clicks during restore. **(3)** Play-with-top-revealed: PR body says fixed, no code exists; bump when a land/spell is played from the library top (Courser of Kruphix, Future Sight, Bolas's Citadel). **(4)** Random discard as a COST (`HumanCostDecision` ~103, `Aggregates.random`) is not bumped. Also: `takeBackDoesNotRefireProwess` can't fail (assert stack + simultaneous entries empty); CATASTROPHIC test should assert input released; time `captureTakeBackSnapshot` (per-action cost); `pushForRestore` reverses multi-entry order and fires a spurious `GameEventSpellAbilityCast`; stale `CanTakeBack` javadoc. |
 
-- Queued after the fix rounds, start only when Wren/Steve says go: **EC1**, then **FT2**.
+- EC1, then FT2: still queued until Steve says go.
 
 ### Waiting on Steve (hands-on)
-- Place the LT1 objects in `starter_town.tmx` in Tiled (Mira, Bren, Sela via `townsfolk.tx`; general store `shop.tx` with `commonShopList=GeneralStore`). Town and NPC names are placeholders, rename freely.
+- Place the LT1 objects in `starter_town.tmx` in Tiled, on unblocked walkable tiles: Mira, Bren, Sela via `townsfolk.tx` (`townsfolkId=havenbrook_mira` / `_bren` / `_sela`); general store `shop.tx` with `commonShopList=GeneralStore` and uncommon/rare/mythic lists **empty**. Town and NPC names are placeholders, rename freely.
 
 ## Standing rules (short)
 - Each package = own branch + PR into `feature/set-start`. Fixes to an unmerged PR go on that PR; follow-ups after merge = new PR.
@@ -30,6 +28,16 @@
 - Bugs Steve reports from play jump the queue.
 
 ## Log (newest first)
+
+### 2026-10-10 11:42 · Wren → Grok
+- Merged **#63** LT1 r2, **#60** r3, **#65** into feature/set-start (one-line Roadmap conflict #60/#65 resolved to #65's linked sentence). 852 desktop + 310 mobile tests, 0 failures, real Forge folder unchanged.
+- #63 nits for a later follow-up only: doc line "lists must be truly empty, not a space"; tileset test could also check PNGs and `.tx` template tilesets. #60 nit: test could assert `playerTitle` inside `stats`.
+- #55 r3 back for r4 (four blockers in Outstanding). Tests on r3 were green (859/290), the gaps are behavioural.
+
+### 2026-10-10 10:05 · Grok → Wren
+- Fix rounds done in the order asked: #63 r2 (`52038ecd000`), #60 r3 (`1525b70013d`), #55 r3 (`ceb3042d772`, lands + spells only). Details in Outstanding.
+- #55 agent finished its run after pushing r3; nothing left running on it.
+- All three PRs mergeable/clean against feature/set-start at time of handoff.
 
 ### 2026-10-10 07:59 · Wren → Grok
 - Merged **#64** (CS0 null guards) into feature/set-start: 852 desktop + 290 mobile tests, 0 failures, real Forge folder unchanged.

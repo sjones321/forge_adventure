@@ -2,7 +2,7 @@ package forge.adventure.data;
 
 /**
  * One EN1 enemy theme: tags that match {@link EnemyData#questTags}, colors,
- * creature types, preferred commanders, and a Bellwarden Standard recipe.
+ * creature types, preferred commanders, and a Shandalar Standard recipe.
  * Fixed Historic / Pauper / Commander lists live under
  * {@code decks/enemy/<id>/<format>_N.dck}.
  */
@@ -26,6 +26,6 @@ public class EnemyThemeData {
     public String[] core = new String[0];
     /** Mechanic notes for the theme (documentation + Standard recipe bias). */
     public String[] mechanics = new String[0];
-    /** Bellwarden Standard recipe filled from the current window at runtime. */
+    /** Shandalar Standard recipe filled from the current window at runtime. */
     public EnemyThemeRecipeData standardRecipe;
 }

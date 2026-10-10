@@ -171,7 +171,7 @@ public class AchievementsAc1PlayerHooksTest {
             svc = AchievementService.forTest(achievementsFile.toFile());
             svc.setToastEnabled(false);
             AchievementService.setInstance(svc);
-            // Avoid scanning every Bellwarden set when create() rebuilds ownership.
+            // Avoid scanning every Shandalar set when create() rebuilds ownership.
             svc.getSetTracker().setReachableForTest(Collections.emptyList());
         } catch (Exception e) {
             LOCK.unlock();

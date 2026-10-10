@@ -9,6 +9,7 @@ import forge.adventure.data.AchievementListData;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.RewardData;
 import forge.adventure.stage.GameHUD;
+import forge.adventure.util.AdventureTitles;
 import forge.adventure.util.AtomicJsonFiles;
 import forge.adventure.util.Config;
 import forge.card.CardEdition;
@@ -205,6 +206,11 @@ public final class AchievementService {
                     p.addTitle(child.asString());
                 }
             }
+            String equippedTitle = root.getString("equippedTitle", null);
+            if (equippedTitle != null && !equippedTitle.isEmpty()) {
+                // Requires titles already loaded above; orphans clear, then migrate.
+                p.setEquippedTitle(equippedTitle);
+            }
             JsonValue trophies = root.get("trophies");
             if (trophies != null && trophies.isArray()) {
                 for (JsonValue child = trophies.child; child != null; child = child.next) {
@@ -235,6 +241,8 @@ public final class AchievementService {
                     }
                 }
             }
+            // Pre-equip-field account files: owned titles only → wear one after load.
+            p.migrateEquippedTitleIfMissing();
             return p;
         } catch (Throwable t) {
             return null;
@@ -265,6 +273,9 @@ public final class AchievementService {
         appendStringArray(sb, p.getCompletedSets());
         sb.append(",\n  \"titles\": ");
         appendStringArray(sb, p.getTitles());
+        if (p.getEquippedTitle() != null && !p.getEquippedTitle().isEmpty()) {
+            sb.append(",\n  \"equippedTitle\": \"").append(escapeJson(p.getEquippedTitle())).append('"');
+        }
         sb.append(",\n  \"trophies\": ");
         appendStringArray(sb, p.getTrophies());
         sb.append(",\n  \"cardStyles\": ");
@@ -446,7 +457,7 @@ public final class AchievementService {
      * collection path and by tests that stub ownership without a card database.
      *
      * @param justCompleted set codes newly completed this pass
-     * @param allReachableCodes Bellwarden sets that can host a set plane
+     * @param allReachableCodes Shandalar sets that can host a set plane
      */
     public synchronized List<String> applySetCompletions(Collection<String> justCompleted,
                                                          Collection<String> allReachableCodes) {
@@ -536,7 +547,7 @@ public final class AchievementService {
         }
         String achId = def == null ? "bellwarden_completionist" : def.id;
         if (progress.addPendingCardStyleGrant(new PendingCardStyleGrant(styleId, "", achId, now))) {
-            hof().record("all_sets_complete", "Bellwarden Completionist",
+            hof().record("all_sets_complete", AdventureTitles.COMPLETIONIST_TITLE_ID,
                     "Pending CS1 style " + styleId);
         }
     }
@@ -804,7 +815,7 @@ public final class AchievementService {
         }
     }
 
-    /** Reachable Bellwarden set codes (generatable set planes). */
+    /** Reachable Shandalar set codes (generatable set planes). */
     public List<String> reachableBellwardenSetCodes() {
         return setTracker.reachableBellwardenSetCodes();
     }

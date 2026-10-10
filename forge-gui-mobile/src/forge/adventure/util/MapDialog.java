@@ -96,7 +96,18 @@ public class MapDialog {
                 this.data = JSONStringLoader.parse(Array.class, DialogData.class, defaultJSON, defaultJSON);
                 return;
             }
-            this.data = JSONStringLoader.parse(Array.class, DialogData.class, S, defaultJSON);
+            // LT1: dialog property may be a plane-relative JSON file path instead of inline JSON.
+            String dialogJson = S;
+            if (LivingTownMapSupport.isDialogFileRef(S)) {
+                FileHandle dialogFile = Config.instance().getFile(S.trim());
+                if (dialogFile != null && dialogFile.exists()) {
+                    dialogJson = dialogFile.readString("UTF-8");
+                } else {
+                    System.err.println("LT1: dialog file missing: " + S);
+                    dialogJson = defaultJSON;
+                }
+            }
+            this.data = JSONStringLoader.parse(Array.class, DialogData.class, dialogJson, defaultJSON);
         } catch (Exception exception) {
             exception.printStackTrace();
         }

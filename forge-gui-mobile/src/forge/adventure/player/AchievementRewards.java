@@ -51,7 +51,13 @@ public final class AchievementRewards {
         switch (type) {
             case "title":
                 String title = reward.value != null && !reward.value.isEmpty() ? reward.value : id;
-                return progress.addTitle(title);
+                boolean added = progress.addTitle(title);
+                // First title auto-equips so profile / HUD have something to show.
+                if (progress.getEquippedTitle() == null || progress.getEquippedTitle().isEmpty()) {
+                    progress.setEquippedTitle(title);
+                    return true;
+                }
+                return added;
             case "trophy":
             case "cosmetic":
                 return progress.addTrophy(id);

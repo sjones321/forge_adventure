@@ -4,6 +4,7 @@ import forge.adventure.coop.CoopSession;
 import forge.adventure.coop.CoopSessionRole;
 import forge.adventure.data.ConfigData;
 import forge.adventure.player.AdventurePlayer;
+import forge.adventure.util.AdventureTitles;
 import forge.adventure.util.Config;
 import forge.adventure.util.Current;
 import forge.adventure.util.GymUtil;
@@ -21,9 +22,9 @@ public final class PlaneFormat {
     public static final String HISTORIC = GymUtil.FORMAT_HISTORIC;
     public static final String COMMANDER = GymUtil.FORMAT_COMMANDER;
 
-    /** Display labels for New Game / portal UI (canonical stored value is the first token). */
+    /** Display labels for New Game / portal UI (canonical stored value is Standard). */
     public static final String[] CHOICES = {
-            "Bellwarden Standard",
+            AdventureTitles.STANDARD_FORMAT_DISPLAY,
             "Historic",
             "Pauper",
             "Commander"
@@ -32,7 +33,7 @@ public final class PlaneFormat {
     private PlaneFormat() {
     }
 
-    /** Config default for planes / saves with no format (Bellwarden Standard). */
+    /** Config default for planes / saves with no format (Shandalar Standard). */
     public static String defaultFormat() {
         try {
             ConfigData cfg = Config.instance() != null ? Config.instance().getConfigData() : null;
@@ -58,8 +59,10 @@ public final class PlaneFormat {
         if (f.equalsIgnoreCase(COMMANDER)) {
             return COMMANDER;
         }
-        if (f.equalsIgnoreCase(STANDARD) || f.equalsIgnoreCase("Bellwarden")
-                || f.equalsIgnoreCase("Bellwarden Standard")) {
+        // Player-facing name is Shandalar Standard; keep Bellwarden aliases for old saves/inputs.
+        if (f.equalsIgnoreCase(STANDARD)
+                || f.equalsIgnoreCase("Shandalar") || f.equalsIgnoreCase("Shandalar Standard")
+                || f.equalsIgnoreCase("Bellwarden") || f.equalsIgnoreCase("Bellwarden Standard")) {
             return STANDARD;
         }
         return defaultFormat();
@@ -74,7 +77,7 @@ public final class PlaneFormat {
     public static String displayName(String format) {
         String f = normalize(format);
         if (STANDARD.equals(f)) {
-            return "Bellwarden Standard";
+            return AdventureTitles.STANDARD_FORMAT_DISPLAY;
         }
         return f;
     }
@@ -86,6 +89,7 @@ public final class PlaneFormat {
         String f = format.trim();
         return f.equalsIgnoreCase(STANDARD) || f.equalsIgnoreCase(PAUPER)
                 || f.equalsIgnoreCase(HISTORIC) || f.equalsIgnoreCase(COMMANDER)
+                || f.equalsIgnoreCase("Shandalar") || f.equalsIgnoreCase("Shandalar Standard")
                 || f.equalsIgnoreCase("Bellwarden") || f.equalsIgnoreCase("Bellwarden Standard");
     }
 

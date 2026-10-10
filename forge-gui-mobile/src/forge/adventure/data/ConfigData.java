@@ -469,10 +469,10 @@ public class ConfigData {
     /**
      * When true (Ascendant default), ordinary overworld enemies pick a theme at spawn
      * and play format-appropriate theme decks (fixed Historic/Pauper/Commander lists,
-     * Bellwarden Standard recipes filled from the current window).
+     * Shandalar Standard recipes filled from the current window).
      */
     public boolean en1EnemyThemeDecks = true;
-    /** Target size for EN1 Bellwarden Standard recipe decks. */
+    /** Target size for EN1 Shandalar Standard recipe decks. */
     public int en1StandardDeckSize = 60;
     /**
      * When true, log EN1 format/theme fallbacks (missing .dck → nearest available).
@@ -508,7 +508,7 @@ public class ConfigData {
 
     /**
      * Default format for planes (and old saves) with none set. Canonical tokens:
-     * {@code Standard} (Bellwarden), {@code Historic}, {@code Pauper}, {@code Commander}.
+     * {@code Standard} (Shandalar Standard), {@code Historic}, {@code Pauper}, {@code Commander}.
      */
     public String kDefaultPlaneFormat = "Standard";
     /**
@@ -544,6 +544,35 @@ public class ConfigData {
      * {@code useAllCardVariants} setting for those paths. Stock worlds leave this unused.
      */
     public boolean cs0SourcePrintings = true;
+
+    // ---- Ascendant living towns (Package LT1): hand-made town pipeline (no shipments). ----
+
+    /**
+     * When true (Ascendant default), enable LT1 living-town helpers: townsfolk map objects,
+     * dialog-file refs, and missing-object warnings with a fallback entry spawn.
+     */
+    public boolean lt1LivingTowns = true;
+    /**
+     * When true, log clear warnings for missing entry/shop/townsfolk objects on Ascendant
+     * maps instead of crashing. Missing entry uses {@link #lt1FallbackEntryXFraction} /
+     * {@link #lt1FallbackEntryYFraction}.
+     */
+    public boolean lt1WarnMissingMapObjects = true;
+    /**
+     * Fallback player spawn X as a fraction of the map's pixel width when no entry object
+     * is present (Steve may still be placing objects in Tiled).
+     */
+    public float lt1FallbackEntryXFraction = 0.5f;
+    /**
+     * Fallback player spawn Y as a fraction of the map's pixel height when no entry object
+     * is present. Default near the south edge (typical town entry).
+     */
+    public float lt1FallbackEntryYFraction = 0.15f;
+    /**
+     * Stable POI {@code name} for the hand-made starter town in
+     * {@code points_of_interest.json} (display name may differ).
+     */
+    public String lt1StarterTownPoiName = "StarterTown";
 
     // ---- Ascendant duel take-back (Package DS4): dedicated pre-action snapshot undo. ----
 

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "havenbrook_mira",
+    "name": "Mira",
+    "town": "StarterTown",
+    "home": "inn",
+    "dailySpots": ["inn", "town_square"],
+    "sprite": "sprites/heroes/human_f.atlas",
+    "personality": "Warm innkeeper who remembers every traveler's name.",
+    "dialogFile": "world/dialogs/starter_town/mira.json",
+    "deck": "",
+    "signatureCard": "",
+    "giftLikes": [],
+    "giftDislikes": []
+  },
+  {
+    "id": "havenbrook_bren",
+    "name": "Bren",
+    "town": "StarterTown",
+    "home": "general_store",
+    "dailySpots": ["general_store", "town_square"],
+    "sprite": "sprites/heroes/human_m.atlas",
+    "personality": "Practical shopkeep; talks in prices and packing lists.",
+    "dialogFile": "world/dialogs/starter_town/bren.json",
+    "deck": "",
+    "signatureCard": "",
+    "giftLikes": [],
+    "giftDislikes": []
+  },
+  {
+    "id": "havenbrook_sela",
+    "name": "Sela",
+    "town": "StarterTown",
+    "home": "town_square",
+    "dailySpots": ["town_square", "school"],
+    "sprite": "sprites/heroes/kor_f.atlas",
+    "personality": "Curious local who points newcomers toward the inn and shops.",
+    "dialogFile": "world/dialogs/starter_town/sela.json",
+    "deck": "",
+    "signatureCard": "",
+    "giftLikes": [],
+    "giftDislikes": []
+  }
+]
