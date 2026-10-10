@@ -3,6 +3,8 @@ package forge.adventure;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Json;
+import forge.ImageKeys;
+import forge.StaticData;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.EnemyData;
 import forge.adventure.data.EnemyThemeCatalogData;
@@ -11,6 +13,7 @@ import forge.adventure.data.EnemyThemeData;
 import forge.adventure.data.EnemyThemeRecipeData;
 import forge.adventure.data.GymRewardData;
 import forge.adventure.data.RewardData;
+import forge.adventure.player.AccountStore;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.coop.CoopDuelRuntime;
 import forge.adventure.stage.WorldStage;
@@ -28,12 +31,19 @@ import forge.deck.Deck;
 import forge.gamemodes.net.coop.CoopDuelRewards;
 import forge.gamemodes.net.event.coop.CoopDuelResultEvent;
 import forge.item.PaperCard;
+import forge.localinstance.properties.ForgeConstants;
 import forge.model.FModel;
+import forge.util.Lang;
+import forge.util.Localizer;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import java.io.File;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -52,22 +62,126 @@ import java.util.stream.Collectors;
 /**
  * RW1 behavior: themed-fight signature + current-set card rewards through
  * {@link RewardData#generateThemedFightRewards} / {@link FightRewards}.
+ *
+ * <p>Self-bootstraps Config + card DB in {@link BeforeClass} (same pattern as
+ * {@link AchievementsAc1RealDbTest}) so suite order cannot leave
+ * {@code Config}/{@code StaticData} null after AC1/EN1 teardown.
  * Uses Surefire {@code forge.test.userDir}; never touches the real user folder.
  */
 public class FightRewardsRw1Test {
 
-    private Path realUserDir;
-    private Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
+    private static Path realUserDir;
+    private static Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
+    private static StaticData magicDb;
+    private static StaticData previousStaticData;
+    private static ConfigData classAscendantConfig;
+    private static String initError;
+
     private ConfigData ascendantConfig;
     private ConfigData stockConfig;
     private List<String> standardWindowSnapshot;
     private int dustCommonSnapshot;
     private int goldSnapshot;
 
+    @BeforeClass
+    public void bootstrapConfigAndCardDb() {
+        try {
+            realUserDir = AdventureTestUserDir.defaultRealUserDir();
+            realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
+            AdventureTestUserDir.requireIsolatedUserDir();
+            AccountStore.setAdventureRootOverrideForTest(new File(ForgeConstants.USER_ADVENTURE_DIR));
+
+            Path forgeGuiDir = resolveForgeGuiDir();
+            Assert.assertTrue(Files.isDirectory(forgeGuiDir.resolve("res/editions")),
+                    "editions dir missing under " + forgeGuiDir);
+            Assert.assertTrue(Files.isDirectory(forgeGuiDir.resolve("res/cardsfolder")),
+                    "cardsfolder missing under " + forgeGuiDir);
+
+            try {
+                Lang.createInstance("en-US");
+                String langDir = forgeGuiDir.resolve("res/languages").toAbsolutePath().normalize()
+                        + File.separator;
+                Localizer.getInstance().initialize("en-US", langDir);
+                ImageKeys.initializeDirs("", new HashMap<>(), "", "", "", "", "", "", "");
+            } catch (Throwable ignored) {
+                // Suite bootstrap may already have initialized these.
+            }
+
+            previousStaticData = readStaticDataInstance();
+
+            // FightRewards / CardUtil / CardDb.lazyLoad all need FModel's StaticData and
+            // StaticData.instance() to be the *same* object. AC1's AfterClass can unpin
+            // lastInstance to null; never pin a second StaticData or lazy lookup breaks.
+            ensureFModelMagicDb();
+            magicDb = FModel.getMagicDb();
+            Assert.assertNotNull(magicDb, "FModel magic DB required for RW1");
+            Assert.assertNotNull(magicDb.getCommonCards(), "FModel common cards required");
+            pinStaticData(magicDb);
+
+            Path cfgPath = forgeGuiDir.resolve("res/adventure/Shandalar Ascendant/config.json");
+            Assert.assertTrue(Files.isRegularFile(cfgPath), "Ascendant config missing: " + cfgPath);
+            classAscendantConfig = new Json().fromJson(ConfigData.class, new FileHandle(cfgPath.toFile()));
+            Assert.assertNotNull(classAscendantConfig);
+            Assert.assertTrue(classAscendantConfig.ascendantRules);
+            classAscendantConfig.rw1FightRewards = true;
+            classAscendantConfig.rw1SignatureCardCount = 1;
+            classAscendantConfig.rw1CurrentSetCardShare = 1.0f;
+
+            // AC1 AfterClass calls Config.resetInstanceForTest() — reinstall ourselves.
+            Config.resetInstanceForTest();
+            Config.instance();
+            Config.installConfigDataForTest(classAscendantConfig);
+            Assert.assertTrue(Config.ascendant());
+        } catch (Throwable t) {
+            initError = t.getClass().getSimpleName() + ": " + t.getMessage();
+            t.printStackTrace();
+        }
+    }
+
+    /** Suite listener normally initializes FModel; call again only when missing. */
+    private static void ensureFModelMagicDb() {
+        try {
+            if (FModel.getMagicDb() != null && FModel.getMagicDb().getCommonCards() != null) {
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+        FModel.initialize(null, preferences -> {
+            preferences.setPref(
+                    forge.localinstance.properties.ForgePreferences.FPref.LOAD_CARD_SCRIPTS_LAZILY, true);
+            preferences.setPref(
+                    forge.localinstance.properties.ForgePreferences.FPref.UI_LANGUAGE, "en-US");
+            preferences.setPref(
+                    forge.localinstance.properties.ForgePreferences.FPref.ENFORCE_DECK_LEGALITY, false);
+            return null;
+        });
+    }
+
+    @AfterClass(alwaysRun = true)
+    public void restorePinnedStateAndAssertRealUserDirUntouched() throws Exception {
+        try {
+            FightRewards.clearTestOverrides();
+            RewardData.invalidateCardPool();
+            RewardData.invalidateRewardFilterCache();
+            EnemyThemeDecks.clearCache();
+            EnemyThemeDecks.setEnabledForTests(null);
+            EnemyCoopPartners.setEnabledForTests(null);
+            pinStaticData(previousStaticData);
+            AccountStore.resetAdventureRootOverrideForTest();
+            Config.resetInstanceForTest();
+        } finally {
+            if (realUserDirSnapshot != null) {
+                AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
+                        "FightRewardsRw1Test");
+            }
+        }
+    }
+
     @BeforeMethod
     public void setUp() throws Exception {
-        realUserDir = AdventureTestUserDir.defaultRealUserDir();
-        realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
+        Assert.assertNull(initError, "RW1 BeforeClass bootstrap failed: " + initError);
+        Assert.assertNotNull(magicDb, "RW1 card DB not loaded");
+        pinStaticData(magicDb);
         AdventureTestUserDir.requireIsolatedUserDir();
 
         FightRewards.clearTestOverrides();
@@ -76,9 +190,8 @@ public class FightRewardsRw1Test {
         EnemyThemeDecks.loadCatalogForTests(merfolkCatalog());
         EnemyCoopPartners.setEnabledForTests(true);
 
-        Path cfgPath = resolveAscendantConfig();
-        ascendantConfig = new Json().fromJson(ConfigData.class, new FileHandle(cfgPath.toFile()));
-        Assert.assertTrue(ascendantConfig.ascendantRules);
+        Assert.assertNotNull(classAscendantConfig, "Ascendant config missing from BeforeClass");
+        ascendantConfig = classAscendantConfig;
         ascendantConfig.rw1FightRewards = true;
         ascendantConfig.rw1SignatureCardCount = 1;
         ascendantConfig.rw1CurrentSetCardShare = 1.0f;
@@ -86,6 +199,7 @@ public class FightRewardsRw1Test {
         stockConfig = new ConfigData();
         stockConfig.ascendantRules = false;
 
+        // Reinstall — do not leave Config null if a prior suite class reset it.
         Config.resetInstanceForTest();
         Config.instance();
         Config.installConfigDataForTest(ascendantConfig);
@@ -104,39 +218,36 @@ public class FightRewardsRw1Test {
 
     @AfterMethod(alwaysRun = true)
     public void tearDown() throws Exception {
+        FightRewards.clearTestOverrides();
+        RewardData.invalidateCardPool();
+        EnemyThemeDecks.clearCache();
+        EnemyThemeDecks.setEnabledForTests(null);
+        EnemyCoopPartners.setEnabledForTests(null);
         try {
-            FightRewards.clearTestOverrides();
-            RewardData.invalidateCardPool();
-            EnemyThemeDecks.clearCache();
-            EnemyThemeDecks.setEnabledForTests(null);
-            EnemyCoopPartners.setEnabledForTests(null);
-            try {
-                AdventurePlayer player = AdventurePlayer.current();
-                player.setLegacyRunFormat(GymUtil.FORMAT_STANDARD);
-                if (standardWindowSnapshot != null) {
-                    player.getStandardWindow().init(standardWindowSnapshot);
-                }
-                int dustNow = player.getDust(CardRarity.Common);
-                if (dustNow != dustCommonSnapshot) {
-                    player.addDust(CardRarity.Common, dustCommonSnapshot - dustNow);
-                }
-                int goldNow = player.getGold();
-                if (goldNow != goldSnapshot) {
-                    player.takeGold(goldNow - goldSnapshot);
-                }
-            } catch (Throwable ignored) {
+            AdventurePlayer player = AdventurePlayer.current();
+            player.setLegacyRunFormat(GymUtil.FORMAT_STANDARD);
+            if (standardWindowSnapshot != null) {
+                player.getStandardWindow().init(standardWindowSnapshot);
             }
-            try {
-                Current.setLatestDeck(null);
-            } catch (Throwable ignored) {
+            int dustNow = player.getDust(CardRarity.Common);
+            if (dustNow != dustCommonSnapshot) {
+                player.addDust(CardRarity.Common, dustCommonSnapshot - dustNow);
             }
-            Config.resetInstanceForTest();
-        } finally {
-            if (realUserDirSnapshot != null) {
-                AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
-                        "FightRewardsRw1Test");
+            int goldNow = player.getGold();
+            if (goldNow != goldSnapshot) {
+                player.takeGold(goldNow - goldSnapshot);
             }
+        } catch (Throwable ignored) {
         }
+        try {
+            Current.setLatestDeck(null);
+        } catch (Throwable ignored) {
+        }
+        // Keep Config + StaticData pinned for the rest of this class; AfterClass restores.
+        if (classAscendantConfig != null) {
+            Config.installConfigDataForTest(classAscendantConfig);
+        }
+        pinStaticData(magicDb);
     }
 
     @Test
@@ -343,6 +454,8 @@ public class FightRewardsRw1Test {
     @Test
     public void gymLeagueRewardPathUnchanged() {
         // GymUtil.grantRewards never consults FightRewards / theme cores.
+        // Still needs Config + StaticData.instance() pinned — pickStapleReward uses CardUtil.
+        assumeCardDb();
         GymRewardData gym = new GymRewardData();
         gym.gold = 40;
         gym.dustCommon = 3;
@@ -536,11 +649,11 @@ public class FightRewardsRw1Test {
         Assert.assertFalse(core.isEmpty());
         String playedCore = core.get(0);
         Deck primaryPlayed = new Deck("primary-played");
-        PaperCard playedPc = forge.adventure.util.CardUtil.getCardByName(playedCore);
+        PaperCard playedPc = cardByName(playedCore);
         Assert.assertNotNull(playedPc, playedCore);
         primaryPlayed.getMain().add(playedPc);
         for (String pad : List.of("Cancel", "Unsummon")) {
-            PaperCard p = forge.adventure.util.CardUtil.getCardByName(pad);
+            PaperCard p = cardByName(pad);
             if (p != null) {
                 primaryPlayed.getMain().add(p);
             }
@@ -549,7 +662,7 @@ public class FightRewardsRw1Test {
         // Stale solo latestDeck — must NOT be used for co-op host credit.
         Deck stale = new Deck("stale-solo");
         for (int i = 1; i < Math.min(core.size(), 4); i++) {
-            PaperCard p = forge.adventure.util.CardUtil.getCardByName(core.get(i));
+            PaperCard p = cardByName(core.get(i));
             if (p != null && !playedCore.equals(p.getName())) {
                 stale.getMain().add(p);
             }
@@ -672,10 +785,60 @@ public class FightRewardsRw1Test {
     // ---- helpers ----
 
     private static void assumeCardDb() {
-        Assert.assertNotNull(FModel.getMagicDb(), "FModel card DB required (AdventureGuiBootstrapListener)");
-        Assert.assertNotNull(FModel.getMagicDb().getCommonCards());
-        PaperCard sample = forge.adventure.util.CardUtil.getCardByName("Island");
-        Assert.assertNotNull(sample, "card DB must resolve Island");
+        Assert.assertNull(initError, "RW1 BeforeClass bootstrap failed: " + initError);
+        Assert.assertNotNull(magicDb, "RW1 pinned card DB required");
+        // Re-pin every assume: AC1/EN1 AfterClass can null StaticData.instance(), and
+        // CardDb.lazyLoad reads that — not FModel.getMagicDb() alone.
+        pinStaticData(magicDb);
+        if (classAscendantConfig != null) {
+            Config.installConfigDataForTest(classAscendantConfig);
+        }
+        // getAllCards (not CardUtil.getCardByName): CardUtil List.of(unique) NPEs when
+        // a name is not yet lazy-loaded and StaticData was unpinned mid-suite.
+        Assert.assertNotNull(cardByName("Island"), "card DB must resolve Island");
+    }
+
+    /** Resolve a card via the pinned DB (safe when CardUtil would NPE). */
+    private static PaperCard cardByName(String name) {
+        if (magicDb == null || magicDb.getCommonCards() == null || name == null) {
+            return null;
+        }
+        List<PaperCard> all = magicDb.getCommonCards().getAllCards(name);
+        if (all == null || all.isEmpty()) {
+            return null;
+        }
+        return all.get(0);
+    }
+
+    private static void pinStaticData(StaticData data) {
+        try {
+            Field instance = StaticData.class.getDeclaredField("lastInstance");
+            instance.setAccessible(true);
+            instance.set(null, data);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static StaticData readStaticDataInstance() {
+        try {
+            Field instance = StaticData.class.getDeclaredField("lastInstance");
+            instance.setAccessible(true);
+            return (StaticData) instance.get(null);
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
+    }
+
+    private static Path resolveForgeGuiDir() {
+        for (String rel : new String[]{"forge-gui", "../forge-gui"}) {
+            Path p = Path.of(rel).toAbsolutePath().normalize();
+            if (Files.isDirectory(p.resolve("res/editions"))) {
+                return p;
+            }
+        }
+        throw new IllegalStateException(
+                "Could not locate forge-gui/res/editions from " + Path.of(".").toAbsolutePath());
     }
 
     private static EnemyData merfolkEnemy() {
@@ -714,7 +877,7 @@ public class FightRewardsRw1Test {
     private static List<PaperCard> deckWithCoreCards(String themeId) {
         List<PaperCard> out = new ArrayList<>();
         for (String name : FightRewards.coreNames(themeId)) {
-            PaperCard pc = forge.adventure.util.CardUtil.getCardByName(name);
+            PaperCard pc = cardByName(name);
             if (pc != null) {
                 out.add(pc);
             }
@@ -724,7 +887,7 @@ public class FightRewardsRw1Test {
         }
         // Pad with a few non-core names so intersection matters.
         for (String pad : List.of("Island", "Cancel", "Unsummon")) {
-            PaperCard pc = forge.adventure.util.CardUtil.getCardByName(pad);
+            PaperCard pc = cardByName(pad);
             if (pc != null) {
                 out.add(pc);
             }

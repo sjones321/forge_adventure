@@ -15,8 +15,10 @@ import forge.adventure.data.SkillTreeNodeData;
 import forge.adventure.player.AdventurePlayer;
 import forge.adventure.player.BanLists;
 import forge.adventure.stage.GameHUD;
+import forge.adventure.stage.MapStage;
 import forge.adventure.stage.WorldStage;
 import forge.adventure.util.Config;
+import forge.adventure.util.Controls;
 import forge.adventure.util.Current;
 import forge.adventure.util.EnemyCoopPartners;
 import forge.adventure.data.EnemyData;
@@ -61,7 +63,6 @@ import forge.player.GamePlayerUtil;
 import forge.player.PlayerControllerHuman;
 import forge.screens.match.MatchController;
 import forge.sound.MusicPlaylist;
-import forge.toolbox.FOptionPane;
 import forge.util.Localizer;
 
 import java.util.ArrayList;
@@ -510,20 +511,59 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             return;
         } catch (final Exception ignored) {
         }
-        // Fallback when HUD unavailable (headless / tests).
+        // Fallback when HUD join-fight dialog is unavailable. Adventure scenes do not
+        // draw classic FOptionPane overlays — use the overworld/map stage dialog.
+        showJoinPromptOnAdventureDialog(from, enc);
+    }
+
+    /**
+     * Adventure-scene confirm for join-fight when {@link GameHUD} cannot show its dialog.
+     * Mirrors {@code PortalActor}'s MapStage dialog pattern (FOptionPane overlays do not draw).
+     */
+    private void showJoinPromptOnAdventureDialog(final String from, final String enc) {
         final Localizer loc = Forge.getLocalizer();
-        FOptionPane.showConfirmDialog(
-                from + " started a fight" + (enc.isEmpty() ? "" : " (" + enc + ")") + ". Join?",
-                "Join the fight?",
-                loc != null ? loc.getMessage("lblYes") : "Yes",
-                loc != null ? loc.getMessage("lblNo") : "No",
-                false, result -> {
-                    if (Boolean.TRUE.equals(result)) {
-                        acceptInviteFromUi();
-                    } else {
-                        declineInviteFromUi();
-                    }
-                });
+        final String yes = loc != null ? loc.getMessage("lblYes") : "Yes";
+        final String no = loc != null ? loc.getMessage("lblNo") : "No";
+        final String msg = from + " started a fight" + (enc.isEmpty() ? "" : " (" + enc + ")") + ". Join?";
+        try {
+            forge.adventure.stage.GameStage stage = null;
+            try {
+                if (MapStage.getInstance() != null && MapStage.getInstance().isInMap()) {
+                    stage = MapStage.getInstance();
+                }
+            } catch (final Exception ignored) {
+            }
+            if (stage == null) {
+                stage = WorldStage.getInstance();
+            }
+            if (stage == null || stage.getDialog() == null) {
+                // Headless / no stage — decline so the invite cannot hang invisibly.
+                declineInviteFromUi();
+                notifyHud(msg + " (declined — no adventure dialog)");
+                return;
+            }
+            final forge.adventure.stage.GameStage dialogStage = stage;
+            final com.badlogic.gdx.scenes.scene2d.ui.Dialog d = dialogStage.getDialog();
+            d.getButtonTable().clear();
+            d.getContentTable().clear();
+            d.clearListeners();
+            final com.github.tommyettinger.textra.TextraLabel label = Controls.newTextraLabel(msg);
+            label.setWrap(true);
+            d.getContentTable().add(label).width(250f);
+            d.getButtonTable().add(Controls.newTextButton(yes, () -> {
+                dialogStage.hideDialog();
+                acceptInviteFromUi();
+            })).width(240f).row();
+            d.getButtonTable().add(Controls.newTextButton(no, () -> {
+                dialogStage.hideDialog();
+                declineInviteFromUi();
+            })).width(240f).row();
+            d.setKeepWithinStage(true);
+            dialogStage.showDialog();
+        } catch (final Exception e) {
+            declineInviteFromUi();
+            notifyHud("Join-fight prompt failed — declined");
+        }
     }
 
     /** HUD Accept for join-fight (including after dequeue). Hook signature stable. */

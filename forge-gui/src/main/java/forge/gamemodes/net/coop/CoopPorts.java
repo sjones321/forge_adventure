@@ -23,8 +23,8 @@ public final class CoopPorts {
      *
      * <p>Rule: set to {@code (feature/set-start PROTOCOL_VERSION) + 1} at review time;
      * Steve checks the number at merge. Do not pre-assign numbers for in-flight PRs.
-     * After merging {@code feature/set-start} (#52 rename), base is still 10, so this
-     * branch remains 11.
+     * Wire still carries RW1 credit fields vs feature/set-start (base 10), so this
+     * branch remains base+1 = 11. Match base only when the wire is unchanged.
      */
     public static final int PROTOCOL_VERSION = 11;
 
