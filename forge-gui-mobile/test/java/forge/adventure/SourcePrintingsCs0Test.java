@@ -5,6 +5,7 @@ import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Json;
 import forge.ImageKeys;
 import forge.StaticData;
+import forge.adventure.character.EnemySprite;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.RewardData;
 import forge.adventure.player.AccountStore;
@@ -245,11 +246,14 @@ public class SourcePrintingsCs0Test {
     public void tearDown() {
         try {
             if (ascendantConfig != null) {
+                // Tests may temporarily set allowedEditions; always restore the open catalogue.
+                ascendantConfig.allowedEditions = null;
                 Config.installConfigDataForTest(ascendantConfig);
             }
             if (Config.instance() != null && Config.instance().getSettingData() != null) {
                 Config.instance().getSettingData().useAllCardVariants = false;
             }
+            SourcePrintings.clearCaches();
             RewardData.invalidateCardPool();
             pinStaticData(magicDb);
         } finally {
@@ -410,6 +414,113 @@ public class SourcePrintingsCs0Test {
 
         Config.instance().getSettingData().useAllCardVariants = false;
         Assert.assertFalse(SourcePrintings.useAllCardVariants());
+    }
+
+    @Test
+    public void allowedEditionsHonouredByResolveRotationAndPinnedShops() {
+        // Shock is in M12 and M14 (allowed) and also in newer cores like M21 (disallowed here).
+        warmCard("Shock");
+        Assert.assertNotNull(magicDb.getEditions().get("M12"), "M12 required");
+        Assert.assertNotNull(magicDb.getEditions().get("M14"), "M14 required");
+        Assert.assertNotNull(magicDb.getEditions().get("M21"), "M21 required");
+        PaperCard m21Shock = printingInEdition("Shock", "M21");
+        Assert.assertNotNull(m21Shock, "M21 Shock printing required");
+        PaperCard m14Shock = printingInEdition("Shock", "M14");
+        Assert.assertNotNull(m14Shock, "M14 Shock printing required");
+
+        String[] previousAllowed = ascendantConfig.allowedEditions;
+        try {
+            // Warm NORMAL_CACHE while the catalogue is open (M21 is allowed / "normal").
+            ascendantConfig.allowedEditions = null;
+            Config.installConfigDataForTest(ascendantConfig);
+            SourcePrintings.clearCaches();
+            Assert.assertTrue(SourcePrintings.isNormalPrinting(m21Shock),
+                    "precondition: M21 Shock is normal before the allow-list");
+
+            // Small allow-list that excludes M21 (and ZEN) but keeps M12/M14 + the window.
+            // Mutate the live ConfigData without clearCaches — proves allow-list is checked
+            // outside NORMAL_CACHE (a stale intrinsic true must not win).
+            ascendantConfig.allowedEditions = new String[]{"M12", "M14", "WWK", "ROE"};
+            Config.instance().getConfigData().allowedEditions = ascendantConfig.allowedEditions;
+            RewardData.invalidateCardPool();
+
+            Assert.assertTrue(SourcePrintings.isAllowedEdition("M14"));
+            Assert.assertFalse(SourcePrintings.isAllowedEdition("M21"));
+            Assert.assertFalse(SourcePrintings.isAllowedEdition("ZEN"));
+            Assert.assertFalse(SourcePrintings.isNormalPrinting(m21Shock),
+                    "disallowed edition must fail isNormalPrinting even if cached earlier");
+
+            // Preferred set pin refused when disallowed.
+            Assert.assertNull(SourcePrintings.printingFromSet("Shock", "M21"),
+                    "printingFromSet must refuse a disallowed edition");
+            PaperCard fromM14 = SourcePrintings.printingFromSet("Shock", "M14");
+            Assert.assertNotNull(fromM14);
+            Assert.assertEquals(fromM14.getEdition(), "M14");
+
+            // Empty rotation → most-recent normal among allowed only (M14 beats M12 by date).
+            PaperCard fromFallback = SourcePrintings.printingFromRotation("Shock", List.of());
+            Assert.assertNotNull(fromFallback, "must fall back to an allowed normal printing");
+            Assert.assertTrue(Set.of("M12", "M14").contains(fromFallback.getEdition()),
+                    "fallback must stay inside allowedEditions; got " + fromFallback.getEdition());
+            Assert.assertNotEquals(fromFallback.getEdition(), "M21");
+
+            // Rotation that includes a disallowed preferred set still skips it.
+            PaperCard fromRotation = SourcePrintings.printingFromRotation("Shock",
+                    List.of("M21", "M14", "M12"));
+            Assert.assertNotNull(fromRotation);
+            Assert.assertTrue(Set.of("M12", "M14").contains(fromRotation.getEdition()),
+                    "rotation pick must skip disallowed M21; got " + fromRotation.getEdition());
+
+            // resolve: disallowed source pin + disallowed candidate → allowed rematch.
+            PaperCard resolvedPin = SourcePrintings.resolve(m21Shock, new String[]{"M21"});
+            Assert.assertNotNull(resolvedPin);
+            Assert.assertNotEquals(resolvedPin.getEdition(), "M21",
+                    "resolve must not keep a disallowed source pin");
+            Assert.assertTrue(SourcePrintings.isAllowedEdition(resolvedPin.getEdition()));
+
+            PaperCard resolvedNull = SourcePrintings.resolve(m21Shock, (String[]) null);
+            Assert.assertNotNull(resolvedNull);
+            Assert.assertNotEquals(resolvedNull.getEdition(), "M21");
+            Assert.assertTrue(SourcePrintings.isAllowedEdition(resolvedNull.getEdition()));
+
+            // Goblin Guide only has a ZEN window printing — with ZEN disallowed, no allowed hit.
+            warmCard("Goblin Guide");
+            Assert.assertNull(SourcePrintings.printingFromSet("Goblin Guide", "ZEN"),
+                    "ZEN pin refused when not allow-listed");
+            Assert.assertNull(SourcePrintings.printingFromRotation("Goblin Guide",
+                            List.of("ZEN", "WWK", "ROE")),
+                    "no allowed Guide printing in WWK/ROE; must not return disallowed ZEN");
+            PaperCard zenGuide = printingInEdition("Goblin Guide", "ZEN");
+            Assert.assertNotNull(zenGuide);
+            Assert.assertNull(SourcePrintings.resolve(zenGuide, new String[]{"ZEN"}),
+                    "resolve must not return a disallowed candidate when allow-list is active");
+
+            // ZEN-pinned shop: pin is disallowed → fall back; stock must not be ZEN.
+            warmRotationCardPool();
+            Assert.assertFalse(SourcePrintings.pinnedEditionsUsable(RewardData.getAllCards(),
+                            new String[]{"ZEN"}),
+                    "disallowed ZEN pin must be unusable");
+            RewardData zenShop = new RewardData();
+            zenShop.count = 8;
+            zenShop.probability = 1f;
+            zenShop.editions = new String[]{"ZEN"};
+            List<PaperCard> stock = cardsFromGenerate(zenShop, 6);
+            Assert.assertFalse(stock.isEmpty(), "disallowed-pin shop must fall back and stay stocked");
+            Set<String> allowed = Set.of("M12", "M14", "WWK", "ROE");
+            for (PaperCard pc : stock) {
+                Assert.assertTrue(allowed.contains(pc.getEdition()),
+                        "pinned-shop fallback must honour allowedEditions; got "
+                                + pc.getName() + " [" + pc.getEdition() + "]");
+                Assert.assertNotEquals(pc.getEdition(), "ZEN");
+                Assert.assertNotEquals(pc.getEdition(), "M21");
+            }
+        } finally {
+            // alwaysRun restore — also covered by @AfterMethod reinstall, but be explicit.
+            ascendantConfig.allowedEditions = previousAllowed;
+            Config.installConfigDataForTest(ascendantConfig);
+            SourcePrintings.clearCaches();
+            RewardData.invalidateCardPool();
+        }
     }
 
     @Test
@@ -666,6 +777,69 @@ public class SourcePrintingsCs0Test {
     }
 
     @Test
+    public void fantasyLootSkipsNullCs0Rematch() {
+        warmCard("Goblin Guide");
+        PaperCard zenGuide = printingInEdition("Goblin Guide", "ZEN");
+        Assert.assertNotNull(zenGuide);
+
+        String[] previousAllowed = ascendantConfig.allowedEditions;
+        try {
+            // ZEN disallowed and Guide has no WWK/ROE printing → resolve returns null.
+            ascendantConfig.allowedEditions = new String[]{"WWK", "ROE", "M12", "M14"};
+            Config.installConfigDataForTest(ascendantConfig);
+            SourcePrintings.clearCaches();
+            Assert.assertNull(SourcePrintings.resolve(zenGuide, (String[]) null),
+                    "precondition: CS0 rematch of ZEN Guide is null under this allow-list");
+
+            Array<Reward> pool = new Array<>();
+            EnemySprite.addCs0CardReward(pool, zenGuide);
+            EnemySprite.addCs0CardReward(pool, null);
+            Assert.assertEquals(pool.size, 0,
+                    "fantasy loot must not add Reward(null) when CS0 rematch fails");
+        } finally {
+            ascendantConfig.allowedEditions = previousAllowed;
+            Config.installConfigDataForTest(ascendantConfig);
+            SourcePrintings.clearCaches();
+            RewardData.invalidateCardPool();
+        }
+    }
+
+    @Test
+    public void pickStapleRewardTriesNextWhenPreferredRematchIsNull() {
+        warmRotationCardPool();
+        warmCard("Goblin Guide");
+        warmCard("Shock");
+        warmCard("Evolving Wilds");
+
+        String[] previousAllowed = ascendantConfig.allowedEditions;
+        try {
+            // Guide's ZEN printing is disallowed; staples with WWK/ROE/M12/M14 printings remain.
+            ascendantConfig.allowedEditions = new String[]{"WWK", "ROE", "M12", "M14"};
+            Config.installConfigDataForTest(ascendantConfig);
+            SourcePrintings.clearCaches();
+            RewardData.invalidateCardPool();
+            Assert.assertNull(SourcePrintings.printingFromRotation("Goblin Guide",
+                            List.of("ZEN", "WWK", "ROE")),
+                    "precondition: preferred Guide rematch is null");
+            Assert.assertNotNull(GymUtil.pickStapleReward(null),
+                    "precondition: staple pool must still yield under this allow-list");
+
+            PaperCard staple = GymUtil.pickStapleReward("Goblin Guide");
+            Assert.assertNotNull(staple,
+                    "pickStapleReward must try the next staple instead of returning null");
+            Assert.assertNotEquals(staple.getName(), "Goblin Guide",
+                    "must not keep the failed preferred staple");
+            Assert.assertTrue(SourcePrintings.isAllowedEdition(staple.getEdition()),
+                    "fallback staple must be allow-listed; got " + staple.getEdition());
+        } finally {
+            ascendantConfig.allowedEditions = previousAllowed;
+            Config.installConfigDataForTest(ascendantConfig);
+            SourcePrintings.clearCaches();
+            RewardData.invalidateCardPool();
+        }
+    }
+
+    @Test
     public void collectorNumbersComparedNumerically() {
         // Prefer lower numeric CN: "2" before "10" (string compare would invert).
         PaperCard a = SourcePrintings.printingFromSet("Plains", "ZEN");
@@ -696,6 +870,27 @@ public class SourcePrintingsCs0Test {
         }
         RewardData.invalidateCardPool();
         SourcePrintings.clearCaches();
+    }
+
+    private static void warmCard(String name) {
+        pinStaticData(magicDb);
+        List<PaperCard> all = magicDb.getCommonCards().getAllCards(name);
+        Assert.assertNotNull(all, name + " printings required");
+        Assert.assertFalse(all.isEmpty(), name + " printings required");
+    }
+
+    private static PaperCard printingInEdition(String name, String edition) {
+        warmCard(name);
+        PaperCard direct = magicDb.getCommonCards().getCard(name, edition);
+        if (direct != null) {
+            return direct;
+        }
+        for (PaperCard pc : magicDb.getCommonCards().getAllCards(name)) {
+            if (pc != null && edition.equalsIgnoreCase(pc.getEdition())) {
+                return pc;
+            }
+        }
+        return null;
     }
 
     private static List<PaperCard> cardsFromGenerate(RewardData template, int rounds) {

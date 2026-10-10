@@ -527,19 +527,19 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
                 }
                 // random uncommons from deck
                 if (!uncommonCards.isEmpty()) {
-                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(uncommonCards))));
-                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(uncommonCards))));
+                    addCs0CardReward(rewardCollectionPool, Aggregates.random(uncommonCards));
+                    addCs0CardReward(rewardCollectionPool, Aggregates.random(uncommonCards));
                 }
                 // random commons from deck
                 if (!commonCards.isEmpty()) {
-                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(commonCards))));
-                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(commonCards))));
-                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(commonCards))));
+                    addCs0CardReward(rewardCollectionPool, Aggregates.random(commonCards));
+                    addCs0CardReward(rewardCollectionPool, Aggregates.random(commonCards));
+                    addCs0CardReward(rewardCollectionPool, Aggregates.random(commonCards));
                 }
                 // random rare from deck
                 if (!rareCards.isEmpty()) {
-                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(rareCards))));
-                    rewardCollectionPool.add(new Reward(cs0LootPrinting(Aggregates.random(rareCards))));
+                    addCs0CardReward(rewardCollectionPool, Aggregates.random(rareCards));
+                    addCs0CardReward(rewardCollectionPool, Aggregates.random(rareCards));
                 }
 
                 int val = ((MyRandom.getRandom().nextInt(2) + 1) * 100) + (MyRandom.getRandom().nextInt(101));
@@ -725,6 +725,21 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
 
     public boolean isFrozen() {
         return _freeze;
+    }
+
+    /**
+     * Fantasy-mode loot: CS0 rematch, then add only when non-null so a disallowed
+     * allow-list rematch cannot inject {@code Reward(null)}.
+     * Public for tests.
+     */
+    public static void addCs0CardReward(Array<Reward> pool, PaperCard card) {
+        if (pool == null) {
+            return;
+        }
+        PaperCard loot = cs0LootPrinting(card);
+        if (loot != null) {
+            pool.add(new Reward(loot));
+        }
     }
 
     /** CS0: fantasy-mode loot uses a normal / rotation printing when Ascendant. */
