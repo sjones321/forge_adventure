@@ -446,7 +446,7 @@ public final class AchievementService {
      * collection path and by tests that stub ownership without a card database.
      *
      * @param justCompleted set codes newly completed this pass
-     * @param allReachableCodes Bellwarden sets that can host a set plane
+     * @param allReachableCodes Shandalar sets that can host a set plane
      */
     public synchronized List<String> applySetCompletions(Collection<String> justCompleted,
                                                          Collection<String> allReachableCodes) {
@@ -804,7 +804,7 @@ public final class AchievementService {
         }
     }
 
-    /** Reachable Bellwarden set codes (generatable set planes). */
+    /** Reachable Shandalar set codes (generatable set planes). */
     public List<String> reachableBellwardenSetCodes() {
         return setTracker.reachableBellwardenSetCodes();
     }

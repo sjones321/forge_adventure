@@ -22,7 +22,7 @@ import java.util.Set;
  * unsupported (no-script) cards, and anything the adventure reward pool can never give
  * ({@link RewardData#isAdventureRewardReachableName(String)}).
  *
- * <p>"Every set" = Bellwarden booster sets that can host a generatable set plane
+ * <p>"Every set" = Shandalar booster sets that can host a generatable set plane
  * (enough reward-reachable main-list cards; matches MV2's {@code MIN_SET_POOL_SIZE}).
  *
  * <p>{@code nameCounts} is rebuilt on every player load / new game and adjusted on
@@ -171,8 +171,9 @@ public final class AchievementSetTracker {
     }
 
     /**
-     * Bellwarden sets that can actually get a set plane: CORE / EXPANSION / DRAFT
+     * Shandalar sets that can actually get a set plane: CORE / EXPANSION / DRAFT
      * boosters with at least {@link #MIN_SET_PLANE_CARDS} reward-reachable main cards.
+     * Method name keeps the historical Bellwarden id for call sites.
      */
     public List<String> reachableBellwardenSetCodes() {
         List<String> cached = reachableCache;
