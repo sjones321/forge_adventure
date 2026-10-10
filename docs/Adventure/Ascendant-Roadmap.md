@@ -680,6 +680,36 @@ Today the inventory is one flat list of every item (equipped ones included) unde
   `CREDITS.md`) or Steve's own art.
 - Save: bag contents and capacities saved per bag; old saves auto-sort the current flat inventory into the new bags.
 
+## Saving
+
+### SV1. Save anywhere, including inside dungeons and towns, plus an autosave before every fight (next after DS4)
+Requested by Steve 2026-10-10. Today saving is blocked inside any map (`SaveLoadScene.save`/`loadSave`,
+`StartScene.Save`, `StartScene.enter` hides the button; message `lblGameNotSaved`). The code comment gives the
+reason: the save doesn't record where you are inside a map, so loading put you outside it and could skip
+location-based quest events.
+- What already persists: per-POI `PointOfInterestChanges` (killed enemies, opened chests, bought cards, map flags)
+  is in the save, so cleared rooms stay cleared.
+- What to add to the save: the POI/map the player is in (POI id + map path + the entrance used) and the player's
+  position inside it. On load, enter that map the normal way (same path as `MapStage.loadMap`/`TileMapScene`
+  entering), then place the player at the saved position instead of the entrance. Live enemies go back to their
+  spawn points, which is fine. Dead ones stay dead via the existing changes. A saved position that's now blocked or
+  missing (the map was edited) falls back to the map's entrance.
+- Quest safety, which is why it was blocked: loading inside a map must not count as "entering" for quest
+  location stages that are already done, and must still let pending "reach/clear this place" stages complete.
+  Re-fire only the map-entered event the quest controller expects, once, and test that saving then loading inside
+  the target dungeon doesn't skip or double-complete a quest stage.
+- Manual save is allowed everywhere outside a duel and outside dialogs and shops. Remove the `lblGameNotSaved`
+  block for Ascendant.
+- **Autosave before every fight:** right before a duel starts (overworld or map, enemy or boss, gym and event fights
+  too), write the autosave slot. If you lose, Load → Autosave puts you back just before the fight, where you are on
+  the map. One rotating slot, not one per fight. Never during co-op sessions (co-op is frozen; leave its save path
+  alone).
+- Ascendant only (`Config.ascendant()`); the stock modes keep their rules. Old saves (no map field) load on the
+  world map as now.
+- Tests: save inside a dungeon after killing one enemy, load, and you're inside at the same spot with that enemy
+  still gone; autosave written at duel start (and not during co-op); old save without the field loads on the world
+  map; blocked saved position falls back to the entrance; the quest stage test above.
+
 ## Duel screen
 
 ### DS1. Modern duel screen in libGDX (after INV1)
