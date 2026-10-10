@@ -710,6 +710,46 @@ location-based quest events.
   still gone; autosave written at duel start (and not during co-op); old save without the field loads on the world
   map; blocked saved position falls back to the entrance; the quest stage test above.
 
+### MX1. Moxfield round trip: export your collection and decks, import decks built only from what you own (after SV1)
+Requested by Steve 2026-10-10. Goal: build decks in Moxfield against the real Ascendant collection and bring them back.
+
+**What exists today**
+- `CollectionExporter` already runs on every save: `%APPDATA%\Forge\adventure\exports\collection.csv` (Moxfield's
+  collection CSV layout), `collection.txt`, and `decks/NN - name.txt`.
+- The Adventure deck editor has **Import from clipboard** (`FDeckImportDialog`, `usePlayerInventory`).
+- `forge-gui` has `DeckUrlLoader` / `MoxfieldDeckUrlProvider`, which reads a public Moxfield deck URL. Only the
+  desktop importer uses it.
+
+**Fully automatic sync like Untapped is not possible.** Moxfield has no public API for writing a collection, and
+automating its site would break its terms. The best we can do: Forge keeps the export file always current (done on
+every save) and the player uploads it in Moxfield (Collection → Import → CSV, "replace") when they want. In the other
+direction, pasting a Moxfield deck link into Forge is one step.
+
+**Export (fix and finish)**
+- Use Scryfall set codes (`CardEdition.getScryfallCode()`) and real collector numbers in the CSV, not the lowercased
+  Forge code, so every row matches in Moxfield. Leave out cards with no Scryfall match and list them in
+  `exports/unmatched.txt`.
+- Deck editor: **Copy deck for Moxfield** (Moxfield text format `1 Name (SET) 123`, sideboard section) and an **Open
+  export folder** button. The Status or Inventory screen shows "Collection exported <time>" with a short how-to for the
+  Moxfield upload.
+
+**Import (only what you own)**
+- The mobile import dialog accepts either pasted text or a **Moxfield deck URL** (reuse `DeckUrlLoader`).
+- Import is **always limited to the collection** in Ascendant: each card line takes copies the player owns that
+  aren't already used beyond deck limits, preferring the requested printing, then any owned printing. Basic lands stay
+  free as today.
+- Missing copies never sneak in. The dialog shows a **Missing** list (name, wanted, owned) before confirming, with the
+  options "Import what I own" or "Cancel". If EC1 or crafting is in, each missing card shows its dust cost and a
+  **Craft missing** shortcut.
+- Format check against the plane's format (K) happens as in the normal editor.
+
+**Tests**
+- The CSV uses Scryfall codes, and Moxfield's own sample export round-trips.
+- A pasted list with 4 copies of a card the player owns 2 of imports 2 and lists 2 missing.
+- A requested printing that isn't owned falls back to an owned printing.
+- A URL import is parsed through the shared loader. Use a fixture, no network in tests.
+- The stock world is unchanged.
+
 ## Duel screen
 
 ### DS1. Modern duel screen in libGDX (after INV1)
