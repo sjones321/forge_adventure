@@ -5838,8 +5838,8 @@
       { "count": 4, "colors": ["black"], "rarity": ["Common"] },
       { "count": 4, "colors": ["red"], "rarity": ["Common"] },
       { "count": 4, "colors": ["green"], "rarity": ["Common"] },
-      { "type": "item", "count": 1, "itemName": "Farmer's Tools" },
-      { "type": "item", "count": 1, "itemName": "Iron Hatchet" },
+      { "type": "item", "count": 1, "itemName": "Iron Pickaxe" },
+      { "type": "item", "count": 1, "itemName": "Iron Sickle" },
       { "type": "life", "count": 1 }
     ]
   }

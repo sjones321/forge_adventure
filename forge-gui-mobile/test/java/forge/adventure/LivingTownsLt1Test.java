@@ -1,14 +1,18 @@
 package forge.adventure;
 
+import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Json;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.PointOfInterestData;
+import forge.adventure.data.RewardData;
 import forge.adventure.data.ShopData;
 import forge.adventure.data.TownsfolkData;
 import forge.adventure.data.TownsfolkListData;
+import forge.adventure.util.Config;
 import forge.adventure.util.LivingTownMapSupport;
 import forge.adventure.util.LivingTownMapSupport.TmxObjectInfo;
+import forge.adventure.util.TemplateTmxMapLoader;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -17,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -49,7 +54,7 @@ public class LivingTownsLt1Test {
         cfg.lt1FallbackEntryXFraction = 0.5f;
         cfg.lt1FallbackEntryYFraction = 0.15f;
         cfg.lt1StarterTownPoiName = "StarterTown";
-        TownsfolkListData.clearCacheForTests();
+        TownsfolkListData.clearCache();
     }
 
     private static Path resolveAdventureRes() {
@@ -73,6 +78,11 @@ public class LivingTownsLt1Test {
         Assert.assertEquals(poi.displayName, "Havenbrook");
         Assert.assertTrue(poi.map != null && poi.map.contains("starter_town.tmx"),
                 "POI map should point at starter_town.tmx: " + poi.map);
+        List<String> tags = poi.questTags != null ? Arrays.asList(poi.questTags) : List.of();
+        Assert.assertFalse(tags.contains("QuestSource"),
+                "Havenbrook must not be QuestSource until it has a quest board");
+        Assert.assertFalse(tags.contains("Sidequest"),
+                "Havenbrook must not be Sidequest until it has a quest board");
 
         Path map = LivingTownMapSupport.resolvePoiMapFile(planeDir, commonDir, poi.map);
         Assert.assertTrue(Files.isRegularFile(map), "starter_town.tmx must resolve: " + map);
@@ -81,6 +91,46 @@ public class LivingTownsLt1Test {
                 StandardCharsets.UTF_8);
         Assert.assertTrue(colorless.contains("\"StarterTown\""),
                 "colorless biome must list StarterTown for placement");
+    }
+
+    @Test
+    public void starterTownTilesetsResolveThroughRealLoader() {
+        Path map = commonDir.resolve("maps/map/ascendant/starter_town.tmx");
+        Assert.assertTrue(Files.isRegularFile(map), map.toString());
+        FileHandle tmx = new FileHandle(map.toFile());
+        TemplateTmxMapLoader loader = new TemplateTmxMapLoader();
+        Array<FileHandle> tsx = loader.resolveExternalTilesets(tmx);
+        Assert.assertTrue(tsx.size >= 8, "expected every external tileset, got " + tsx.size);
+        boolean foundLocalResourceNodes = false;
+        for (FileHandle handle : tsx) {
+            Assert.assertTrue(handle.exists(), "tileset missing via real loader: " + handle.path());
+            if ("resource_nodes.tsx".equals(handle.name())) {
+                foundLocalResourceNodes = true;
+            }
+        }
+        Assert.assertTrue(foundLocalResourceNodes,
+                "map-local ascendant/resource_nodes.tsx must resolve through TemplateTmxMapLoader");
+    }
+
+    @Test
+    public void missingTilesetFailsThroughRealLoader() throws Exception {
+        Path tmp = Files.createTempDirectory("lt1-tsx-miss");
+        Path tmx = tmp.resolve("broken.tmx");
+        Files.writeString(tmx,
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                        + "<map version=\"1.10\" width=\"1\" height=\"1\" tilewidth=\"16\" tileheight=\"16\">\n"
+                        + " <tileset firstgid=\"1\" source=\"does_not_exist.tsx\"/>\n"
+                        + "</map>\n",
+                StandardCharsets.UTF_8);
+        TemplateTmxMapLoader loader = new TemplateTmxMapLoader();
+        try {
+            loader.resolveExternalTilesets(new FileHandle(tmx.toFile()));
+            Assert.fail("expected missing tileset to fail through real loader");
+        } catch (Throwable expected) {
+            Assert.assertTrue(String.valueOf(expected.getMessage()).contains("does_not_exist.tsx")
+                            || String.valueOf(expected.getMessage()).contains("Missing tileset"),
+                    "failure should name the missing tileset: " + expected);
+        }
     }
 
     @Test
@@ -105,7 +155,9 @@ public class LivingTownsLt1Test {
 
         String warn = LivingTownMapSupport.missingEntryWarning(map.toString());
         Assert.assertTrue(warn.contains("LT1"));
+        Assert.assertTrue(warn.contains("no way out"));
         Assert.assertTrue(warn.contains("fallback"));
+        Assert.assertTrue(warn.contains(map.toString()), "warning must name the real map path");
         Assert.assertTrue(LivingTownMapSupport.shouldWarnMissing(cfg));
 
         ConfigData stock = new ConfigData();
@@ -126,6 +178,27 @@ public class LivingTownsLt1Test {
         Assert.assertTrue(shopNames.contains("GeneralStore"), "LT1 GeneralStore must exist");
         Assert.assertTrue(shopNames.contains("White"));
         Assert.assertTrue(shopNames.contains("Planeswalker"));
+
+        ShopData general = null;
+        for (ShopData s : new Array.ArrayIterator<>(shops)) {
+            if (s != null && "GeneralStore".equals(s.name)) {
+                general = s;
+                break;
+            }
+        }
+        Assert.assertNotNull(general);
+        Set<String> itemNames = new HashSet<>();
+        if (general.rewards != null) {
+            for (RewardData r : new Array.ArrayIterator<>(general.rewards)) {
+                if (r != null && r.itemName != null) {
+                    itemNames.add(r.itemName);
+                }
+            }
+        }
+        Assert.assertTrue(itemNames.contains("Iron Pickaxe"), "GeneralStore needs tier-1 Iron Pickaxe");
+        Assert.assertTrue(itemNames.contains("Iron Sickle"), "GeneralStore needs tier-1 Iron Sickle");
+        Assert.assertFalse(itemNames.contains("Farmer's Tools"),
+                "Farmer's Tools is 6000g equipment, not a starter tool");
 
         Path map = commonDir.resolve("maps/map/ascendant/starter_town.tmx");
         List<TmxObjectInfo> objects = LivingTownMapSupport.parseTmxObjects(map);
@@ -162,7 +235,7 @@ public class LivingTownsLt1Test {
         Assert.assertTrue(LivingTownMapSupport.emptyShopWarning(42).contains("42"));
 
         // Unknown townsfolk id → null, caller skips (MapStage must not throw).
-        TownsfolkListData.clearCacheForTests();
+        TownsfolkListData.clearCache();
         Assert.assertNull(TownsfolkListData.get("does_not_exist"));
 
         // Empty object list still yields a usable fallback spawn.
@@ -172,6 +245,21 @@ public class LivingTownsLt1Test {
         float[] pos = LivingTownMapSupport.fallbackEntryPixels(100f, 200f, 0.25f, 0.5f);
         Assert.assertEquals(pos[0], 25f, 0.001f);
         Assert.assertEquals(pos[1], 100f, 0.001f);
+    }
+
+    @Test
+    public void townsfolkCacheClearsOnConfigChange() throws Exception {
+        java.lang.reflect.Field cached = TownsfolkListData.class.getDeclaredField("cached");
+        cached.setAccessible(true);
+        cached.set(null, new Array<TownsfolkData>());
+        Assert.assertNotNull(cached.get(null));
+        ConfigData other = new ConfigData();
+        other.ascendantRules = true;
+        Config.installConfigDataForTest(other);
+        Assert.assertNull(cached.get(null), "installConfigDataForTest must clear townsfolk cache");
+        cached.set(null, new Array<TownsfolkData>());
+        TownsfolkListData.clearCache();
+        Assert.assertNull(cached.get(null));
     }
 
     @Test

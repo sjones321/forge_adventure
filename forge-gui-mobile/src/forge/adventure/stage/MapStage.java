@@ -54,6 +54,8 @@ public class MapStage extends GameStage {
     final Array<MapActor> actors = new Array<>();
     public com.badlogic.gdx.physics.box2d.World gdxWorld;
     public TiledMap tiledMap;
+    /** Path of the currently loaded TMX (POI map field / nested map), for LT1 warnings. */
+    private String loadedMapPath = "";
     public Array<Rectangle> collisionRect = new Array<>();
     public Map<Float, NavigationMap> navMaps = new HashMap<>();
     private boolean isInMap = false;
@@ -346,6 +348,7 @@ public class MapStage extends GameStage {
         isInMap = true;
         GameHUD.getInstance().showHideMap(false);
         this.tiledMap = map;
+        this.loadedMapPath = targetMap != null ? targetMap : "";
         for (MapActor actor : new Array.ArrayIterator<>(actors)) {
             actor.remove();
             foregroundSprites.removeActor(actor);
@@ -517,9 +520,14 @@ public class MapStage extends GameStage {
         float yFrac = cfg != null ? cfg.lt1FallbackEntryYFraction : 0.15f;
         float[] pos = LivingTownMapSupport.fallbackEntryPixels(mapW, mapH, xFrac, yFrac);
         if (LivingTownMapSupport.shouldWarnMissing(cfg)) {
-            System.err.println(LivingTownMapSupport.missingEntryWarning("<loaded map>"));
+            System.err.println(LivingTownMapSupport.missingEntryWarning(loadedMapPath));
         }
         getPlayerSprite().setPosition(pos[0], pos[1]);
+    }
+
+    /** Currently loaded map path (for tests / LT1 diagnostics). */
+    public String getLoadedMapPath() {
+        return loadedMapPath != null ? loadedMapPath : "";
     }
 
     static public boolean containsOrEquals(Rectangle r1, Rectangle r2) {

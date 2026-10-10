@@ -57,7 +57,13 @@ public final class TownsfolkListData {
         return loaded != null ? loaded : new Array<>();
     }
 
-    public static void clearCacheForTests() {
+    /** Drop the cached list (plane / config change, or tests). */
+    public static void clearCache() {
         cached = null;
+    }
+
+    /** @deprecated use {@link #clearCache()} */
+    public static void clearCacheForTests() {
+        clearCache();
     }
 }

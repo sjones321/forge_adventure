@@ -67,8 +67,8 @@ public final class LivingTownMapSupport {
     }
 
     public static String missingEntryWarning(String mapPath) {
-        return "LT1: map has no entry object; using fallback spawn. Map="
-                + (mapPath == null ? "<unknown>" : mapPath);
+        return "LT1: map has no entry object (no spawn and no way out); using fallback spawn. Map="
+                + (mapPath == null || mapPath.isEmpty() ? "<unknown>" : mapPath);
     }
 
     public static String missingTownsfolkWarning(String townsfolkId) {

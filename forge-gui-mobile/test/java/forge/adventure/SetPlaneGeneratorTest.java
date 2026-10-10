@@ -389,6 +389,29 @@ public class SetPlaneGeneratorTest {
     }
 
     @Test
+    public void excludeHomeOnlyPoisStripsStarterTownFromSetPlanes() {
+        WorldData data = sampleTemplate(200);
+        BiomeData waste = biome(data, "colorless");
+        Assert.assertNotNull(waste);
+        waste.pointsOfInterest = new String[]{"Spawn", "StarterTown", "Waste Town Generic"};
+        ArrayList<PointOfInterestData> frozen = new ArrayList<>();
+        frozen.add(poiDef("Spawn", "town", 1));
+        frozen.add(poiDef("StarterTown", "town", 1));
+        frozen.add(poiDef("Waste Town Generic", "town", 3));
+        waste.replacePointsOfInterest(frozen);
+
+        ConfigData cfg = new ConfigData();
+        cfg.lt1StarterTownPoiName = "StarterTown";
+        SetPlaneGenerator.excludeHomeOnlyPois(data, cfg);
+
+        Assert.assertFalse(Arrays.asList(waste.pointsOfInterest).contains("StarterTown"));
+        Assert.assertTrue(Arrays.asList(waste.pointsOfInterest).contains("Spawn"));
+        for (PointOfInterestData p : waste.getPointsOfInterest()) {
+            Assert.assertFalse("StarterTown".equals(p.name), "StarterTown must not place on set planes");
+        }
+    }
+
+    @Test
     public void coreAndDebugPlanesSkipSetRestriction() {
         Assert.assertEquals(SetPlaneRules.restrictableSetCode("CORE"), "");
         Assert.assertEquals(SetPlaneRules.restrictableSetCode(StandardWindow.CORE_COLLECTION), "");
