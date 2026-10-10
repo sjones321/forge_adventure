@@ -34,6 +34,7 @@ public class AchievementsScene extends UIScene {
     private ScrollPane scroller;
     private Scene lastGameScene;
     private final List<TextraButton> rowButtons = new ArrayList<>();
+    private final List<TextraButton> titleRowButtons = new ArrayList<>();
 
     private AchievementsScene() {
         super(Forge.isLandscapeMode() ? "ui/achievements.json" : "ui/achievements_portrait.json");
@@ -90,10 +91,10 @@ public class AchievementsScene extends UIScene {
     public void enter() {
         super.enter();
         // Do not full-evaluate on every open — counters / collection update at event sites.
-        build();
+        build(null);
     }
 
-    private void build() {
+    private void build(String focusTitleId) {
         list.clear();
         // Rebuild selectables cleanly: nav first, then controller-navigable rows.
         clearSelectable();
@@ -114,12 +115,17 @@ public class AchievementsScene extends UIScene {
             addToSelectable(questsBtn);
         }
         rowButtons.clear();
+        titleRowButtons.clear();
 
         if (!Config.ascendant()) {
             note("Achievements are part of Shandalar Ascendant.");
             return;
         }
         AchievementService svc = AchievementService.get();
+
+        // Titles first so a gamepad user reaches equip quickly.
+        addTitlePicker(svc);
+
         header("Achievements");
         note("Account-wide. Kept through prestige and New Game+.");
 
@@ -139,32 +145,32 @@ public class AchievementsScene extends UIScene {
 
         if (byCategory.isEmpty()) {
             note("No achievements loaded.");
-            performTouch(scrollPaneOfActor(list));
-            return;
-        }
-
-        for (Map.Entry<String, List<AchievementData>> e : byCategory.entrySet()) {
-            header(prettyCategory(e.getKey()));
-            for (AchievementData a : e.getValue()) {
-                AchievementService.ProgressView pv = svc.progressView(a);
-                boolean unlocked = pv.unlocked;
-                String title = a.hidden && !unlocked ? "???" : (a.name == null ? a.id : a.name);
-                String desc = a.hidden && !unlocked ? "Hidden achievement."
-                        : (a.description == null ? "" : a.description);
-                String progress = pv.label == null || pv.label.isEmpty() ? "" : " (" + pv.label + ")";
-                String mark = unlocked ? "[FOREST]☑ " : "[DARK_GRAY]☐ ";
-                String rowText = mark + title + progress;
-                if (desc != null && !desc.isEmpty()) {
-                    rowText = rowText + "\n[%80]" + desc;
+        } else {
+            for (Map.Entry<String, List<AchievementData>> e : byCategory.entrySet()) {
+                header(prettyCategory(e.getKey()));
+                for (AchievementData a : e.getValue()) {
+                    AchievementService.ProgressView pv = svc.progressView(a);
+                    boolean unlocked = pv.unlocked;
+                    String title = a.hidden && !unlocked ? "???" : (a.name == null ? a.id : a.name);
+                    String desc = a.hidden && !unlocked ? "Hidden achievement."
+                            : (a.description == null ? "" : a.description);
+                    String progress = pv.label == null || pv.label.isEmpty() ? "" : " (" + pv.label + ")";
+                    String mark = unlocked ? "[FOREST]☑ " : "[DARK_GRAY]☐ ";
+                    String rowText = mark + title + progress;
+                    if (desc != null && !desc.isEmpty()) {
+                        rowText = rowText + "\n[%80]" + desc;
+                    }
+                    addRow(rowText);
                 }
-                addRow(rowText);
             }
         }
-        addTitlePicker(svc);
         performTouch(scrollPaneOfActor(list));
+        if (focusTitleId != null) {
+            selectTitleRow(focusTitleId);
+        }
     }
 
-    /** Owned titles with display names; tap to equip (stored id unchanged). */
+    /** Owned titles with display names; select to equip (stored id unchanged). */
     private void addTitlePicker(AchievementService svc) {
         AchievementProgress progress = svc.getProgress();
         if (progress.getTitles().isEmpty()) {
@@ -175,14 +181,16 @@ public class AchievementsScene extends UIScene {
         String equippedDisplay = equipped == null || equipped.isEmpty()
                 ? "None"
                 : AdventureTitles.titleDisplayName(equipped);
-        note("Equipped: " + equippedDisplay + "  (tap a title to equip)");
+        note("Equipped: " + equippedDisplay + "  (select a title to equip)");
         for (String titleId : progress.getTitles()) {
             String display = AdventureTitles.titleDisplayName(titleId);
             boolean isEquipped = titleId.equals(equipped);
             String mark = isEquipped ? "[FOREST]● " : "[DARK_GRAY]○ ";
             TextraButton row = Controls.newTextButton(mark + display);
             row.getColor().a = 1f;
+            row.setUserObject(titleId);
             rowButtons.add(row);
+            titleRowButtons.add(row);
             addToSelectable(row);
             final String id = titleId;
             row.addListener(new ClickListener() {
@@ -190,11 +198,28 @@ public class AchievementsScene extends UIScene {
                 public void clicked(InputEvent event, float x, float y) {
                     progress.setEquippedTitle(id);
                     svc.saveQuietly();
-                    build();
+                    // Rebuild marks but re-select the same title so gamepad focus stays put.
+                    build(id);
                 }
             });
             list.add(row).align(Align.left).growX().padLeft(12).padRight(8).padTop(2);
             list.row();
+        }
+    }
+
+    private void selectTitleRow(String titleId) {
+        if (titleId == null) {
+            return;
+        }
+        for (TextraButton row : titleRowButtons) {
+            if (titleId.equals(row.getUserObject())) {
+                for (Selectable selectable : getPossibleSelection()) {
+                    if (selectable.actor == row) {
+                        selectActor(selectable);
+                        return;
+                    }
+                }
+            }
         }
     }
 

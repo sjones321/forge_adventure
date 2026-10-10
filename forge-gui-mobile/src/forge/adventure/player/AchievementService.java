@@ -208,6 +208,7 @@ public final class AchievementService {
             }
             String equippedTitle = root.getString("equippedTitle", null);
             if (equippedTitle != null && !equippedTitle.isEmpty()) {
+                // Requires titles already loaded above; orphans clear, then migrate.
                 p.setEquippedTitle(equippedTitle);
             }
             JsonValue trophies = root.get("trophies");
@@ -546,7 +547,7 @@ public final class AchievementService {
         }
         String achId = def == null ? "bellwarden_completionist" : def.id;
         if (progress.addPendingCardStyleGrant(new PendingCardStyleGrant(styleId, "", achId, now))) {
-            hof().record("all_sets_complete", AdventureTitles.COMPLETIONIST_TITLE_DISPLAY,
+            hof().record("all_sets_complete", AdventureTitles.COMPLETIONIST_TITLE_ID,
                     "Pending CS1 style " + styleId);
         }
     }

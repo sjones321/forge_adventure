@@ -1,8 +1,13 @@
 package forge.adventure;
 
+import com.badlogic.gdx.files.FileHandle;
+import com.badlogic.gdx.utils.Json;
+import com.badlogic.gdx.utils.ObjectMap;
+import com.badlogic.gdx.utils.OrderedMap;
 import forge.adventure.data.AchievementData;
 import forge.adventure.data.AchievementListData;
 import forge.adventure.data.AchievementRewardData;
+import forge.adventure.data.UIData;
 import forge.adventure.player.AccountStore;
 import forge.adventure.player.AchievementProgress;
 import forge.adventure.player.AchievementRewards;
@@ -21,6 +26,9 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Player-facing rename: Shandalar Standard / Shandalar Completionist.
@@ -149,9 +157,9 @@ public class ShandalarStandardNamingTest {
         Assert.assertEquals(AdventureTitles.titleDisplayName(p.getEquippedTitle()),
                 "Shandalar Completionist");
         Assert.assertEquals(
-                AdventureTitles.statusPlayerNameLine("[BLACK]Hero", p.getEquippedTitle()),
-                "[BLACK]Hero  [%80][DARK_GRAY]Shandalar Completionist",
-                "Status name line must show the display name");
+                AdventureTitles.statusTitleLabelText(p.getEquippedTitle()),
+                "[%80][DARK_GRAY]Shandalar Completionist",
+                "Status playerTitle label must show the display name");
 
         // Round-trip via the same AccountStore path: stored id kept, equip persisted.
         svc.save();
@@ -170,8 +178,48 @@ public class ShandalarStandardNamingTest {
         Assert.assertEquals(again.getEquippedTitle(), titleId);
         Assert.assertEquals(AdventureTitles.titleDisplayName(again.getEquippedTitle()),
                 AdventureTitles.COMPLETIONIST_TITLE_DISPLAY);
-        Assert.assertTrue(AdventureTitles.statusTitleSuffix(again.getEquippedTitle())
+        Assert.assertTrue(AdventureTitles.statusTitleLabelText(again.getEquippedTitle())
                 .contains("Shandalar Completionist"));
+    }
+
+    @Test
+    public void missingEquippedTitleAutoEquipsFirstOwnedTitle() throws Exception {
+        String json = "{\n"
+                + "  \"version\": 1,\n"
+                + "  \"unlocked\": {},\n"
+                + "  \"completedSets\": [],\n"
+                + "  \"titles\": [\"Centurion\", \"" + AdventureTitles.COMPLETIONIST_TITLE_ID + "\"],\n"
+                + "  \"trophies\": [],\n"
+                + "  \"cardStyles\": [],\n"
+                + "  \"pendingCardStyles\": [],\n"
+                + "  \"counters\": {}\n"
+                + "}\n";
+        Assert.assertFalse(json.contains("equippedTitle"));
+        Files.writeString(AccountStore.achievementsFile().toPath(), json, StandardCharsets.UTF_8);
+        AchievementService.resetInstance();
+        AchievementProgress p = AchievementService.get().getProgress();
+        Assert.assertEquals(p.getEquippedTitle(), "Centurion",
+                "first owned title in file order must be equipped when field is missing");
+    }
+
+    @Test
+    public void orphanedEquippedTitleIsNotShownAndMigratesToOwned() throws Exception {
+        String json = "{\n"
+                + "  \"version\": 1,\n"
+                + "  \"unlocked\": {},\n"
+                + "  \"completedSets\": [],\n"
+                + "  \"titles\": [\"Centurion\"],\n"
+                + "  \"equippedTitle\": \"" + AdventureTitles.COMPLETIONIST_TITLE_ID + "\",\n"
+                + "  \"trophies\": [],\n"
+                + "  \"cardStyles\": [],\n"
+                + "  \"pendingCardStyles\": [],\n"
+                + "  \"counters\": {}\n"
+                + "}\n";
+        Files.writeString(AccountStore.achievementsFile().toPath(), json, StandardCharsets.UTF_8);
+        AchievementService.resetInstance();
+        AchievementProgress p = AchievementService.get().getProgress();
+        Assert.assertEquals(p.getEquippedTitle(), "Centurion",
+                "equipped id not in titles must clear and fall back to first owned");
     }
 
     /**
@@ -203,8 +251,8 @@ public class ShandalarStandardNamingTest {
                 "explicit equippedTitle must not be replaced by another owned title");
         Assert.assertEquals(AdventureTitles.titleDisplayName(p.getEquippedTitle()),
                 "Shandalar Completionist");
-        Assert.assertTrue(AdventureTitles.statusPlayerNameLine("A", p.getEquippedTitle())
-                .endsWith("Shandalar Completionist"));
+        Assert.assertTrue(AdventureTitles.statusTitleLabelText(p.getEquippedTitle())
+                .contains("Shandalar Completionist"));
 
         AchievementService.get().save();
         AchievementService.resetInstance();
@@ -230,5 +278,101 @@ public class ShandalarStandardNamingTest {
         Assert.assertEquals(p.getEquippedTitle(), AdventureTitles.COMPLETIONIST_TITLE_ID);
         Assert.assertEquals(AdventureTitles.titleDisplayName(p.getEquippedTitle()),
                 AdventureTitles.COMPLETIONIST_TITLE_DISPLAY);
+    }
+
+    /**
+     * Status {@code playerTitle} must not overlap playerName, avatar, or blessingInfo
+     * in either statistic layout (same stage-rect approach as AC1 Awards).
+     */
+    @Test
+    public void playerTitleLabelClearOfNameAvatarBlessingInBothLayouts() throws Exception {
+        assertPlayerTitleClear(resolveUi("statistic.json"));
+        assertPlayerTitleClear(resolveUi("statistic_portrait.json"));
+    }
+
+    private static Path resolveUi(String fileName) throws Exception {
+        for (String rel : new String[] {
+                "forge-gui/res/adventure/common/ui/" + fileName,
+                "../forge-gui/res/adventure/common/ui/" + fileName
+        }) {
+            Path p = Path.of(rel);
+            if (Files.isRegularFile(p)) {
+                return p;
+            }
+        }
+        throw new IllegalStateException("UI layout not found: " + fileName);
+    }
+
+    private static void assertPlayerTitleClear(Path layoutFile) {
+        UIData data = new Json().fromJson(UIData.class, new FileHandle(layoutFile.toFile()));
+        Assert.assertTrue(data.yDown, layoutFile + " must be yDown");
+        float layoutH = data.height;
+        float[] title = null;
+        List<float[]> others = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+        for (OrderedMap<String, String> el : data.elements) {
+            if (el == null) {
+                continue;
+            }
+            String name = null;
+            Float x = null;
+            Float y = null;
+            Float w = null;
+            Float h = null;
+            for (ObjectMap.Entry property : new OrderedMap.OrderedMapEntries<>(el)) {
+                String key = property.key == null ? null : property.key.toString();
+                Object val = property.value;
+                if ("name".equals(key)) {
+                    name = val == null ? null : val.toString();
+                } else if ("x".equals(key)) {
+                    x = asFloat(val);
+                } else if ("y".equals(key)) {
+                    y = asFloat(val);
+                } else if ("width".equals(key)) {
+                    w = asFloat(val);
+                } else if ("height".equals(key)) {
+                    h = asFloat(val);
+                }
+            }
+            if (name == null || name.isEmpty() || "lastScreen".equals(name)) {
+                continue;
+            }
+            if (x == null || y == null || w == null || h == null || w <= 0 || h <= 0) {
+                continue;
+            }
+            float[] stage = new float[] { x, layoutH - y - h, w, h };
+            if ("playerTitle".equals(name)) {
+                title = stage;
+            } else if ("playerName".equals(name) || "avatar".equals(name)
+                    || "blessingInfo".equals(name)) {
+                others.add(stage);
+                names.add(name);
+            }
+        }
+        Assert.assertNotNull(title, "playerTitle missing from " + layoutFile.getFileName());
+        for (int i = 0; i < others.size(); i++) {
+            Assert.assertFalse(rectsOverlap(title, others.get(i)),
+                    "playerTitle " + Arrays.toString(title) + " overlaps " + names.get(i)
+                            + " " + Arrays.toString(others.get(i)) + " in " + layoutFile.getFileName());
+        }
+    }
+
+    private static Float asFloat(Object v) {
+        if (v == null) {
+            return null;
+        }
+        if (v instanceof Number) {
+            return ((Number) v).floatValue();
+        }
+        try {
+            return Float.parseFloat(v.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static boolean rectsOverlap(float[] a, float[] b) {
+        return a[0] < b[0] + b[2] && a[0] + a[2] > b[0]
+                && a[1] < b[1] + b[3] && a[1] + a[3] > b[1];
     }
 }

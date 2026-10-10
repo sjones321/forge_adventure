@@ -149,8 +149,17 @@
       "name": "playerName",
       "x": 98,
       "y": 4,
-      "width": 80,
-      "height": 24,
+      "width": 70,
+      "height": 18,
+      "fontColor":"black"
+    },
+    {
+      "type": "TypingLabel",
+      "name": "playerTitle",
+      "x": 8,
+      "y": 90,
+      "width": 88,
+      "height": 14,
       "fontColor":"black"
     },
     {

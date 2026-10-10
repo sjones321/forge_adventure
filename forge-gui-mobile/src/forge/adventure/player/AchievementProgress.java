@@ -96,17 +96,26 @@ public final class AchievementProgress {
         return titles.add(title);
     }
 
-    /** Stored equipped title id, or null when none. */
+    /**
+     * Stored equipped title id when it is still owned, else null.
+     * Orphaned ids (not in {@link #titles}) are treated as unequipped for display.
+     */
     public String getEquippedTitle() {
+        if (equippedTitle == null || equippedTitle.isEmpty()) {
+            return null;
+        }
+        if (!titles.contains(equippedTitle)) {
+            return null;
+        }
         return equippedTitle;
     }
 
     /**
-     * Equip a owned title by stored id. Cleared when {@code titleId} is null/empty.
-     * Unknown ids are still accepted on load so old saves never drop an equipped title.
+     * Equip an owned title by stored id. Cleared when {@code titleId} is null/empty
+     * or not in {@link #titles}.
      */
     public void setEquippedTitle(String titleId) {
-        if (titleId == null || titleId.isEmpty()) {
+        if (titleId == null || titleId.isEmpty() || !titles.contains(titleId)) {
             equippedTitle = null;
             return;
         }
@@ -114,24 +123,24 @@ public final class AchievementProgress {
     }
 
     /**
-     * Pre-{@code equippedTitle} account files only listed owned titles. If anything is
-     * owned and nothing is equipped, equip the Completionist title when present,
-     * otherwise the first owned title — so old saves keep a worn title after load.
+     * Drop an equipped id that is no longer owned, then if still unequipped and any
+     * titles remain, equip the first owned title (pre-{@code equippedTitle} saves).
      *
-     * @return true if an equipped title was newly chosen
+     * @return true if equippedTitle changed
      */
     public boolean migrateEquippedTitleIfMissing() {
+        boolean changed = false;
+        if (equippedTitle != null && !equippedTitle.isEmpty() && !titles.contains(equippedTitle)) {
+            equippedTitle = null;
+            changed = true;
+        }
         if (equippedTitle != null && !equippedTitle.isEmpty()) {
-            return false;
+            return changed;
         }
         if (titles.isEmpty()) {
-            return false;
+            return changed;
         }
-        if (titles.contains(forge.adventure.util.AdventureTitles.COMPLETIONIST_TITLE_ID)) {
-            equippedTitle = forge.adventure.util.AdventureTitles.COMPLETIONIST_TITLE_ID;
-        } else {
-            equippedTitle = titles.iterator().next();
-        }
+        equippedTitle = titles.iterator().next();
         return true;
     }
 
@@ -203,108 +212,5 @@ public final class AchievementProgress {
 
     public Map<String, Integer> getCounters() {
         return Collections.unmodifiableMap(counters);
-    }
-
-    // ---- serialization helpers (plain maps/lists for Gson/libGDX Json) ----
-
-    public Map<String, Object> toMap() {
-        Map<String, Object> root = new LinkedHashMap<>();
-        root.put("version", version);
-        root.put("unlocked", new LinkedHashMap<>(unlocked));
-        root.put("completedSets", new ArrayList<>(completedSets));
-        root.put("titles", new ArrayList<>(titles));
-        if (equippedTitle != null && !equippedTitle.isEmpty()) {
-            root.put("equippedTitle", equippedTitle);
-        }
-        root.put("trophies", new ArrayList<>(trophies));
-        root.put("cardStyles", new ArrayList<>(cardStyles));
-        List<Map<String, Object>> pending = new ArrayList<>();
-        for (PendingCardStyleGrant g : pendingCardStyleGrants) {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("styleId", g.styleId);
-            m.put("setCode", g.setCode);
-            m.put("achievementId", g.achievementId);
-            m.put("at", g.atMillis);
-            pending.add(m);
-        }
-        root.put("pendingCardStyles", pending);
-        root.put("counters", new LinkedHashMap<>(counters));
-        return root;
-    }
-
-    @SuppressWarnings("unchecked")
-    public static AchievementProgress fromMap(Map<?, ?> root) {
-        AchievementProgress p = new AchievementProgress();
-        if (root == null) {
-            return p;
-        }
-        Object ver = root.get("version");
-        if (ver instanceof Number) {
-            p.version = ((Number) ver).intValue();
-        }
-        Object unlockedObj = root.get("unlocked");
-        if (unlockedObj instanceof Map) {
-            for (Map.Entry<?, ?> e : ((Map<?, ?>) unlockedObj).entrySet()) {
-                if (e.getKey() == null) {
-                    continue;
-                }
-                String id = String.valueOf(e.getKey());
-                long when = 0L;
-                if (e.getValue() instanceof Number) {
-                    when = ((Number) e.getValue()).longValue();
-                }
-                p.unlocked.put(id, when);
-            }
-        }
-        addStrings(p.completedSets, root.get("completedSets"));
-        addStrings(p.titles, root.get("titles"));
-        Object equipped = root.get("equippedTitle");
-        if (equipped != null) {
-            String eq = String.valueOf(equipped);
-            if (!eq.isEmpty()) {
-                p.equippedTitle = eq;
-            }
-        }
-        addStrings(p.trophies, root.get("trophies"));
-        addStrings(p.cardStyles, root.get("cardStyles"));
-        Object pendingObj = root.get("pendingCardStyles");
-        if (pendingObj instanceof List) {
-            for (Object o : (List<?>) pendingObj) {
-                if (!(o instanceof Map)) {
-                    continue;
-                }
-                Map<?, ?> m = (Map<?, ?>) o;
-                String styleId = m.get("styleId") == null ? "" : String.valueOf(m.get("styleId"));
-                String setCode = m.get("setCode") == null ? "" : String.valueOf(m.get("setCode"));
-                String achId = m.get("achievementId") == null ? "" : String.valueOf(m.get("achievementId"));
-                long at = m.get("at") instanceof Number ? ((Number) m.get("at")).longValue() : 0L;
-                p.pendingCardStyleGrants.add(new PendingCardStyleGrant(styleId, setCode, achId, at));
-            }
-        }
-        Object countersObj = root.get("counters");
-        if (countersObj instanceof Map) {
-            for (Map.Entry<?, ?> e : ((Map<?, ?>) countersObj).entrySet()) {
-                if (e.getKey() == null || !(e.getValue() instanceof Number)) {
-                    continue;
-                }
-                p.counters.put(String.valueOf(e.getKey()), ((Number) e.getValue()).intValue());
-            }
-        }
-        p.migrateEquippedTitleIfMissing();
-        return p;
-    }
-
-    private static void addStrings(Set<String> target, Object listObj) {
-        if (!(listObj instanceof List)) {
-            return;
-        }
-        for (Object o : (List<?>) listObj) {
-            if (o != null) {
-                String s = String.valueOf(o);
-                if (!s.isEmpty()) {
-                    target.add(s);
-                }
-            }
-        }
     }
 }
