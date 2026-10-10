@@ -561,9 +561,9 @@ public class EnemySprite extends CharacterSprite implements Steerable<Vector2> {
             deckFlatForRewards = deckNoBasicLands.toFlatList();
         }
 
-        // RW1: Ascendant themed fights — signature from theme core + remaining cards from current set.
-        // Gym / League / boss / quest paths never set themeId (or are bosses) and stay on the stock path.
-        if (FightRewards.applies(data)) {
+        // RW1: Ascendant regular fights — signature from theme core (themed only) + remaining cards from
+        // the current set. Gym / League / boss / quest fights stay on the stock path.
+        if (FightRewards.appliesToFight(data, questStageID != null)) {
             rewardCollectionPool.addAll(FightRewards.generate(data, this.rewards, deckFlatForRewards, true));
             forge.adventure.data.EnemyMaterialDropData.appendDrops(data, rewardCollectionPool);
             return rewardCollectionPool;

@@ -269,6 +269,55 @@ public class FightRewardsRw1Test {
     }
 
     @Test
+    public void appliesToFightCoversUnthemedRegularEnemiesOnly() {
+        EnemyData dungeon = merfolkEnemy();
+        dungeon.themeId = null; // dungeon / town / cave enemies never get an EN1 theme
+        Assert.assertFalse(FightRewards.applies(dungeon));
+        Assert.assertTrue(FightRewards.appliesToFight(dungeon, false),
+                "unthemed regular enemies use the current-set rewards too");
+        Assert.assertTrue(FightRewards.appliesToFight(merfolkEnemy(), false), "themed still applies");
+
+        Assert.assertFalse(FightRewards.appliesToFight(dungeon, true), "quest fights keep their tables");
+        EnemyData boss = merfolkEnemy();
+        boss.themeId = null;
+        boss.boss = true;
+        Assert.assertFalse(FightRewards.appliesToFight(boss, false), "bosses keep their tables");
+        EnemyData gym = merfolkEnemy();
+        gym.themeId = null;
+        gym.preparedDeck = new forge.deck.Deck("gym");
+        Assert.assertFalse(FightRewards.appliesToFight(gym, false), "gyms / League keep their tables");
+
+        ascendantConfig.rw1AllRegularFights = false;
+        try {
+            Assert.assertFalse(FightRewards.appliesToFight(dungeon, false), "flag off = themed only");
+            Assert.assertTrue(FightRewards.appliesToFight(merfolkEnemy(), false));
+        } finally {
+            ascendantConfig.rw1AllRegularFights = true;
+        }
+
+        Config.installConfigDataForTest(stockConfig);
+        Assert.assertFalse(FightRewards.appliesToFight(dungeon, false), "stock world unchanged");
+    }
+
+    @Test
+    public void unthemedWinOnZenGivesOnlyZenCardsAndNoSignature() {
+        assumeCardDb();
+        FightRewards.setCurrentSetCodeForTest("ZEN");
+        RewardData.invalidateCardPool();
+
+        EnemyData enemy = merfolkEnemy();
+        enemy.themeId = null;
+        List<PaperCard> deck = deckWithCoreCards("merfolk_tribal");
+        Array<Reward> rewards = FightRewards.generate(enemy, null, deck, true);
+        List<PaperCard> cards = cardRewards(rewards);
+        Assert.assertFalse(cards.isEmpty(), "unthemed win still gives cards");
+        for (PaperCard pc : cards) {
+            Assert.assertTrue(FightRewards.isEdition(pc, "ZEN"),
+                    "every card is a ZEN printing; editions=" + editions(cards));
+        }
+    }
+
+    @Test
     public void merfolkTribalWinOnZenGivesExactlyOneCorePlusZenCards() {
         // Spec: merfolk_tribal on a ZEN plane → exactly one merfolk core card plus ZEN cards.
         assumeCardDb();
@@ -484,6 +533,7 @@ public class FightRewardsRw1Test {
         Assert.assertTrue(text.contains("\"rw1FightRewards\""));
         Assert.assertTrue(text.contains("\"rw1SignatureCardCount\""));
         Assert.assertTrue(text.contains("\"rw1CurrentSetCardShare\""));
+        Assert.assertTrue(text.contains("\"rw1AllRegularFights\""));
         // No BOM.
         Assert.assertFalse(text.charAt(0) == '\uFEFF');
     }
