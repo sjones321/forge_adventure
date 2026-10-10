@@ -61,7 +61,6 @@ import forge.player.GamePlayerUtil;
 import forge.player.PlayerControllerHuman;
 import forge.screens.match.MatchController;
 import forge.sound.MusicPlaylist;
-import forge.toolbox.FOptionPane;
 import forge.util.Localizer;
 
 import java.util.ArrayList;
@@ -504,20 +503,18 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
             return;
         } catch (final Exception ignored) {
         }
-        // Fallback when HUD unavailable (headless / tests).
+        // Fallback when HUD unavailable: MapStage dialog (FOptionPane is invisible under Adventure.render).
         final Localizer loc = Forge.getLocalizer();
-        FOptionPane.showConfirmDialog(
-                from + " started a fight" + (enc.isEmpty() ? "" : " (" + enc + ")") + ". Join?",
-                "Join the fight?",
-                loc != null ? loc.getMessage("lblYes") : "Yes",
-                loc != null ? loc.getMessage("lblNo") : "No",
-                false, result -> {
-                    if (Boolean.TRUE.equals(result)) {
-                        acceptInviteFromUi();
-                    } else {
-                        declineInviteFromUi();
-                    }
-                });
+        final String yes = loc != null ? loc.getMessage("lblYes") : "Yes";
+        final String no = loc != null ? loc.getMessage("lblNo") : "No";
+        final String msg = from + " started a fight" + (enc.isEmpty() ? "" : " (" + enc + ")") + ". Join?";
+        if (forge.adventure.util.AdventureDialogs.showMapConfirm(msg, yes, no,
+                this::acceptInviteFromUi, this::declineInviteFromUi)) {
+            return;
+        }
+        // Headless / no stage: do not hang on an invisible overlay — decline and note.
+        forge.adventure.util.AdventureDialogs.hudNote("Join fight from " + from + " (declined — no dialog host).");
+        declineInviteFromUi();
     }
 
     /** HUD Accept for join-fight (including after dequeue). Hook signature stable. */
