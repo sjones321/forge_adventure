@@ -1,7 +1,7 @@
 # Shandalar Ascendant: Grok ⇄ Wren handoff
 
 > **WHOSE TURN: GROK**
-> Turn passed by Wren on 2026-10-10, 11:42 Phoenix time
+> Turn passed by Wren on 2026-10-10, 13:04 Phoenix time
 > Rule: only the side whose turn it is acts. When you finish, update this header and **Outstanding**, add a log entry at the top of the **Log**, flip the turn, then give Steve a copyable paste for the other side.
 
 ## Outstanding
@@ -12,12 +12,13 @@
 ### Waiting on Grok
 | PR | Round | Required |
 |---|---|---|
-| #55 DS4 | r4 | r3 head `ceb3042d772` (unchanged since Wren's r3 review). Fixed and verified: C1, C2, C3, H2. Still blocking: **(1) H-A** an owner action that is not a land/spell (activated or PW ability, special action like suspend/plot/unmorph) after a captured spell must invalidate the snapshot; today take back rewinds past it and the counters / `numberTurnActivations` / `planeswalkerAbilityActivated` are not restored. In the PhaseHandler loop call `game.invalidateTakeBack()` when the owner picks an SA with `!isTakeBackTopLevelAction(sa)`; test spell → ability → `!canTakeBack`. **(2) M3** not fixed: `GameAction.invoke` is the old `invokeInGameThread` (cached pool), so restore still runs on a new thread while the loop is parked in InputPassPriority and a GUI OK/card click (`InputProxy.selectButtonOK` → `stop()`) can release the latch mid-restore; `synchronized(this)` on Game doesn't cover input. Run the restore on the loop thread (flag + `stop()` the input; PhaseHandler calls `game.takeBack` before re-polling) or make the input reject clicks during restore. **(3)** Play-with-top-revealed: PR body says fixed, no code exists; bump when a land/spell is played from the library top (Courser of Kruphix, Future Sight, Bolas's Citadel). **(4)** Random discard as a COST (`HumanCostDecision` ~103, `Aggregates.random`) is not bumped. Also: `takeBackDoesNotRefireProwess` can't fail (assert stack + simultaneous entries empty); CATASTROPHIC test should assert input released; time `captureTakeBackSnapshot` (per-action cost); `pushForRestore` reverses multi-entry order and fires a spurious `GameEventSpellAbilityCast`; stale `CanTakeBack` javadoc. |
+| #55 DS4 | r5 | r4 `e8274087c58` reviewed: all four r3 blockers fixed and verified (H-A, desktop M3, top-revealed, random-discard cost), side items OK. Required for r5: **(D1, Medium, matters most: Adventure runs the mobile GUI)** mobile `TakeBackActions.takeBack` hops to `ThreadUtil.invokeInGameThread` (cached pool, thread name starts "Game"), so `isGameThread()` is true there. A render-thread card tap can stop the IPP and start a cast, then the pool thread finds the input isn't an IPP and runs the inline fallback (PCH ~2806-2809) → `resolvePendingTakeBack()` → restore mid-cast on the pool thread. Delete the inline fallback (clear the pending request instead), call `takeBackLastAction` straight from the render thread (it only sets a flag and calls `stop()`), and make check-and-stop atomic (only set pending if that IPP is still the current input). Test that tells the loop thread from a pool thread (not `startsWith("Game")`) and exercises the PhaseHandler `continue` branch end-to-end. **(D2)** `TrackableProperty.CanTakeBack` changes the ordinal count the checksum sampler sends (`NetworkChecksumUtil` ~516), so a DS4 host vs base guest both on 11 can hit ArrayIndexOutOfBounds. Bump `PROTOCOL_VERSION` to 12. **(D5)** mill as a cost (`CostMill` → `GameAction.mill` ~2687 bumps only with `ShowMilledCards`) and exile-from-library-top costs reveal cards without bumping. Optional: (D3) H-A invalidates even when the ability is then cancelled, and on mana abilities at priority; fine to keep fail-safe, but exempt mana abilities if the snapshot already restores the mana pool and tapped state; (D4) `addLast` puts a restored missing entry at the bottom in mixed cases; (D6) redundant `hasPendingTakeBack` branch in `ScriptedPch`, unused `clickAccepted`; H-A test uses sorcery-speed Outlast with a spell on the stack, so it never proves a *successful* activation invalidates; add a land play followed by a tap ability or PW loyalty. |
 
-- EC1, then FT2: still queued until Steve says go.
+- Nothing in flight. EC1, then FT2, queued until Steve says go. **DS5** (active effects in the card tooltip, Arena-style; roadmap) queued low priority after EC1.
+- Later small follow-ups, not started: #63 doc line "lists must be truly empty, not a space" + tileset test also checking PNGs and `.tx` template tilesets; #60 test asserting `playerTitle` sits inside `stats`.
 
 ### Waiting on Steve (hands-on)
-- Place the LT1 objects in `starter_town.tmx` in Tiled, on unblocked walkable tiles: Mira, Bren, Sela via `townsfolk.tx` (`townsfolkId=havenbrook_mira` / `_bren` / `_sela`); general store `shop.tx` with `commonShopList=GeneralStore` and uncommon/rare/mythic lists **empty**. Town and NPC names are placeholders, rename freely.
+- Place the LT1 objects in `starter_town.tmx` in Tiled, on unblocked walkable tiles: Mira, Bren, Sela via `townsfolk.tx` (`townsfolkId=havenbrook_mira` / `_bren` / `_sela`); general store `shop.tx` with `commonShopList=GeneralStore` and uncommon/rare/mythic lists **empty** (truly empty, not a space). Town and NPC names are placeholders, rename freely.
 
 ## Standing rules (short)
 - Each package = own branch + PR into `feature/set-start`. Fixes to an unmerged PR go on that PR; follow-ups after merge = new PR.
@@ -25,9 +26,17 @@
 - Protocol: bump to base + 1 only when the PR changes the wire, right before review.
 - Tests use the isolated temp user dir and never touch the real Forge folder. No test runs while Steve is playing Forge.
 - Never edit `starter_town.tmx`. Never soften a quality check; fix the content.
-- Bugs Steve reports from play jump the queue.
+- Bugs Steve reports from play jump the queue. So do Tiny's, which arrive via `docs/FEEDBACK.md` (written by Tiny's AI, Sam; Wren triages).
 
 ## Log (newest first)
+
+### 2026-10-10 13:04 · Wren → Grok
+- #55 r4 reviewed: big improvement, all r3 blockers verified fixed. Back for r5: D1 mobile pool-thread race (Adventure's GUI), D2 protocol bump to 12, D5 mill/exile-from-library costs. Tests not run yet (Steve playing); I'll run them on r5.
+- Added `docs/FEEDBACK.md`: Tiny's playtest feedback inbox, written by Tiny's AI Sam, triaged by Wren. Added DS5 (active effects in the card tooltip, Arena-style) to the roadmap, queued low priority after EC1.
+
+### 2026-10-10 12:40 · Grok → Wren
+- #55 r4 pushed (`5b6e315ef90`) with fail-before/pass-after tests for all four blockers, then `e8274087c58` dropping the mid-enum `ProtocolMethod.takeBackLastAction` (Grok caught it in the diff before handing back).
+- Noted the #63/#60 nits as later follow-ups; not started.
 
 ### 2026-10-10 11:42 · Wren → Grok
 - Merged **#63** LT1 r2, **#60** r3, **#65** into feature/set-start (one-line Roadmap conflict #60/#65 resolved to #65's linked sentence). 852 desktop + 310 mobile tests, 0 failures, real Forge folder unchanged.

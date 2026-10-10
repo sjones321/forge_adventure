@@ -40,6 +40,8 @@ public class Paths {
      * Loaded only when {@link Config#ascendant()} — stock {@link #ITEMS_ATLAS} stays untouched.
      */
     public static final String ASCENDANT_ITEMS_ATLAS = "sprites/ascendant_items.atlas";
+    /** Ascendant-only material icons, one 16x16 region per material id (Wren drafts, Steve retouches). */
+    public static final String MATERIAL_ICONS_ATLAS = "sprites/material_icons.atlas";
     public static final String PIXELMANA_ATLAS = "sprites/pixelmana.atlas";
     public static final String KEYS_ATLAS = "skin/keys.atlas";
     public static final String COLOR_FRAME_ATLAS = "ui/color_frames.atlas";

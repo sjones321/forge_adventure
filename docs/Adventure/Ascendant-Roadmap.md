@@ -680,27 +680,138 @@ Today the inventory is one flat list of every item (equipped ones included) unde
   `CREDITS.md`) or Steve's own art.
 - Save: bag contents and capacities saved per bag; old saves auto-sort the current flat inventory into the new bags.
 
+## Saving
+
+### SV1. Save anywhere, including inside dungeons and towns, plus an autosave before every fight (next after DS4)
+Requested by Steve 2026-10-10. Today saving is blocked inside any map (`SaveLoadScene.save`/`loadSave`,
+`StartScene.Save`, `StartScene.enter` hides the button; message `lblGameNotSaved`). The code comment gives the
+reason: the save doesn't record where you are inside a map, so loading put you outside it and could skip
+location-based quest events.
+- What already persists: per-POI `PointOfInterestChanges` (killed enemies, opened chests, bought cards, map flags)
+  is in the save, so cleared rooms stay cleared.
+- What to add to the save: the POI/map the player is in (POI id + map path + the entrance used) and the player's
+  position inside it. On load, enter that map the normal way (same path as `MapStage.loadMap`/`TileMapScene`
+  entering), then place the player at the saved position instead of the entrance. Live enemies go back to their
+  spawn points, which is fine. Dead ones stay dead via the existing changes. A saved position that's now blocked or
+  missing (the map was edited) falls back to the map's entrance.
+- Quest safety, which is why it was blocked: loading inside a map must not count as "entering" for quest
+  location stages that are already done, and must still let pending "reach/clear this place" stages complete.
+  Re-fire only the map-entered event the quest controller expects, once, and test that saving then loading inside
+  the target dungeon doesn't skip or double-complete a quest stage.
+- Manual save is allowed everywhere outside a duel and outside dialogs and shops. Remove the `lblGameNotSaved`
+  block for Ascendant.
+- **Autosave before every fight:** right before a duel starts (overworld or map, enemy or boss, gym and event fights
+  too), write the autosave slot. If you lose, Load → Autosave puts you back just before the fight, where you are on
+  the map. One rotating slot, not one per fight. Never during co-op sessions (co-op is frozen; leave its save path
+  alone).
+- Ascendant only (`Config.ascendant()`); the stock modes keep their rules. Old saves (no map field) load on the
+  world map as now.
+- Tests: save inside a dungeon after killing one enemy, load, and you're inside at the same spot with that enemy
+  still gone; autosave written at duel start (and not during co-op); old save without the field loads on the world
+  map; blocked saved position falls back to the entrance; the quest stage test above.
+
+### MX1. Moxfield round trip: export your collection and decks, import decks built only from what you own (after SV1)
+Requested by Steve 2026-10-10. Goal: build decks in Moxfield against the real Ascendant collection and bring them back.
+
+**What exists today**
+- `CollectionExporter` already runs on every save: `%APPDATA%\Forge\adventure\exports\collection.csv` (Moxfield's
+  collection CSV layout), `collection.txt`, and `decks/NN - name.txt`.
+- The Adventure deck editor has **Import from clipboard** (`FDeckImportDialog`, `usePlayerInventory`).
+- `forge-gui` has `DeckUrlLoader` / `MoxfieldDeckUrlProvider`, which reads a public Moxfield deck URL. Only the
+  desktop importer uses it.
+
+**Fully automatic sync like Untapped is not possible.** Moxfield has no public API for writing a collection, and
+automating its site would break its terms. The best we can do: Forge keeps the export file always current (done on
+every save) and the player uploads it in Moxfield (Collection → Import → CSV, "replace") when they want. In the other
+direction, pasting a Moxfield deck link into Forge is one step.
+
+**Export (fix and finish)**
+- Use Scryfall set codes (`CardEdition.getScryfallCode()`) and real collector numbers in the CSV, not the lowercased
+  Forge code, so every row matches in Moxfield. Leave out cards with no Scryfall match and list them in
+  `exports/unmatched.txt`.
+- Deck editor: **Copy deck for Moxfield** (Moxfield text format `1 Name (SET) 123`, sideboard section) and an **Open
+  export folder** button. The Status or Inventory screen shows "Collection exported <time>" with a short how-to for the
+  Moxfield upload.
+
+**Import (only what you own)**
+- The mobile import dialog accepts either pasted text or a **Moxfield deck URL** (reuse `DeckUrlLoader`).
+- Import is **always limited to the collection** in Ascendant: each card line takes copies the player owns that
+  aren't already used beyond deck limits, preferring the requested printing, then any owned printing. Basic lands stay
+  free as today.
+- Missing copies never sneak in. The dialog shows a **Missing** list (name, wanted, owned) before confirming, with the
+  options "Import what I own" or "Cancel". If EC1 or crafting is in, each missing card shows its dust cost and a
+  **Craft missing** shortcut.
+- Format check against the plane's format (K) happens as in the normal editor.
+
+**Tests**
+- The CSV uses Scryfall codes, and Moxfield's own sample export round-trips.
+- A pasted list with 4 copies of a card the player owns 2 of imports 2 and lists 2 missing.
+- A requested printing that isn't owned falls back to an owned printing.
+- A URL import is parsed through the shared loader. Use a fixture, no network in tests.
+- The stock world is unchanged.
+
 ## Duel screen
 
-### DS1. Modern duel screen in libGDX (after INV1)
-Improve the existing libGDX match screen (`forge-gui-mobile/src/forge/screens/match/`) instead of switching UI
-toolkits, so co-op duels (`RemoteClientGuiGame`), Android and macOS keep working. Reference: **Neo Forge**
-(<https://github.com/AdrianLopez98/NeoForge>, GPLv3, JavaFX) has solved these as behaviour; study how it does each
-(`forge-gui-neo/.../ui/CombatOverlay.java`, `TableScreen.installDragGestures`, `match/NeoMatchUI.onCardDropped`),
-reimplement in libGDX, and credit Neo Forge in `CREDITS.md` for anything adapted from its code.
-All input still goes through `getGameController().selectCard/selectPlayer`, so it works over the network unchanged.
-- **Combat and target arrows**: curved arrows from card edge to card edge, colour-coded (red attacks, blue blocks,
-  amber targets), drawn on a click-through overlay that redraws while cards move.
-- **Drag to cast / drag to attack and block**: a small drag threshold (~9px) so plain clicks still work. Drop from
-  hand = cast; in combat, drop an attacker on a player/planeswalker or a blocker on an attacker; dragging a permanent
-  outside combat does nothing. The arrow follows the drag.
-- **Press-to-peek hand**: hold on a hand card to enlarge it, slide to the next card, push up onto the table to play.
-- **Phase stops**: clickable phase rail to set where the game stops for you (ties into the auto-yield fixes).
-- **Clickable floating mana**: mana pool shown as clickable symbols near your field.
-- **Drag to reorder the hand.**
-- **Controller**: every action above also has a controller path (focus cursor, A to pick up/drop, B cancel).
-- Works in solo and co-op duels and in stock Forge matches on the mobile/libGDX client; gate anything that changes
-  stock behaviour behind a preference defaulting to the new UI only in Ascendant until it's proven.
+### DS1. Arena-style duel screen (rewritten 2026-10-10; queued after MX1)
+Steve's call: replace Forge's match screen with an interface in the style of MTG Arena for Ascendant duels. **Keep
+Forge's rules engine, card scripts and AI untouched**; this is a new presentation layer only.
+
+**Architecture**
+- A new libGDX screen next to the existing one (`forge-gui-mobile/src/forge/screens/match/`), built on the same
+  view/controller seam: it reads `GameView` / `CardView` / `PlayerView` / stack views and answers the existing
+  `Input*` prompts (`InputPassPriority`, `InputSelectCardsFromList`, `InputPayMana`, `InputAttack`, `InputBlock`, ...)
+  through `getGameController()` / `selectCard` / `selectPlayer` / `selectButtonOK`. No engine changes; it works the
+  same in solo duels and (later) co-op, since the seam is what the network client already uses.
+- Ascendant uses the new screen by default; a setting switches back to the classic screen. Stock modes keep classic.
+- **Fallback rule:** every prompt the new screen doesn't have a custom view for falls back to the existing Forge
+  dialog, so the screen is playable from PR 1 and never dead-ends. Custom views are added by frequency.
+- Reference for behaviour (not code unless credited): Neo Forge (<https://github.com/AdrianLopez98/NeoForge>, GPLv3)
+  for arrows and drag gestures; MTG Arena for layout and feel. Original art and UI assets only, no Arena assets.
+
+**Layout**
+- Opponent's area top, the player's bottom, a centre lane for the stack and combat. Avatars with life totals and
+  counters (poison, energy...), library / graveyard / exile piles that open on click.
+- **Battlefield auto-arranges by type**: lands in a back row (grouped, identical lands stacked with a count),
+  creatures in front, other permanents to the side; attachments tucked under their host; tokens stacked by name.
+  Tapped cards rotate; summoning-sick creatures dimmed slightly.
+- **Hand fanned** at the bottom, cards lift on hover, press-to-peek enlarges, playable cards glow (castable now with
+  available mana), drag to reorder.
+- **Stack** shown as a column of cards in the centre with the top item largest; each shows its source, targets
+  (arrows) and controller colour. Resolving animates the card leaving.
+- **Phase rail** along the side: the current step highlighted, click a step to set or clear a stop (ties into
+  auto-yield). A big context button (Pass / Next / Attack / Done / Resolve) with the right label for each prompt, plus
+  "pass until end of turn".
+
+**Interaction**
+- Drag a hand card onto the battlefield (or click it) to cast or play; targets are picked by clicking with an arrow
+  following the cursor. ~9 px drag threshold so clicks still work.
+- **Combat**: "All attack" plus click or drag attackers onto a player or planeswalker; blockers dragged onto attackers;
+  red attack arrows, blue block arrows, amber target arrows on a click-through overlay that follows moving cards.
+  Damage assignment order and split damage get a simple custom view.
+- **Mana**: auto-pay by default (Forge's auto-pay); a "pay manually" toggle shows the cost and lets the player tap
+  lands; the floating mana pool shows as clickable symbols.
+- Custom views for the common prompts first: choose a mode, choose from a list or revealed cards, order triggers,
+  scry / surveil (top or bottom piles), choose X, mulligan, yes/no optional costs.
+- Card zoom / oracle text (DS3) and active effects (DS5) plug into the same hover and right-click handling. Take back
+  (DS4) gets its button next to the context button.
+- **Controller**: every action has a controller path (focus cursor across hand, battlefield and stack; A pick/drop,
+  B cancel, shoulder buttons cycle zones, a button for the phase rail).
+
+**Feel**
+- Smooth movement between zones (draw, cast, resolve, die, exile) with short tweens; damage and life-change pop-ups;
+  a light shake on big hits. All animation speeds behind one setting, including "instant".
+- Sound hooks on the existing sound events.
+
+**Delivery (one PR each, each usable on its own)**
+1. Screen skeleton: layout, auto-arranged battlefield, fanned hand, stack column, piles, context button, fallback
+   dialogs for every prompt. Setting to switch screens.
+2. Targeting and combat: arrows, drag to cast, attack and block flows, damage assignment.
+3. Mana and costs: auto-pay, manual pay toggle, mana pool, X costs, optional costs.
+4. Common prompts: modes, choose from list or revealed, scry / surveil, trigger ordering, mulligan.
+5. Animations, sound hooks and phase rail stops.
+6. Controller support across all of the above.
+- Tests per PR: a scripted duel through the real game loop exercising that PR's prompts on the new screen (headless
+  where possible), the classic screen unchanged with the setting off, and no engine files touched.
 
 ### DS2. Clear counter and fizzle banner (small; Ascendant duel screen and the classic one)
 - When a spell or ability **you** control is countered, show a banner in the middle of the duel screen with both
@@ -729,6 +840,22 @@ All input still goes through `getGameController().selectCard/selectPlayer`, so i
 - Tests: play a land then take it back (land in hand, land drop available again); cast a spell then take back (mana
   and card restored); take back refused after a draw, a reveal and an opponent response; restore failure leaves the
   game unchanged.
+
+### DS5. Active effects in the card tooltip, Arena-style (low priority; after EC1)
+- Requested by Steve 2026-10-10. Forge already draws keyword icons on battlefield cards (`UI_OVERLAY_ABILITY_ICONS`,
+  `CardRenderer.drawAbilityIcons`) and lists counters, damage and attachments in the details text
+  (`CardDetailUtil.composeCardText`). What's missing is **what changed the card and where it came from**.
+- Add an **Effects** block to the card zoom and the right-click oracle tooltip, one line per active effect:
+  source name, what it does, duration. Examples: "+2/+2 until end of turn (Giant Growth)", "Flying (Levitation)",
+  "Loses all abilities (Humility)". Buffs green, debuffs red, lost abilities grey with strikethrough.
+- Power/toughness on the card drawn green when raised and red when lowered.
+- Engine side: the per-timestamp tables the card already keeps (changed keywords, P/T boosts, text and type changes)
+  are not exposed to `CardView`. Add one trackable list of effect entries (appended `TrackableProperty`), filled from
+  those tables. Static effects name their source card; one-shot effects that only leave a timestamp may show the
+  effect without a source name at first. That's acceptable.
+- Single-player only; no wire change.
+- Tests: pump spell shows a green "+N/+N until end of turn" line with the spell's name and disappears at cleanup;
+  an anthem shows its source; a "loses all abilities" effect shows the struck-through keywords.
 
 ## AI opponent: bring your own
 
