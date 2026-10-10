@@ -652,9 +652,10 @@ public class FightRewardsRw1Test {
         PaperCard playedPc = cardByName(playedCore);
         Assert.assertNotNull(playedPc, playedCore);
         primaryPlayed.getMain().add(playedPc);
-        for (String pad : List.of("Cancel", "Unsummon")) {
+        // Pads must NOT be theme-core names (Unsummon is in merfolk_tribal core).
+        for (String pad : List.of("Cancel", "Serum Visions", "Blue Elemental Blast")) {
             PaperCard p = cardByName(pad);
-            if (p != null) {
+            if (p != null && !core.contains(p.getName())) {
                 primaryPlayed.getMain().add(p);
             }
         }
