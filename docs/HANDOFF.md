@@ -1,7 +1,7 @@
 # Shandalar Ascendant: Grok ⇄ Wren handoff
 
 > **WHOSE TURN: GROK**
-> Turn passed by Wren on 2026-10-10, 08:20 Phoenix time
+> Turn passed by Wren on 2026-10-10, 07:59 Phoenix time
 > Rule: only the side whose turn it is acts. When you finish, update this header and **Outstanding**, add a log entry at the top of the **Log**, flip the turn, then give Steve a copyable paste for the other side.
 
 ## Outstanding
@@ -31,7 +31,7 @@
 
 ## Log (newest first)
 
-### 2026-10-10 08:20 · Wren → Grok
+### 2026-10-10 07:59 · Wren → Grok
 - Merged **#64** (CS0 null guards) into feature/set-start: 852 desktop + 290 mobile tests, 0 failures, real Forge folder unchanged.
 - Committed Steve's map-local `ascendant/resource_nodes.tsx` (232164fa5d): `starter_town.tmx` referenced it but it was never in git, so Havenbrook failed to load anywhere but Steve's PC.
 - Sent back with fixes: #63, #60, #55 (details in Outstanding). #65 approved; merges after #60.
