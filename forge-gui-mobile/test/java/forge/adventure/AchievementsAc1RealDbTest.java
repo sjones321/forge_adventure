@@ -46,6 +46,7 @@ public class AchievementsAc1RealDbTest {
     private static java.util.Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
     private static StaticData magicDb;
     private static StaticData previousStaticData;
+    private static boolean previousStaticDataCaptured;
     private static ConfigData ascendantConfig;
     private static String initError;
 
@@ -81,6 +82,7 @@ public class AchievementsAc1RealDbTest {
                     + File.separator + "editions" + File.separator;
 
             previousStaticData = readStaticDataInstance();
+            previousStaticDataCaptured = true;
             final CardStorageReader reader = new CardStorageReader(cards, null, false);
             CardStorageReader customReader = null;
             try {
@@ -119,10 +121,13 @@ public class AchievementsAc1RealDbTest {
     @AfterClass(alwaysRun = true)
     public void resetPinnedStateAndAssertRealUserDirUntouched() throws Exception {
         try {
-            // Reset AC1 pins; restore prior StaticData; leave suite GuiBase to bootstrap.
+            // Reset AC1 pins; restore prior StaticData only if setup captured it
+            // (a failed @BeforeClass must not pin null over an unrelated suite instance).
             RewardData.invalidateRewardFilterCache();
             AchievementSetTracker.setMagicDbForTest(null);
-            pinStaticData(previousStaticData);
+            if (previousStaticDataCaptured) {
+                pinStaticData(previousStaticData);
+            }
             AccountStore.resetAdventureRootOverrideForTest();
             Config.resetInstanceForTest();
         } finally {

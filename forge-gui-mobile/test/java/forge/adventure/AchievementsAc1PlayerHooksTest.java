@@ -62,6 +62,8 @@ public class AchievementsAc1PlayerHooksTest {
     private static Path realUserDir;
     private static Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
     private static StaticData magicDb;
+    private static StaticData previousStaticData;
+    private static boolean previousStaticDataCaptured;
     private static ConfigData ascendantConfig;
     private static String initError;
 
@@ -111,6 +113,8 @@ public class AchievementsAc1PlayerHooksTest {
             } catch (Exception ignored) {
             }
             final CardStorageReader tokenReader = new CardStorageReader(tokens, null, false);
+            previousStaticData = readStaticDataInstance();
+            previousStaticDataCaptured = true;
             magicDb = new StaticData(reader, tokenReader, customReader, null, editions,
                     customEditions, blocks, "",
                     "Latest Art All Editions", true, false, false, false);
@@ -142,6 +146,11 @@ public class AchievementsAc1PlayerHooksTest {
             AchievementSetTracker.setMagicDbForTest(null);
             // Unpin any reward-filter pin left by this class (or a shared suite race).
             RewardData.invalidateRewardFilterCache();
+            // Restore prior StaticData only if @BeforeClass captured it (failed setup
+            // must not pin null over an unrelated suite instance).
+            if (previousStaticDataCaptured) {
+                pinStaticData(previousStaticData);
+            }
         } finally {
             if (realUserDirSnapshot != null) {
                 AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
@@ -369,6 +378,16 @@ public class AchievementsAc1PlayerHooksTest {
             instance.set(null, data);
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private static StaticData readStaticDataInstance() {
+        try {
+            Field instance = StaticData.class.getDeclaredField("lastInstance");
+            instance.setAccessible(true);
+            return (StaticData) instance.get(null);
+        } catch (ReflectiveOperationException e) {
+            return null;
         }
     }
 
