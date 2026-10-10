@@ -3,6 +3,8 @@ package forge.adventure;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.Json;
+import forge.ImageKeys;
+import forge.StaticData;
 import forge.adventure.data.ConfigData;
 import forge.adventure.data.RewardData;
 import forge.adventure.player.AccountStore;
@@ -20,6 +22,8 @@ import forge.item.BoosterPack;
 import forge.item.PaperCard;
 import forge.localinstance.properties.ForgeConstants;
 import forge.model.FModel;
+import forge.util.Lang;
+import forge.util.Localizer;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -28,9 +32,11 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
@@ -42,51 +48,87 @@ import java.util.concurrent.locks.ReentrantLock;
  * printings; junk/generic sources use a rotation/normal printing;
  * {@code useAllCardVariants=true} changes nothing under Ascendant.
  *
- * <p>Isolation: suite-wide {@code forge.test.userDir} / {@code test-user-home}
- * + {@link AdventureTestBootstrapListener} / {@link AdventureGuiBootstrapListener}.
+ * <p>Self-bootstraps Config + card DB in {@link BeforeClass} (same pattern as
+ * {@link FightRewardsRw1Test}) so suite order cannot leave {@code Config} /
+ * {@code StaticData} null or unpinned after RW1/AC1 teardown. Uses Surefire
+ * {@code forge.test.userDir}; never touches the real user folder.
  */
 @Test(singleThreaded = true)
 public class SourcePrintingsCs0Test {
 
     private static final ReentrantLock LOCK = new ReentrantLock();
 
-    private static Path tempUserDir;
     private static Path realUserDir;
     private static java.util.Map<String, AdventureTestUserDir.FileStamp> realUserDirSnapshot;
+    private static StaticData magicDb;
+    private static StaticData previousStaticData;
     private static ConfigData ascendantConfig;
     private static ConfigData stockConfig;
     private static String initError;
     private static boolean savedUseAllCardVariants;
 
     @BeforeClass
-    public void bootstrap() {
+    public void bootstrapConfigAndCardDb() {
         try {
-            tempUserDir = AdventureTestUserDir.configuredTestUserDir();
             realUserDir = AdventureTestUserDir.defaultRealUserDir();
             realUserDirSnapshot = AdventureTestUserDir.snapshot(realUserDir);
             AdventureTestUserDir.requireIsolatedUserDir();
             AccountStore.setAdventureRootOverrideForTest(new File(ForgeConstants.USER_ADVENTURE_DIR));
 
-            Assert.assertNotNull(FModel.getMagicDb(), "FModel card DB required (AdventureGuiBootstrapListener)");
-            Assert.assertNotNull(FModel.getMagicDb().getEditions().get("ZEN"), "ZEN edition required");
-
             Path forgeGuiDir = resolveForgeGuiDir();
+            Assert.assertTrue(Files.isDirectory(forgeGuiDir.resolve("res/editions")),
+                    "editions dir missing under " + forgeGuiDir);
+            Assert.assertTrue(Files.isDirectory(forgeGuiDir.resolve("res/cardsfolder")),
+                    "cardsfolder missing under " + forgeGuiDir);
+
+            try {
+                Lang.createInstance("en-US");
+                String langDir = forgeGuiDir.resolve("res/languages").toAbsolutePath().normalize()
+                        + File.separator;
+                Localizer.getInstance().initialize("en-US", langDir);
+                ImageKeys.initializeDirs("", new HashMap<>(), "", "", "", "", "", "", "");
+            } catch (Throwable ignored) {
+                // Suite bootstrap may already have initialized these.
+            }
+
+            previousStaticData = readStaticDataInstance();
+
+            // CardUtil / SourcePrintings / CardDb.lazyLoad need FModel's StaticData and
+            // StaticData.instance() to be the *same* object. RW1/AC1 AfterClass can unpin
+            // lastInstance to null; never pin a second StaticData or lazy lookup breaks.
+            ensureFModelMagicDb();
+            magicDb = FModel.getMagicDb();
+            Assert.assertNotNull(magicDb, "FModel magic DB required for CS0");
+            Assert.assertNotNull(magicDb.getCommonCards(), "FModel common cards required");
+            Assert.assertNotNull(magicDb.getEditions().get("ZEN"), "ZEN edition required");
+            pinStaticData(magicDb);
+
             Path cfgPath = forgeGuiDir.resolve("res/adventure/Shandalar Ascendant/config.json");
             Assert.assertTrue(Files.isRegularFile(cfgPath), "Ascendant config missing: " + cfgPath);
             ascendantConfig = new Json().fromJson(ConfigData.class, new FileHandle(cfgPath.toFile()));
             Assert.assertNotNull(ascendantConfig);
             Assert.assertTrue(ascendantConfig.ascendantRules);
+            ascendantConfig.cs0SourcePrintings = true;
+            // Tests rely on the full edition catalogue (ANB / LEA / …), not a plane allow-list.
+            ascendantConfig.allowedEditions = null;
             Assert.assertTrue(ascendantConfig.cs0SourcePrintings, "Ascendant config must enable CS0");
+            Assert.assertTrue(containsIgnoreCase(ascendantConfig.restrictedEditions, "UST"),
+                    "Ascendant restrictedEditions must list UST");
 
             stockConfig = new ConfigData();
             stockConfig.ascendantRules = false;
             stockConfig.cs0SourcePrintings = true; // unused when not Ascendant
 
+            // RW1/AC1 AfterClass calls Config.resetInstanceForTest() — reinstall ourselves.
             Config.resetInstanceForTest();
             Config.instance();
             Config.installConfigDataForTest(ascendantConfig);
             Assert.assertTrue(Config.ascendant());
             Assert.assertTrue(SourcePrintings.enabled());
+            SourcePrintings.clearCaches();
+
+            // Eagerly prove the printings these tests assert on (no silent skips later).
+            warmRequiredPrintings();
 
             savedUseAllCardVariants = Config.instance().getSettingData().useAllCardVariants;
         } catch (Throwable t) {
@@ -95,16 +137,74 @@ public class SourcePrintingsCs0Test {
         }
     }
 
+    /** Suite listener normally initializes FModel; call again only when missing. */
+    private static void ensureFModelMagicDb() {
+        try {
+            if (FModel.getMagicDb() != null && FModel.getMagicDb().getCommonCards() != null) {
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+        FModel.initialize(null, preferences -> {
+            preferences.setPref(
+                    forge.localinstance.properties.ForgePreferences.FPref.LOAD_CARD_SCRIPTS_LAZILY, true);
+            preferences.setPref(
+                    forge.localinstance.properties.ForgePreferences.FPref.UI_LANGUAGE, "en-US");
+            preferences.setPref(
+                    forge.localinstance.properties.ForgePreferences.FPref.ENFORCE_DECK_LEGALITY, false);
+            return null;
+        });
+    }
+
+    /**
+     * Force-load editions and cards the hard asserts need. Must run with
+     * {@link StaticData#instance()} pinned to {@link #magicDb}.
+     */
+    private static void warmRequiredPrintings() {
+        Assert.assertNotNull(magicDb.getEditions().get("ANB"), "ANB (ONLINE) required");
+        Assert.assertNotNull(magicDb.getEditions().get("V15"), "V15 (COLLECTOR) required");
+        Assert.assertNotNull(magicDb.getEditions().get("UST"), "UST (FUNNY/restricted) required");
+        Assert.assertNotNull(magicDb.getEditions().get("PLST"), "PLST required");
+        Assert.assertNotNull(magicDb.getEditions().get("MB1"), "MB1 required");
+        Assert.assertEquals(magicDb.getEditions().get("ANB").getType(), CardEdition.Type.ONLINE);
+        Assert.assertEquals(magicDb.getEditions().get("V15").getType(),
+                CardEdition.Type.COLLECTOR_EDITION);
+        Assert.assertEquals(magicDb.getEditions().get("UST").getType(), CardEdition.Type.FUNNY);
+
+        // Lazy DB: getAllCards loads the script, then getCard(name, set) can resolve.
+        List<PaperCard> shockAll = magicDb.getCommonCards().getAllCards("Shock");
+        Assert.assertNotNull(shockAll, "Shock printings required");
+        Assert.assertFalse(shockAll.isEmpty(), "Shock printings required");
+        PaperCard anbShock = magicDb.getCommonCards().getCard("Shock", "ANB");
+        if (anbShock == null) {
+            for (PaperCard pc : shockAll) {
+                if (pc != null && "ANB".equalsIgnoreCase(pc.getEdition())) {
+                    anbShock = pc;
+                    break;
+                }
+            }
+        }
+        Assert.assertNotNull(anbShock, "ANB Shock printing required after warm-load");
+
+        List<PaperCard> lotusAll = magicDb.getCommonCards().getAllCards("Black Lotus");
+        Assert.assertNotNull(lotusAll, "Black Lotus printings required");
+        Assert.assertFalse(lotusAll.isEmpty(), "Black Lotus printings required");
+        PaperCard lotus = SourcePrintings.printingFromRotation("Black Lotus", List.of());
+        Assert.assertNotNull(lotus, "Black Lotus must resolve via most-recent normal fallback");
+    }
+
     @AfterClass(alwaysRun = true)
-    public void tearDownClass() throws Exception {
+    public void restorePinnedStateAndAssertRealUserDirUntouched() throws Exception {
         try {
             if (Config.instance() != null && Config.instance().getSettingData() != null) {
                 Config.instance().getSettingData().useAllCardVariants = savedUseAllCardVariants;
             }
-            AccountStore.resetAdventureRootOverrideForTest();
-            Config.resetInstanceForTest();
+            SourcePrintings.clearCaches();
             RewardData.invalidateCardPool();
             RewardData.invalidateRewardFilterCache();
+            pinStaticData(previousStaticData);
+            AccountStore.resetAdventureRootOverrideForTest();
+            Config.resetInstanceForTest();
         } finally {
             if (realUserDirSnapshot != null) {
                 AdventureTestUserDir.assertUnchanged(realUserDir, realUserDirSnapshot,
@@ -118,8 +218,18 @@ public class SourcePrintingsCs0Test {
         LOCK.lock();
         try {
             Assert.assertNull(initError, "bootstrap failed: " + initError);
+            Assert.assertNotNull(magicDb, "CS0 card DB not loaded");
+            pinStaticData(magicDb);
+            AdventureTestUserDir.requireIsolatedUserDir();
+
+            Assert.assertNotNull(ascendantConfig, "Ascendant config missing from BeforeClass");
+            Config.resetInstanceForTest();
+            Config.instance();
             Config.installConfigDataForTest(ascendantConfig);
             Config.instance().getSettingData().useAllCardVariants = false;
+            Assert.assertTrue(Config.ascendant());
+            Assert.assertTrue(SourcePrintings.enabled());
+            SourcePrintings.clearCaches();
             RewardData.invalidateCardPool();
             ensurePlayerWithRotation(List.of("ZEN", "WWK", "ROE"));
         } catch (RuntimeException e) {
@@ -134,9 +244,14 @@ public class SourcePrintingsCs0Test {
     @AfterMethod(alwaysRun = true)
     public void tearDown() {
         try {
-            Config.installConfigDataForTest(ascendantConfig);
-            Config.instance().getSettingData().useAllCardVariants = false;
+            if (ascendantConfig != null) {
+                Config.installConfigDataForTest(ascendantConfig);
+            }
+            if (Config.instance() != null && Config.instance().getSettingData() != null) {
+                Config.instance().getSettingData().useAllCardVariants = false;
+            }
             RewardData.invalidateCardPool();
+            pinStaticData(magicDb);
         } finally {
             if (LOCK.isHeldByCurrentThread()) {
                 LOCK.unlock();
@@ -180,7 +295,7 @@ public class SourcePrintingsCs0Test {
 
     @Test
     public void zenPackContentsAreZenPrintings() {
-        CardEdition zen = FModel.getMagicDb().getEditions().get("ZEN");
+        CardEdition zen = magicDb.getEditions().get("ZEN");
         Assert.assertNotNull(zen);
         Assert.assertTrue(zen.hasBoosterTemplate(), "ZEN must be able to make boosters");
 
@@ -233,7 +348,7 @@ public class SourcePrintingsCs0Test {
         // Deliberately feed non-rotation unique stand-ins when available, then rematch.
         List<PaperCard> skewed = new ArrayList<>();
         for (PaperCard pc : pool) {
-            PaperCard unique = FModel.getMagicDb().getCommonCards().getUniqueByName(pc.getName());
+            PaperCard unique = magicDb.getCommonCards().getUniqueByName(pc.getName());
             skewed.add(unique != null ? unique : pc);
         }
 
@@ -248,7 +363,7 @@ public class SourcePrintingsCs0Test {
         // Same rematch via SourcePrintings.resolve with no source editions.
         PaperCard guide = SourcePrintings.printingFromSet("Goblin Guide", "M11");
         if (guide == null) {
-            guide = FModel.getMagicDb().getCommonCards().getUniqueByName("Goblin Guide");
+            guide = magicDb.getCommonCards().getUniqueByName("Goblin Guide");
         }
         Assert.assertNotNull(guide, "Goblin Guide must resolve");
         PaperCard resolved = SourcePrintings.resolve(guide, (String[]) null);
@@ -314,10 +429,10 @@ public class SourcePrintingsCs0Test {
         PaperCard lotus = SourcePrintings.printingFromRotation("Black Lotus", List.of());
         Assert.assertNotNull(lotus);
         Assert.assertTrue(SourcePrintings.isNormalPrinting(lotus)
-                        || FModel.getMagicDb().getEditions().get(lotus.getEdition()) != null,
+                        || magicDb.getEditions().get(lotus.getEdition()) != null,
                 "fallback must resolve some printing of Black Lotus");
         // Prefer non-promo when possible.
-        CardEdition ed = FModel.getMagicDb().getEditions().get(lotus.getEdition());
+        CardEdition ed = magicDb.getEditions().get(lotus.getEdition());
         Assert.assertNotNull(ed);
         Assert.assertNotEquals(ed.getType(), CardEdition.Type.PROMO,
                 "most-recent normal fallback should avoid promo sets when a normal exists");
@@ -455,31 +570,49 @@ public class SourcePrintingsCs0Test {
     public void generateExcludesOnlineCollectorFunnyRestrictedPlstMb1() {
         warmRotationCardPool();
         SourcePrintings.clearCaches();
+        pinStaticData(magicDb);
 
         // Hard availability checks — do not silently skip.
-        Assert.assertNotNull(FModel.getMagicDb().getEditions().get("ANB"), "ANB (ONLINE) required");
-        Assert.assertNotNull(FModel.getMagicDb().getEditions().get("V15"), "V15 (COLLECTOR) required");
-        Assert.assertNotNull(FModel.getMagicDb().getEditions().get("UST"), "UST (FUNNY/restricted) required");
-        Assert.assertNotNull(FModel.getMagicDb().getEditions().get("PLST"), "PLST required");
-        Assert.assertNotNull(FModel.getMagicDb().getEditions().get("MB1"), "MB1 required");
-        Assert.assertEquals(FModel.getMagicDb().getEditions().get("ANB").getType(), CardEdition.Type.ONLINE);
-        Assert.assertEquals(FModel.getMagicDb().getEditions().get("V15").getType(),
+        Assert.assertNotNull(magicDb.getEditions().get("ANB"), "ANB (ONLINE) required");
+        Assert.assertNotNull(magicDb.getEditions().get("V15"), "V15 (COLLECTOR) required");
+        Assert.assertNotNull(magicDb.getEditions().get("UST"), "UST (FUNNY/restricted) required");
+        Assert.assertNotNull(magicDb.getEditions().get("PLST"), "PLST required");
+        Assert.assertNotNull(magicDb.getEditions().get("MB1"), "MB1 required");
+        Assert.assertEquals(magicDb.getEditions().get("ANB").getType(), CardEdition.Type.ONLINE);
+        Assert.assertEquals(magicDb.getEditions().get("V15").getType(),
                 CardEdition.Type.COLLECTOR_EDITION);
-        Assert.assertEquals(FModel.getMagicDb().getEditions().get("UST").getType(), CardEdition.Type.FUNNY);
+        Assert.assertEquals(magicDb.getEditions().get("UST").getType(), CardEdition.Type.FUNNY);
         Assert.assertTrue(SourcePrintings.isRestrictedEdition("UST"),
                 "Ascendant restrictedEditions must list UST");
 
-        PaperCard onlineShock = FModel.getMagicDb().getCommonCards().getCard("Shock", "ANB");
+        // Prefer getAllCards then pick ANB — resilient when getCard(name, set) races lazy load.
+        PaperCard onlineShock = magicDb.getCommonCards().getCard("Shock", "ANB");
+        if (onlineShock == null) {
+            for (PaperCard pc : magicDb.getCommonCards().getAllCards("Shock")) {
+                if (pc != null && "ANB".equalsIgnoreCase(pc.getEdition())) {
+                    onlineShock = pc;
+                    break;
+                }
+            }
+        }
         Assert.assertNotNull(onlineShock, "ANB Shock printing required");
         Assert.assertFalse(SourcePrintings.isNormalPrinting(onlineShock),
                 "ONLINE Shock must fail isNormalPrinting");
         Assert.assertNull(SourcePrintings.printingFromSet("Shock", "ANB"),
                 "printingFromSet must refuse ONLINE editions");
 
-        CardEdition ustEd = FModel.getMagicDb().getEditions().get("UST");
+        CardEdition ustEd = magicDb.getEditions().get("UST");
         Assert.assertFalse(ustEd.getCards().isEmpty(), "UST must have cards");
         String ustName = ustEd.getCards().get(0).name();
-        PaperCard ustCard = FModel.getMagicDb().getCommonCards().getCard(ustName, "UST");
+        PaperCard ustCard = magicDb.getCommonCards().getCard(ustName, "UST");
+        if (ustCard == null) {
+            for (PaperCard pc : magicDb.getCommonCards().getAllCards(ustName)) {
+                if (pc != null && "UST".equalsIgnoreCase(pc.getEdition())) {
+                    ustCard = pc;
+                    break;
+                }
+            }
+        }
         Assert.assertNotNull(ustCard, "UST printing must load from DB for isNormalPrinting check");
         Assert.assertFalse(SourcePrintings.isNormalPrinting(ustCard),
                 "restricted FUNNY UST must fail isNormalPrinting");
@@ -499,7 +632,7 @@ public class SourcePrintingsCs0Test {
             Assert.assertFalse(bannedCodes.contains(pc.getEdition().toUpperCase()),
                     "generate must not yield banned edition " + pc.getEdition()
                             + " for " + pc.getName());
-            CardEdition ed = FModel.getMagicDb().getEditions().get(pc.getEdition());
+            CardEdition ed = magicDb.getEditions().get(pc.getEdition());
             Assert.assertNotNull(ed, "edition must resolve: " + pc.getEdition());
             Assert.assertNotEquals(ed.getType(), CardEdition.Type.ONLINE,
                     "generate must exclude ONLINE: " + pc.getName() + " [" + pc.getEdition() + "]");
@@ -518,7 +651,7 @@ public class SourcePrintingsCs0Test {
         PaperCard byName = CardUtil.getCardByName("Shock");
         Assert.assertNotNull(byName);
         Assert.assertNotEquals(
-                FModel.getMagicDb().getEditions().get(byName.getEdition()).getType(),
+                magicDb.getEditions().get(byName.getEdition()).getType(),
                 CardEdition.Type.ONLINE);
         Assert.assertFalse(SourcePrintings.isRestrictedEdition(byName.getEdition()));
     }
@@ -538,7 +671,7 @@ public class SourcePrintingsCs0Test {
         PaperCard a = SourcePrintings.printingFromSet("Plains", "ZEN");
         Assert.assertNotNull(a);
         // Cache hit path for section / normal.
-        SourcePrintings.clearCachesForTest();
+        SourcePrintings.clearCaches();
         Assert.assertTrue(SourcePrintings.isNormalPrinting(a));
         Assert.assertTrue(SourcePrintings.isNormalPrinting(a), "second call uses cache");
         String cn = CardEdition.getSortableCollectorNumber("2");
@@ -551,17 +684,18 @@ public class SourcePrintingsCs0Test {
 
     /** Force-load enough rotation cards so RewardData.initializeAllCards is non-empty. */
     private static void warmRotationCardPool() {
+        pinStaticData(magicDb);
         AdventurePlayer player = WorldSave.getCurrentSave().getPlayer();
         Set<String> names = player.getStandardWindow().legalNames();
         int n = 0;
         for (String name : names) {
-            FModel.getMagicDb().getCommonCards().getCard(name);
+            magicDb.getCommonCards().getCard(name);
             if (++n >= 400) {
                 break;
             }
         }
         RewardData.invalidateCardPool();
-        SourcePrintings.clearCachesForTest();
+        SourcePrintings.clearCaches();
     }
 
     private static List<PaperCard> cardsFromGenerate(RewardData template, int rounds) {
@@ -584,7 +718,7 @@ public class SourcePrintingsCs0Test {
         Random rng = new Random(42L);
         // Production rematch path used by rewards/shops (CardUtil.generateCards + CS0 resolve).
         List<PaperCard> pool = new ArrayList<>();
-        for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
+        for (PaperCard pc : magicDb.getCommonCards().getUniqueCards()) {
             if (pc != null) {
                 pool.add(pc);
             }
@@ -614,6 +748,38 @@ public class SourcePrintingsCs0Test {
         Assert.assertTrue(window.isActive());
         Assert.assertEquals(new HashSet<>(window.getSets()), new HashSet<>(sets));
         RewardData.invalidateCardPool();
+    }
+
+    private static boolean containsIgnoreCase(String[] arr, String needle) {
+        if (arr == null || needle == null) {
+            return false;
+        }
+        for (String s : arr) {
+            if (needle.equalsIgnoreCase(s)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void pinStaticData(StaticData data) {
+        try {
+            Field instance = StaticData.class.getDeclaredField("lastInstance");
+            instance.setAccessible(true);
+            instance.set(null, data);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static StaticData readStaticDataInstance() {
+        try {
+            Field instance = StaticData.class.getDeclaredField("lastInstance");
+            instance.setAccessible(true);
+            return (StaticData) instance.get(null);
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
     }
 
     private static Path resolveForgeGuiDir() {
