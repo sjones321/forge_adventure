@@ -733,17 +733,29 @@ public class EnemyThemeDeckLegalityTest {
         Assert.assertTrue(Files.isRegularFile(dck), "missing " + dck);
         Deck deck = DeckSerializer.fromFile(dck.toFile());
         Assert.assertNotNull(deck);
-        String[] restored = {
-                "Dracosaur Auxiliary", "Dragonspeaker Shaman", "Obsidian Charmaw",
-                "Realm-Scorcher Hellkite", "Smaug, the Great Calamity", "Stingerback Terror",
-                "Thundermane Dragon", "War-Spike Changeling"
+        // Real Dragon creature types restored after #50 regen (not Dragonspeaker Shaman —
+        // that is a Human Barbarian Shaman kept as on-theme support).
+        String[] restoredDragons = {
+                "Dracosaur Auxiliary", "Obsidian Charmaw", "Realm-Scorcher Hellkite",
+                "Smaug, the Great Calamity", "Stingerback Terror", "Thundermane Dragon"
         };
-        List<String> missing = new ArrayList<>();
-        for (String name : restored) {
+        List<String> missingDragons = new ArrayList<>();
+        for (String name : restoredDragons) {
             if (deck.getMain().countByName(name) < 1)
-                missing.add(name);
+                missingDragons.add(name);
         }
-        Assert.assertTrue(missing.isEmpty(), "restored Dragons missing: " + missing);
+        Assert.assertTrue(missingDragons.isEmpty(),
+                "restored Dragon creatures missing: " + missingDragons);
+        Assert.assertTrue(deck.getMain().countByName("War-Spike Changeling") >= 1,
+                "restored tribal changeling missing");
+        Assert.assertTrue(deck.getMain().countByName("Dragonspeaker Shaman") >= 1,
+                "on-theme dragon support (Dragonspeaker Shaman) missing");
+        for (PaperCard pc : deck.getMain().toFlatList()) {
+            if (pc != null && "Dragonspeaker Shaman".equals(pc.getName())) {
+                Assert.assertFalse(pc.getRules().getType().hasSubtype("Dragon"),
+                        "Dragonspeaker Shaman must not be treated as a Dragon creature type");
+            }
+        }
         String[] flyers = {
                 "Arclight Phoenix", "Avatar of Fury", "Avengers Quinjet", "Emberwilde Djinn",
                 "Levitating Statue", "Thopter Assembly", "Draconautics Engineer"
@@ -759,11 +771,9 @@ public class EnemyThemeDeckLegalityTest {
         EnemyThemeDecks.ensureCoreLoaded(theme);
         Assert.assertNull(EnemyThemeDecks.themeQualityProblem(deck, theme, "Commander"),
                 EnemyThemeDecks.themeQualityProblem(deck, theme, "Commander"));
-        Assert.assertTrue(EnemyThemeDecks.countCreatureType(deck, "Dragon")
-                        >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER
-                        || EnemyThemeDecks.countTribalCreatures(deck, theme)
+        Assert.assertTrue(EnemyThemeDecks.countTribalCreatures(deck, theme)
                         >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER,
-                "dragon_tribal Commander must meet tribal floor with Dragons");
+                "dragon_tribal Commander must meet tribal floor");
     }
 
     @Test
@@ -819,6 +829,310 @@ public class EnemyThemeDeckLegalityTest {
         }
         Assert.assertTrue(problems.isEmpty(),
                 "normalize tribal-floor problems:\n" + String.join("\n", problems));
+    }
+
+    @Test
+    public void normalizeTrimAtTribalFloorDoesNotRemoveTribalCreatures() {
+        List<String> problems = new ArrayList<>();
+        int exercised = 0;
+        Set<String> seen = new HashSet<>();
+        for (EnemyThemeData theme : themes) {
+            if (theme == null || theme.id == null || !seen.add(theme.id))
+                continue;
+            EnemyThemeDecks.ensureCoreLoaded(theme);
+            // Normalize only guards tribal on isTribalTheme themes.
+            if (!EnemyThemeDecks.isTribalThemeForTests(theme))
+                continue;
+            Deck base = null;
+            for (long seed = 1; seed <= 32 && base == null; seed++) {
+                try {
+                    Deck d = EnemyThemeDecks.buildFixedDeck(theme, "Commander", seed * 17L);
+                    if (d != null && EnemyThemeDecks.countTribalCreatures(d, theme)
+                            >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER)
+                        base = d;
+                } catch (RuntimeException ignored) {
+                }
+            }
+            if (base == null) {
+                for (Path deckPath : listFixedDecks(theme.id, "Commander")) {
+                    Deck d = DeckSerializer.fromFile(deckPath.toFile());
+                    if (d != null) {
+                        d.getMain();
+                        if (d.has(DeckSection.Commander))
+                            d.get(DeckSection.Commander);
+                        if (EnemyThemeDecks.countTribalCreatures(d, theme)
+                                >= EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER) {
+                            base = d;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (base == null)
+                continue; // theme cannot supply a tribal-legal Commander deck in this env
+            PaperCard chaff = disposableChaffForTheme(theme);
+            PaperCard basic = firstBasicInDeck(base);
+            if (chaff == null || basic == null)
+                continue;
+            Deck edged = copyDeck(base);
+            // Exact tribal floor via tribal → chaff swaps (core allowed for setup only).
+            while (EnemyThemeDecks.countTribalCreatures(edged, theme)
+                    > EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER) {
+                PaperCard tribal = null;
+                for (PaperCard pc : edged.getMain().toFlatList()) {
+                    if (pc != null && countsAsTribalForTest(pc, theme)
+                            && !EnemyThemeDecks.isInCore(pc.getName(), theme)) {
+                        tribal = pc;
+                        break;
+                    }
+                }
+                if (tribal == null) {
+                    for (PaperCard pc : edged.getMain().toFlatList()) {
+                        if (pc != null && countsAsTribalForTest(pc, theme)) {
+                            tribal = pc;
+                            break;
+                        }
+                    }
+                }
+                if (tribal == null)
+                    break;
+                edged.getMain().remove(tribal);
+                edged.getMain().add(chaff);
+            }
+            if (EnemyThemeDecks.countTribalCreatures(edged, theme)
+                    != EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER)
+                continue;
+            // Lands exactly at MIN so trim must pick nonlands (not basics).
+            while (countLandsInDeck(edged) > EnemyThemeDecks.MIN_LANDS_COMMANDER) {
+                PaperCard land = null;
+                for (PaperCard pc : edged.getMain().toFlatList()) {
+                    if (pc != null && pc.getRules() != null
+                            && pc.getRules().getType().isBasicLand()) {
+                        land = pc;
+                        break;
+                    }
+                }
+                if (land == null)
+                    break;
+                edged.getMain().remove(land);
+                edged.getMain().add(chaff);
+            }
+            while (countLandsInDeck(edged) < EnemyThemeDecks.MIN_LANDS_COMMANDER)
+                edged.getMain().add(basic);
+            while (edged.getMain().countAll() < 99)
+                edged.getMain().add(chaff);
+            while (edged.getMain().countAll() > 99) {
+                boolean removed = false;
+                for (PaperCard pc : edged.getMain().toFlatList()) {
+                    if (pc != null && chaff.getName().equals(pc.getName())) {
+                        edged.getMain().remove(pc);
+                        removed = true;
+                        break;
+                    }
+                }
+                if (!removed)
+                    break;
+            }
+            if (countLandsInDeck(edged) != EnemyThemeDecks.MIN_LANDS_COMMANDER
+                    || edged.getMain().countAll() != 99
+                    || EnemyThemeDecks.countTribalCreatures(edged, theme)
+                    != EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER)
+                continue;
+            // Ensure at least one non-core chaff copy exists for the victim picker.
+            if (edged.getMain().countByName(chaff.getName()) < 1
+                    || EnemyThemeDecks.isInCore(chaff.getName(), theme))
+                continue;
+            for (int i = 0; i < 4; i++)
+                edged.getMain().add(chaff);
+            Set<String> tribalNamesBefore = tribalCreatureNames(edged, theme);
+            int tribalBefore = EnemyThemeDecks.countTribalCreatures(edged, theme);
+            // Directly exercise the trim victim picker at the floor.
+            PaperCard victim = EnemyThemeDecks.pickCommanderNormalizeTrimVictimForTests(
+                    edged, theme);
+            if (victim == null) {
+                problems.add(theme.id + ": trim victim null at tribal floor with chaff present");
+                continue;
+            }
+            if (countsAsTribalForTest(victim, theme)) {
+                problems.add(theme.id + ": trim victim was tribal " + victim.getName()
+                        + " while at floor");
+                continue;
+            }
+            if (victim.getRules() != null && victim.getRules().getType().isLand()) {
+                problems.add(theme.id + ": trim victim was a land though lands==MIN and chaff"
+                        + " is present (" + victim.getName() + ")");
+                continue;
+            }
+            try {
+                EnemyThemeDecks.normalizeCommanderMainSizeForTests(edged, theme);
+            } catch (RuntimeException ex) {
+                problems.add(theme.id + ": normalize threw: " + ex.getMessage());
+                continue;
+            }
+            exercised++;
+            if (edged.getMain().countAll() != 99)
+                problems.add(theme.id + ": size " + edged.getMain().countAll());
+            int tribalAfter = EnemyThemeDecks.countTribalCreatures(edged, theme);
+            if (tribalAfter < tribalBefore)
+                problems.add(theme.id + ": tribal dropped " + tribalBefore + "→" + tribalAfter);
+            Set<String> tribalNamesAfter = tribalCreatureNames(edged, theme);
+            if (!tribalNamesAfter.containsAll(tribalNamesBefore)) {
+                Set<String> lost = new HashSet<>(tribalNamesBefore);
+                lost.removeAll(tribalNamesAfter);
+                problems.add(theme.id + ": tribal creatures removed at floor: " + lost);
+            }
+        }
+        Assert.assertTrue(exercised >= 5,
+                "expected at least 5 themes to exercise at-floor nonland trim, got "
+                        + exercised + (problems.isEmpty() ? ""
+                        : ("\n" + String.join("\n", problems))));
+        Assert.assertTrue(problems.isEmpty(),
+                "normalize at-floor nonland trim problems:\n" + String.join("\n", problems));
+    }
+
+    @Test
+    public void normalizeTrimVictimAtTribalFloorPrefersNonlandChaff() {
+        EnemyThemeData theme = themeById("goblin_tribal");
+        Assert.assertNotNull(theme);
+        Assert.assertTrue(EnemyThemeDecks.isTribalThemeForTests(theme));
+        EnemyThemeDecks.ensureCoreLoaded(theme);
+        Deck deck = EnemyThemeDecks.buildFixedDeck(theme, "Commander", 42L);
+        Assert.assertNotNull(deck);
+        PaperCard chaff = disposableChaffForTheme(theme);
+        Assert.assertNotNull(chaff);
+        Assert.assertFalse(EnemyThemeDecks.isInCore(chaff.getName(), theme));
+        // Trim to exact tribal floor (core tribal allowed for setup).
+        while (EnemyThemeDecks.countTribalCreatures(deck, theme)
+                > EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER) {
+            PaperCard tribal = null;
+            for (PaperCard pc : deck.getMain().toFlatList()) {
+                if (pc != null && countsAsTribalForTest(pc, theme)) {
+                    tribal = pc;
+                    break;
+                }
+            }
+            if (tribal == null)
+                break;
+            deck.getMain().remove(tribal);
+            deck.getMain().add(chaff);
+        }
+        Assert.assertEquals(EnemyThemeDecks.countTribalCreatures(deck, theme),
+                EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER);
+        // Lands at MIN; inject chaff overshoot.
+        PaperCard basic = firstBasicInDeck(deck);
+        Assert.assertNotNull(basic);
+        while (countLandsInDeck(deck) > EnemyThemeDecks.MIN_LANDS_COMMANDER) {
+            for (PaperCard pc : deck.getMain().toFlatList()) {
+                if (pc.getRules() != null && pc.getRules().getType().isBasicLand()) {
+                    deck.getMain().remove(pc);
+                    deck.getMain().add(chaff);
+                    break;
+                }
+            }
+        }
+        while (countLandsInDeck(deck) < EnemyThemeDecks.MIN_LANDS_COMMANDER)
+            deck.getMain().add(basic);
+        while (deck.getMain().countAll() < 99)
+            deck.getMain().add(chaff);
+        for (int i = 0; i < 3; i++)
+            deck.getMain().add(chaff);
+        Assert.assertEquals(countLandsInDeck(deck), EnemyThemeDecks.MIN_LANDS_COMMANDER);
+        Assert.assertEquals(EnemyThemeDecks.countTribalCreatures(deck, theme),
+                EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER);
+        Set<String> tribalBefore = tribalCreatureNames(deck, theme);
+        PaperCard victim = EnemyThemeDecks.pickCommanderNormalizeTrimVictimForTests(deck, theme);
+        Assert.assertNotNull(victim);
+        Assert.assertFalse(countsAsTribalForTest(victim, theme),
+                "at tribal floor, trim must not pick a tribal creature (got " + victim.getName() + ")");
+        Assert.assertFalse(victim.getRules().getType().isLand(),
+                "at lands==MIN with nonland filler present, trim must not pick a land");
+        EnemyThemeDecks.normalizeCommanderMainSizeForTests(deck, theme);
+        Assert.assertEquals(deck.getMain().countAll(), 99);
+        Assert.assertEquals(EnemyThemeDecks.countTribalCreatures(deck, theme),
+                EnemyThemeDecks.MIN_TRIBAL_CREATURES_COMMANDER);
+        Assert.assertTrue(tribalCreatureNames(deck, theme).containsAll(tribalBefore),
+                "no tribal creature may be removed while trimming at the floor");
+    }
+
+    private static Set<String> tribalCreatureNames(Deck deck, EnemyThemeData theme) {
+        Set<String> names = new HashSet<>();
+        for (PaperCard pc : deck.getMain().toFlatList()) {
+            if (pc != null && countsAsTribalForTest(pc, theme))
+                names.add(pc.getName());
+        }
+        return names;
+    }
+
+    @Test
+    public void normalizeTribalDbFillerIsDeterministicRespectsBansAndCurve() {
+        EnemyThemeData theme = themeById("goblin_tribal");
+        Assert.assertNotNull(theme);
+        EnemyThemeDecks.ensureCoreLoaded(theme);
+        Deck deck = EnemyThemeDecks.buildFixedDeck(theme, "Commander", 11L);
+        Assert.assertNotNull(deck);
+        // Strip a few tribal so the DB filler has work to do.
+        int removed = 0;
+        for (PaperCard pc : new ArrayList<>(deck.getMain().toFlatList())) {
+            if (removed >= 3)
+                break;
+            if (pc != null && countsAsTribalForTest(pc, theme)
+                    && !EnemyThemeDecks.isInCore(pc.getName(), theme)) {
+                deck.getMain().remove(pc);
+                removed++;
+            }
+        }
+        byte ci = 0;
+        for (PaperCard cmd : deck.getCommanders()) {
+            if (cmd != null && cmd.getRules() != null)
+                ci |= cmd.getRules().getColorIdentity().getColor();
+        }
+        PaperCard a = EnemyThemeDecks.pickCommanderNormalizeTribalDbFillerForTests(deck, theme, ci);
+        PaperCard b = EnemyThemeDecks.pickCommanderNormalizeTribalDbFillerForTests(deck, theme, ci);
+        Assert.assertNotNull(a, "expected a tribal DB filler candidate");
+        Assert.assertEquals(a.getName(), b.getName(), "tribal DB filler must be deterministic");
+        Assert.assertFalse(EnemyThemeDecks.isEnemyBanned(a.getName()),
+                "filler must not be enemy-banned: " + a.getName());
+        Assert.assertTrue(EnemyThemeDecks.cardLegalInFixedFormat(a, "Commander", null),
+                "filler must pass Adventure Commander legality: " + a.getName());
+        Assert.assertTrue(countsAsTribalForTest(a, theme), "filler must be tribal");
+
+        // Curve / color ranking: near-target colored body beats off-curve colorless.
+        PaperCard cheap = FModel.getMagicDb().getCommonCards().getCard("Raging Goblin");
+        PaperCard mid = FModel.getMagicDb().getCommonCards().getCard("Goblin Chieftain");
+        PaperCard pricey = FModel.getMagicDb().getCommonCards().getCard("Siege-Gang Commander");
+        Assert.assertNotNull(cheap);
+        Assert.assertNotNull(mid);
+        Assert.assertNotNull(pricey);
+        List<PaperCard> cands = new ArrayList<>();
+        cands.add(pricey);
+        cands.add(cheap);
+        cands.add(mid);
+        PaperCard picked = EnemyThemeDecks.selectBestCommanderNormalizeTribalFillerForTests(
+                cands, 3, forge.card.MagicColor.RED);
+        Assert.assertEquals(picked.getName(), "Goblin Chieftain",
+                "should prefer CMC near target among tribal candidates");
+
+        // Banned names must never win even if they would otherwise rank first.
+        List<PaperCard> bannedProbe = new ArrayList<>();
+        // Put an enemy-banned goblin-adjacent power card first alphabetically if present.
+        PaperCard banned = FModel.getMagicDb().getCommonCards().getCard("Dockside Extortionist");
+        if (banned != null && EnemyThemeDecks.isEnemyBanned(banned.getName())) {
+            bannedProbe.add(banned);
+            bannedProbe.add(mid);
+            // Direct selectBest would still pick Dockside — the DB path filters first.
+            // Simulate the filter the production path applies.
+            List<PaperCard> legal = new ArrayList<>();
+            for (PaperCard pc : bannedProbe) {
+                if (!EnemyThemeDecks.isEnemyBanned(pc.getName())
+                        && EnemyThemeDecks.cardLegalInFixedFormat(pc, "Commander", null))
+                    legal.add(pc);
+            }
+            PaperCard safe = EnemyThemeDecks.selectBestCommanderNormalizeTribalFillerForTests(
+                    legal, 3, forge.card.MagicColor.RED);
+            Assert.assertNotNull(safe);
+            Assert.assertFalse(EnemyThemeDecks.isEnemyBanned(safe.getName()));
+            Assert.assertEquals(safe.getName(), "Goblin Chieftain");
+        }
     }
 
     @Test
@@ -924,9 +1238,10 @@ public class EnemyThemeDeckLegalityTest {
     /** CI-legal nonland used only as disposable test chaff (not an interaction staple). */
     private static PaperCard disposableChaffForTheme(EnemyThemeData theme) {
         String[] candidates = {
-                "Mind Stone", "Worn Powerstone", "Guardian Idol", "Coldsteel Heart",
-                "Pacifism", "Unsummon", "Duress", "Shock", "Giant Growth",
-                "Firebreathing", "Jump", "Holy Strength", "Unholy Strength"
+                // Prefer names that are almost never in EN1 cores (Mind Stone is).
+                "Jump", "Holy Strength", "Unholy Strength", "Fear", "Giant Growth",
+                "Dark Ritual", "Worn Powerstone", "Guardian Idol", "Coldsteel Heart",
+                "Pacifism", "Unsummon", "Duress", "Shock", "Firebreathing", "Mind Stone"
         };
         byte ci = 0;
         if (theme != null && theme.colors != null) {
@@ -946,6 +1261,7 @@ public class EnemyThemeDeckLegalityTest {
                     ci |= forge.card.MagicColor.GREEN;
             }
         }
+        PaperCard fallback = null;
         for (String name : candidates) {
             PaperCard pc = FModel.getMagicDb().getCommonCards().getCard(name);
             if (pc == null || pc.getRules() == null || pc.getRules().getType().isLand())
@@ -955,9 +1271,14 @@ public class EnemyThemeDeckLegalityTest {
             if (ci != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
                     && !pc.getRules().getColorIdentity().isColorless())
                 continue;
+            if (theme != null && EnemyThemeDecks.isInCore(name, theme)) {
+                if (fallback == null)
+                    fallback = pc;
+                continue;
+            }
             return pc;
         }
-        return null;
+        return fallback;
     }
 
     /** Non-core, non-floor-protected nonland suitable for test shaping. */

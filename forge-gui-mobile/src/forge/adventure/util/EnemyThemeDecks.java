@@ -1023,6 +1023,11 @@ public final class EnemyThemeDecks {
                 || "kraken_leviathan".equals(id) || "serpent_leviathan".equals(id);
     }
 
+    /** Test hook for {@link #isTribalTheme}. */
+    public static boolean isTribalThemeForTests(EnemyThemeData theme) {
+        return isTribalTheme(theme);
+    }
+
     public static int countNonLandsAll(Deck deck) {
         if (deck == null)
             return 0;
@@ -2259,6 +2264,12 @@ public final class EnemyThemeDecks {
         normalizeCommanderMainSize(deck, theme);
     }
 
+    /** Test hook for {@link #pickCommanderNormalizeTrimVictim}. */
+    public static PaperCard pickCommanderNormalizeTrimVictimForTests(Deck deck,
+                                                                     EnemyThemeData theme) {
+        return pickCommanderNormalizeTrimVictim(deck, theme);
+    }
+
     private static int countCommanderInteractionSpells(Deck deck) {
         int n = 0;
         for (var e : deck.getMain()) {
@@ -2371,6 +2382,7 @@ public final class EnemyThemeDecks {
                     have.add(cmd.getName());
             }
         }
+        List<PaperCard> candidates = new ArrayList<>();
         try {
             for (PaperCard pc : FModel.getMagicDb().getCommonCards().getUniqueCards()) {
                 if (pc == null || pc.getRules() == null)
@@ -2381,17 +2393,112 @@ public final class EnemyThemeDecks {
                     continue;
                 if (have.contains(pc.getName()))
                     continue;
-                if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(pc.getName())
-                        || isEnemyBanned(pc.getName()))
+                if (!isLegalCommanderNormalizeTribalFiller(pc))
                     continue;
                 if (ci != 0 && !pc.getRules().getColorIdentity().hasNoColorsExcept(ci)
                         && !pc.getRules().getColorIdentity().isColorless())
                     continue;
-                return preferPaperPrinting(pc);
+                candidates.add(preferPaperPrinting(pc));
             }
         } catch (Throwable ignored) {
         }
-        return null;
+        int targetCmc = medianTribalCmc(deck, theme);
+        if (targetCmc <= 0)
+            targetCmc = 3;
+        return selectBestCommanderNormalizeTribalFiller(candidates, targetCmc, ci);
+    }
+
+    /** True when a DB tribal filler is allowed in Adventure Commander decks. */
+    private static boolean isLegalCommanderNormalizeTribalFiller(PaperCard pc) {
+        if (pc == null || pc.getRules() == null)
+            return false;
+        if (isExcludedFromAdventureDecks(pc) || isRestrictedCardName(pc.getName())
+                || isEnemyBanned(pc.getName()))
+            return false;
+        if (isAdventureBanned("commander", pc.getName()))
+            return false;
+        try {
+            DeckFormat fmt = forge.game.GameType.Commander.getDeckFormat();
+            if (fmt == null)
+                fmt = DeckFormat.Commander;
+            if (!fmt.isLegalCard(pc))
+                return false;
+        } catch (Throwable ignored) {
+        }
+        return true;
+    }
+
+    /** Median CMC of tribal creatures already in the main deck (0 if none). */
+    private static int medianTribalCmc(Deck deck, EnemyThemeData theme) {
+        if (deck == null || theme == null)
+            return 0;
+        List<Integer> cmcs = new ArrayList<>();
+        for (PaperCard pc : deck.getMain().toFlatList()) {
+            if (pc == null || pc.getRules() == null)
+                continue;
+            if (!countsAsTribalCreature(pc, theme))
+                continue;
+            cmcs.add(pc.getRules().getManaCost().getCMC());
+        }
+        if (cmcs.isEmpty())
+            return 0;
+        Collections.sort(cmcs);
+        return cmcs.get(cmcs.size() / 2);
+    }
+
+    /**
+     * Deterministic tribal DB pick: prefer CI-using (colored) bodies near the deck's
+     * tribal CMC target, then alphabetical name. Pure for tests.
+     */
+    static PaperCard selectBestCommanderNormalizeTribalFiller(List<PaperCard> candidates,
+                                                              int targetCmc, byte ci) {
+        if (candidates == null || candidates.isEmpty())
+            return null;
+        final int target = Math.max(0, targetCmc);
+        PaperCard best = null;
+        int bestCurve = Integer.MAX_VALUE;
+        int bestColorRank = Integer.MAX_VALUE; // 0 = uses theme color, 1 = colorless
+        String bestName = null;
+        for (PaperCard pc : candidates) {
+            if (pc == null || pc.getRules() == null)
+                continue;
+            int cmc = pc.getRules().getManaCost().getCMC();
+            int curve = Math.abs(cmc - target);
+            int colorRank = 1;
+            try {
+                byte cost = pc.getRules().getManaCost().getColorProfile();
+                if (ci != 0 && cost != 0 && (cost & ci) != 0)
+                    colorRank = 0;
+                else if (ci == 0 && cost != 0)
+                    colorRank = 0;
+            } catch (Throwable ignored) {
+            }
+            String name = pc.getName() != null ? pc.getName() : "";
+            if (best == null
+                    || curve < bestCurve
+                    || (curve == bestCurve && colorRank < bestColorRank)
+                    || (curve == bestCurve && colorRank == bestColorRank
+                    && name.compareToIgnoreCase(bestName) < 0)) {
+                best = pc;
+                bestCurve = curve;
+                bestColorRank = colorRank;
+                bestName = name;
+            }
+        }
+        return best;
+    }
+
+    /** Test hook for {@link #pickCommanderNormalizeTribalDbFiller}. */
+    public static PaperCard pickCommanderNormalizeTribalDbFillerForTests(Deck deck,
+                                                                         EnemyThemeData theme,
+                                                                         byte ci) {
+        return pickCommanderNormalizeTribalDbFiller(deck, theme, ci);
+    }
+
+    /** Test hook for {@link #selectBestCommanderNormalizeTribalFiller}. */
+    public static PaperCard selectBestCommanderNormalizeTribalFillerForTests(
+            List<PaperCard> candidates, int targetCmc, byte ci) {
+        return selectBestCommanderNormalizeTribalFiller(candidates, targetCmc, ci);
     }
 
     /**
