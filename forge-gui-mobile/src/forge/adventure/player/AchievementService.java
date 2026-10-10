@@ -240,6 +240,8 @@ public final class AchievementService {
                     }
                 }
             }
+            // Pre-equip-field account files: owned titles only → wear one after load.
+            p.migrateEquippedTitleIfMissing();
             return p;
         } catch (Throwable t) {
             return null;

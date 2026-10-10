@@ -212,20 +212,17 @@ public class PlayerStatisticScene extends UIScene {
 
         if (playerName != null) {
             String gender = Current.player().isFemale() ? "{GRADIENT=MAGENTA;MAUVE;1;1}\u2640{ENDGRADIENT}[BLACK] " : "{GRADIENT=CYAN;BLUE;1;1}\u2642{ENDGRADIENT}[BLACK] ";
-            String nameLine = gender + GamePlayerUtil.getGuiPlayer().getName();
+            String equipped = null;
             if (Config.ascendant()) {
                 try {
-                    String equipped = forge.adventure.player.AchievementService.get()
+                    equipped = forge.adventure.player.AchievementService.get()
                             .getProgress().getEquippedTitle();
-                    if (equipped != null && !equipped.isEmpty()) {
-                        nameLine = nameLine + "  [%80][DARK_GRAY]"
-                                + forge.adventure.util.AdventureTitles.titleDisplayName(equipped);
-                    }
                 } catch (Throwable ignored) {
                     // Achievement service unavailable in some test harnesses.
                 }
             }
-            playerName.setText(nameLine);
+            playerName.setText(forge.adventure.util.AdventureTitles.statusPlayerNameLine(
+                    gender + GamePlayerUtil.getGuiPlayer().getName(), equipped));
             playerName.skipToTheEnd();
         }
         if (avatar != null) {

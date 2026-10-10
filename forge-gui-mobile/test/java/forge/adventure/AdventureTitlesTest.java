@@ -40,5 +40,10 @@ public class AdventureTitlesTest {
                 "Shandalar Completionist");
         Assert.assertEquals(AdventureTitles.titleDisplayName("Centurion"), "Centurion");
         Assert.assertEquals(AdventureTitles.titleDisplayName(null), "");
+        Assert.assertEquals(
+                AdventureTitles.statusPlayerNameLine("[BLACK]Steve",
+                        AdventureTitles.COMPLETIONIST_TITLE_ID),
+                "[BLACK]Steve  [%80][DARK_GRAY]Shandalar Completionist");
+        Assert.assertEquals(AdventureTitles.statusTitleSuffix(null), "");
     }
 }

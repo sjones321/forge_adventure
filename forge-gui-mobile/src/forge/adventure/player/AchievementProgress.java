@@ -113,6 +113,28 @@ public final class AchievementProgress {
         equippedTitle = titleId;
     }
 
+    /**
+     * Pre-{@code equippedTitle} account files only listed owned titles. If anything is
+     * owned and nothing is equipped, equip the Completionist title when present,
+     * otherwise the first owned title — so old saves keep a worn title after load.
+     *
+     * @return true if an equipped title was newly chosen
+     */
+    public boolean migrateEquippedTitleIfMissing() {
+        if (equippedTitle != null && !equippedTitle.isEmpty()) {
+            return false;
+        }
+        if (titles.isEmpty()) {
+            return false;
+        }
+        if (titles.contains(forge.adventure.util.AdventureTitles.COMPLETIONIST_TITLE_ID)) {
+            equippedTitle = forge.adventure.util.AdventureTitles.COMPLETIONIST_TITLE_ID;
+        } else {
+            equippedTitle = titles.iterator().next();
+        }
+        return true;
+    }
+
     public Set<String> getTrophies() {
         return Collections.unmodifiableSet(trophies);
     }
@@ -268,6 +290,7 @@ public final class AchievementProgress {
                 p.counters.put(String.valueOf(e.getKey()), ((Number) e.getValue()).intValue());
             }
         }
+        p.migrateEquippedTitleIfMissing();
         return p;
     }
 

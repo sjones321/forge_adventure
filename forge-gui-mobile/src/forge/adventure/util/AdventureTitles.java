@@ -41,6 +41,25 @@ public final class AdventureTitles {
         return titleId;
     }
 
+    /**
+     * Status / profile name-line suffix for an equipped title id (markup matches
+     * {@code PlayerStatisticScene}). Empty when nothing is equipped.
+     */
+    public static String statusTitleSuffix(String equippedTitleId) {
+        if (equippedTitleId == null || equippedTitleId.isEmpty()) {
+            return "";
+        }
+        return "  [%80][DARK_GRAY]" + titleDisplayName(equippedTitleId);
+    }
+
+    /** Full Status name line: gender/name prefix plus optional equipped title. */
+    public static String statusPlayerNameLine(String nameWithGenderMarkup, String equippedTitleId) {
+        if (nameWithGenderMarkup == null) {
+            nameWithGenderMarkup = "";
+        }
+        return nameWithGenderMarkup + statusTitleSuffix(equippedTitleId);
+    }
+
     /** Label shown in world / mode pickers for a plane folder id. */
     public static String planeDisplayName(String planeId) {
         if (planeId == null) {
