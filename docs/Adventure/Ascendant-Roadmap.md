@@ -752,25 +752,66 @@ direction, pasting a Moxfield deck link into Forge is one step.
 
 ## Duel screen
 
-### DS1. Modern duel screen in libGDX (after INV1)
-Improve the existing libGDX match screen (`forge-gui-mobile/src/forge/screens/match/`) instead of switching UI
-toolkits, so co-op duels (`RemoteClientGuiGame`), Android and macOS keep working. Reference: **Neo Forge**
-(<https://github.com/AdrianLopez98/NeoForge>, GPLv3, JavaFX) has solved these as behaviour; study how it does each
-(`forge-gui-neo/.../ui/CombatOverlay.java`, `TableScreen.installDragGestures`, `match/NeoMatchUI.onCardDropped`),
-reimplement in libGDX, and credit Neo Forge in `CREDITS.md` for anything adapted from its code.
-All input still goes through `getGameController().selectCard/selectPlayer`, so it works over the network unchanged.
-- **Combat and target arrows**: curved arrows from card edge to card edge, colour-coded (red attacks, blue blocks,
-  amber targets), drawn on a click-through overlay that redraws while cards move.
-- **Drag to cast / drag to attack and block**: a small drag threshold (~9px) so plain clicks still work. Drop from
-  hand = cast; in combat, drop an attacker on a player/planeswalker or a blocker on an attacker; dragging a permanent
-  outside combat does nothing. The arrow follows the drag.
-- **Press-to-peek hand**: hold on a hand card to enlarge it, slide to the next card, push up onto the table to play.
-- **Phase stops**: clickable phase rail to set where the game stops for you (ties into the auto-yield fixes).
-- **Clickable floating mana**: mana pool shown as clickable symbols near your field.
-- **Drag to reorder the hand.**
-- **Controller**: every action above also has a controller path (focus cursor, A to pick up/drop, B cancel).
-- Works in solo and co-op duels and in stock Forge matches on the mobile/libGDX client; gate anything that changes
-  stock behaviour behind a preference defaulting to the new UI only in Ascendant until it's proven.
+### DS1. Arena-style duel screen (rewritten 2026-10-10; queued after MX1)
+Steve's call: replace Forge's match screen with an interface in the style of MTG Arena for Ascendant duels. **Keep
+Forge's rules engine, card scripts and AI untouched**; this is a new presentation layer only.
+
+**Architecture**
+- A new libGDX screen next to the existing one (`forge-gui-mobile/src/forge/screens/match/`), built on the same
+  view/controller seam: it reads `GameView` / `CardView` / `PlayerView` / stack views and answers the existing
+  `Input*` prompts (`InputPassPriority`, `InputSelectCardsFromList`, `InputPayMana`, `InputAttack`, `InputBlock`, ...)
+  through `getGameController()` / `selectCard` / `selectPlayer` / `selectButtonOK`. No engine changes; it works the
+  same in solo duels and (later) co-op, since the seam is what the network client already uses.
+- Ascendant uses the new screen by default; a setting switches back to the classic screen. Stock modes keep classic.
+- **Fallback rule:** every prompt the new screen doesn't have a custom view for falls back to the existing Forge
+  dialog, so the screen is playable from PR 1 and never dead-ends. Custom views are added by frequency.
+- Reference for behaviour (not code unless credited): Neo Forge (<https://github.com/AdrianLopez98/NeoForge>, GPLv3)
+  for arrows and drag gestures; MTG Arena for layout and feel. Original art and UI assets only, no Arena assets.
+
+**Layout**
+- Opponent's area top, the player's bottom, a centre lane for the stack and combat. Avatars with life totals and
+  counters (poison, energy...), library / graveyard / exile piles that open on click.
+- **Battlefield auto-arranges by type**: lands in a back row (grouped, identical lands stacked with a count),
+  creatures in front, other permanents to the side; attachments tucked under their host; tokens stacked by name.
+  Tapped cards rotate; summoning-sick creatures dimmed slightly.
+- **Hand fanned** at the bottom, cards lift on hover, press-to-peek enlarges, playable cards glow (castable now with
+  available mana), drag to reorder.
+- **Stack** shown as a column of cards in the centre with the top item largest; each shows its source, targets
+  (arrows) and controller colour. Resolving animates the card leaving.
+- **Phase rail** along the side: the current step highlighted, click a step to set or clear a stop (ties into
+  auto-yield). A big context button (Pass / Next / Attack / Done / Resolve) with the right label for each prompt, plus
+  "pass until end of turn".
+
+**Interaction**
+- Drag a hand card onto the battlefield (or click it) to cast or play; targets are picked by clicking with an arrow
+  following the cursor. ~9 px drag threshold so clicks still work.
+- **Combat**: "All attack" plus click or drag attackers onto a player or planeswalker; blockers dragged onto attackers;
+  red attack arrows, blue block arrows, amber target arrows on a click-through overlay that follows moving cards.
+  Damage assignment order and split damage get a simple custom view.
+- **Mana**: auto-pay by default (Forge's auto-pay); a "pay manually" toggle shows the cost and lets the player tap
+  lands; the floating mana pool shows as clickable symbols.
+- Custom views for the common prompts first: choose a mode, choose from a list or revealed cards, order triggers,
+  scry / surveil (top or bottom piles), choose X, mulligan, yes/no optional costs.
+- Card zoom / oracle text (DS3) and active effects (DS5) plug into the same hover and right-click handling. Take back
+  (DS4) gets its button next to the context button.
+- **Controller**: every action has a controller path (focus cursor across hand, battlefield and stack; A pick/drop,
+  B cancel, shoulder buttons cycle zones, a button for the phase rail).
+
+**Feel**
+- Smooth movement between zones (draw, cast, resolve, die, exile) with short tweens; damage and life-change pop-ups;
+  a light shake on big hits. All animation speeds behind one setting, including "instant".
+- Sound hooks on the existing sound events.
+
+**Delivery (one PR each, each usable on its own)**
+1. Screen skeleton: layout, auto-arranged battlefield, fanned hand, stack column, piles, context button, fallback
+   dialogs for every prompt. Setting to switch screens.
+2. Targeting and combat: arrows, drag to cast, attack and block flows, damage assignment.
+3. Mana and costs: auto-pay, manual pay toggle, mana pool, X costs, optional costs.
+4. Common prompts: modes, choose from list or revealed, scry / surveil, trigger ordering, mulligan.
+5. Animations, sound hooks and phase rail stops.
+6. Controller support across all of the above.
+- Tests per PR: a scripted duel through the real game loop exercising that PR's prompts on the new screen (headless
+  where possible), the classic screen unchanged with the setting off, and no engine files touched.
 
 ### DS2. Clear counter and fizzle banner (small; Ascendant duel screen and the classic one)
 - When a spell or ability **you** control is countered, show a banner in the middle of the duel screen with both
