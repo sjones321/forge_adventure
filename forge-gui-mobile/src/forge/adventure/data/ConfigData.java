@@ -545,4 +545,33 @@ public class ConfigData {
      */
     public boolean cs0SourcePrintings = true;
 
+    // ---- Ascendant living towns (Package LT1): hand-made town pipeline (no shipments). ----
+
+    /**
+     * When true (Ascendant default), enable LT1 living-town helpers: townsfolk map objects,
+     * dialog-file refs, and missing-object warnings with a fallback entry spawn.
+     */
+    public boolean lt1LivingTowns = true;
+    /**
+     * When true, log clear warnings for missing entry/shop/townsfolk objects on Ascendant
+     * maps instead of crashing. Missing entry uses {@link #lt1FallbackEntryXFraction} /
+     * {@link #lt1FallbackEntryYFraction}.
+     */
+    public boolean lt1WarnMissingMapObjects = true;
+    /**
+     * Fallback player spawn X as a fraction of the map's pixel width when no entry object
+     * is present (Steve may still be placing objects in Tiled).
+     */
+    public float lt1FallbackEntryXFraction = 0.5f;
+    /**
+     * Fallback player spawn Y as a fraction of the map's pixel height when no entry object
+     * is present. Default near the south edge (typical town entry).
+     */
+    public float lt1FallbackEntryYFraction = 0.15f;
+    /**
+     * Stable POI {@code name} for the hand-made starter town in
+     * {@code points_of_interest.json} (display name may differ).
+     */
+    public String lt1StarterTownPoiName = "StarterTown";
+
 }

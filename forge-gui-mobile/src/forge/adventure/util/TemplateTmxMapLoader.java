@@ -19,6 +19,38 @@ public class TemplateTmxMapLoader extends TmxMapLoader {
 
     FileHandle tmxFile;
 
+    /**
+     * Resolve every external tileset {@code source} on a TMX with the same relative-path
+     * rules as {@link #load(String)} / {@link #getDependencyFileHandles(FileHandle)},
+     * parse each {@code .tsx}, and return the resolved handles.
+     *
+     * <p>Missing tilesets throw. Does not create textures (headless-safe).
+     */
+    public Array<FileHandle> resolveExternalTilesets(FileHandle tmxFile) {
+        if (tmxFile == null || !tmxFile.exists()) {
+            throw new GdxRuntimeException("TMX missing: " + (tmxFile != null ? tmxFile.path() : "null"));
+        }
+        this.tmxFile = tmxFile;
+        this.root = xml.parse(tmxFile);
+        Array<FileHandle> resolved = new Array<>();
+        for (XmlReader.Element tileset : root.getChildrenByNameRecursively("tileset")) {
+            String source = tileset.getAttribute("source", null);
+            if (source == null || source.isEmpty()) {
+                continue;
+            }
+            FileHandle tsxFile = getRelativeFileHandle(tmxFile, source);
+            if (tsxFile == null || !tsxFile.exists()) {
+                throw new GdxRuntimeException("Missing tileset for " + tmxFile.path()
+                        + ": source=\"" + source + "\" resolved="
+                        + (tsxFile != null ? tsxFile.path() : "null"));
+            }
+            // Same parse step the real loader uses before reading image deps.
+            xml.parse(tsxFile);
+            resolved.add(tsxFile);
+        }
+        return resolved;
+    }
+
     @Override
     public TiledMap load(String fileName) {
         TmxMapLoader.Parameters parameter = new TmxMapLoader.Parameters();

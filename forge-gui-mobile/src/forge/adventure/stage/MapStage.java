@@ -54,6 +54,8 @@ public class MapStage extends GameStage {
     final Array<MapActor> actors = new Array<>();
     public com.badlogic.gdx.physics.box2d.World gdxWorld;
     public TiledMap tiledMap;
+    /** Path of the currently loaded TMX (POI map field / nested map), for LT1 warnings. */
+    private String loadedMapPath = "";
     public Array<Rectangle> collisionRect = new Array<>();
     public Map<Float, NavigationMap> navMaps = new HashMap<>();
     private boolean isInMap = false;
@@ -346,6 +348,7 @@ public class MapStage extends GameStage {
         isInMap = true;
         GameHUD.getInstance().showHideMap(false);
         this.tiledMap = map;
+        this.loadedMapPath = targetMap != null ? targetMap : "";
         for (MapActor actor : new Array.ArrayIterator<>(actors)) {
             actor.remove();
             foregroundSprites.removeActor(actor);
@@ -472,7 +475,59 @@ public class MapStage extends GameStage {
                 sourceMapMatch.first().spawn();
             else if (!otherEntries.isEmpty())
                 otherEntries.first().spawn();
+            else if (Config.ascendant() && Config.instance().getConfigData() != null
+                    && Config.instance().getConfigData().lt1LivingTowns)
+                applyLt1FallbackEntrySpawn();
         }
+    }
+
+    /** Prefer {@code dialogFile} (LT1 external JSON) over inline {@code dialog}. */
+    private static String resolveDialogProperty(MapProperties prop) {
+        if (prop != null && prop.containsKey("dialogFile")) {
+            Object file = prop.get("dialogFile");
+            if (file != null && !file.toString().isEmpty()) {
+                return file.toString();
+            }
+        }
+        if (prop != null && prop.containsKey("dialog")) {
+            Object d = prop.get("dialog");
+            return d != null ? d.toString() : "";
+        }
+        return "";
+    }
+
+    /**
+     * LT1: when Steve has not placed an entry object yet, warn and place the player
+     * using config fractions of the map size instead of crashing or leaving them at (0,0).
+     */
+    private void applyLt1FallbackEntrySpawn() {
+        ConfigData cfg = Config.instance() != null ? Config.instance().getConfigData() : null;
+        float mapW = getWidth();
+        float mapH = getHeight();
+        if (tiledMap != null && tiledMap.getProperties() != null) {
+            try {
+                float tw = Float.parseFloat(tiledMap.getProperties().get("tilewidth").toString());
+                float th = Float.parseFloat(tiledMap.getProperties().get("tileheight").toString());
+                int mw = Integer.parseInt(tiledMap.getProperties().get("width").toString());
+                int mh = Integer.parseInt(tiledMap.getProperties().get("height").toString());
+                mapW = mw * tw;
+                mapH = mh * th;
+            } catch (Exception ignored) {
+                // keep stage bounds
+            }
+        }
+        float xFrac = cfg != null ? cfg.lt1FallbackEntryXFraction : 0.5f;
+        float yFrac = cfg != null ? cfg.lt1FallbackEntryYFraction : 0.15f;
+        float[] pos = LivingTownMapSupport.fallbackEntryPixels(mapW, mapH, xFrac, yFrac);
+        if (LivingTownMapSupport.shouldWarnMissing(cfg)) {
+            System.err.println(LivingTownMapSupport.missingEntryWarning(loadedMapPath));
+        }
+        getPlayerSprite().setPosition(pos[0], pos[1]);
+    }
+
+    /** Currently loaded map path (for tests / LT1 diagnostics). */
+    public String getLoadedMapPath() {
+        return loadedMapPath != null ? loadedMapPath : "";
     }
 
     static public boolean containsOrEquals(Rectangle r1, Rectangle r2) {
@@ -869,17 +924,45 @@ public class MapStage extends GameStage {
                     case "dialog":
                         if (obj instanceof TiledMapTileMapObject) {
                             TiledMapTileMapObject tiledObj = (TiledMapTileMapObject) obj;
+                            String dialogText = resolveDialogProperty(prop);
                             DialogActor dialog;
                             if (prop.containsKey("sprite"))
-                                dialog = new DialogActor(this, id, prop.get("dialog").toString(), prop.get("sprite").toString(), currentMap);
+                                dialog = new DialogActor(this, id, dialogText, prop.get("sprite").toString(), currentMap);
                             else {
-                                dialog = new DialogActor(this, id, prop.get("dialog").toString(), tiledObj.getTextureRegion(), currentMap);
+                                dialog = new DialogActor(this, id, dialogText, tiledObj.getTextureRegion(), currentMap);
                             }
                             if (prop.containsKey("hidden") && Boolean.parseBoolean(prop.get("hidden").toString()))
                             {
                                 dialog.setVisible(false);
                             }
                             addMapActor(obj, dialog);
+                        }
+                        break;
+                    case "townsfolk":
+                        // LT1: named NPC from world/townsfolk.json (dialog file + sprite outside the TMX).
+                        if (Config.ascendant() && Config.instance().getConfigData().lt1LivingTowns) {
+                            String folkId = prop.containsKey("townsfolkId") ? prop.get("townsfolkId").toString() : "";
+                            TownsfolkData folk = TownsfolkListData.get(folkId);
+                            if (folk == null) {
+                                if (LivingTownMapSupport.shouldWarnMissing(Config.instance().getConfigData())) {
+                                    System.err.println(LivingTownMapSupport.missingTownsfolkWarning(folkId));
+                                }
+                                break;
+                            }
+                            String folkDialog = folk.dialogFile != null && !folk.dialogFile.isEmpty()
+                                    ? folk.dialogFile
+                                    : (prop.containsKey("dialog") ? prop.get("dialog").toString() : "");
+                            String folkSprite = folk.sprite != null && !folk.sprite.isEmpty()
+                                    ? folk.sprite
+                                    : (prop.containsKey("sprite") ? prop.get("sprite").toString() : "");
+                            if (folkSprite == null || folkSprite.isEmpty()) {
+                                if (LivingTownMapSupport.shouldWarnMissing(Config.instance().getConfigData())) {
+                                    System.err.println("LT1: townsfolk \"" + folkId + "\" has no sprite — skipping.");
+                                }
+                                break;
+                            }
+                            DialogActor npc = new DialogActor(this, id, folkDialog, folkSprite, currentMap);
+                            addMapActor(obj, npc);
                         }
                         break;
                     case "quest":
@@ -978,7 +1061,12 @@ public class MapStage extends GameStage {
                                 }
                             }
                         }
-                        if (shops.size == 0) continue;
+                        if (shops.size == 0) {
+                            if (LivingTownMapSupport.shouldWarnMissing(Config.instance().getConfigData())) {
+                                System.err.println(LivingTownMapSupport.emptyShopWarning(id));
+                            }
+                            continue;
+                        }
 
                         ShopData data = shops.get(WorldSave.getCurrentSave().getWorld().getRandom().nextInt(shops.size));
                         shopsAlreadyPresent.add(data.name);

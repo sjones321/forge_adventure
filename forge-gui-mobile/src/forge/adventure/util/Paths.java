@@ -9,6 +9,8 @@ public class Paths {
     public static final String WORLD = "world/world.json";
     public static final String HEROES = "world/heroes.json";
     public static final String POINTS_OF_INTEREST = "world/points_of_interest.json";
+    /** Ascendant LT1 named townsfolk (homes, sprites, dialog file refs). */
+    public static final String TOWNSFOLK = "world/townsfolk.json";
     public static final String ITEMS = "world/items.json";
     public static final String MATERIALS = "world/materials.json";
     public static final String NODE_VARIANTS = "world/node_variants.json";

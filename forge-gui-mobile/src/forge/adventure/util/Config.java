@@ -64,6 +64,7 @@ public class Config {
     /** Test helper: drop the singleton so the next {@link #instance()} rebuilds. */
     public static void resetInstanceForTest() {
         currentConfig = null;
+        forge.adventure.data.TownsfolkListData.clearCache();
     }
 
     /**
@@ -74,6 +75,7 @@ public class Config {
         Config cfg = instance();
         cfg.configData = data == null ? new ConfigData() : data;
         SourcePrintings.clearCaches();
+        forge.adventure.data.TownsfolkListData.clearCache();
     }
 
     private Config() {
@@ -137,6 +139,7 @@ public class Config {
             configData = new ConfigData();
         }
         SourcePrintings.clearCaches();
+        forge.adventure.data.TownsfolkListData.clearCache();
         // MV2: register PlanarGate so saves with gates resolve after restart.
         if (configData != null && configData.ascendantRules) {
             try {

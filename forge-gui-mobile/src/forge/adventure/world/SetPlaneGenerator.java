@@ -118,6 +118,12 @@ public final class SetPlaneGenerator {
         } catch (Throwable t) {
             // Headless / missing POI JSON — size and biome mix still apply.
         }
+        // Home-only hand-made towns (Havenbrook) must not run the set-plane placement loop.
+        try {
+            excludeHomeOnlyPois(data, cfg);
+        } catch (Throwable t) {
+            // ignore
+        }
         // Re-inject after freeze so the gate is present in the scaled POI list.
         try {
             injectPlanarGatePoi(data, PlaneMeta.HOME_ID, "Portal to Home");
@@ -128,6 +134,54 @@ public final class SetPlaneGenerator {
         int maxRestarts = cfg != null ? Math.max(1, cfg.setPlaneMaxPlacementRestarts) : 8;
         data.maxPoiPlacementRestarts = maxRestarts;
         return data;
+    }
+
+    /**
+     * Strip home-plane-only POIs (LT1 Havenbrook / {@link ConfigData#lt1StarterTownPoiName})
+     * from set-plane biome lists so world gen does not burn 500 placement attempts per instance.
+     */
+    public static void excludeHomeOnlyPois(WorldData data, ConfigData cfg) {
+        if (data == null) {
+            return;
+        }
+        String starter = "StarterTown";
+        if (cfg != null && cfg.lt1StarterTownPoiName != null && !cfg.lt1StarterTownPoiName.isEmpty()) {
+            starter = cfg.lt1StarterTownPoiName;
+        }
+        removePoiNamed(data, starter);
+    }
+
+    /** Remove a POI by name from every biome's name array and frozen list. */
+    public static void removePoiNamed(WorldData data, String poiName) {
+        if (data == null || poiName == null || poiName.isEmpty()) {
+            return;
+        }
+        List<BiomeData> biomes = data.GetBiomes();
+        if (biomes == null) {
+            return;
+        }
+        for (BiomeData biome : biomes) {
+            if (biome == null) {
+                continue;
+            }
+            if (biome.pointsOfInterest != null) {
+                ArrayList<String> kept = new ArrayList<>();
+                for (String n : biome.pointsOfInterest) {
+                    if (n != null && !poiName.equals(n)) {
+                        kept.add(n);
+                    }
+                }
+                biome.pointsOfInterest = kept.toArray(new String[0]);
+            }
+            try {
+                ArrayList<PointOfInterestData> frozen = biome.getPointsOfInterest();
+                if (frozen != null) {
+                    frozen.removeIf(p -> p != null && poiName.equals(p.name));
+                }
+            } catch (Throwable ignored) {
+                // headless / unfrozen
+            }
+        }
     }
 
     /**

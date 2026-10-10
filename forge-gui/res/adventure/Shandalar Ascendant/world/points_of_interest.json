@@ -3678,6 +3678,25 @@
 		]
 	},
 	{
+		"name": "StarterTown",
+		"displayName": "Havenbrook",
+		"type": "town",
+		"count": 1,
+		"spriteAtlas": "../common/maps/tileset/buildings.atlas",
+		"sprite": "WasteTown",
+		"map": "../common/maps/map/ascendant/starter_town.tmx",
+		"radiusFactor": 0.01,
+		"offsetX": 0.06,
+		"offsetY": 0.0,
+		"questTags": [
+			"Town",
+			"TownGeneric",
+			"BiomeColorless",
+			"LivingTown",
+			"StarterTown"
+		]
+	},
+	{
 		"name": "Spawn",
 		"displayName": "Secluded Encampment",
 		"type": "town",
