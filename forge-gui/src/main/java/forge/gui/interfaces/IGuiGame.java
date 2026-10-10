@@ -102,6 +102,15 @@ public interface IGuiGame {
     void flashIncorrectAction();
     void alertUser();
 
+    /**
+     * DS4 / adventure-duel note: show a short message on the match screen itself.
+     * Prefer this over {@code FOptionPane}/{@code SOptionPane} in adventure — those
+     * overlays do not draw when Forge is rendering adventure scenes (only
+     * {@code Classic.render} paints FOverlays). Default no-op for watchers/stubs.
+     */
+    default void showMatchNote(String message) {
+    }
+
     default void updatePhase(boolean saveState) {}
     default void updateTurn(PlayerView player) {}
 

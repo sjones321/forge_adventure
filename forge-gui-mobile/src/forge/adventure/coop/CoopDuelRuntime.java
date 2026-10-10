@@ -475,7 +475,8 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         final CoopTakeBackResultEvent result = CoopTakeBackAuthority.handle(game, event, requester);
         CoopSession.get().send(result);
         if (!result.isAccepted() && "restore failed".equals(result.getReason())) {
-            notifyHud(Localizer.getInstance().getMessage("lblTakeBackFailed"));
+            // Duel screen note (Classic.render) — GameHUD is not drawn during MatchScreen.
+            forge.screens.match.TakeBackActions.notifyFailed();
         }
     }
 
@@ -487,7 +488,7 @@ public final class CoopDuelRuntime implements CoopHooks.DuelListener, CoopHooks.
         if (!event.isAccepted()) {
             final String reason = event.getReason();
             if ("restore failed".equals(reason)) {
-                notifyHud(Localizer.getInstance().getMessage("lblTakeBackFailed"));
+                forge.screens.match.TakeBackActions.notifyFailed();
             }
             // Eligibility / partner-acted refusals: button simply stays hidden / grey.
         }

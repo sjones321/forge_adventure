@@ -296,6 +296,17 @@ public class MatchController extends NetworkGuiGame {
         //TODO
     }
 
+    /**
+     * DS4: duel-screen note that paints via MatchScreen overlay (Classic.render).
+     * Do not use FOptionPane/SOptionPane here — they do not draw in adventure scenes.
+     */
+    @Override
+    public void showMatchNote(final String message) {
+        if (view != null) {
+            view.showDuelNote(message);
+        }
+    }
+
     private PlayerView lastPlayer;
     @Override
     public void updatePhase(boolean saveState) {

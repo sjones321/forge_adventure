@@ -2815,8 +2815,8 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
             return true;
         }
         if (result == TakeBackResult.RESTORE_FAILED && getGui() != null) {
-            getGui().showPromptMessage(PlayerView.get(player),
-                    Localizer.getInstance().getMessage("lblTakeBackFailed"));
+            // Adventure duels: MatchScreen note via Classic.render — not FOptionPane.
+            getGui().showMatchNote(Localizer.getInstance().getMessage("lblTakeBackFailed"));
         }
         return false;
     }

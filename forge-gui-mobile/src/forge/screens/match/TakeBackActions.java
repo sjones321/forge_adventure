@@ -70,4 +70,13 @@ public final class TakeBackActions {
     public static String buttonLabel() {
         return Localizer.getInstance().getMessage("lblTakeBack");
     }
+
+    /**
+     * Show "take back failed" on the duel screen. Uses {@link MatchController#showMatchNote}
+     * (MatchScreen overlay via Classic.render) — not FOptionPane / GameHUD.
+     */
+    public static void notifyFailed() {
+        final String msg = Localizer.getInstance().getMessage("lblTakeBackFailed");
+        MatchController.instance.showMatchNote(msg);
+    }
 }
