@@ -434,6 +434,28 @@ public class TakeBackDs4Test extends AITest {
      * (Sorcery-speed Outlast with a spell on the stack never activated — use tap ability.)
      */
     @Test
+    public void chosenActionBeatsStalePendingTakeBack() {
+        // M1 (r5 review): a take-back press that loses the race to a card tap must not discard the
+        // chosen action or take back anything later; the loop plays the action and drops the request.
+        final Game game = enableTakeBackHuman();
+        final Player p = game.getPlayers().get(1);
+        fillLibrary(p, 8);
+        fillLibrary(game.getPlayers().get(0), 8);
+        final Card plains = addCardToZone("Plains", p, ZoneType.Hand);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, p);
+        game.getAction().checkStateEffects(true);
+
+        final ScriptedPch ctrl = pch(p);
+        ctrl.queue(landAbility(plains, p));
+        game.requestTakeBack(p, new Object()); // late request aimed at an earlier priority window
+        final AtomicBoolean sawPriorityAfterLand = new AtomicBoolean(false);
+        ctrl.whilePriority(() -> sawPriorityAfterLand.set(true));
+        Assert.assertTrue(driveUntil(game, sawPriorityAfterLand::get), "loop never came back to priority");
+        Assert.assertTrue(plains.isInZone(ZoneType.Battlefield), "the chosen land play must stand");
+        Assert.assertFalse(game.hasPendingTakeBack(), "the stale request must be dropped");
+    }
+
+    @Test
     public void tapAbilityAfterLandInvalidatesTakeBack() {
         final Game game = enableTakeBackHuman();
         final Player p = game.getPlayers().get(1);

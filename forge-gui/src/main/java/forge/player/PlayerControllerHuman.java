@@ -1695,6 +1695,9 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
 
     @Override
     public List<SpellAbility> chooseSpellAbilityToPlay() {
+        // DS4: a take-back request only counts for the priority window it stopped, so one left over
+        // from an earlier window (a late press that lost the race to a card tap) is dropped here.
+        getGame().clearPendingTakeBack();
         netLog.trace("ENTRY for player {}, phase={}, isGameOver={}",
                 player.getName(), getGame().getPhaseHandler().getPhase(), getGame().isGameOver());
         final MagicStack stack = getGame().getStack();
@@ -1761,6 +1764,9 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
         final InputPassPriority defaultInput = new InputPassPriority(this);
         defaultInput.showAndWait();
         netLog.trace("InputPassPriority returned for player {}, chosenSa={}", player.getName(), defaultInput.getChosenSa());
+        if (getGame().hasPendingTakeBack(player) && getGame().getPendingTakeBackToken() != defaultInput) {
+            getGame().clearPendingTakeBack();
+        }
         return defaultInput.getChosenSa();
     }
 
@@ -2819,7 +2825,7 @@ public class PlayerControllerHuman extends PlayerController implements IGameCont
                     || getGame().costPaymentStack.peek() != null) {
                 return;
             }
-            getGame().requestTakeBack(player);
+            getGame().requestTakeBack(player, ipp);
             ipp.stop();
         }
     }
