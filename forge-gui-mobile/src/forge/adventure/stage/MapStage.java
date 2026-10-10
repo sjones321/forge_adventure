@@ -59,6 +59,8 @@ public class MapStage extends GameStage {
     public Array<Rectangle> collisionRect = new Array<>();
     public Map<Float, NavigationMap> navMaps = new HashMap<>();
     private boolean isInMap = false;
+    /** Last entry/spawn target id used when loading this map (SV1 restore fallback). */
+    private int lastSpawnTargetId = 0;
     MapLayer spriteLayer;
     private PointOfInterestChanges changes;
     private EnemySprite currentMob;
@@ -457,6 +459,7 @@ public class MapStage extends GameStage {
 
     public void spawn(int targetId){
         stop(); //Prevent player from unintentionally going back through entrance again when holding input
+        lastSpawnTargetId = targetId;
         boolean hasSpawned = false;
         if (targetId > 0){
             for (int i = 0; i < actors.size; i++) {
@@ -528,6 +531,41 @@ public class MapStage extends GameStage {
     /** Currently loaded map path (for tests / LT1 diagnostics). */
     public String getLoadedMapPath() {
         return loadedMapPath != null ? loadedMapPath : "";
+    }
+
+    /** Entrance/spawn target id used for the current map load (SV1). */
+    public int getLastSpawnTargetId() {
+        return lastSpawnTargetId;
+    }
+
+    /**
+     * SV1: after a normal entrance spawn, try to place the player at a saved map position.
+     * Blocked or out-of-bounds positions fall back to the entrance (current position).
+     *
+     * @return true when the saved position was applied
+     */
+    public boolean tryRestorePlayerPosition(float x, float y) {
+        if (!isInMap || Float.isNaN(x) || Float.isNaN(y)) {
+            return false;
+        }
+        PlayerSprite playerSprite = getPlayerSprite();
+        if (playerSprite == null) {
+            return false;
+        }
+        float entranceX = playerSprite.getX();
+        float entranceY = playerSprite.getY();
+        float mapW = getWidth();
+        float mapH = getHeight();
+        if (x < -playerSprite.getWidth() || y < -playerSprite.getHeight()
+                || x > mapW || y > mapH) {
+            return false;
+        }
+        playerSprite.setPosition(x, y);
+        if (isColliding(playerSprite.boundingRect())) {
+            playerSprite.setPosition(entranceX, entranceY);
+            return false;
+        }
+        return true;
     }
 
     static public boolean containsOrEquals(Rectangle r1, Rectangle r2) {

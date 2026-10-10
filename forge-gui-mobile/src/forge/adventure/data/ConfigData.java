@@ -552,6 +552,19 @@ public class ConfigData {
      */
     public boolean cs0SourcePrintings = true;
 
+    // ---- Ascendant saving (Package SV1): save anywhere + autosave before fights. ----
+
+    /**
+     * When true (Ascendant default), allow manual save inside POI maps (dungeons/towns)
+     * and restore the player into that map on load. Stock modes ignore this.
+     */
+    public boolean sv1SaveAnywhere = true;
+    /**
+     * When true (Ascendant default), write the rotating autosave slot right before every
+     * duel starts. Skipped during active co-op sessions. Stock modes ignore this.
+     */
+    public boolean sv1AutosaveBeforeFight = true;
+
     // ---- Ascendant living towns (Package LT1): hand-made town pipeline (no shipments). ----
 
     /**
