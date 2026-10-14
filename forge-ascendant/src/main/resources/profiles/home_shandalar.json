@@ -1,0 +1,48 @@
+{
+  "id": "home_shandalar",
+  "name": "Shandalar (home plane)",
+  "size": 2000,
+  "chunk": 64,
+  "tileSize": 16,
+  "layout": {
+    "type": "wedges",
+    "core_biome": "wastes",
+    "order": ["white", "blue", "black", "red", "green"],
+    "R_CORE": 200,
+    "R_INNER": 550,
+    "R_OUTER": 835,
+    "R_COAST": 925,
+    "BORDER_WARP_ANGLE": 0.32,
+    "BORDER_WARP_RADIUS": 280
+  },
+  "home_town": {
+    "name": "Havenbrook",
+    "tmx": "map/ascendant/havenbrook.tmx",
+    "skip_rows_top": 8
+  },
+  "plains_town": {
+    "name": "Plains Market",
+    "tmx": "map/ascendant/plains_market_town.tmx",
+    "distance_from_home": 220
+  },
+  "terrain": {
+    "CLUSTER_SCALE": 13,
+    "LANE_WIDTH": 0.10,
+    "OUTER_BONUS": 0.06,
+    "RIVER_COUNT": 12,
+    "RIVER_MIN_LEN": 80
+  },
+  "sea": {
+    "SEA_START": 330,
+    "ISLAND_SHARE": 0.30
+  },
+  "biomes": {
+    "wastes": {"density": 0.07},
+    "white": {"density": 0.06},
+    "blue": {"density": 0.18},
+    "black": {"density": 0.15},
+    "red": {"density": 0.14},
+    "green": {"density": 0.22}
+  },
+  "roads": {"WIDTH": 2}
+}
