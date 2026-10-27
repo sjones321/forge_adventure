@@ -7133,6 +7133,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
 
     private boolean shouldBash(BattlefieldLive.Pic pic) {
         if (pic.strikes.isEmpty() || draggingHand || draggingBoard || grippingTop) return false;
+        if (!combatDamageStep(pic)) return false;
         if (pic.yourLife != yourLife || pic.theirLife != theirLife) return true;
         Map<Integer, BattlefieldLive.Face> now = new HashMap<>();
         for (BattlefieldLive.Face face : pic.yourBoard) {
@@ -7154,6 +7155,13 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
             if (creature && perm.damage != face.damage) return true;
         }
         return false;
+    }
+
+    /** Attack triggers (Leeching Sliver life loss) are not a second lunge. */
+    private static boolean combatDamageStep(BattlefieldLive.Pic pic) {
+        if (pic == null || pic.phase == null) return false;
+        return pic.phase == BattlefieldLayout.StripPhase.COMBAT_DAMAGE
+                || pic.phase == BattlefieldLayout.StripPhase.FIRST_STRIKE;
     }
 
     private boolean stillAttacking(BattlefieldLive.Pic pic) {
@@ -7585,13 +7593,10 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
     /** Keep a card that is already on screen. A new card is the only one that starts at the corner. */
     private void syncHand(BattlefieldLive.Pic pic) {
         boolean wipe = pic != null && pic.wipeHand;
-        if (wipe) dropFan(hand);
         List<BattlefieldLive.Face> faces = pic == null ? List.of() : pic.hand;
         Map<Integer, HandCard> kept = new HashMap<>();
-        if (!wipe) {
-            for (HandCard card : hand) {
-                if (card.forgeCard != null) kept.put(card.forgeCard.getId(), card);
-            }
+        for (HandCard card : hand) {
+            if (card.forgeCard != null) kept.put(card.forgeCard.getId(), card);
         }
         List<HandCard> next = new ArrayList<>();
         for (BattlefieldLive.Face face : faces) {
@@ -7600,7 +7605,21 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
             else copyFace(card, face);
             next.add(card);
         }
-        if (!wipe) {
+        if (wipe) {
+            for (HandCard left : new ArrayList<>(kept.values())) {
+                if (playedFromHand(left, pic) || (pic != null && playedFromHandId(left.forgeCard.getId(), pic))) {
+                    dropOrLiftDeparted(left, pic, false);
+                    kept.remove(left.forgeCard.getId());
+                }
+            }
+            for (HandCard left : kept.values()) {
+                if (left == null || left.forgeCard == null) continue;
+                abortTravel(left.forgeCard.getId());
+                departedHand.remove(left.forgeCard.getId());
+                left.alive = false;
+                left.parked = true;
+            }
+        } else {
             keepStillHeld(next);
             for (HandCard left : kept.values()) dropOrLiftDeparted(left, pic, false);
         }
@@ -7619,12 +7638,15 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         for (BattlefieldLive.Face face : pic.yourBoard) {
             if (face != null && face.view != null && face.view.getId() == id) return true;
         }
+        for (BattlefieldLive.Face face : pic.theirBoard) {
+            if (face != null && face.view != null && face.view.getId() == id) return true;
+        }
         return false;
     }
 
     private void syncBoard(BattlefieldLive.Pic pic) {
         Map<Integer, Perm> kept = new HashMap<>();
-        boolean rebuild = pic != null && (pic.rebuildBoards || pic.wipeHand);
+        boolean rebuild = pic != null && pic.rebuildBoards;
         if (!rebuild) {
             for (Perm perm : board) {
                 if (perm.forgeCard != null) kept.put(perm.forgeCard.getId(), perm);
@@ -7872,9 +7894,10 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         return perm;
     }
 
-    /** Instants and sorceries never become a board tile. Zone must be Battlefield. */
+    /** Instants and sorceries never become a board tile. A land always does. */
     private static boolean boardFace(BattlefieldLive.Face face) {
         if (face == null || face.view == null) return false;
+        if (face.land) return face.battlefield || BattlefieldLive.boardPermanent(face.view);
         if (face.instant || face.sorcery) return false;
         return BattlefieldLive.boardPermanent(face.view);
     }
@@ -8380,6 +8403,9 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         for (BattlefieldLive.Face face : pic.yourBoard) {
             if (face != null && face.view != null && face.view.getId() == id) return true;
         }
+        for (BattlefieldLive.Face face : pic.theirBoard) {
+            if (face != null && face.view != null && face.view.getId() == id) return true;
+        }
         return false;
     }
 
@@ -8390,6 +8416,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
      */
     private boolean startHandCastFlight(StackItem item, BattlefieldLive.Spell spell) {
         if (item == null || spell == null) return false;
+        if (spell.sourceOnBoard || permById(spell.sourceId) != null) return false;
         int cardId = spell.sourceId;
         CastFlight open = cardId == 0 ? null : flightForCard(cardId);
         if (open == null && spell.name != null && !spell.name.isBlank()) {
@@ -8440,7 +8467,10 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                 if (perm.kind == BattlefieldLayout.Kind.LAND) abortTravel(perm.forgeCard.getId());
                 continue;
             }
-            if (perm.instant || perm.sorcery || perm.kind == BattlefieldLayout.Kind.SPELL) continue;
+            if (perm.kind != BattlefieldLayout.Kind.LAND
+                    && (perm.instant || perm.sorcery || perm.kind == BattlefieldLayout.Kind.SPELL)) {
+                continue;
+            }
             int id = perm.forgeCard.getId();
             if (id == 0) continue;
             CastFlight open = flightForCard(id);
@@ -8822,8 +8852,11 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         if (!perm.you) return false;
         CastFlight flight = flightForCard(perm.forgeCard.getId());
         if (flight == null || flight.done || !aimAtBoard(flight)) return false;
-        if (perm.kind == BattlefieldLayout.Kind.LAND
-                && flight.kind != BattlefieldLayout.Kind.LAND && !flight.toBoard) {
+        if (perm.kind == BattlefieldLayout.Kind.LAND && !flight.toBoard
+                && flight.kind != BattlefieldLayout.Kind.LAND) {
+            return false;
+        }
+        if (perm.kind == BattlefieldLayout.Kind.LAND && (flight != castFlight || flight.t <= 0f)) {
             return false;
         }
         if (flight != castFlight && flight.t <= 0f) return false;

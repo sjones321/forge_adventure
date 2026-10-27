@@ -1248,6 +1248,7 @@ public final class BattlefieldLive {
             playOrDrawSent = true;
         }
         if (!(gui.okEnabled || listSheetActive() || priorityWaiting())) return;
+        if (landPlayBusy() && !thisSeatHoldsPriority()) return;
         controller.selectButtonOk();
     }
 
@@ -1556,7 +1557,7 @@ public final class BattlefieldLive {
         GameView view = gui.getGameView();
         if (view == null) return null;
         PlayerView you = gui.human;
-        if (you == null) you = gui.getCurrentPlayer();
+        if (you == null) you = gui.localSeat();
         PlayerView them = gui.opponent;
         if (you == null) {
             for (PlayerView player : gui.getLocalPlayers()) {
@@ -1574,8 +1575,8 @@ public final class BattlefieldLive {
             }
         }
         them = liveSeat(them);
-        if (gui.human == null && you != null) gui.human = you;
-        if (gui.opponent == null && them != null) gui.opponent = them;
+        if (you != null && gui.ownsSeat(you)) gui.human = you;
+        if (gui.opponent == null && them != null && !gui.ownsSeat(them)) gui.opponent = them;
         Pic pic = new Pic();
         pic.youName = you == null || you.getName() == null ? "" : you.getName();
         pic.themName = them == null || them.getName() == null ? "" : them.getName();
@@ -1930,6 +1931,7 @@ public final class BattlefieldLive {
         String title = presentChoice(prompt);
         if (discardAsk(prompt) || discardAsk(title)) return;
         if (destinationSplitAsk(prompt) || destinationSplitAsk(title) || scryLikeAsk(prompt)) return;
+        if (landDropAsk(prompt) || landDropAsk(title)) return;
         InputSelectEntitiesFromList<?> list = listInput();
         if (list == null || listMax(list) > 1) return;
         String sig = waitId(list);
@@ -2240,18 +2242,24 @@ public final class BattlefieldLive {
      * list or a stray zone still saying Battlefield cannot paint them.
      */
     static boolean boardPermanent(CardView card) {
+        if (landCard(card)) return onBattlefield(card);
         return onBattlefield(card) && !spellCard(card);
     }
 
     private static void dropOffBoard(List<Face> faces) {
         if (faces == null || faces.isEmpty()) return;
-        faces.removeIf(face -> face == null || !boardPermanent(face.view)
-                || face.instant || face.sorcery);
+        faces.removeIf(face -> {
+            if (face == null) return true;
+            if (face.land || landCard(face.view)) {
+                return !onBattlefield(face.view) && !face.battlefield;
+            }
+            return !boardPermanent(face.view) || face.instant || face.sorcery;
+        });
     }
 
-    /** Instant or sorcery with no permanent type. Adventure creatures stay. */
+    /** Instant or sorcery with no permanent type. Adventure creatures stay. A land never counts. */
     static boolean spellCard(CardView card) {
-        if (card == null) return false;
+        if (card == null || landCard(card)) return false;
         try {
             CardView.CardStateView state = card.getCurrentState();
             if (state != null && permanentState(state)) return false;
@@ -4572,6 +4580,8 @@ public final class BattlefieldLive {
      */
     private boolean thisSeatMayAutoYield() {
         if (discardAsk(gui == null ? null : gui.prompt)) return false;
+        if (landPlayBusy()) return false;
+        if (choice != null && !passChoice()) return false;
         Input input;
         try {
             input = humanInput();
@@ -4593,6 +4603,7 @@ public final class BattlefieldLive {
     private void considerStackPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
         if (!thisSeatMayAutoYield()) return;
+        if (landPlayBusy()) return;
         boolean click = false;
         synchronized (stackPassLock) {
             if (choice != null || xAsk != null || choosingTarget()) return;
@@ -4637,6 +4648,7 @@ public final class BattlefieldLive {
     private void considerEmptyPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
         if (!thisSeatMayAutoYield()) return;
+        if (landPlayBusy()) return;
         InputPassPriority pass = null;
         boolean clickOk = false;
         synchronized (stackPassLock) {
@@ -4762,6 +4774,37 @@ public final class BattlefieldLive {
         } catch (RuntimeException ignored) {
             return false;
         }
+    }
+
+    /**
+     * Tiny is playing a land, or this window is sitting on a Confirm that is
+     * not Pass. Host must not click OK for that, and empty-pass stays off.
+     */
+    private boolean landPlayBusy() {
+        if (choice != null && !passChoice()) return true;
+        if (gui == null) return false;
+        if (landDropAsk(gui.prompt)) return true;
+        CardView paying = payingCard();
+        if (paying != null && landCard(paying) && !isThisSeatCard(paying)) return true;
+        return false;
+    }
+
+    /** Confirm / Activate sheet. Pass, Next, and Resolve stay empty-pass legal. */
+    private boolean passChoice() {
+        if (choice != null) return false;
+        String word = actionWord();
+        if (word == null) return false;
+        String lower = word.toLowerCase(Locale.ROOT);
+        return lower.equals("pass") || lower.equals("next") || lower.equals("resolve")
+                || lower.startsWith("end turn");
+    }
+
+    /** Play-land prompt or a land still leaving the hand. Not a landfall trigger he owns. */
+    static boolean landDropAsk(String text) {
+        if (text == null || text.isBlank()) return false;
+        String lower = text.toLowerCase(Locale.ROOT);
+        return lower.contains("play land") || lower.contains("play this land")
+                || lower.contains("play a land") || lower.contains("land drop");
     }
 
     /** A land in hand during a main. Do not Pass that window. */
@@ -6933,12 +6976,15 @@ public final class BattlefieldLive {
 
     /** This window's human. Tiny on Join, Steve on Host — not the far seat. */
     private boolean isThisSeat(PlayerView player) {
-        if (player == null || gui == null) return false;
-        try {
-            if (gui.isLocalPlayer(player)) return true;
-        } catch (RuntimeException ignored) {
-        }
-        return sameSeat(player, gui.human);
+        return gui != null && gui.ownsSeat(player);
+    }
+
+    /** This seat controls the card. Tiny's land is never Steve's. */
+    private boolean isThisSeatCard(CardView card) {
+        if (card == null) return false;
+        PlayerView ctrl = controllerOf(card);
+        if (ctrl != null) return isThisSeat(ctrl);
+        return false;
     }
 
     /** Enemy strip is Ash / computer only. A remote human never inherits it. */
@@ -7788,6 +7834,8 @@ public final class BattlefieldLive {
         volatile boolean cancelEnabled;
         volatile PlayerView human;
         volatile PlayerView opponent;
+        /** openView seat id. Never follow getCurrentPlayer() onto the other human. */
+        volatile int seatId = Integer.MIN_VALUE;
         /** Host or Join session that created this window. Zero for a local Ash match. */
         volatile int born;
 
@@ -7821,7 +7869,10 @@ public final class BattlefieldLive {
         public void openView(forge.trackable.TrackableCollection<PlayerView> myPlayers) {
             if (retired()) return;
             open = true;
-            if (myPlayers != null && !myPlayers.isEmpty()) human = myPlayers.iterator().next();
+            if (myPlayers != null && !myPlayers.isEmpty()) {
+                human = myPlayers.iterator().next();
+                if (human != null) seatId = human.getId();
+            }
             assignPlayers();
             prompt = "Keep or mulligan. Drag a card up to play it. OK passes.";
             publishSeatStops();
@@ -7860,28 +7911,13 @@ public final class BattlefieldLive {
         }
 
         /**
-         * This window's seat only. Do not follow getCurrentPlayer() onto Tiny
-         * while she discards — that painted her hand on Host and treated her
-         * cleanup as Steve's yielded step.
+         * This window's seat only. Never follow getCurrentPlayer() onto Tiny.
+         * That painted her hand on Host, asked Steve to Confirm her land, and
+         * treated her M1 as his empty pass.
          */
         private void assignPlayers() {
             GameView view = getGameView();
-            PlayerView local = liveSeat(human);
-            if (local == null) {
-                for (PlayerView player : getLocalPlayers()) {
-                    local = liveSeat(player);
-                    if (local != null) break;
-                }
-            }
-            if (local == null) local = liveSeat(getCurrentPlayer());
-            if (view != null && view.getPlayers() != null && local != null) {
-                for (PlayerView player : view.getPlayers()) {
-                    if (sameSeat(player, local)) {
-                        local = liveSeat(player);
-                        break;
-                    }
-                }
-            }
+            PlayerView local = pinnedSeat(view);
             if (local != null) human = local;
             if (human == null || view == null || view.getPlayers() == null) return;
             for (PlayerView player : view.getPlayers()) {
@@ -7890,6 +7926,43 @@ public final class BattlefieldLive {
                     break;
                 }
             }
+        }
+
+        /** The seat openView handed this window. Not the active player. */
+        private PlayerView pinnedSeat(GameView view) {
+            if (seatId != Integer.MIN_VALUE && view != null && view.getPlayers() != null) {
+                for (PlayerView player : view.getPlayers()) {
+                    if (player != null && player.getId() == seatId) return liveSeat(player);
+                }
+            }
+            PlayerView local = liveSeat(human);
+            if (local != null && ownsSeat(local)) return local;
+            try {
+                for (PlayerView player : getLocalPlayers()) {
+                    PlayerView live = liveSeat(player);
+                    if (live != null) {
+                        if (seatId == Integer.MIN_VALUE) seatId = live.getId();
+                        return live;
+                    }
+                }
+            } catch (RuntimeException ignored) {
+            }
+            return local;
+        }
+
+        PlayerView localSeat() {
+            return pinnedSeat(getGameView());
+        }
+
+        boolean ownsSeat(PlayerView player) {
+            if (player == null) return false;
+            if (seatId != Integer.MIN_VALUE) {
+                try {
+                    return player.getId() == seatId;
+                } catch (RuntimeException ignored) {
+                }
+            }
+            return sameSeat(player, human);
         }
 
         @Override
@@ -7912,6 +7985,7 @@ public final class BattlefieldLive {
         @Override
         public void showPromptMessage(PlayerView playerView, String message, CardView card) {
             if (retired()) return;
+            if (playerView != null && !ownsSeat(playerView)) return;
             prompt = message == null ? "" : message;
             publishPlayableFromPrompt(prompt);
             publishLobbyPrompt();
@@ -7925,7 +7999,8 @@ public final class BattlefieldLive {
         public void updateButtons(PlayerView owner, String label1, String label2,
                 boolean enable1, boolean enable2, boolean focus1) {
             if (retired()) return;
-            if (human == null && owner != null) human = owner;
+            if (owner != null && !ownsSeat(owner)) return;
+            if (human == null && owner != null && ownsSeat(owner)) human = owner;
             okLabel = label1 == null ? "OK" : label1;
             cancelLabel = label2 == null ? "Cancel" : label2;
             okEnabled = enable1;
@@ -7991,6 +8066,9 @@ public final class BattlefieldLive {
         public SpellAbilityView getAbilityToPlay(CardView hostCard, List<SpellAbilityView> abilities, ITriggerEvent triggerEvent) {
             if (retired()) return null;
             if (abilities == null || abilities.isEmpty()) return null;
+            if (hostCard != null && !isThisSeatCard(hostCard)) {
+                return firstLandOrPlayable(abilities, hostCard);
+            }
             SpellAbilityView followUp = confirmedAbility;
             if (followUp != null) {
                 confirmedAbility = null;
@@ -8072,6 +8150,35 @@ public final class BattlefieldLive {
                 return false;
             }
             return false;
+        }
+
+        /**
+         * Tiny's land (or other far-seat play) is her click. Auto-take the land
+         * ability. Steve never sees Confirm for that.
+         */
+        private SpellAbilityView firstLandOrPlayable(List<SpellAbilityView> abilities, CardView host) {
+            SpellAbilityView land = null;
+            SpellAbilityView playable = null;
+            for (SpellAbilityView ability : abilities) {
+                if (ability == null) continue;
+                String text = ability.toString() == null ? "" : ability.toString().toLowerCase(Locale.ROOT);
+                if (text.contains("play land") || text.contains("play this land")) return ability;
+                if (land == null && host != null && landCard(host)) land = ability;
+                if (playable == null && ability.canPlay()) playable = ability;
+            }
+            if (land != null) return land;
+            if (playable != null) return playable;
+            return abilities.get(0);
+        }
+
+        /**
+         * Tiny playing a land is not Steve's Confirm. A trigger he owns still
+         * opens. The land must already be allowed to enter.
+         */
+        private boolean foreignLandPlay(CardView card, String question) {
+            if (triggerUseAsk(question) && isThisSeatCard(card)) return false;
+            if (card != null && landCard(card) && !isThisSeatCard(card)) return true;
+            return landDropAsk(question) && (card == null || !isThisSeatCard(card));
         }
 
         private SpellAbilityView pickAbility(String message, List<SpellAbilityView> abilities,
@@ -8178,6 +8285,7 @@ public final class BattlefieldLive {
         public boolean showConfirmDialog(String message, String title, String yesButtonText,
                 String noButtonText, boolean defaultYes) {
             if (retired()) return defaultYes;
+            if (foreignLandPlay(null, message) || foreignLandPlay(null, title)) return true;
             if (commanderReturnAsk(message) || commanderReturnAsk(title)) {
                 return askCommanderReturn(defaultYes, List.of(
                         yesButtonText == null ? "Yes" : yesButtonText,
@@ -8236,6 +8344,7 @@ public final class BattlefieldLive {
         @Override
         public boolean confirm(CardView c,                 String question, boolean defaultIsYes, List<String> options) {
             if (retired()) return defaultIsYes;
+            if (foreignLandPlay(c, question)) return true;
             // Commander home: Yes is always return-to-command. The boolean Forge
             // gets is the option that actually puts the card in the command zone.
             if (commanderReturnAsk(question)) return askCommanderReturn(defaultIsYes, options);
