@@ -4555,6 +4555,18 @@ public final class BattlefieldLive {
         return thisSeatHoldsPriority();
     }
 
+    /** Tiny's turn on this host window. Do not empty-pass or skip her steps. */
+    private boolean otherHumanHasTheTurn() {
+        GameView view = gui == null ? null : gui.getGameView();
+        if (view == null) return false;
+        try {
+            PlayerView turn = view.getPlayerTurn();
+            return turn != null && !isThisSeat(turn);
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
     /**
      * This window's human, not the other seat. Host must not pass Tiny because
      * a prompt says priority. Join may still read the stock priority line.
@@ -4579,6 +4591,7 @@ public final class BattlefieldLive {
      * InputPassPriority on a shared host GUI does not.
      */
     private boolean thisSeatMayAutoYield() {
+        if (otherHumanHasTheTurn() && !thisSeatHoldsPriority()) return false;
         if (discardAsk(gui == null ? null : gui.prompt)) return false;
         if (landPlayBusy()) return false;
         if (choice != null && !passChoice()) return false;
@@ -4602,6 +4615,7 @@ public final class BattlefieldLive {
 
     private void considerStackPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
+        if (otherHumanHasTheTurn() && !thisSeatHoldsPriority()) return;
         if (!thisSeatMayAutoYield()) return;
         if (landPlayBusy()) return;
         boolean click = false;
@@ -4647,6 +4661,7 @@ public final class BattlefieldLive {
      */
     private void considerEmptyPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
+        if (otherHumanHasTheTurn() && !thisSeatHoldsPriority()) return;
         if (!thisSeatMayAutoYield()) return;
         if (landPlayBusy()) return;
         InputPassPriority pass = null;
@@ -4804,7 +4819,22 @@ public final class BattlefieldLive {
         if (text == null || text.isBlank()) return false;
         String lower = text.toLowerCase(Locale.ROOT);
         return lower.contains("play land") || lower.contains("play this land")
-                || lower.contains("play a land") || lower.contains("land drop");
+                || lower.contains("play a land") || lower.contains("land drop")
+                || lower.contains("cast spell/play land");
+    }
+
+    /**
+     * Shock / check / fast land ETB. "Pay 2 life?" and "enters tapped" are
+     * this seat's Yes/No, never an auto-OK for someone else's land drop.
+     */
+    static boolean landEtbChoice(String text) {
+        if (text == null || text.isBlank()) return false;
+        String lower = text.toLowerCase(Locale.ROOT);
+        return lower.contains("pay") && lower.contains("life")
+                || lower.contains("enters tapped")
+                || lower.contains("enter tapped")
+                || lower.contains("unless you pay")
+                || lower.contains("if you don't");
     }
 
     /** A land in hand during a main. Do not Pass that window. */
@@ -6987,6 +7017,13 @@ public final class BattlefieldLive {
         return false;
     }
 
+    /** Known other-seat card. Null controller is not Tiny — ask. */
+    private boolean knownForeignCard(CardView card) {
+        if (card == null) return false;
+        PlayerView ctrl = controllerOf(card);
+        return ctrl != null && !isThisSeat(ctrl);
+    }
+
     /** Enemy strip is Ash / computer only. A remote human never inherits it. */
     private boolean enemyStripAppliesTo(PlayerView player) {
         if (player == null || isThisSeat(player)) return false;
@@ -8075,6 +8112,16 @@ public final class BattlefieldLive {
         public SpellAbilityView getAbilityToPlay(CardView hostCard, List<SpellAbilityView> abilities, ITriggerEvent triggerEvent) {
             if (retired()) return null;
             if (abilities == null || abilities.isEmpty()) return null;
+            if (hostCard != null && landCard(hostCard)) {
+                ZoneType zone = null;
+                try {
+                    zone = hostCard.getZone();
+                } catch (RuntimeException ignored) {
+                }
+                if (zone != ZoneType.Battlefield || !isThisSeatCard(hostCard)) {
+                    return firstLandOrPlayable(abilities, hostCard);
+                }
+            }
             if (hostCard != null && !isThisSeatCard(hostCard)) {
                 return firstLandOrPlayable(abilities, hostCard);
             }
@@ -8181,13 +8228,14 @@ public final class BattlefieldLive {
         }
 
         /**
-         * Tiny playing a land is not Steve's Confirm. A trigger he owns still
-         * opens. The land must already be allowed to enter.
+         * Tiny playing a land is not Steve's Confirm. Pay-2-life / enters-tapped
+         * on HIS land still opens. A land with no controller is not Tiny's.
          */
         private boolean foreignLandPlay(CardView card, String question) {
-            if (triggerUseAsk(question) && isThisSeatCard(card)) return false;
-            if (card != null && landCard(card) && !isThisSeatCard(card)) return true;
-            return landDropAsk(question) && (card == null || !isThisSeatCard(card));
+            if (landEtbChoice(question)) return knownForeignCard(card);
+            if (triggerUseAsk(question) && !knownForeignCard(card)) return false;
+            if (card != null && landCard(card) && knownForeignCard(card)) return true;
+            return landDropAsk(question);
         }
 
         private SpellAbilityView pickAbility(String message, List<SpellAbilityView> abilities,
@@ -8520,7 +8568,7 @@ public final class BattlefieldLive {
             if (phase == null) return true;
             int step = enemyStripIndex(phase);
             if (step < 0) return true;
-            boolean yours = playerTurn == null || isThisSeat(playerTurn);
+            boolean yours = playerTurn != null && isThisSeat(playerTurn);
             // Host enemy / Ash red is computer only. Tiny is a human seat.
             if (!yours && !enemyStripAppliesTo(playerTurn)) return false;
             // Green holds. Red yields, after a short dwell so the gold outline is visible.
