@@ -228,6 +228,16 @@ public final class BattlefieldLive {
     private boolean emptyPassSent;
     /** Full-state resync landed; wait for the next prompt before empty auto-pass. */
     private volatile boolean resyncAwaitPrompt;
+    /** Last picture() was still toss / keep / mulligan. Leaving that window resets the latch. */
+    private boolean lastPregame = true;
+    /** Toss Play/Draw already sent. A second OK must not flip it to Draw or Keep. */
+    private boolean playOrDrawSent;
+    /** Last GameView hand id set per seat. Any change (mulligan, draw, land, discard) wipes leftovers. */
+    private String lastYourHandKey = "";
+    private String lastTheirHandKey = "";
+    private boolean pendingHandWipe;
+    /** Full setGameView after a checksum resync. Next picture rebuilds boards from that view. */
+    private volatile boolean pendingBoardRebuild;
     private final Object deathBeatLock = new Object();
     private volatile boolean deathBeatSeen;
     /** One card click at a time. The click must not run on the thread that paints the window. */
@@ -261,6 +271,8 @@ public final class BattlefieldLive {
     private final boolean[] yourYield = BattlefieldLayout.openingYields(BattlefieldLayout.StripOwner.YOU);
     private final boolean[] enemyYield = BattlefieldLayout.openingYields(BattlefieldLayout.StripOwner.ENEMY);
     private final Object yieldLock = new Object();
+    /** Join already sent this seat's strip to the host. Enemy / Ash prefs stay local. */
+    private volatile boolean seatStopsSeeded;
     /** Same turn and step already paused once, so the second skip check does not pause again. */
     private int stepDwellKey = Integer.MIN_VALUE;
     /** Original Forge log line to a short UTF-8 line that keeps the real target name. */
@@ -385,6 +397,7 @@ public final class BattlefieldLive {
                 cachedTheirStart = 0;
                 seenMulligans = 0;
                 clearOpeningSort();
+                resetPregamePass();
                 gui = new MatchGui();
                 boot();
             }
@@ -619,19 +632,19 @@ public final class BattlefieldLive {
     /** Declare Attackers is open. A creature click toggles an attack, not an ability. */
     boolean attackingNow() {
         try {
-            return humanInput() instanceof InputAttack;
+            if (humanInput() instanceof InputAttack) return true;
         } catch (RuntimeException ignored) {
-            return false;
         }
+        return gui != null && gui.isCombatDeclareAttackersInput();
     }
 
     /** Declare Blockers is open. A click must not start an ability. */
     boolean blockingNow() {
         try {
-            return humanInput() instanceof InputBlock;
+            if (humanInput() instanceof InputBlock) return true;
         } catch (RuntimeException ignored) {
-            return false;
         }
+        return gui != null && gui.isCombatDeclareBlockersInput();
     }
 
     /** Forge's own alpha strike: every legal creature attacks. */
@@ -1031,12 +1044,13 @@ public final class BattlefieldLive {
      */
     boolean choiceNeedsConfirm() {
         if (xAsk != null) return true;
+        if (discardAsk(gui == null ? null : gui.prompt)) return true;
         Choice pending = choice;
         if (pending == null) {
             if (choosingTarget()) return true;
             if (listSheetActive()) {
                 InputSelectEntitiesFromList<?> list = listInput();
-                return list != null && (listMax(list) > 1 || listMin(list) > 1);
+                return list != null && (listMax(list) > 1 || listMin(list) > 1 || discardList(list));
             }
             return pickSheetOpen();
         }
@@ -1165,7 +1179,9 @@ public final class BattlefieldLive {
         for (GameEntity entity : list.getValidChoices()) {
             if (!(entity instanceof Card card)) continue;
             if (at == index) {
-                boolean oneShot = listMax(list) <= 1 && listMin(list) <= 1;
+                boolean oneShot = !discardAsk(gui == null ? null : gui.prompt)
+                        && !discardList(list)
+                        && listMax(list) <= 1 && listMin(list) <= 1;
                 if (oneShot) selectThenOk(card.getView());
                 else select(card.getView());
                 return;
@@ -1219,6 +1235,7 @@ public final class BattlefieldLive {
         }
         if (listSheetActive() && !okOn()) return;
         if (listSheetActive() && !listHasEnough()) return;
+        if (answeringMulligan() || playOrDrawPrompt()) noteKeepOrLeavePregame();
         submitSeatOk();
     }
 
@@ -1226,6 +1243,10 @@ public final class BattlefieldLive {
     private void submitSeatOk() {
         IGameController controller = seatController();
         if (controller == null) return;
+        if (playOrDrawPrompt()) {
+            if (playOrDrawSent) return;
+            playOrDrawSent = true;
+        }
         if (!(gui.okEnabled || listSheetActive() || priorityWaiting())) return;
         controller.selectButtonOk();
     }
@@ -1239,7 +1260,10 @@ public final class BattlefieldLive {
         IGameController controller = seatController();
         if (controller == null) return;
         if (gui.cancelEnabled || (listSheetActive() && listOptional())) {
-            if ("Mulligan".equals(gui.cancelLabel)) seenMulligans++;
+            if ("Mulligan".equals(gui.cancelLabel)) {
+                seenMulligans++;
+                noteMulliganTaken();
+            }
             controller.selectButtonCancel();
         }
     }
@@ -1373,7 +1397,8 @@ public final class BattlefieldLive {
             try {
                 Input input = humanInput();
                 if (input instanceof InputAttack || input instanceof InputBlock
-                        || input instanceof InputSelectTargets) {
+                        || input instanceof InputSelectTargets
+                        || attackingNow() || blockingNow()) {
                     controller.selectCard(card, null, LEFT_CLICK);
                     return;
                 }
@@ -1520,16 +1545,18 @@ public final class BattlefieldLive {
 
     Pic picture() {
         tendResolveAll();
+        notePregameEdge();
         if (!pregameChoice()) {
             considerStackPass();
             considerEmptyPass();
         }
         gui.assignPlayers();
+        noteHandIdChange();
         clumpOpeningLands();
         GameView view = gui.getGameView();
         if (view == null) return null;
-        PlayerView you = gui.getCurrentPlayer();
-        if (you == null) you = gui.human;
+        PlayerView you = gui.human;
+        if (you == null) you = gui.getCurrentPlayer();
         PlayerView them = gui.opponent;
         if (you == null) {
             for (PlayerView player : gui.getLocalPlayers()) {
@@ -1632,27 +1659,14 @@ public final class BattlefieldLive {
         }
         Set<Integer> hiddenExile = hiddenExileIds(pic);
         synchronized (heldSpells) {
-            heldSpells.removeIf(held -> held.until < now || landedFromStack(held, boardIds)
-                    || hiddenExile.contains(held.sourceId) || hiddenExile.contains(held.id));
-            for (HeldSpell held : heldSpells) {
-                if (liveIds.contains(held.id)) continue;
-                Spell spell = new Spell();
-                spell.id = held.id;
-                spell.name = held.name;
-                spell.text = held.text;
-                spell.typeLine = held.typeLine;
-                spell.cost = held.cost;
-                spell.pt = held.pt;
-                spell.rules = held.rules;
-                spell.targetLabel = held.targetLabel;
-                spell.targetCardIds = held.targetCardIds;
-                spell.targetYou = held.targetYou;
-                spell.targetThem = held.targetThem;
-                spell.sourceId = held.sourceId;
-                spell.sourceOnBoard = held.sourceOnBoard;
-                spell.sourceYours = held.sourceYours;
-                pic.stack.add(spell);
-            }
+            // Leave the live GameView stack. Do not ghost a resolved or
+            // countered object back onto the well — that leftover tile sat
+            // on the grass after Infernal Grasp (same family as leftover
+            // mulligan hand tiles).
+            heldSpells.removeIf(held -> !liveIds.contains(held.id)
+                    || held.until < now || landedFromStack(held, boardIds)
+                    || hiddenExile.contains(held.sourceId) || hiddenExile.contains(held.id)
+                    || stackSpellGone(held, pic));
         }
         GameLog gameLog = view.getGameLog();
         if (gameLog != null) {
@@ -1681,6 +1695,15 @@ public final class BattlefieldLive {
             else if (winner != null && !winner.isBlank()) pic.resultTitle = winner + " wins";
             else pic.resultTitle = "Draw";
             pic.resultWhy = outcomeLine(view);
+        }
+        if (pendingHandWipe) {
+            pic.wipeHand = true;
+            pendingHandWipe = false;
+        }
+        if (pendingBoardRebuild) {
+            pic.wipeHand = true;
+            pic.rebuildBoards = true;
+            pendingBoardRebuild = false;
         }
         pic.signature = signature(pic);
         Choice pending = choice;
@@ -1905,6 +1928,7 @@ public final class BattlefieldLive {
         }
         String prompt = gui == null || gui.prompt == null ? "" : gui.prompt;
         String title = presentChoice(prompt);
+        if (discardAsk(prompt) || discardAsk(title)) return;
         if (destinationSplitAsk(prompt) || destinationSplitAsk(title) || scryLikeAsk(prompt)) return;
         InputSelectEntitiesFromList<?> list = listInput();
         if (list == null || listMax(list) > 1) return;
@@ -2051,8 +2075,15 @@ public final class BattlefieldLive {
             face.faceUp = see && !face.hiddenBack;
             if (face.hiddenBack) {
                 face.name = see ? revealedName(card) : "";
+            } else if (see || battlefield) {
+                face.name = printedName(card);
+                if (face.name == null || face.name.isBlank()) face.name = revealedName(card);
+                if (face.name == null || face.name.isBlank()) {
+                    String shown = card.getName();
+                    face.name = shown == null || shown.isBlank() ? (see ? "" : "Card") : shown;
+                }
             } else {
-                face.name = see ? card.getName() : "Card";
+                face.name = "Card";
             }
             face.tapped = card.isTapped();
             face.token = card.isToken();
@@ -2088,10 +2119,13 @@ public final class BattlefieldLive {
             }
             if (face.commander) face.commanderKey = commanderKey(card);
             face.restraint = battlefield ? restraintOf(card) : "";
+            face.chosenType = battlefield ? chosenTypeOf(card) : "";
             face.status = battlefield ? statusOf(card, state) : java.util.List.of();
             CardView attached = card.getAttachedTo();
             if (attached != null) face.attachedToId = attached.getId();
-            face.battlefield = battlefield;
+            face.instant = instantCard(card);
+            face.sorcery = sorceryCard(card);
+            face.battlefield = onBattlefield(card);
             out.add(face);
         }
         return out;
@@ -2112,7 +2146,7 @@ public final class BattlefieldLive {
                 takeStrayBattlefield(yours, theirs, seat, you);
                 if (seat.getBattlefield() == null) continue;
                 for (CardView card : seat.getBattlefield()) {
-                    if (card == null) continue;
+                    if (!boardPermanent(card)) continue;
                     PlayerView ctrl = controllerOf(card);
                     boolean mine = you != null && (sameSeat(ctrl, you)
                             || (ctrl == null && sameSeat(seat, you)));
@@ -2123,6 +2157,8 @@ public final class BattlefieldLive {
         }
         pic.yourBoard.addAll(faces(yours.values(), true));
         pic.theirBoard.addAll(faces(theirs.values(), true));
+        dropOffBoard(pic.yourBoard);
+        dropOffBoard(pic.theirBoard);
         settleBattleSides(pic.yourBoard, you, true);
         settleBattleSides(pic.theirBoard, you, false);
         wantBoardArt(pic.yourBoard);
@@ -2156,7 +2192,7 @@ public final class BattlefieldLive {
     private static void takeBattlefield(LinkedHashMap<Integer, CardView> into, PlayerView seat) {
         if (into == null || seat == null || seat.getBattlefield() == null) return;
         for (CardView card : seat.getBattlefield()) {
-            if (card != null) into.putIfAbsent(card.getId(), card);
+            if (boardPermanent(card)) into.putIfAbsent(card.getId(), card);
         }
     }
 
@@ -2181,7 +2217,7 @@ public final class BattlefieldLive {
             }
             if (cards == null) continue;
             for (CardView card : cards) {
-                if (card == null || !onBattlefield(card)) continue;
+                if (!boardPermanent(card)) continue;
                 PlayerView ctrl = controllerOf(card);
                 boolean mine = you != null && (sameSeat(ctrl, you)
                         || (ctrl == null && sameSeat(seat, you)));
@@ -2197,6 +2233,71 @@ public final class BattlefieldLive {
         } catch (RuntimeException ignored) {
             return false;
         }
+    }
+
+    /**
+     * Instants and sorceries never sit on the grass. A stale battlefield
+     * list or a stray zone still saying Battlefield cannot paint them.
+     */
+    static boolean boardPermanent(CardView card) {
+        return onBattlefield(card) && !spellCard(card);
+    }
+
+    private static void dropOffBoard(List<Face> faces) {
+        if (faces == null || faces.isEmpty()) return;
+        faces.removeIf(face -> face == null || !boardPermanent(face.view)
+                || face.instant || face.sorcery);
+    }
+
+    /** Instant or sorcery with no permanent type. Adventure creatures stay. */
+    static boolean spellCard(CardView card) {
+        if (card == null) return false;
+        try {
+            CardView.CardStateView state = card.getCurrentState();
+            if (state != null && permanentState(state)) return false;
+            if (instantCard(card) || sorceryCard(card)) return true;
+        } catch (RuntimeException ignored) {
+        }
+        return false;
+    }
+
+    private static boolean permanentState(CardView.CardStateView state) {
+        if (state == null) return false;
+        try {
+            if (state.isCreature() || state.isLand() || state.isPlaneswalker() || state.isBattle()) {
+                return true;
+            }
+        } catch (RuntimeException ignored) {
+        }
+        try {
+            CardTypeView type = state.getType();
+            return type != null && (type.isArtifact() || type.isEnchantment()
+                    || type.isLand() || type.isCreature() || type.isPlaneswalker() || type.isBattle());
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean instantCard(CardView card) {
+        return typeFlag(card, true);
+    }
+
+    private static boolean sorceryCard(CardView card) {
+        return typeFlag(card, false);
+    }
+
+    private static boolean typeFlag(CardView card, boolean instant) {
+        if (card == null) return false;
+        try {
+            CardView.CardStateView state = card.getCurrentState();
+            if (state != null) {
+                if (instant ? state.isInstant() : state.isSorcery()) return true;
+                CardTypeView type = state.getType();
+                if (type != null && (instant ? type.isInstant() : type.isSorcery())) return true;
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return false;
     }
 
     private static PlayerView controllerOf(CardView card) {
@@ -2408,6 +2509,62 @@ public final class BattlefieldLive {
         paintedPlayer = Integer.MIN_VALUE;
         paintedKey = "";
         paintedIds = new int[0];
+        lastYourHandKey = "";
+        lastTheirHandKey = "";
+    }
+
+    /**
+     * Any seat's GameView hand ids changed: mulligan, T1 draw, land, bounce, or
+     * cleanup discard. Drop leftover first-seven tiles before the discard picker
+     * can send those stale ids.
+     */
+    private void noteHandIdChange() {
+        PlayerView you = gui == null ? null : gui.human;
+        PlayerView them = gui == null ? null : gui.opponent;
+        String yours = handIdKey(you);
+        String theirs = handIdKey(them);
+        boolean changed = false;
+        if (!lastYourHandKey.isEmpty() && !yours.equals(lastYourHandKey)) {
+            changed = true;
+            if (you != null) openingLandSort.remove(you.getId());
+            paintedPlayer = Integer.MIN_VALUE;
+            paintedKey = "";
+            paintedIds = new int[0];
+        }
+        if (!lastTheirHandKey.isEmpty() && !theirs.equals(lastTheirHandKey)) {
+            changed = true;
+            if (them != null) openingLandSort.remove(them.getId());
+        }
+        if (changed) pendingHandWipe = true;
+        lastYourHandKey = yours;
+        lastTheirHandKey = theirs;
+    }
+
+    private static String handIdKey(PlayerView seat) {
+        List<CardView> hand = new ArrayList<>();
+        if (seat != null && seat.getHand() != null) {
+            for (CardView card : seat.getHand()) {
+                if (card != null) hand.add(card);
+            }
+        }
+        if (!hand.isEmpty()) return viewIdSet(hand);
+        try {
+            int n = seat == null ? 0 : seat.getZoneSize(ZoneType.Hand);
+            return "n:" + n;
+        } catch (RuntimeException ignored) {
+            return "n:0";
+        }
+    }
+
+    private void noteMulliganTaken() {
+        pendingHandWipe = true;
+        PlayerView you = gui == null ? null : gui.human;
+        if (you != null) openingLandSort.remove(you.getId());
+        paintedPlayer = Integer.MIN_VALUE;
+        paintedKey = "";
+        paintedIds = new int[0];
+        lastYourHandKey = "";
+        lastTheirHandKey = "";
     }
 
     /** Keep, mulligan, and the London bottom pick. A started game is left in the order he set. */
@@ -2668,7 +2825,9 @@ public final class BattlefieldLive {
 
     private static void append(StringBuilder text, List<Face> faces) {
         for (Face face : faces) {
-            text.append(face.view.getId()).append(face.tapped ? 't' : 'u')
+            text.append(face.view.getId()).append(':')
+                    .append(face.name == null ? "" : face.name)
+                    .append(face.tapped ? 't' : 'u')
                     .append(face.attacking ? 'a' : '-')
                     .append(face.blocking ? 'b' : '-')
                     .append(face.blockAttackerIds == null ? "" : java.util.Arrays.toString(face.blockAttackerIds))
@@ -2689,6 +2848,7 @@ public final class BattlefieldLive {
                     .append(face.commander ? 'C' : '-')
                     .append(face.keywords == null ? "" : face.keywords)
                     .append(face.status == null ? "" : face.status.stream().map(s -> s.title).toList())
+                    .append('|').append(face.chosenType == null ? "" : face.chosenType)
                     .append(';');
         }
         text.append('#');
@@ -2848,6 +3008,42 @@ public final class BattlefieldLive {
     private static boolean landedFromStack(HeldSpell held, Set<Integer> boardIds) {
         if (held == null || held.sourceOnBoard || held.sourceId == 0 || boardIds == null) return false;
         return boardIds.contains(held.sourceId);
+    }
+
+    /**
+     * Instant, sorcery, or a source that already left Stack/Battlefield.
+     * The well tile, targeting line, and held ghost must not linger.
+     */
+    private static boolean stackSpellGone(HeldSpell held, Pic pic) {
+        if (held == null) return true;
+        if (held.sourceOnBoard) return false;
+        if (typeLineSpell(held.typeLine)) return true;
+        if (pic == null) return false;
+        if (inFaces(pic.yourGrave, held.sourceId) || inFaces(pic.theirGrave, held.sourceId)
+                || inFaces(pic.yourExile, held.sourceId) || inFaces(pic.theirExile, held.sourceId)
+                || inFaces(pic.yourLibrary, held.sourceId) || inFaces(pic.theirLibrary, held.sourceId)
+                || inFaces(pic.hand, held.sourceId)) {
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean typeLineSpell(String typeLine) {
+        if (typeLine == null || typeLine.isBlank()) return false;
+        String low = typeLine.toLowerCase(Locale.ROOT);
+        if (low.contains("creature") || low.contains("artifact") || low.contains("enchantment")
+                || low.contains("planeswalker") || low.contains("battle") || low.contains("land")) {
+            return false;
+        }
+        return low.contains("instant") || low.contains("sorcery");
+    }
+
+    private static boolean inFaces(List<Face> faces, int id) {
+        if (faces == null || id == 0) return false;
+        for (Face face : faces) {
+            if (face != null && face.view != null && face.view.getId() == id) return true;
+        }
+        return false;
     }
 
     private void rememberSpell(Spell spell, long now) {
@@ -3317,6 +3513,7 @@ public final class BattlefieldLive {
         cachedTheirStart = 0;
         seenMulligans = 0;
         clearOpeningSort();
+        resetPregamePass();
         netLaunched.set(false);
         loggedRules = null;
         lobbyLan = "";
@@ -3353,6 +3550,7 @@ public final class BattlefieldLive {
         cachedTheirStart = 0;
         seenMulligans = 0;
         clearOpeningSort();
+        resetPregamePass();
         netLaunched.set(false);
         loggedRules = null;
         clientSlot = -1;
@@ -4207,29 +4405,137 @@ public final class BattlefieldLive {
     }
 
     /**
+     * Host Input, or the stock Join prompt for that Input.
+     * Null Input is not Pass — toss, keep, pay, and select stay OTHER.
+     */
+    private enum SeatPrompt { PASS, ATTACK, BLOCK, OTHER }
+
+    /**
      * This seat is sitting on empty or stack priority and may Pass.
-     * The joiner has no local InputPassPriority — OK plus the priority dump is the signal.
+     * Join answers the same updateButtons / setCombatDeclareInput the desktop
+     * client gets — not a missing local Input object.
      */
     boolean priorityWaiting() {
         if (!matchRunning() || pregameChoice()) return false;
-        Input input;
-        try {
-            input = humanInput();
-        } catch (RuntimeException ignored) {
-            input = null;
-        }
-        if (input instanceof InputPassPriority) return gui.okEnabled;
-        return joinerSeat() && thisSeatMayPass();
+        SeatPrompt kind = seatPrompt();
+        return (kind == SeatPrompt.PASS || kind == SeatPrompt.ATTACK || kind == SeatPrompt.BLOCK)
+                && gui.okEnabled;
     }
 
+    /**
+     * Local PlayerControllerHuman Input on Host / Ash. On Join the Input lives
+     * on the host; stock IGuiGame already delivered the buttons and combat flag.
+     */
+    private SeatPrompt seatPrompt() {
+        try {
+            return seatPrompt(humanInput());
+        } catch (RuntimeException ignored) {
+            return seatPrompt(null);
+        }
+    }
+
+    private SeatPrompt seatPrompt(Input input) {
+        if (input instanceof InputPassPriority) return SeatPrompt.PASS;
+        if (input instanceof InputAttack) return SeatPrompt.ATTACK;
+        if (input instanceof InputBlock) return SeatPrompt.BLOCK;
+        if (input != null) return SeatPrompt.OTHER;
+        if (!joinerSeat() || gui == null) return SeatPrompt.OTHER;
+        if (gui.isCombatDeclareAttackersInput()) return SeatPrompt.ATTACK;
+        if (gui.isCombatDeclareBlockersInput()) return SeatPrompt.BLOCK;
+        if (guestPassPriorityPrompt()) return SeatPrompt.PASS;
+        return SeatPrompt.OTHER;
+    }
+
+    /**
+     * Stock InputPassPriority buttons: OK or Pass, plus End Turn or Undo.
+     * Keep, Play, Yes, Accept, look-at, and pay do not use that pair.
+     */
+    private boolean guestPassPriorityPrompt() {
+        if (gui == null || !gui.okEnabled) return false;
+        if (pregameChoice()) return false;
+        if (choice != null || xAsk != null || choosingTarget()) return false;
+        if (cardSheetOpen() || pickSheetOpen() || modeSheetOpen() || listSheetActive()) return false;
+        if (asksSomething(gui.prompt) || triggerUseAsk(gui.prompt)) return false;
+        String ok = gui.okLabel == null ? "" : gui.okLabel.trim();
+        String cancel = gui.cancelLabel == null ? "" : gui.cancelLabel.trim();
+        if (!plainOk(ok) && !"Pass".equalsIgnoreCase(ok)) return false;
+        String cancelLow = cancel.toLowerCase(Locale.ROOT);
+        if (!cancelLow.startsWith("end turn") && !cancelLow.startsWith("undo")) return false;
+        return thisSeatMayPass();
+    }
+
+    /**
+     * Toss, play-or-draw, keep, and London bottom. picture() must not Pass here.
+     * Forge's mulligan flag is only the bottom pick; Keep uses the button labels.
+     */
     private boolean pregameChoice() {
-        if (answeringMulligan() || lobbyPrompt()) return true;
+        if (answeringMulligan() || otherMulligan() || lobbyPrompt() || hostPregame()) return true;
         GameView view = gui == null ? null : gui.getGameView();
         if (view != null && view.isMulligan()) return true;
         if (view != null && view.getPhase() == null) return true;
+        String cancel = gui == null || gui.cancelLabel == null ? "" : gui.cancelLabel;
+        if ("Mulligan".equals(cancel) || "Auto".equals(cancel) || "Draw".equals(cancel)) return true;
+        String ok = gui == null || gui.okLabel == null ? "" : gui.okLabel;
+        if ("Keep".equals(ok) || "Play".equals(ok)) return true;
         String prompt = gui == null || gui.prompt == null ? "" : gui.prompt.toLowerCase(Locale.ROOT);
         return prompt.contains("mulligan") || prompt.contains("play or draw")
-                || prompt.contains("would you like to play");
+                || prompt.contains("would you like to play")
+                || prompt.contains("won the coin")
+                || prompt.contains("keep your hand")
+                || prompt.contains("do you want to keep")
+                || prompt.contains("going first");
+    }
+
+    /** Host game object is still in mulligan. The joiner has no Game. */
+    private boolean hostPregame() {
+        if (match == null) return false;
+        forge.game.Game game = match.getGame();
+        if (game == null) return false;
+        forge.game.GameStage age = game.getAge();
+        return age == forge.game.GameStage.BeforeMulligan || age == forge.game.GameStage.Mulligan;
+    }
+
+    private boolean playOrDrawPrompt() {
+        if (gui == null) return false;
+        String ok = gui.okLabel == null ? "" : gui.okLabel;
+        String cancel = gui.cancelLabel == null ? "" : gui.cancelLabel;
+        if ("Play".equals(ok) && "Draw".equals(cancel)) return true;
+        String prompt = gui.prompt == null ? "" : gui.prompt.toLowerCase(Locale.ROOT);
+        return prompt.contains("play or draw") || prompt.contains("would you like to play");
+    }
+
+    private void notePregameEdge() {
+        boolean now = pregameChoice();
+        if (lastPregame && !now) noteKeepOrLeavePregame();
+        lastPregame = now;
+    }
+
+    /** Keep done or the game just left toss/mulligan. Do not carry a Pass into T1. */
+    private void noteKeepOrLeavePregame() {
+        resetEmptyPassLatch();
+        resyncAwaitPrompt = true;
+        playOrDrawSent = false;
+    }
+
+    private void resetEmptyPassLatch() {
+        synchronized (stackPassLock) {
+            emptyPassLatch = "";
+            emptyPassSent = false;
+            stackPassForId = Integer.MIN_VALUE;
+            stackPassStep = 0;
+            stackVisibleAt = 0L;
+        }
+    }
+
+    private void resetPregamePass() {
+        lastPregame = true;
+        playOrDrawSent = false;
+        pendingHandWipe = false;
+        lastYourHandKey = "";
+        lastTheirHandKey = "";
+        resetEmptyPassLatch();
+        resyncAwaitPrompt = false;
+        seatStopsSeeded = false;
     }
 
     private boolean thisSeatMayPass() {
@@ -4238,19 +4544,60 @@ public final class BattlefieldLive {
         if (asksSomething(gui.prompt) || triggerUseAsk(gui.prompt)) return false;
         if (pregameChoice()) return false;
         if (!gui.okEnabled && !joinerSeat()) return false;
+        return thisSeatHoldsPriority();
+    }
+
+    /**
+     * This window's human, not the other seat. Host must not pass Tiny because
+     * a prompt says priority. Join may still read the stock priority line.
+     */
+    private boolean thisSeatHoldsPriority() {
+        if (gui == null) return false;
         PlayerView you = gui.human;
-        if (you != null && you.getHasPriority()) return true;
+        if (you != null) {
+            try {
+                if (you.getHasPriority()) return true;
+            } catch (RuntimeException ignored) {
+            }
+        }
+        if (!joinerSeat()) return false;
         String prompt = gui.prompt == null ? "" : gui.prompt.toLowerCase(Locale.ROOT);
         return prompt.contains("priority:");
     }
 
+    /**
+     * Empty-pass and stack auto-OK are this seat only. Host InputAttack /
+     * InputBlock still count when the has-priority bit is late. Tiny's
+     * InputPassPriority on a shared host GUI does not.
+     */
+    private boolean thisSeatMayAutoYield() {
+        if (discardAsk(gui == null ? null : gui.prompt)) return false;
+        Input input;
+        try {
+            input = humanInput();
+        } catch (RuntimeException ignored) {
+            input = null;
+        }
+        if (input instanceof InputSelectEntitiesFromList<?> list && discardList(list)) return false;
+        if (thisSeatHoldsPriority()) return true;
+        if (input == null) {
+            if (!joinerSeat() || gui == null) return false;
+            return gui.isCombatDeclareAttackersInput() || gui.isCombatDeclareBlockersInput();
+        }
+        if (!(input instanceof InputPassPriority || input instanceof InputAttack || input instanceof InputBlock)) {
+            return false;
+        }
+        return isThisSeat(input.getOwner());
+    }
+
     private void considerStackPass() {
-        if (!matchRunning() || resyncBlocksAutoPass()) return;
+        if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
+        if (!thisSeatMayAutoYield()) return;
         boolean click = false;
         synchronized (stackPassLock) {
             if (choice != null || xAsk != null || choosingTarget()) return;
             if (cardSheetOpen() || pickSheetOpen() || modeSheetOpen() || listSheetActive()) return;
-            if (triggerUseAsk(gui.prompt)) return;
+            if (triggerUseAsk(gui.prompt) || discardAsk(gui.prompt)) return;
             if (resolvingWithoutPriority()) return;
             int top = topStackId();
             if (top != stackPassForId) {
@@ -4289,12 +4636,13 @@ public final class BattlefieldLive {
      */
     private void considerEmptyPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
+        if (!thisSeatMayAutoYield()) return;
         InputPassPriority pass = null;
         boolean clickOk = false;
         synchronized (stackPassLock) {
             if (choice != null || xAsk != null || choosingTarget()) return;
             if (cardSheetOpen() || pickSheetOpen() || modeSheetOpen() || listSheetActive()) return;
-            if (triggerUseAsk(gui.prompt)) return;
+            if (triggerUseAsk(gui.prompt) || discardAsk(gui.prompt)) return;
             if (topStackId() != 0) return;
             Input input;
             try {
@@ -4303,27 +4651,29 @@ public final class BattlefieldLive {
                 input = null;
             }
             rememberEmptyPassKey(input);
-            if (heCanRespondNow() || livePlayableNow()) return;
+            SeatPrompt kind = seatPrompt(input);
+            if (kind == SeatPrompt.OTHER) return;
+            if (heCanRespondNow() || livePlayableNow() || localHasAvailableActions()) return;
+            if (kind == SeatPrompt.PASS && mainWithLand()) return;
             String prompt = gui.prompt == null ? "" : gui.prompt;
             if (asksSomething(prompt)) return;
             if (emptyPassSent) return;
-            if (input instanceof InputAttack) {
+            if (!gui.okEnabled) return;
+            if (kind == SeatPrompt.ATTACK) {
                 if (heCanDeclareAttack()) return;
-                if (!gui.okEnabled) return;
                 emptyPassSent = true;
                 clickOk = true;
-            } else if (input instanceof InputBlock) {
+            } else if (kind == SeatPrompt.BLOCK) {
                 if (heCanDeclareBlock()) return;
-                if (!gui.okEnabled) return;
                 emptyPassSent = true;
                 clickOk = true;
-            } else if (input instanceof InputPassPriority current) {
-                if (!gui.okEnabled) return;
+            } else if (kind == SeatPrompt.PASS) {
                 emptyPassSent = true;
-                pass = current;
-            } else if (input == null && joinerSeat() && thisSeatMayPass()) {
-                emptyPassSent = true;
-                clickOk = true;
+                if (input instanceof InputPassPriority current) {
+                    pass = current;
+                } else {
+                    clickOk = true;
+                }
             }
         }
         if (pass != null) {
@@ -4347,6 +4697,14 @@ public final class BattlefieldLive {
     }
 
     /**
+     * Checksum mismatch: keep the last good paint until setGameView lands.
+     * Do not bind grey / wrong-id tiles from the half-applied delta.
+     */
+    boolean holdLeftoverPaint() {
+        return gui != null && gui.isResyncPending();
+    }
+
+    /**
      * One auto-pass per distinct priority. New Input, stack top, phase, turn,
      * prompt, resync, or a newly playable set opens the latch again.
      */
@@ -4362,7 +4720,8 @@ public final class BattlefieldLive {
         int turn = view == null ? -1 : view.getTurn();
         PhaseType phase = view == null ? null : view.getPhase();
         String phaseName = phase == null ? "" : phase.name();
-        String inputKind = input == null ? "null" : input.getClass().getName();
+        SeatPrompt kind = seatPrompt(input);
+        String inputKind = input != null ? input.getClass().getName() : "join:" + kind.name();
         int inputId = input == null ? 0 : System.identityHashCode(input);
         String prompt = gui == null || gui.prompt == null ? "" : gui.prompt;
         boolean mayPlay = heCanRespondNow() || livePlayableNow();
@@ -4388,10 +4747,51 @@ public final class BattlefieldLive {
 
     /** Instants, flash, a playable ghost, or an activated ability Forge already marked. */
     private boolean heCanRespondNow() {
+        if (localHasAvailableActions()) return true;
         Set<Integer> ids = playableIds;
         if (ids != null && !ids.isEmpty()) return true;
         List<Face> ghosts = playableGhosts;
         return ghosts != null && !ghosts.isEmpty();
+    }
+
+    private boolean localHasAvailableActions() {
+        PlayerView you = gui == null ? null : gui.human;
+        if (you == null) return false;
+        try {
+            return you.hasAvailableActions();
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    /** A land in hand during a main. Do not Pass that window. */
+    private boolean mainWithLand() {
+        GameView view = gui == null ? null : gui.getGameView();
+        PlayerView you = gui == null ? null : gui.human;
+        if (view == null || you == null) return false;
+        PhaseType phase = view.getPhase();
+        if (phase != PhaseType.MAIN1 && phase != PhaseType.MAIN2) return false;
+        if (you.getHand() == null) return joinerSeat();
+        try {
+            if (joinerSeat() && you.getHand().isEmpty() && view.getTurn() <= openingTurns(view)) {
+                return true;
+            }
+            for (CardView card : you.getHand()) {
+                if (card != null && landType(card.getCurrentState())) return true;
+            }
+        } catch (RuntimeException ignored) {
+            return true;
+        }
+        return false;
+    }
+
+    /** First-turn mains on Join may still have an empty hand snapshot. */
+    private static int openingTurns(GameView view) {
+        try {
+            return view.getPlayers() == null ? 2 : Math.max(2, view.getPlayers().size());
+        } catch (RuntimeException ignored) {
+            return 2;
+        }
     }
 
     /** Live Forge scan so a stale empty playable set cannot skip a real play. */
@@ -4424,7 +4824,8 @@ public final class BattlefieldLive {
         try {
             PlayerControllerHuman human = humanController();
             Player you = human == null ? null : human.getPlayer();
-            return you != null && CombatUtil.canAttack(you);
+            if (you != null) return CombatUtil.canAttack(you);
+            return !joinerSeat() || guestMayDeclareAttack();
         } catch (RuntimeException ignored) {
             return true;
         }
@@ -4434,9 +4835,39 @@ public final class BattlefieldLive {
         try {
             PlayerControllerHuman human = humanController();
             Player you = human == null ? null : human.getPlayer();
-            if (you == null || you.getGame() == null) return true;
-            Combat combat = you.getGame().getCombat();
-            return combat != null && CombatUtil.canBlock(you, combat);
+            if (you != null && you.getGame() != null) {
+                Combat combat = you.getGame().getCombat();
+                return combat != null && CombatUtil.canBlock(you, combat);
+            }
+            return !joinerSeat() || guestMayDeclareBlock();
+        } catch (RuntimeException ignored) {
+            return true;
+        }
+    }
+
+    /** Join has no CombatUtil player. Untapped creatures or a highlight mean she can block. */
+    private boolean guestMayDeclareAttack() {
+        return guestMayDeclareCombat(true);
+    }
+
+    private boolean guestMayDeclareBlock() {
+        return guestMayDeclareCombat(false);
+    }
+
+    private boolean guestMayDeclareCombat(boolean attack) {
+        PlayerView you = gui == null ? null : gui.human;
+        if (you == null || you.getBattlefield() == null) return true;
+        try {
+            for (CardView card : you.getBattlefield()) {
+                if (card == null) continue;
+                if (gui.isWeaklySelectable(card)) return true;
+                CardView.CardStateView state = card.getCurrentState();
+                if (state == null || !state.isCreature()) continue;
+                if (card.isTapped()) continue;
+                if (attack && card.isSick()) continue;
+                return true;
+            }
+            return false;
         } catch (RuntimeException ignored) {
             return true;
         }
@@ -4452,16 +4883,13 @@ public final class BattlefieldLive {
     }
 
     /**
-     * Host auto-pass uses the local InputPassPriority. The joiner has none —
-     * his OK still has to go over NetGameController after the visible beat.
-     * A resolving spell is not priority. Do not click OK while Cultivate is
-     * asking which land enters.
+     * Host auto-pass uses the local InputPassPriority. Join sends one
+     * NetGameController OK after the visible beat when the stock Pass
+     * prompt is up. A resolving spell is not priority.
      */
     private boolean stackSeatMayAutoPass() {
         try {
-            Input input = humanInput();
-            if (input instanceof InputPassPriority) return true;
-            return joinerSeat() && input == null && thisSeatMayPass();
+            return seatPrompt() == SeatPrompt.PASS;
         } catch (RuntimeException ignored) {
             return false;
         }
@@ -4475,10 +4903,12 @@ public final class BattlefieldLive {
         if (choice != null || xAsk != null) return true;
         if (topStackId() == 0) return false;
         try {
+            SeatPrompt kind = seatPrompt();
+            if (kind == SeatPrompt.PASS || kind == SeatPrompt.ATTACK || kind == SeatPrompt.BLOCK) {
+                return false;
+            }
             Input input = humanInput();
-            if (input instanceof InputPassPriority) return false;
             if (input instanceof InputSelectTargets) return false;
-            if (input instanceof InputAttack || input instanceof InputBlock) return false;
             return true;
         } catch (RuntimeException ignored) {
             return true;
@@ -4547,6 +4977,21 @@ public final class BattlefieldLive {
     }
 
     /** A priority dump is not a question. Search, pay, and choose stay on screen. */
+    /**
+     * Cleanup discard-to-7, or any other discard pick. Not Pass. Guest and host
+     * must wait for the discarding seat's clicks.
+     */
+    private static boolean discardAsk(String prompt) {
+        if (prompt == null || prompt.isBlank()) return false;
+        String text = prompt.toLowerCase(Locale.ROOT);
+        return text.contains("discard") || text.contains("cleanup")
+                || text.contains("hand down") || text.contains("maximum hand");
+    }
+
+    private boolean discardList(InputSelectEntitiesFromList<?> list) {
+        return list != null && discardAsk(gui == null ? null : gui.prompt);
+    }
+
     private static boolean asksSomething(String prompt) {
         if (prompt == null || prompt.isBlank()) return false;
         StringBuilder kept = new StringBuilder();
@@ -4564,11 +5009,15 @@ public final class BattlefieldLive {
         if (text.isBlank()) return false;
         return text.contains("choose") || text.contains("select") || text.contains("target")
                 || text.contains("search") || text.contains("pay ") || text.contains("sacrifice")
-                || text.contains("discard") || text.contains("mulligan") || text.contains("order")
+                || text.contains("discard") || text.contains("cleanup") || text.contains("hand down")
+                || text.contains("maximum hand") || text.contains("mulligan") || text.contains("order")
                 || text.contains("assign") || text.contains("scry") || text.contains("surveil")
                 || text.contains("top") || text.contains("bottom") || text.contains("library")
                 || text.contains("graveyard") || text.contains("triggered ability")
-                || text.contains("use this triggered");
+                || text.contains("use this triggered")
+                || text.contains("play or draw") || text.contains("would you like to play")
+                || text.contains("keep your hand") || text.contains("won the coin")
+                || text.contains("going first");
     }
 
     private void haltResolveAll() {
@@ -5550,8 +5999,8 @@ public final class BattlefieldLive {
             }
         }
         if (legal.isEmpty()) return List.of();
-        if (!scryLikeAsk(message) && !destinationSplitAsk(message) && !destinationLikePile(legal, message)
-                && samePrintedName(legal)) {
+        if (!discardAsk(message) && !scryLikeAsk(message) && !destinationSplitAsk(message)
+                && !destinationLikePile(legal, message) && samePrintedName(legal)) {
             List<String> names = uniqueLegalNames(legal);
             logLine("search-auto names=" + names + " n=" + legal.size());
             if (names.size() == 1) {
@@ -6153,6 +6602,10 @@ public final class BattlefieldLive {
         boolean mayReveal;
         /** Cultivate destination of already-taken cards. */
         boolean destinationSplit;
+        /** Mulligan, draw, discard, or bounce replaced this seat's hand ids. Drop leftover tiles. */
+        boolean wipeHand;
+        /** Checksum full state landed. Rebuild board Faces from this GameView, not stale Perm ids. */
+        boolean rebuildBoards;
         /** Cascade hit index, or -1. */
         int hitIndex = -1;
         /** Revealed pictures for a card-list choice. Empty when the prompt is not one. */
@@ -6267,6 +6720,8 @@ public final class BattlefieldLive {
         /** Attackers this card is assigned to block. Empty until Forge records the block. */
         int[] blockAttackerIds = new int[0];
         boolean land, creature, planeswalker, battle, artifact, enchantment, aura, equipment;
+        /** Printed instant or sorcery. Never a battlefield permanent. */
+        boolean instant, sorcery;
         /** True when he is the protecting / defending player of this battle. */
         boolean protectYou;
         int protectorId;
@@ -6285,7 +6740,9 @@ public final class BattlefieldLive {
         boolean hasDefense;
         /** Empty, atk, blk, or both. Can't attack or block is its own pile. */
         String restraint = "";
-        /** Live keywords, counters, and attachments for oracle zoom. */
+        /** CardView chosen type on the battlefield. Empty until a type is named. */
+        String chosenType = "";
+        /** Live keywords, counters, attachments, and the chosen type for oracle zoom. */
         java.util.List<Status> status = java.util.List.of();
     }
 
@@ -6352,8 +6809,21 @@ public final class BattlefieldLive {
     }
 
     /**
+     * Named type from CardView. Empty until chosen. Guest and host both read
+     * TrackableProperty.ChosenType — no extra wire field.
+     */
+    static String chosenTypeOf(CardView card) {
+        if (card == null) return "";
+        try {
+            return BattlefieldLayout.chosenTypeLabel(card.getChosenType(), card.getChosenType2());
+        } catch (RuntimeException ignored) {
+            return "";
+        }
+    }
+
+    /**
      * What is actually on the card right now: keywords with reminder text,
-     * counters, and attached auras/equipment. Oracle zoom reads this list.
+     * counters, attachments, and the chosen type. Oracle zoom reads this list.
      */
     static List<Status> statusOf(CardView card) {
         if (card == null) return List.of();
@@ -6392,6 +6862,13 @@ public final class BattlefieldLive {
             }
         }
         if (card != null) {
+            String chosen = chosenTypeOf(card);
+            if (!chosen.isBlank()) {
+                String title = "Chosen type: " + chosen;
+                if (seen.add(title.toLowerCase(Locale.ROOT))) {
+                    out.add(new Status(title, ""));
+                }
+            }
             try {
                 com.google.common.collect.Multiset<CounterType> counters = card.getCounters();
                 if (counters != null) {
@@ -6433,6 +6910,7 @@ public final class BattlefieldLive {
         synchronized (yieldLock) {
             row[step] = yield;
         }
+        if (yours) publishThisSeatStops();
     }
 
     private boolean phaseYields(boolean yours, int step) {
@@ -6441,6 +6919,52 @@ public final class BattlefieldLive {
             if (step < 0 || step >= row.length) return true;
             return row[step];
         }
+    }
+
+    /**
+     * Join sends only this seat's strip. Host enemy / Ash red never rides along.
+     * Host Steve reads his arrays locally and does not seed the other human.
+     */
+    private void publishThisSeatStops() {
+        MatchGui view = gui;
+        if (view == null) return;
+        view.publishSeatStops();
+    }
+
+    /** This window's human. Tiny on Join, Steve on Host — not the far seat. */
+    private boolean isThisSeat(PlayerView player) {
+        if (player == null || gui == null) return false;
+        try {
+            if (gui.isLocalPlayer(player)) return true;
+        } catch (RuntimeException ignored) {
+        }
+        return sameSeat(player, gui.human);
+    }
+
+    /** Enemy strip is Ash / computer only. A remote human never inherits it. */
+    private boolean enemyStripAppliesTo(PlayerView player) {
+        if (player == null || isThisSeat(player)) return false;
+        return playerIsComputer(player);
+    }
+
+    private boolean playerIsComputer(PlayerView player) {
+        if (player == null) return false;
+        try {
+            if (player.isAI()) return true;
+        } catch (RuntimeException ignored) {
+        }
+        Player engine = engineSeat(player);
+        return engine != null && engine.getController() != null && engine.getController().isAI();
+    }
+
+    private Player engineSeat(PlayerView view) {
+        HostedMatch hosted = match;
+        forge.game.Game game = hosted == null ? null : hosted.getGame();
+        if (game == null || view == null) return null;
+        for (Player player : game.getPlayers()) {
+            if (player != null && player.getId() == view.getId()) return player;
+        }
+        return null;
     }
 
     /**
@@ -7282,9 +7806,15 @@ public final class BattlefieldLive {
 
         @Override
         public void setGameView(GameView next) {
-            if (isResyncPending()) noteResyncCompleted();
+            boolean resync = isResyncPending();
+            if (resync) noteResyncCompleted();
             super.setGameView(next);
-            if (!retired()) assignPlayers();
+            pendingBoardRebuild = true;
+            pendingHandWipe = true;
+            if (!retired()) {
+                assignPlayers();
+                if (!seatStopsSeeded) publishSeatStops();
+            }
         }
 
         @Override
@@ -7294,6 +7824,25 @@ public final class BattlefieldLive {
             if (myPlayers != null && !myPlayers.isEmpty()) human = myPlayers.iterator().next();
             assignPlayers();
             prompt = "Keep or mulligan. Drag a card up to play it. OK passes.";
+            publishSeatStops();
+        }
+
+        /**
+         * This seat's yourYield only. Never host enemy / Ash red.
+         * SkipPhase updates, not isUiSetToSkipPhase — that path dwells.
+         */
+        void publishSeatStops() {
+            if (retired() || !joinerSeat()) return;
+            if (getGameView() == null || human == null) return;
+            IGameController controller = seatController();
+            if (controller == null) return;
+            PlayerView you = human;
+            for (PhaseType phase : PhaseType.values()) {
+                int step = enemyStripIndex(phase);
+                if (step < 0) continue;
+                controller.sendYieldUpdate(new YieldUpdate.SkipPhase(you, phase, phaseYields(true, step)));
+            }
+            seatStopsSeeded = true;
         }
 
         /** Copies a pre-hand button prompt onto the lobby card. The paint thread only reads that card. */
@@ -7311,19 +7860,20 @@ public final class BattlefieldLive {
         }
 
         /**
-         * The seat Forge is updating. openView hands over a snapshot copy whose hand
-         * stays empty after deltas land on the game-view player. Always prefer that one.
+         * This window's seat only. Do not follow getCurrentPlayer() onto Tiny
+         * while she discards — that painted her hand on Host and treated her
+         * cleanup as Steve's yielded step.
          */
         private void assignPlayers() {
             GameView view = getGameView();
-            PlayerView local = liveSeat(getCurrentPlayer());
+            PlayerView local = liveSeat(human);
             if (local == null) {
                 for (PlayerView player : getLocalPlayers()) {
                     local = liveSeat(player);
                     if (local != null) break;
                 }
             }
-            if (local == null) local = liveSeat(human);
+            if (local == null) local = liveSeat(getCurrentPlayer());
             if (view != null && view.getPlayers() != null && local != null) {
                 for (PlayerView player : view.getPlayers()) {
                     if (sameSeat(player, local)) {
@@ -7365,6 +7915,7 @@ public final class BattlefieldLive {
             prompt = message == null ? "" : message;
             publishPlayableFromPrompt(prompt);
             publishLobbyPrompt();
+            notePregameEdge();
             notePromptAfterResync();
             considerStackPass();
             considerEmptyPass();
@@ -7380,9 +7931,35 @@ public final class BattlefieldLive {
             okEnabled = enable1;
             cancelEnabled = enable2;
             publishLobbyPrompt();
+            notePregameEdge();
             notePromptAfterResync();
             considerStackPass();
             considerEmptyPass();
+        }
+
+        @Override
+        public void setCombatDeclareInput(boolean attackers, boolean blockers) {
+            super.setCombatDeclareInput(attackers, blockers);
+            if (retired() || pregameChoice()) return;
+            considerStackPass();
+            considerEmptyPass();
+        }
+
+        @Override
+        public void setWeaklySelectable(Iterable<CardView> cards) {
+            super.setWeaklySelectable(cards);
+            if (retired()) return;
+            publishPlayableFromPrompt(prompt);
+            if (pregameChoice()) return;
+            considerStackPass();
+            considerEmptyPass();
+        }
+
+        @Override
+        public void clearWeaklySelectable() {
+            super.clearWeaklySelectable();
+            if (retired()) return;
+            publishPlayableFromPrompt(prompt);
         }
 
         @Override
@@ -7726,9 +8303,12 @@ public final class BattlefieldLive {
             List<T> source = sourceChoices == null ? List.of() : sourceChoices;
             List<T> dest = destChoices == null ? List.of() : destChoices;
             int sourceN = source.size();
-            // DualListBox returns the destination column. A max that can leave every
-            // source item behind is a subset (exert, enlist), not a full order.
-            boolean subset = sourceN > 0 && remainingObjectsMax >= sourceN;
+            // DualListBox dest is the chosen subset. remainingObjects* are how many
+            // stay in the source column. Cleanup discard-2-of-9 sends remaining 7 —
+            // that is a pick of exactly 2, not an order of the whole hand.
+            boolean canLeaveAll = remainingObjectsMax >= sourceN;
+            boolean mustMoveSome = remainingObjectsMax >= 0 && remainingObjectsMax < sourceN;
+            boolean subset = sourceN > 0 && (canLeaveAll || mustMoveSome);
             if (subset) {
                 int pickMin = Math.max(0, sourceN - remainingObjectsMax);
                 int pickMax = remainingObjectsMin < 0 ? sourceN : Math.max(pickMin, sourceN - remainingObjectsMin);
@@ -7820,9 +8400,11 @@ public final class BattlefieldLive {
         public boolean isUiSetToSkipPhase(PlayerView playerTurn, PhaseType phase) {
             if (retired()) return true;
             if (phase == null) return true;
-            boolean yours = playerTurn == null || isLocalPlayer(playerTurn);
             int step = enemyStripIndex(phase);
             if (step < 0) return true;
+            boolean yours = playerTurn == null || isThisSeat(playerTurn);
+            // Host enemy / Ash red is computer only. Tiny is a human seat.
+            if (!yours && !enemyStripAppliesTo(playerTurn)) return false;
             // Green holds. Red yields, after a short dwell so the gold outline is visible.
             if (!phaseYields(yours, step)) return false;
             dwellStep(playerTurn, phase);

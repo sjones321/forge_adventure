@@ -442,6 +442,11 @@ public final class BattlefieldLayout {
     public static final float LAND_MIN_SCALE = 0.28f;
     /** Extra air between tilted lands at low count, so a 15-degree lean stays readable. */
     public static final float LAND_TILT_GAP = 10f;
+    /**
+     * Unique land fronts may share this much of the title bar, not the art crop.
+     * More overlap than this buries the middle tile.
+     */
+    public static final float LAND_TITLE_SLIVER = 10f;
 
     public static float landTileWidth(float windowH) {
         return boardTileWidth(windowH) * LAND_TILE_SCALE;
@@ -616,6 +621,15 @@ public final class BattlefieldLayout {
      * off those widgets, and stops before the centered life badge.
      */
     public static FieldBox yourLandPocket(float windowW, float windowH, float commandRight, boolean hasTokens) {
+        return yourLandPocket(windowW, windowH, commandRight, hasTokens, 1);
+    }
+
+    /**
+     * Same strip, tall enough for a second land row when {@code landPiles}
+     * unique fronts will not fit in one line without covering the middle.
+     */
+    public static FieldBox yourLandPocket(float windowW, float windowH, float commandRight,
+                                          boolean hasTokens, int landPiles) {
         float safeW = Math.max(windowW, 1f);
         float safeH = Math.max(windowH, 1f);
         float cmd = commandRight;
@@ -630,7 +644,11 @@ public final class BattlefieldLayout {
         }
         if (right < left + 48f) right = left + 48f;
         float bottom = yourBoardOuterY(safeH);
-        float top = Math.min(yourCreatureOuter(safeH) - 4f, bottom + landTileHeight(safeH) + 8f);
+        float laneW = Math.max(40f, right - left);
+        float need = landBlockHeight(Math.max(1, landPiles), laneW, landTileWidth(safeH), landTileHeight(safeH));
+        float top = bottom + need + 8f;
+        float inner = halfInner(safeH, Side.YOU) - 4f;
+        if (top > inner) top = inner;
         if (hasTokens) {
             FieldBox tokens = yourTokenPocket(safeW, safeH, commandRight, true);
             if (tokens.top + 6f > bottom) bottom = Math.min(tokens.top + 6f, top - 24f);
@@ -1123,6 +1141,18 @@ public final class BattlefieldLayout {
     public static HandLayout.Pose creaturePile(float windowW, float windowH, Side side,
                                                 int pileIndex, int pileCount, int copyIndex, int copies,
                                                 boolean tapped, float clusterLeft, float stackLeft) {
+        return creaturePile(windowW, windowH, side, pileIndex, pileCount, copyIndex, copies,
+                tapped, clusterLeft, stackLeft, 0, Float.NaN, Float.NaN);
+    }
+
+    /**
+     * Same creature pile, with the live land-block height so a second land row
+     * does not sit under the first creature.
+     */
+    public static HandLayout.Pose creaturePile(float windowW, float windowH, Side side,
+                                                int pileIndex, int pileCount, int copyIndex, int copies,
+                                                boolean tapped, float clusterLeft, float stackLeft,
+                                                int landPiles, float landLaneLeft, float landLaneRight) {
         int n = Math.max(1, pileCount);
         float fullW = boardTileWidth(windowH);
         float fullH = boardTileHeight(windowH);
@@ -1132,7 +1162,7 @@ public final class BattlefieldLayout {
         float laneW = right - left;
         float bedCx = (left + right) * 0.5f;
         boolean you = side != Side.OPPONENT;
-        float outer = creatureOuterEdge(windowH, side);
+        float outer = creatureOuterEdge(windowH, side, landPiles, landLaneLeft, landLaneRight);
         float inner = halfInner(windowH, side);
         float laneH = Math.max(fullH * 0.45f, Math.abs(inner - outer) - 6f);
         int bands = 1;
@@ -1244,10 +1274,9 @@ public final class BattlefieldLayout {
     }
 
     /**
-     * One land in the pocket. Every land is its own seat and click target.
-     * His row sits in the left column above deck/command, never under creatures.
-     * As {@code count} grows, tiles shrink from {@link #LAND_TILE_SCALE} and overlap
-     * more so N lands stay in the pocket. Tapped lands lean 15° right in place.
+     * One unique land front in the pocket. Shrinks before it overlaps a neighbour's
+     * art. Wraps to a second row when one line would bury the middle tile.
+     * Tapped lands lean 15° right in place.
      */
     public static HandLayout.Pose landInRow(float windowW, float windowH, Side side,
                                             int index, int count, boolean tapped,
@@ -1257,9 +1286,9 @@ public final class BattlefieldLayout {
     }
 
     /**
-     * Identical-state land pile. Column {@code pileIndex} sits in the sideways
-     * land row. Copy 0 is the front tile at the bottom; later copies peek toward
-     * the gold line. The count badge is drawn on the front.
+     * Identical-state land pile. Column {@code pileIndex} is a unique front
+     * (name + tap + chosen type + sick). Copy 0 is that front; later copies peek
+     * toward the gold line. The count badge is drawn on the front.
      */
     public static HandLayout.Pose landPile(float windowW, float windowH, Side side,
                                            int pileIndex, int pileCount, int copyIndex, int copies,
@@ -1277,25 +1306,84 @@ public final class BattlefieldLayout {
         float[] lane = landLane(windowW, windowH, side, laneLeft, laneRight, laneCy);
         float left = lane[0];
         float right = lane[1];
-        float cy = lane[2];
+        float cy0 = lane[2];
         int n = Math.max(1, count);
         int i = Math.max(0, Math.min(index, n - 1));
         float fullW = landTileWidth(windowH);
         float fullH = landTileHeight(windowH);
         float avail = Math.max(40f, right - left);
-        float scale = landRowScale(n, fullW, fullH, avail);
-        if (!Float.isNaN(laneH) && laneH > 8f && fullH > 1f) {
-            float byH = laneH / fullH;
-            if (byH < scale) scale = byH;
+        LandFit fit = fitLandPiles(n, fullW, fullH, avail, laneH);
+        float cw = fullW * fit.scale;
+        float ch = fullH * fit.scale;
+        int across = Math.max(1, fit.across);
+        int band = fit.bands <= 1 ? 0 : Math.min(fit.bands - 1, i / across);
+        int col = i - band * across;
+        int colsThis = Math.min(across, n - band * across);
+        if (colsThis < 1) colsThis = 1;
+        if (col >= colsThis) col = colsThis - 1;
+        float step = landRowFrontStep(colsThis, cw, ch, avail);
+        float foot = landTiltFootprint(cw, ch);
+        float used = colsThis <= 1 ? foot : (colsThis - 1) * step + foot;
+        float cx = left + Math.max(0f, avail - used) * 0.5f + foot / 2f + col * step;
+        if (cx - cw / 2f < left) cx = left + cw / 2f;
+        if (cx + cw / 2f > right) cx = right - cw / 2f;
+        boolean you = side != Side.OPPONENT;
+        float gapLine = 8f;
+        float cy = cy0;
+        if (fit.bands > 1) {
+            if (you && !Float.isNaN(laneH) && laneH > 8f) {
+                float pocketBottom = cy0 - laneH / 2f;
+                cy = pocketBottom + ch / 2f + band * (ch + gapLine);
+            } else {
+                cy = cy0 + band * (ch + gapLine) * (you ? 1f : -1f);
+            }
         }
-        if (scale < LAND_MIN_SCALE) scale = LAND_MIN_SCALE;
-        if (scale > 1f) scale = 1f;
-        float cw = fullW * scale;
-        float ch = fullH * scale;
-        float step = landRowStep(n, cw, ch, avail);
-        float cx = landSeatX(i, n, cw, step, left, right, 0f, 0f);
         float rot = tapped ? tappedRotation(side) : 0f;
         return new HandLayout.Pose(cx, cy, cw, ch, rot, 1f);
+    }
+
+    /**
+     * Height of the unique-front land block, including a second row when one
+     * line would cover the middle tile.
+     */
+    public static float landBlockHeight(int piles, float laneW, float fullW, float fullH) {
+        LandFit fit = fitLandPiles(Math.max(1, piles), fullW, fullH, Math.max(40f, laneW), Float.NaN);
+        float rowH = fullH * fit.scale;
+        return fit.bands * rowH + Math.max(0, fit.bands - 1) * 8f;
+    }
+
+    /**
+     * Centre spacing for unique land fronts. Comfort is the tilted footprint
+     * plus air. Never tighter than {@link #landFrontStep(float, float)}.
+     */
+    public static float landRowFrontStep(int count, float cw, float ch, float laneW) {
+        int n = Math.max(1, count);
+        if (n <= 1) return 0f;
+        float foot = landTiltFootprint(cw, ch);
+        float comfort = foot + LAND_TILT_GAP;
+        float min = landFrontStep(cw, ch);
+        float spread = (Math.max(40f, laneW) - foot) / (n - 1);
+        if (spread > comfort) return comfort;
+        if (spread < min) return min;
+        return spread;
+    }
+
+    /**
+     * Minimum centre spacing so two unique fronts share at most a title-bar sliver
+     * after a 15° tap. Wider than half the tilted box, so the middle tile stays a hit.
+     */
+    public static float landFrontStep(float cw, float ch) {
+        float foot = landTiltFootprint(cw, ch);
+        float sliver = Math.min(LAND_TITLE_SLIVER, Math.max(6f, ch * BOARD_TYPE_BAND));
+        float step = foot - sliver;
+        float halfFace = Math.max(cw, foot) * 0.55f;
+        if (step < halfFace) step = halfFace;
+        return step;
+    }
+
+    /** True when two unique fronts overlap more than a title-bar sliver. */
+    public static boolean landFrontsTooTight(float step, float cw, float ch) {
+        return step + 0.01f < landFrontStep(cw, ch);
     }
 
     /**
@@ -1396,6 +1484,68 @@ public final class BattlefieldLayout {
         return (float) (Math.abs(cw * Math.cos(rad)) + Math.abs(ch * Math.sin(rad)));
     }
 
+    /** Unique-front land grid: shrink first, then a second row. */
+    private static final class LandFit {
+        int bands = 1;
+        int across = 1;
+        float scale = 1f;
+    }
+
+    private static LandFit fitLandPiles(int count, float fullW, float fullH, float laneW, float laneH) {
+        int n = Math.max(1, count);
+        LandFit fit = new LandFit();
+        fit.bands = 1;
+        fit.across = n;
+        fit.scale = landUniqueScale(n, 1, fullW, fullH, laneW, laneH);
+        if (n > 1 && landNeedsSecondRow(n, fullW, fullH, laneW)) {
+            fit.bands = 2;
+            fit.across = (n + 1) / 2;
+            float h2 = laneH;
+            if (Float.isNaN(h2) || h2 < 8f) h2 = 2f * fullH + 8f;
+            fit.scale = landUniqueScale(fit.across, 2, fullW, fullH, laneW, h2);
+        }
+        if (fit.scale > 1f) fit.scale = 1f;
+        if (fit.scale < LAND_MIN_SCALE) fit.scale = LAND_MIN_SCALE;
+        return fit;
+    }
+
+    /** One row at minimum scale still covers the middle front. */
+    private static boolean landNeedsSecondRow(int count, float fullW, float fullH, float laneW) {
+        int n = Math.max(1, count);
+        if (n <= 1) return false;
+        float cw = fullW * LAND_MIN_SCALE;
+        float ch = fullH * LAND_MIN_SCALE;
+        float step = landFrontStep(cw, ch);
+        float foot = landTiltFootprint(cw, ch);
+        return (n - 1) * step + foot > Math.max(40f, laneW) + 0.5f;
+    }
+
+    /**
+     * Scale so unique fronts fit with at most a title-bar sliver of overlap,
+     * including the 15° tap box. Height is a second clamp when two rows share the pocket.
+     */
+    private static float landUniqueScale(int across, int bands, float fullW, float fullH,
+                                          float laneW, float laneH) {
+        int n = Math.max(1, across);
+        int rows = Math.max(1, bands);
+        float base = landTiltFootprint(fullW, fullH);
+        if (base < 1f) return 1f;
+        float scale = 1f;
+        float comfort = n * base + Math.max(0, n - 1) * LAND_TILT_GAP;
+        if (comfort > laneW) {
+            float room = laneW + Math.max(0, n - 1) * LAND_TITLE_SLIVER;
+            scale = room / (n * base);
+        }
+        if (!Float.isNaN(laneH) && laneH > 8f && fullH > 1f) {
+            float gapLine = 8f;
+            float byH = (laneH - Math.max(0, rows - 1) * gapLine) / (rows * fullH);
+            if (byH < scale) scale = byH;
+        }
+        if (scale > 1f) scale = 1f;
+        if (scale < LAND_MIN_SCALE) scale = LAND_MIN_SCALE;
+        return scale;
+    }
+
     /**
      * Centre spacing. Comfort (tilted width plus air) at low count. As N grows,
      * the step drops so tiles overlap, never below a clickable peek.
@@ -1485,10 +1635,28 @@ public final class BattlefieldLayout {
 
     /** Inner edge toward the gold line. His creatures ignore the left land pocket. */
     private static float creatureOuterEdge(float windowH, Side side) {
+        return creatureOuterEdge(windowH, side, 0, Float.NaN, Float.NaN);
+    }
+
+    private static float creatureOuterEdge(float windowH, Side side,
+                                           int landPiles, float landLaneLeft, float landLaneRight) {
         boolean you = side != Side.OPPONENT;
-        if (you) return yourCreatureOuter(windowH);
-        float landCy = rowCenterY(windowH, side, Row.LAND);
         float landH = landTileHeight(windowH);
+        float laneW = 0f;
+        if (!Float.isNaN(landLaneLeft) && !Float.isNaN(landLaneRight) && landLaneRight > landLaneLeft) {
+            laneW = landLaneRight - landLaneLeft;
+        }
+        if (you) {
+            if (landPiles > 0 && laneW > 8f) {
+                return yourBoardOuterY(windowH) + landBlockHeight(landPiles, laneW, landTileWidth(windowH), landH) + 8f;
+            }
+            return yourCreatureOuter(windowH);
+        }
+        float landCy = rowCenterY(windowH, side, Row.LAND);
+        if (landPiles > 1 && laneW > 8f) {
+            float block = landBlockHeight(landPiles, laneW, landTileWidth(windowH), landH);
+            return landCy + landH / 2f - block - 8f;
+        }
         return landCy - landH / 2f - 8f;
     }
 
@@ -1874,6 +2042,19 @@ public final class BattlefieldLayout {
             return "Choose a creature type";
         }
         return chosenType;
+    }
+
+    /**
+     * Word on the board tile. Blank until a type is chosen.
+     * Two names join with a slash. Not a card-name match.
+     */
+    public static String chosenTypeLabel(String chosenType, String chosenType2) {
+        boolean first = chosenType != null && !chosenType.isBlank();
+        boolean second = chosenType2 != null && !chosenType2.isBlank();
+        if (first && second) return chosenType + "/" + chosenType2;
+        if (first) return chosenType;
+        if (second) return chosenType2;
+        return "";
     }
 
     public static int shownPower(int base, int buff, int debuff, int plusCounters) {

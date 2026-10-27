@@ -1022,6 +1022,8 @@ public class CardView extends GameEntityView {
         updateSpecialize(c);
         updateRingLevel(c);
         updateMarkerText(c);
+        updateChosenType(c);
+        updateChosenType2(c);
 
         if (c.getIntensity(false) > 0) {
             updateIntensity(c);

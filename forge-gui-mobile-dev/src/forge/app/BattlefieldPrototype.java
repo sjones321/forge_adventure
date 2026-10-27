@@ -2369,6 +2369,8 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                 HandLayout.Pose show = BattlefieldLayout.stackShowcase(w, h);
                 stackLeft = show.cx - show.w / 2f - 10f;
             }
+            float[] landLane = landLaneEdges(w, h, you);
+            int landPiles = landPileCount(you);
             for (int g = 0; g < n; g++) {
                 List<Perm> pile = piles.get(g);
                 boolean tapped = pile.get(0).tapped;
@@ -2378,7 +2380,8 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                     p.pileFront = c == 0;
                     p.pileLayer = c;
                     applyPose(p, BattlefieldLayout.creaturePile(
-                            w, h, side, g, n, c, pile.size(), tapped, clusterLeft, stackLeft), h);
+                            w, h, side, g, n, c, pile.size(), tapped, clusterLeft, stackLeft,
+                            landPiles, landLane[0], landLane[1]), h);
                 }
             }
             return;
@@ -2391,7 +2394,11 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                 String nb = right.name == null ? "" : right.name;
                 int byName = na.compareToIgnoreCase(nb);
                 if (byName != 0) return byName;
-                return Boolean.compare(left.tapped, right.tapped);
+                int byTap = Boolean.compare(left.tapped, right.tapped);
+                if (byTap != 0) return byTap;
+                String ta = left.choice == null ? "" : left.choice;
+                String tb = right.choice == null ? "" : right.choice;
+                return ta.compareToIgnoreCase(tb);
             });
             float laneLeft = Float.NaN;
             float laneRight = Float.NaN;
@@ -2401,7 +2408,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                 float commandRight = commandRightFor(true);
                 boolean hasTokens = !row(true, BattlefieldLayout.Row.TOKEN).isEmpty();
                 BattlefieldLayout.FieldBox pocket = BattlefieldLayout.yourLandPocket(
-                        w, h, commandRight, hasTokens);
+                        w, h, commandRight, hasTokens, piles.size());
                 laneLeft = pocket.left;
                 laneRight = pocket.right;
                 laneCy = pocket.cy();
@@ -2419,6 +2426,10 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                     float pwRight = BattlefieldLayout.planeswalkerPocket(w, h, side).right;
                     if (pwRight + 8f > laneLeft) laneLeft = pwRight + 8f;
                 }
+                float laneW = Math.max(40f, laneRight - laneLeft);
+                laneH = BattlefieldLayout.landBlockHeight(
+                        piles.size(), laneW,
+                        BattlefieldLayout.landTileWidth(h), BattlefieldLayout.landTileHeight(h));
             }
             int n = piles.size();
             for (int g = 0; g < n; g++) {
@@ -2480,6 +2491,36 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         return right;
     }
 
+    /** Unique land piles on this seat (name + tap + chosen type + sick). */
+    private int landPileCount(boolean you) {
+        Map<String, Boolean> keys = new LinkedHashMap<>();
+        for (Perm p : row(you, BattlefieldLayout.Row.LAND)) {
+            if (p == null || !p.alive) continue;
+            keys.putIfAbsent(pileKey(p), Boolean.TRUE);
+        }
+        return keys.size();
+    }
+
+    /** Left and right of this seat's land strip. NaN when the strip is unused. */
+    private float[] landLaneEdges(float w, float h, boolean you) {
+        if (you) {
+            BattlefieldLayout.FieldBox pocket = BattlefieldLayout.yourLandPocket(
+                    w, h, commandRightFor(true), !row(true, BattlefieldLayout.Row.TOKEN).isEmpty(),
+                    landPileCount(true));
+            return new float[] { pocket.left, pocket.right };
+        }
+        BattlefieldLayout.StripOwner owner = BattlefieldLayout.StripOwner.ENEMY;
+        float left = BattlefieldLayout.deckFamilyRight(w, h, owner, enemyDx) + 8f;
+        float commandRight = commandRightFor(false);
+        if (!Float.isNaN(commandRight)) left = Math.max(left, commandRight + 8f);
+        float right = BattlefieldLayout.clusterAt(w, h, owner, enemyDx, enemyDy).left - 8f;
+        if (!row(false, BattlefieldLayout.Row.PLANESWALKER).isEmpty()) {
+            float pwRight = BattlefieldLayout.planeswalkerPocket(w, h, BattlefieldLayout.Side.OPPONENT).right;
+            if (pwRight + 8f > left) left = pwRight + 8f;
+        }
+        return new float[] { left, right };
+    }
+
     /** Right edge of this side's command-zone cards, or NaN when that zone is empty. */
     private float commandRightFor(boolean you) {
         float right = Float.NaN;
@@ -2493,8 +2534,9 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
 
     /**
      * Identical permanents share a pile only when the whole state matches.
-     * Tap, summoning sickness, power, toughness, damage, and a can't-attack-or-block
-     * lock each start their own pile. Lands use the same rule and spread
+     * Tap, summoning sickness, power, toughness, damage, a can't-attack-or-block
+     * lock, and the chosen type each start their own pile. Two Caverns named
+     * Sliver and Human do not stack. Lands use the same rule and spread
      * sideways along the outer edge.
      */
     private static String pileKey(Perm p) {
@@ -2508,9 +2550,10 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         String ward = hasKeyword(p, "hexproof") ? "x" : "-";
         String shroud = hasKeyword(p, "shroud") ? "u" : "-";
         String haste = hasKeyword(p, "haste") ? "h" : "-";
+        String type = p.choice == null || p.choice.isBlank() ? "-" : p.choice;
         return name + "|" + kind + "|" + tap + "|" + sick + "|" + p.power + "/" + p.toughness
                 + "|d" + p.damage + "|L" + p.loyalty + "|D" + p.defense + "|" + lock + "|"
-                + fly + reach + ward + shroud + haste;
+                + fly + reach + ward + shroud + haste + "|" + type;
     }
 
     /** Forge keyword already stored on the tile, including one an effect granted. */
@@ -6901,6 +6944,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
     }
 
     private void applyLiveFrame() {
+        if (liveReady() && live.holdLeftoverPaint()) return;
         BattlefieldLive.Pic pic = live.picture();
         if (pic == null) return;
         shownStrikes = pic.strikes == null ? List.of() : new ArrayList<>(pic.strikes);
@@ -6975,10 +7019,14 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
 
     /** Keep a ghost that is already on screen. No playable card outside the hand means an empty fan. */
     private void syncGhosts(BattlefieldLive.Pic pic) {
+        boolean wipe = pic != null && pic.wipeHand;
+        if (wipe) dropFan(ghosts);
         List<BattlefieldLive.Face> faces = pic == null ? List.of() : pic.ghosts;
         Map<Integer, HandCard> kept = new HashMap<>();
-        for (HandCard card : ghosts) {
-            if (card.forgeCard != null) kept.put(card.forgeCard.getId(), card);
+        if (!wipe) {
+            for (HandCard card : ghosts) {
+                if (card.forgeCard != null) kept.put(card.forgeCard.getId(), card);
+            }
         }
         List<HandCard> next = new ArrayList<>();
         if (faces != null) {
@@ -6992,10 +7040,26 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                 next.add(card);
             }
         }
-        keepStillHeld(next);
-        for (HandCard left : kept.values()) liftDeparted(left, pic, true);
+        if (!wipe) {
+            keepStillHeld(next);
+            for (HandCard left : kept.values()) dropOrLiftDeparted(left, pic, true);
+        }
         ghosts.clear();
         ghosts.addAll(next);
+    }
+
+    /** Mulligan: drop leftover tiles from the last seven. No travel overlay. */
+    private void dropFan(List<HandCard> fan) {
+        if (fan == null) return;
+        for (HandCard card : fan) {
+            if (card == null || card.forgeCard == null) continue;
+            int id = card.forgeCard.getId();
+            abortTravel(id);
+            departedHand.remove(id);
+            card.alive = false;
+            card.parked = true;
+        }
+        fan.clear();
     }
 
     /** Cards Forge has marked to go on the bottom. Updated even when the board itself did not change. */
@@ -7039,7 +7103,8 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         debugLog.addAll(pic.debugDecisions);
         markBottomPicks(pic);
         if (pic.prompt != null && !pic.prompt.isBlank()) note = pic.prompt;
-        if (pic.signature != liveSig && !draggingHand && !draggingBoard && !grippingTop
+        if ((pic.wipeHand || pic.rebuildBoards || pic.signature != liveSig)
+                && !draggingHand && !draggingBoard && !grippingTop
                 && !draggingCommand) {
             liveSig = pic.signature;
             rebuildLive(pic);
@@ -7049,6 +7114,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         markPaySeen();
         reclaimCancelled();
         dropAwayTravels(pic);
+        dropLeftStackPaint(pic);
     }
 
     private void tickBash(float dt) {
@@ -7518,10 +7584,14 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
 
     /** Keep a card that is already on screen. A new card is the only one that starts at the corner. */
     private void syncHand(BattlefieldLive.Pic pic) {
+        boolean wipe = pic != null && pic.wipeHand;
+        if (wipe) dropFan(hand);
         List<BattlefieldLive.Face> faces = pic == null ? List.of() : pic.hand;
         Map<Integer, HandCard> kept = new HashMap<>();
-        for (HandCard card : hand) {
-            if (card.forgeCard != null) kept.put(card.forgeCard.getId(), card);
+        if (!wipe) {
+            for (HandCard card : hand) {
+                if (card.forgeCard != null) kept.put(card.forgeCard.getId(), card);
+            }
         }
         List<HandCard> next = new ArrayList<>();
         for (BattlefieldLive.Face face : faces) {
@@ -7530,8 +7600,10 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
             else copyFace(card, face);
             next.add(card);
         }
-        keepStillHeld(next);
-        for (HandCard left : kept.values()) liftDeparted(left, pic, false);
+        if (!wipe) {
+            keepStillHeld(next);
+            for (HandCard left : kept.values()) dropOrLiftDeparted(left, pic, false);
+        }
         hand.clear();
         hand.addAll(next);
     }
@@ -7552,12 +7624,23 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
 
     private void syncBoard(BattlefieldLive.Pic pic) {
         Map<Integer, Perm> kept = new HashMap<>();
-        for (Perm perm : board) {
-            if (perm.forgeCard != null) kept.put(perm.forgeCard.getId(), perm);
+        boolean rebuild = pic != null && (pic.rebuildBoards || pic.wipeHand);
+        if (!rebuild) {
+            for (Perm perm : board) {
+                if (perm.forgeCard != null) kept.put(perm.forgeCard.getId(), perm);
+            }
+        } else {
+            for (Perm perm : board) {
+                if (perm != null && perm.forgeCard != null) abortTravel(perm.forgeCard.getId());
+            }
         }
         List<Perm> next = new ArrayList<>();
-        for (BattlefieldLive.Face face : pic.yourBoard) next.add(keepPerm(kept, face, true));
-        for (BattlefieldLive.Face face : pic.theirBoard) next.add(keepPerm(kept, face, false));
+        for (BattlefieldLive.Face face : pic.yourBoard) {
+            if (boardFace(face)) next.add(keepPerm(kept, face, true));
+        }
+        for (BattlefieldLive.Face face : pic.theirBoard) {
+            if (boardFace(face)) next.add(keepPerm(kept, face, false));
+        }
         for (Perm gone : kept.values()) {
             if (gone != null && gone.you && gone.alive && gone.kind == BattlefieldLayout.Kind.CREATURE) {
                 noteDeath(gone);
@@ -7683,7 +7766,10 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         Perm perm = face.view == null ? null : kept.remove(face.view.getId());
         if (perm == null) return permFrom(face, you);
         perm.you = you;
-        perm.name = face.faceUp ? face.name : "Card";
+        String shown = face.faceUp ? (face.name == null || face.name.isBlank() ? "" : face.name) : "Card";
+        if (face.faceUp && shown.isBlank()) shown = "Card";
+        boolean nameChanged = perm.name == null || !perm.name.equals(shown);
+        perm.name = shown;
         perm.kind = kindOf(face);
         perm.tapped = face.tapped;
         perm.sick = face.sick;
@@ -7711,14 +7797,18 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         perm.typeLine = typeLineOf(face.view);
         perm.lore = loreOf(face.view);
         if (face.faceUp) {
+            if (nameChanged) perm.tex = null;
             Texture art = face.token ? tokenTextureFor(face.name) : textureFor(face.name);
             if (art != null) perm.tex = art;
         }
         perm.forgeCard = face.view;
         perm.keywords = face.keywords;
         perm.status = face.status == null ? java.util.List.of() : face.status;
+        perm.choice = chosenTypeOn(face);
         perm.commander = face.commander;
         perm.commanderKey = face.commanderKey == null ? "" : face.commanderKey;
+        perm.instant = face.instant;
+        perm.sorcery = face.sorcery;
         if (perm.frame == null) perm.frame = borderFor(perm.name, perm.kind);
         return perm;
     }
@@ -7772,11 +7862,28 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         perm.forgeCard = face.view;
         perm.keywords = face.keywords;
         perm.status = face.status == null ? java.util.List.of() : face.status;
+        perm.choice = chosenTypeOn(face);
         perm.commander = face.commander;
         perm.commanderKey = face.commanderKey == null ? "" : face.commanderKey;
+        perm.instant = face.instant;
+        perm.sorcery = face.sorcery;
         perm.frame = borderFor(perm.name, perm.kind);
         noteArrival(perm);
         return perm;
+    }
+
+    /** Instants and sorceries never become a board tile. Zone must be Battlefield. */
+    private static boolean boardFace(BattlefieldLive.Face face) {
+        if (face == null || face.view == null) return false;
+        if (face.instant || face.sorcery) return false;
+        return BattlefieldLive.boardPermanent(face.view);
+    }
+
+    /** Chosen type from the live face, then CardView. Empty until a type is named. */
+    private static String chosenTypeOn(BattlefieldLive.Face face) {
+        if (face == null) return "";
+        if (face.chosenType != null && !face.chosenType.isBlank()) return face.chosenType;
+        return BattlefieldLive.chosenTypeOf(face.view);
     }
 
     /** Ash's new permanents hold the next OK. Both sides puff when the tile is on the bed. */
@@ -7948,6 +8055,23 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
             card.alive = true;
             card.parked = false;
         }
+    }
+
+    /**
+     * Discard, bounce, or a leftover first-seven tile: drop it. No flyer on
+     * the fan. A real cast or land drop still travels.
+     */
+    private void dropOrLiftDeparted(HandCard left, BattlefieldLive.Pic pic, boolean ghost) {
+        if (left == null || left.forgeCard == null) return;
+        int id = left.forgeCard.getId();
+        if (playedFromHand(left, pic) || payingThis(id) || (pic != null && playedFromHandId(id, pic))) {
+            liftDeparted(left, pic, ghost);
+            return;
+        }
+        abortTravel(id);
+        departedHand.remove(id);
+        left.alive = false;
+        left.parked = true;
     }
 
     /**
@@ -8311,7 +8435,12 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
      */
     private void startHandBoardFlights() {
         for (Perm perm : board) {
-            if (perm == null || !perm.you || perm.forgeCard == null) continue;
+            if (perm == null || perm.forgeCard == null) continue;
+            if (!perm.you) {
+                if (perm.kind == BattlefieldLayout.Kind.LAND) abortTravel(perm.forgeCard.getId());
+                continue;
+            }
+            if (perm.instant || perm.sorcery || perm.kind == BattlefieldLayout.Kind.SPELL) continue;
             int id = perm.forgeCard.getId();
             if (id == 0) continue;
             CastFlight open = flightForCard(id);
@@ -8342,6 +8471,11 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
      * No hop from the huge showcase down to the seat.
      */
     private void landFromStack(CastFlight flight, Perm perm) {
+        if (flight == null || perm == null) return;
+        if (spellFlight(flight, perm)) {
+            abortTravel(flight.cardId);
+            return;
+        }
         attachBoard(flight, perm);
         flight.toBoard = true;
         flight.done = true;
@@ -8351,6 +8485,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
 
     private void attachBoard(CastFlight flight, Perm perm) {
         if (flight == null || perm == null || perm.forgeCard == null) return;
+        if (spellFlight(flight, perm)) return;
         flight.permId = perm.forgeCard.getId();
         boolean land = perm.kind == BattlefieldLayout.Kind.LAND
                 || flight.kind == BattlefieldLayout.Kind.LAND;
@@ -8405,6 +8540,52 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         if (cardId == 0) return;
         if (castFlight != null && castFlight.cardId == cardId) castFlight = null;
         pendingFlights.removeIf(flight -> flight != null && flight.cardId == cardId);
+        departedHand.remove(cardId);
+    }
+
+    /**
+     * Stack object left (resolve or counter). Drop the well tile, targeting
+     * line, cast flyer, and any held-spell ghost. A death puff on the
+     * targeted creature is unchanged.
+     */
+    private void dropLeftStackPaint(BattlefieldLive.Pic pic) {
+        Set<Integer> liveStack = new HashSet<>();
+        Set<Integer> liveSources = new HashSet<>();
+        if (pic != null) {
+            for (BattlefieldLive.Spell spell : pic.stack) {
+                if (spell == null) continue;
+                if (spell.id != 0) liveStack.add(spell.id);
+                if (spell.sourceId != 0) liveSources.add(spell.sourceId);
+            }
+        }
+        stack.removeIf(item -> item != null && !stackStillLive(item, liveStack, liveSources));
+        dropLeftFlight(castFlight, liveStack, liveSources);
+        for (CastFlight flight : new ArrayList<>(pendingFlights)) {
+            dropLeftFlight(flight, liveStack, liveSources);
+        }
+        if (liveReady()) this.live.dropHiddenExileHolds(BattlefieldLive.hiddenExileIds(pic));
+    }
+
+    private static boolean stackStillLive(StackItem item, Set<Integer> liveStack, Set<Integer> liveSources) {
+        if (item == null) return false;
+        if (item.id != 0 && liveStack.contains(item.id)) return true;
+        return item.sourceId != 0 && liveSources.contains(item.sourceId);
+    }
+
+    private void dropLeftFlight(CastFlight flight, Set<Integer> liveStack, Set<Integer> liveSources) {
+        if (flight == null) return;
+        if (payingThis(flight.cardId)) return;
+        boolean onStack = (flight.spellId != 0 && liveStack.contains(flight.spellId))
+                || (flight.cardId != 0 && liveSources.contains(flight.cardId))
+                || stackItemForCard(flight.cardId) != null
+                || (flight.spellId != 0 && stackItemById(flight.spellId) != null);
+        if (onStack) return;
+        if (flight.toBoard || flight.kind == BattlefieldLayout.Kind.LAND) return;
+        boolean boardPerm = flight.kind != BattlefieldLayout.Kind.SPELL
+                && permById(flight.permId != 0 ? flight.permId : flight.cardId) != null;
+        if (boardPerm) return;
+        abortTravel(flight.cardId);
+        if (flight.spellId != 0) abortTravel(flight.spellId);
     }
 
     private CastFlight flightForCard(int cardId) {
@@ -8548,9 +8729,15 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
 
     private boolean aimAtBoard(CastFlight flight) {
         if (flight == null) return false;
+        if (flight.kind == BattlefieldLayout.Kind.SPELL) return false;
         if (flight.toBoard || flight.kind == BattlefieldLayout.Kind.LAND) return true;
         if (flight.permId != 0 && stackItemForCard(flight.cardId) == null) return true;
         return false;
+    }
+
+    private static boolean spellFlight(CastFlight flight, Perm perm) {
+        if (flight != null && flight.kind == BattlefieldLayout.Kind.SPELL) return true;
+        return perm != null && (perm.instant || perm.sorcery || perm.kind == BattlefieldLayout.Kind.SPELL);
     }
 
     /** Land tile when layout knows it; otherwise the land-row center on his half. */
@@ -8632,8 +8819,13 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
     /** The land (or other no-stack arrival) stays off the bed until the flyer gets there. */
     private boolean hidePermForTravel(Perm perm) {
         if (perm == null || perm.forgeCard == null) return false;
+        if (!perm.you) return false;
         CastFlight flight = flightForCard(perm.forgeCard.getId());
         if (flight == null || flight.done || !aimAtBoard(flight)) return false;
+        if (perm.kind == BattlefieldLayout.Kind.LAND
+                && flight.kind != BattlefieldLayout.Kind.LAND && !flight.toBoard) {
+            return false;
+        }
         if (flight != castFlight && flight.t <= 0f) return false;
         if (perm.tw > 8f && flight.t >= flight.dur) return false;
         return true;
@@ -10677,6 +10869,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
     }
 
     private void drawPerm(Perm p) {
+        if (p == null || p.instant || p.sorcery || p.kind == BattlefieldLayout.Kind.SPELL) return;
         float bob = flyBob(p);
         p.cy += bob;
         try {
@@ -10713,10 +10906,6 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
             }
         }
         if (p.alpha >= 0.25f) {
-            if (p.choiceCard) {
-                String type = p.choice == null || p.choice.isBlank() ? "Type?" : p.choice;
-                drawCorner(type, p.cx, p.cy - ch * 0.38f, GOLD);
-            }
             if (p.kind == BattlefieldLayout.Kind.CREATURE) {
                 drawCreatureMarks(p, p.cx, p.cy, cw, ch, true);
             } else if (p.kind == BattlefieldLayout.Kind.PLANESWALKER) {
@@ -10726,6 +10915,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
             } else if (p.kind == BattlefieldLayout.Kind.ENCHANTMENT && !p.tucked) {
                 drawLoreMark(p, p.cx, p.cy, cw, ch);
             }
+            drawChosenType(p, p.cx, p.cy, cw, ch);
             if (!fullPrintedBoardCard(p)) {
                 drawAbilityIcons(p.keywords, p.cx, p.cy, cw, ch, p.token, p.commander, p.commanderKey, true);
             }
@@ -11621,6 +11811,63 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         face.setColor(statColor(shown, printed));
         face.draw(batch, text, left, y);
         face.setColor(Color.WHITE);
+    }
+
+    /**
+     * Chosen type on the type-line bar. Any permanent with CardView ChosenType —
+     * Cavern, Unclaimed Territory, Herald's Horn, Cover of Darkness, not a name list.
+     * Drawn inside the tile spin so a 15° tap still reads.
+     */
+    private void drawChosenType(Perm p, float cx, float cy, float cw, float ch) {
+        String type = p.choice == null ? "" : p.choice.trim();
+        if (type.isBlank() && p.forgeCard != null) {
+            type = BattlefieldLive.chosenTypeOf(p.forgeCard);
+        }
+        if (type.isBlank()) {
+            if (p.choiceCard) drawCorner("Type?", cx, cy - ch * 0.38f, GOLD);
+            return;
+        }
+        boolean cropped = !fullPrintedBoardCard(p);
+        boolean bandAlready = p.kind == BattlefieldLayout.Kind.CREATURE
+                || p.kind == BattlefieldLayout.Kind.PLANESWALKER;
+        BitmapFont face = ch >= 220f ? stackFont : stripFont;
+        float inset = Math.max(4f, cw * 0.06f);
+        float maxW = bandAlready ? cw * 0.58f : cw - inset * 2f;
+        if (maxW < 12f) maxW = cw * 0.9f;
+        String shown = fitTypeName(face, type, maxW);
+        glyphs.setText(face, shown);
+        float bottom = cy - ch / 2f;
+        float bandH = cropped ? ch * BattlefieldLayout.BOARD_TYPE_BAND : 0f;
+        if (cropped && !bandAlready) {
+            bandH = Math.max(bandH, Math.min(glyphs.height + 6f, ch * 0.22f));
+            drawTypeBand(cx, bottom, cw, bandH, frameColor(p), p.alpha);
+        }
+        float textBottom = cropped
+                ? bottom + Math.max(1f, (Math.max(bandH, glyphs.height + 4f) - glyphs.height) / 2f)
+                : bottom + 4f;
+        float x = cx - cw / 2f + inset;
+        float y = textBottom + glyphs.height;
+        float pad = 3f;
+        batch.setColor(0f, 0f, 0f, 0.62f * p.alpha);
+        batch.draw(pixel(), x - pad, y - glyphs.height - 1f, glyphs.width + pad * 2f, glyphs.height + 4f);
+        batch.setColor(Color.WHITE);
+        face.setColor(GOLD);
+        face.draw(batch, shown, x, y);
+        face.setColor(Color.WHITE);
+    }
+
+    /** Keep the type word on the bar. Long names lose the tail, not the tile. */
+    private String fitTypeName(BitmapFont face, String type, float maxW) {
+        if (type == null || type.isBlank()) return "";
+        glyphs.setText(face, type);
+        if (glyphs.width <= maxW || maxW < 8f) return type;
+        String cut = type;
+        while (cut.length() > 1) {
+            cut = cut.substring(0, cut.length() - 1);
+            glyphs.setText(face, cut + "…");
+            if (glyphs.width <= maxW) return cut + "…";
+        }
+        return type;
     }
 
     /** Dark type line in the card's frame hue. The art above this band stays uncovered. */
@@ -14361,6 +14608,8 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         float tuckPeek;
         /** This tile just arrived. Smoke and the summon sound wait until this seat is on screen. */
         boolean impactPending;
+        /** Instant / sorcery never paint as a battlefield permanent. */
+        boolean instant, sorcery;
     }
 
     /** Hosts in back-to-front order. Furthest aura titles draw first, then the host, which covers the aura bodies. */
