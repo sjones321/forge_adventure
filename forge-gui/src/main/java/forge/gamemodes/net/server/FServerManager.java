@@ -1363,7 +1363,9 @@ public final class FServerManager implements IHasForgeLog, HostingServer.Server 
 
                 broadcast(MessageEvent.warning(
                     String.format("%s disconnected. Waiting %s for reconnect...", username, formatTime(RECONNECT_TIMEOUT_SECONDS))));
-                lobbyListener.message(null, "(Host can use /skipreconnect to replace disconnected player with AI, or /skiptimeout to wait indefinitely.)", ChatMessage.MessageType.SYSTEM);
+                if (lobbyListener != null) {
+                    lobbyListener.message(null, "(Host can use /skipreconnect to replace disconnected player with AI, or /skiptimeout to wait indefinitely.)", ChatMessage.MessageType.SYSTEM);
+                }
                 netLog.info("[Disconnect] Player disconnected mid-game: {} (slot {}). Waiting for reconnect.", username, playerIndex);
             } else if (draftInProgress && client.hasValidSlot()) {
                 // Draft is in progress — let the draft host own the grace window and
