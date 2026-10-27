@@ -571,7 +571,8 @@ public final class BattlefieldLive {
     boolean answeringMulligan() {
         if (gui == null || (!gui.okEnabled && !gui.cancelEnabled)) return false;
         String cancel = gui.cancelLabel == null ? "" : gui.cancelLabel;
-        return "Mulligan".equals(cancel) || "Auto".equals(cancel);
+        String ok = gui.okLabel == null ? "" : gui.okLabel;
+        return "Mulligan".equals(cancel) || "Auto".equals(cancel) || "Keep".equals(ok);
     }
 
     /**
@@ -1702,7 +1703,6 @@ public final class BattlefieldLive {
             pendingHandWipe = false;
         }
         if (pendingBoardRebuild) {
-            pic.wipeHand = true;
             pic.rebuildBoards = true;
             pendingBoardRebuild = false;
         }
@@ -7858,7 +7858,6 @@ public final class BattlefieldLive {
             if (resync) noteResyncCompleted();
             super.setGameView(next);
             pendingBoardRebuild = true;
-            pendingHandWipe = true;
             if (!retired()) {
                 assignPlayers();
                 if (!seatStopsSeeded) publishSeatStops();
@@ -7965,6 +7964,16 @@ public final class BattlefieldLive {
             return sameSeat(player, human);
         }
 
+        /**
+         * Drop the other human's Keep / land / pass. Do not drop anything
+         * until this window has a pinned seat — Join Keep often arrives
+         * before openView, and a drop there deadlocks both seats.
+         */
+        private boolean foreignSeatPrompt(PlayerView owner) {
+            if (owner == null || seatId == Integer.MIN_VALUE) return false;
+            return !ownsSeat(owner);
+        }
+
         @Override
         protected void afterDeltaApplied() {
             if (!retired()) assignPlayers();
@@ -7985,7 +7994,7 @@ public final class BattlefieldLive {
         @Override
         public void showPromptMessage(PlayerView playerView, String message, CardView card) {
             if (retired()) return;
-            if (playerView != null && !ownsSeat(playerView)) return;
+            if (foreignSeatPrompt(playerView)) return;
             prompt = message == null ? "" : message;
             publishPlayableFromPrompt(prompt);
             publishLobbyPrompt();
@@ -7999,7 +8008,7 @@ public final class BattlefieldLive {
         public void updateButtons(PlayerView owner, String label1, String label2,
                 boolean enable1, boolean enable2, boolean focus1) {
             if (retired()) return;
-            if (owner != null && !ownsSeat(owner)) return;
+            if (foreignSeatPrompt(owner)) return;
             if (human == null && owner != null && ownsSeat(owner)) human = owner;
             okLabel = label1 == null ? "OK" : label1;
             cancelLabel = label2 == null ? "Cancel" : label2;

@@ -3083,7 +3083,8 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
 
     private static boolean seatOkWord(String word) {
         return "Pass".equals(word) || "Resolve".equals(word) || "Next".equals(word)
-                || "Confirm".equals(word) || "OK".equals(word)
+                || "Confirm".equals(word) || "OK".equals(word) || "Keep".equals(word)
+                || "Play".equals(word) || "Yes".equals(word)
                 || "Confirm attack".equals(word) || "Confirm blocks".equals(word)
                 || "Autopay".equals(word) || "Activate".equals(word);
     }
