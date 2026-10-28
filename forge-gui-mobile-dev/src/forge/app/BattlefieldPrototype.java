@@ -3054,7 +3054,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
             boolean revealYes = pic != null && pic.mayReveal;
             boolean shock = pic != null && pic.landEtb;
             BattlefieldLayout.ActionBox[] slots = cluster.actions;
-            if (live.pickSheetOpen()) {
+            if (live.pickSheetOpen() && !shock) {
                 slots = BattlefieldLayout.searchActionColumn(
                         Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
             }
@@ -4223,14 +4223,15 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
     }
 
     /**
-     * Whole-library tutor / fetch / any pick-from-pictures that is not scry,
-     * order, cascade, or divide. The old hand-strip row cannot hold a library.
+     * Whole-library tutor / fetch. Not shock, cascade, scry, order, or a
+     * two-card split — those stay on the small sheet with their own buttons.
      */
     private boolean libraryBrowseOpen() {
         if (!liveReady() || !live.pickSheetOpen()) return false;
         if (live.orderSheet() || live.placingSheet() || live.amountOpen()) return false;
         BattlefieldLive.Pic pic = live.picture();
-        return pic != null && !pic.mayCast && !pic.sheet.isEmpty();
+        if (pic == null || pic.mayCast || pic.landEtb || pic.mayReveal) return false;
+        return pic.sheet.size() >= 3;
     }
 
     private int sheetHit(float w, float h) {

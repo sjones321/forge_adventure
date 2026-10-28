@@ -4566,13 +4566,14 @@ public final class BattlefieldLive {
         return thisSeatHoldsPriority();
     }
 
-    /** Tiny's turn on this host window. Do not empty-pass or skip her steps. */
+    /** Tiny's turn on this host window. Ash does not count. Do not empty-pass her steps. */
     private boolean otherHumanHasTheTurn() {
         GameView view = gui == null ? null : gui.getGameView();
         if (view == null) return false;
         try {
             PlayerView turn = view.getPlayerTurn();
-            return turn != null && !isThisSeat(turn);
+            if (turn == null || isThisSeat(turn)) return false;
+            return !playerIsComputer(turn);
         } catch (RuntimeException ignored) {
             return false;
         }
@@ -4602,7 +4603,7 @@ public final class BattlefieldLive {
      * InputPassPriority on a shared host GUI does not.
      */
     private boolean thisSeatMayAutoYield() {
-        if (otherHumanHasTheTurn() && !thisSeatHoldsPriority()) return false;
+        if (otherHumanHasTheTurn()) return false;
         if (discardAsk(gui == null ? null : gui.prompt)) return false;
         if (landPlayBusy()) return false;
         if (choice != null && !passChoice()) return false;
@@ -4626,7 +4627,7 @@ public final class BattlefieldLive {
 
     private void considerStackPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
-        if (otherHumanHasTheTurn() && !thisSeatHoldsPriority()) return;
+        if (otherHumanHasTheTurn()) return;
         if (!thisSeatMayAutoYield()) return;
         if (landPlayBusy()) return;
         boolean click = false;
@@ -4672,7 +4673,9 @@ public final class BattlefieldLive {
      */
     private void considerEmptyPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
-        if (otherHumanHasTheTurn() && !thisSeatHoldsPriority()) return;
+        if (otherHumanHasTheTurn()) {
+            return;
+        }
         if (!thisSeatMayAutoYield()) return;
         if (landPlayBusy()) return;
         InputPassPriority pass = null;
@@ -4693,6 +4696,7 @@ public final class BattlefieldLive {
             if (kind == SeatPrompt.OTHER) return;
             if (heCanRespondNow() || livePlayableNow() || localHasAvailableActions()) return;
             if (kind == SeatPrompt.PASS && mainWithLand()) return;
+            if (kind == SeatPrompt.PASS && joinerSeat() && ownMainPhase()) return;
             String prompt = gui.prompt == null ? "" : gui.prompt;
             if (asksSomething(prompt)) return;
             if (emptyPassSent) return;
@@ -4860,6 +4864,20 @@ public final class BattlefieldLive {
         if (text == null) return "Pay 2 Life";
         java.util.regex.Matcher n = java.util.regex.Pattern.compile("(\\d+)").matcher(text);
         return n.find() ? "Pay " + n.group(1) + " Life" : "Pay 2 Life";
+    }
+
+    /** This seat's Main 1 or Main 2. Join must not auto-OK that window. */
+    private boolean ownMainPhase() {
+        GameView view = gui == null ? null : gui.getGameView();
+        if (view == null) return false;
+        try {
+            PlayerView turn = view.getPlayerTurn();
+            if (turn == null || !isThisSeat(turn)) return false;
+            PhaseType phase = view.getPhase();
+            return phase == PhaseType.MAIN1 || phase == PhaseType.MAIN2;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     /** A land in hand during a main. Do not Pass that window. */
@@ -7666,6 +7684,7 @@ public final class BattlefieldLive {
                 togglePlacement(index);
                 return;
             }
+            if (landEtb) return;
             if (revealOnly || ordering || amounting) return;
             int limit = kind == Kind.CARDS ? cards.size() : labels.size();
             if (index < 0 || index >= limit) return;
