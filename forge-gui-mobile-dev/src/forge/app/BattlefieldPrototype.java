@@ -2994,13 +2994,14 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
             boolean clickPick = (live.choiceOpen() || sheet) && !live.choiceNeedsConfirm();
             BattlefieldLive.Pic pic = live.picture();
             boolean revealYes = pic != null && pic.mayReveal;
+            boolean shock = pic != null && pic.landEtb;
             BattlefieldLayout.ActionBox[] slots = cluster.actions;
             if (live.pickSheetOpen()) {
                 slots = BattlefieldLayout.searchActionColumn(
                         Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
             }
-            if ((!clickPick || revealYes) && (sheet || live.okOn() || tuck || live.choosingTarget()
-                    || "Autopay".equals(okLabel) || live.priorityWaiting() || revealYes)) {
+            if ((!clickPick || revealYes || shock) && (sheet || live.okOn() || tuck || live.choosingTarget()
+                    || "Autopay".equals(okLabel) || live.priorityWaiting() || revealYes || shock)) {
                 shown.add(new SmartButton(slots[0], okLabel, live.okOn() || live.priorityWaiting() || revealYes));
             }
             if (live.cancelOn()) shown.add(new SmartButton(slots[1], live.cancelText(), true));
@@ -3085,6 +3086,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         return "Pass".equals(word) || "Resolve".equals(word) || "Next".equals(word)
                 || "Confirm".equals(word) || "OK".equals(word) || "Keep".equals(word)
                 || "Play".equals(word) || "Yes".equals(word)
+                || word != null && word.startsWith("Pay ") && word.endsWith(" Life")
                 || "Confirm attack".equals(word) || "Confirm blocks".equals(word)
                 || "Autopay".equals(word) || "Activate".equals(word);
     }

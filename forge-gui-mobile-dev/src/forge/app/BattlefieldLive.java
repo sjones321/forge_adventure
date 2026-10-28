@@ -1055,7 +1055,7 @@ public final class BattlefieldLive {
             }
             return pickSheetOpen();
         }
-        if (pending.mayCast || pending.mayReveal) return false;
+        if (pending.mayCast || pending.mayReveal || pending.landEtb) return false;
         if (pending.destinationSplit && pending.max <= 1) return false;
         if (pending.revealOnly || pending.ordering || pending.amounting || pending.placing) return true;
         if (pending.holdForOk) return true;
@@ -1066,6 +1066,7 @@ public final class BattlefieldLive {
         Choice pending = choice;
         if (pending != null && pending.mayReveal) return "Reveal";
         if (pending != null && pending.mayCast) return "Cast";
+        if (pending != null && pending.landEtb) return pending.payLifeWord;
         if (pending != null && pending.revealOnly) return "OK";
         if (choiceNeedsConfirm()) {
             if (pending != null && abilitySheet(pending) && !pending.facePick) return "Activate";
@@ -1140,6 +1141,7 @@ public final class BattlefieldLive {
 
     String cancelText() {
         Choice pending = choice;
+        if (pending != null && pending.landEtb) return "Enters Tapped";
         if (pending != null && (pending.mayCast || pending.mayReveal)) return "Don't";
         if (blockingChoiceSheet() || pickSheetOpen()) {
             String label = gui.cancelLabel;
@@ -1159,7 +1161,7 @@ public final class BattlefieldLive {
 
     boolean cancelOn() {
         Choice pending = choice;
-        if (pending != null && (pending.mayCast || pending.mayReveal)) return true;
+        if (pending != null && (pending.mayCast || pending.mayReveal || pending.landEtb)) return true;
         if (pending != null && pending.cancelBlocked) return false;
         if (pending != null && pending.allowCancel) return true;
         if (pending != null && pending.kind != Choice.Kind.LINES) return pending.min <= 0;
@@ -1231,6 +1233,10 @@ public final class BattlefieldLive {
     void pressOk() {
         Choice pending = choice;
         if (pending != null) {
+            if (pending.landEtb && pending.picked.isEmpty()
+                    && pending.cards != null && !pending.cards.isEmpty()) {
+                pending.picked.add(0);
+            }
             pending.submit();
             return;
         }
@@ -1723,6 +1729,7 @@ public final class BattlefieldLive {
             pic.amounting = pending.amounting;
             pic.mayCast = pending.mayCast;
             pic.mayReveal = pending.mayReveal;
+            pic.landEtb = pending.landEtb;
             pic.destinationSplit = pending.destinationSplit;
             pic.hitIndex = pending.hitIndex;
             if (pending.kind == Choice.Kind.CARDS) {
@@ -4696,6 +4703,7 @@ public final class BattlefieldLive {
                 clickOk = true;
             } else if (kind == SeatPrompt.PASS) {
                 emptyPassSent = true;
+                landTrace("emptyPass SEND " + turnLine() + " prompt=[" + prompt + "]");
                 if (input instanceof InputPassPriority current) {
                     pass = current;
                 } else {
@@ -4830,11 +4838,24 @@ public final class BattlefieldLive {
     static boolean landEtbChoice(String text) {
         if (text == null || text.isBlank()) return false;
         String lower = text.toLowerCase(Locale.ROOT);
-        return lower.contains("pay") && lower.contains("life")
+        return shockPayAsk(text)
                 || lower.contains("enters tapped")
                 || lower.contains("enter tapped")
                 || lower.contains("unless you pay")
                 || lower.contains("if you don't");
+    }
+
+    /** Shock / pain ETB: "Pay 2 life?" not a generic Yes/No. */
+    static boolean shockPayAsk(String text) {
+        if (text == null || text.isBlank()) return false;
+        String lower = text.toLowerCase(Locale.ROOT);
+        return lower.contains("pay") && lower.contains("life");
+    }
+
+    static String payLifeWord(String text) {
+        if (text == null) return "Pay 2 Life";
+        java.util.regex.Matcher n = java.util.regex.Pattern.compile("(\\d+)").matcher(text);
+        return n.find() ? "Pay " + n.group(1) + " Life" : "Pay 2 Life";
     }
 
     /** A land in hand during a main. Do not Pass that window. */
@@ -5535,6 +5556,46 @@ public final class BattlefieldLive {
             return false;
         }
         return false;
+    }
+
+    /**
+     * Shockland ETB: land picture plus Pay N Life or Enters Tapped. One click.
+     * Yes is pay (untapped). Cancel is enter tapped.
+     */
+    private boolean askLandEtb(CardView land, String question) {
+        haltResolveAll();
+        if (stopping) return false;
+        Choice pending = new Choice();
+        pending.landEtb = true;
+        pending.payLifeWord = payLifeWord(question);
+        pending.holdForOk = false;
+        pending.allowCancel = true;
+        pending.min = 0;
+        pending.max = 1;
+        String name = sheetName(land);
+        pending.message = name == null || name.isBlank() || name.equals("Card")
+                ? "This land enters"
+                : "As " + name + " enters";
+        if (land != null) {
+            pending.kind = Choice.Kind.CARDS;
+            pending.cards = List.of(land);
+            pending.legal = new boolean[] { true };
+            pending.hitIndex = 0;
+        } else {
+            pending.kind = Choice.Kind.LINES;
+        }
+        pending.values = List.of("Yes", "No");
+        choice = pending;
+        try {
+            pending.latch.await();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        } finally {
+            choice = null;
+        }
+        if (pending.cancelled || stopping) return false;
+        return true;
     }
 
     /**
@@ -6673,6 +6734,8 @@ public final class BattlefieldLive {
         boolean mayCast;
         /** Herald's Horn look-at optional reveal. */
         boolean mayReveal;
+        /** Shockland Pay N Life / Enters Tapped. */
+        boolean landEtb;
         /** Cultivate destination of already-taken cards. */
         boolean destinationSplit;
         /** Mulligan, draw, discard, or bounce replaced this seat's hand ids. Drop leftover tiles. */
@@ -7009,6 +7072,113 @@ public final class BattlefieldLive {
         return gui != null && gui.ownsSeat(player);
     }
 
+    /**
+     * This window's name, not the first name in a two-seat openView.
+     * Host MatchGui used to pin Tiny when both humans landed on the same GUI.
+     */
+    private PlayerView pickWindowSeat(Iterable<PlayerView> seats) {
+        if (seats == null) return null;
+        String want = seatName();
+        PlayerView first = null;
+        for (PlayerView seat : seats) {
+            if (seat == null) continue;
+            if (first == null) first = liveSeat(seat);
+            if (samePlayerName(seat, want)) return liveSeat(seat);
+        }
+        return first;
+    }
+
+    private static boolean samePlayerName(PlayerView seat, String want) {
+        if (seat == null || want == null || want.isBlank()) return false;
+        try {
+            String name = seat.getName();
+            return name != null && name.equalsIgnoreCase(want.trim());
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private static String playerList(Iterable<PlayerView> seats) {
+        if (seats == null) return "none";
+        StringBuilder out = new StringBuilder();
+        for (PlayerView seat : seats) {
+            if (out.length() > 0) out.append(',');
+            out.append(seatLine(seat));
+        }
+        return out.length() == 0 ? "none" : out.toString();
+    }
+
+    private static String seatLine(PlayerView seat) {
+        if (seat == null) return "null";
+        try {
+            return String.valueOf(seat.getId()) + ":" + String.valueOf(seat.getName());
+        } catch (RuntimeException ignored) {
+            return "?";
+        }
+    }
+
+    private String cardLine(CardView card) {
+        if (card == null) return "null";
+        try {
+            String name = card.getName();
+            return card.getId() + ":" + (name == null ? "?" : name)
+                    + " ctrl=" + seatLine(controllerOf(card))
+                    + " land=" + landCard(card)
+                    + " mine=" + isThisSeatCard(card);
+        } catch (RuntimeException ignored) {
+            return "?";
+        }
+    }
+
+    private String turnLine() {
+        try {
+            GameView view = gui == null ? null : gui.getGameView();
+            if (view == null) return "no-view";
+            return "turn=" + seatLine(view.getPlayerTurn())
+                    + " phase=" + view.getPhase()
+                    + " human=" + seatLine(gui.human)
+                    + " seatId=" + gui.seatId
+                    + " pri=" + thisSeatHoldsPriority();
+        } catch (RuntimeException ignored) {
+            return "turn=?";
+        }
+    }
+
+    /** Desktop + isolated user dir. Steve can open LAND-TRACE.txt after a match. */
+    private void landTrace(String line) {
+        String row = java.time.LocalTime.now() + " " + line;
+        System.out.println("[LAND-TRACE] " + row);
+        for (Path path : landTraceFiles()) {
+            try {
+                Files.createDirectories(path.getParent());
+                Files.writeString(path, row + System.lineSeparator(),
+                        java.nio.charset.StandardCharsets.UTF_8,
+                        java.nio.file.StandardOpenOption.CREATE,
+                        java.nio.file.StandardOpenOption.APPEND);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private static List<Path> landTraceFiles() {
+        List<Path> paths = new ArrayList<>();
+        try {
+            String home = System.getProperty("user.home");
+            if (home != null && !home.isBlank()) {
+                paths.add(Path.of(home, "Desktop", "LAND-TRACE.txt"));
+            }
+        } catch (RuntimeException ignored) {
+        }
+        try {
+            String user = System.getProperty("forge.test.userDir");
+            if (user != null && !user.isBlank()) {
+                paths.add(Path.of(user, "LAND-TRACE.txt"));
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return paths;
+    }
+
     /** This seat controls the card. Tiny's land is never Steve's. */
     private boolean isThisSeatCard(CardView card) {
         if (card == null) return false;
@@ -7319,6 +7489,10 @@ public final class BattlefieldLive {
         boolean mayCast;
         /** Look-at-top optional reveal: take the card or leave it. */
         boolean mayReveal;
+        /** Shockland ETB: Pay N Life or Enters Tapped. */
+        boolean landEtb;
+        /** Label on the pay-life action. "Pay 2 Life" for a shock. */
+        String payLifeWord = "Pay 2 Life";
         /** Index of the cascade hit in {@link #cards}, or -1. */
         int hitIndex = -1;
         /** Divide one total across the row. */
@@ -7905,10 +8079,12 @@ public final class BattlefieldLive {
         public void openView(forge.trackable.TrackableCollection<PlayerView> myPlayers) {
             if (retired()) return;
             open = true;
-            if (myPlayers != null && !myPlayers.isEmpty()) {
-                human = myPlayers.iterator().next();
-                if (human != null) seatId = human.getId();
+            PlayerView mine = pickWindowSeat(myPlayers);
+            if (mine != null) {
+                human = mine;
+                seatId = mine.getId();
             }
+            landTrace("openView seat=" + seatLine(human) + " players=" + playerList(myPlayers));
             assignPlayers();
             prompt = "Keep or mulligan. Drag a card up to play it. OK passes.";
             publishSeatStops();
@@ -7974,12 +8150,10 @@ public final class BattlefieldLive {
             PlayerView local = liveSeat(human);
             if (local != null && ownsSeat(local)) return local;
             try {
-                for (PlayerView player : getLocalPlayers()) {
-                    PlayerView live = liveSeat(player);
-                    if (live != null) {
-                        if (seatId == Integer.MIN_VALUE) seatId = live.getId();
-                        return live;
-                    }
+                PlayerView named = pickWindowSeat(getLocalPlayers());
+                if (named != null) {
+                    if (seatId == Integer.MIN_VALUE) seatId = named.getId();
+                    return named;
                 }
             } catch (RuntimeException ignored) {
             }
@@ -8045,8 +8219,13 @@ public final class BattlefieldLive {
         public void updateButtons(PlayerView owner, String label1, String label2,
                 boolean enable1, boolean enable2, boolean focus1) {
             if (retired()) return;
-            if (foreignSeatPrompt(owner)) return;
+            if (foreignSeatPrompt(owner)) {
+                landTrace("updateButtons DROP owner=" + seatLine(owner) + " " + label1 + "/" + label2);
+                return;
+            }
             if (human == null && owner != null && ownsSeat(owner)) human = owner;
+            landTrace("updateButtons keep owner=" + seatLine(owner) + " " + label1 + "/" + label2
+                    + " on=" + enable1 + "/" + enable2 + " " + turnLine());
             okLabel = label1 == null ? "OK" : label1;
             cancelLabel = label2 == null ? "Cancel" : label2;
             okEnabled = enable1;
@@ -8112,6 +8291,7 @@ public final class BattlefieldLive {
         public SpellAbilityView getAbilityToPlay(CardView hostCard, List<SpellAbilityView> abilities, ITriggerEvent triggerEvent) {
             if (retired()) return null;
             if (abilities == null || abilities.isEmpty()) return null;
+            landTrace("getAbility " + cardLine(hostCard) + " n=" + abilities.size() + " " + turnLine());
             if (hostCard != null && landCard(hostCard)) {
                 ZoneType zone = null;
                 try {
@@ -8342,7 +8522,11 @@ public final class BattlefieldLive {
         public boolean showConfirmDialog(String message, String title, String yesButtonText,
                 String noButtonText, boolean defaultYes) {
             if (retired()) return defaultYes;
+            landTrace("showConfirm [" + message + "] title=[" + title + "] " + turnLine());
             if (foreignLandPlay(null, message) || foreignLandPlay(null, title)) return true;
+            if (shockPayAsk(message) || shockPayAsk(title)) {
+                return askLandEtb(null, message == null || message.isBlank() ? title : message);
+            }
             if (commanderReturnAsk(message) || commanderReturnAsk(title)) {
                 return askCommanderReturn(defaultYes, List.of(
                         yesButtonText == null ? "Yes" : yesButtonText,
@@ -8401,7 +8585,13 @@ public final class BattlefieldLive {
         @Override
         public boolean confirm(CardView c,                 String question, boolean defaultIsYes, List<String> options) {
             if (retired()) return defaultIsYes;
+            landTrace("confirm q=[" + question + "] " + cardLine(c) + " " + turnLine()
+                    + " foreign=" + foreignLandPlay(c, question) + " shock=" + shockPayAsk(question));
             if (foreignLandPlay(c, question)) return true;
+            if (c != null && landCard(c) && knownForeignCard(c) && !shockPayAsk(question)) {
+                landTrace("confirm AUTO foreign land play (no UI)");
+                return true;
+            }
             // Commander home: Yes is always return-to-command. The boolean Forge
             // gets is the option that actually puts the card in the command zone.
             if (commanderReturnAsk(question)) return askCommanderReturn(defaultIsYes, options);
@@ -8421,6 +8611,9 @@ public final class BattlefieldLive {
             }
             if (peekRevealAsk(question)) {
                 return askOptionalReveal(c, question, choices, defaultIsYes);
+            }
+            if (shockPayAsk(question)) {
+                return askLandEtb(c, question);
             }
             List<String> picked = ask(question, 1, 1, choices, null);
             if (picked.isEmpty()) return defaultIsYes;
@@ -8573,6 +8766,7 @@ public final class BattlefieldLive {
             if (!yours && !enemyStripAppliesTo(playerTurn)) return false;
             // Green holds. Red yields, after a short dwell so the gold outline is visible.
             if (!phaseYields(yours, step)) return false;
+            landTrace("skipPhase YES " + phase + " yours=" + yours + " turn=" + seatLine(playerTurn) + " " + turnLine());
             dwellStep(playerTurn, phase);
             return true;
         }
@@ -8632,6 +8826,7 @@ public final class BattlefieldLive {
             IGuiGame ready = netGui;
             if (ready == null) return null;
             ready.setNetGame();
+            System.out.println("[LAND-TRACE] getNewGuiGame -> " + ready.getClass().getName());
             return ready;
         }
         @Override public HostedMatch hostMatch() { return new HostedMatch(); }
