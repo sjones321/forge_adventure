@@ -66,7 +66,9 @@ import forge.util.URLValidator;
 import forge.gamemodes.match.input.Input;
 import forge.gamemodes.match.input.InputAttack;
 import forge.gamemodes.match.input.InputBlock;
+import forge.gamemodes.match.input.InputConfirmMulligan;
 import forge.gamemodes.match.input.InputLockUI;
+import forge.gamemodes.match.input.InputLondonMulligan;
 import forge.gamemodes.match.input.InputPassPriority;
 import forge.gamemodes.match.input.InputSelectEntitiesFromList;
 import forge.gamemodes.match.input.InputSelectManyBase;
@@ -569,6 +571,7 @@ public final class BattlefieldLive {
      * The other window must not treat that as its own question.
      */
     boolean answeringMulligan() {
+        if (findGuiMulliganInput() != null) return true;
         if (gui == null || (!gui.okEnabled && !gui.cancelEnabled)) return false;
         String cancel = gui.cancelLabel == null ? "" : gui.cancelLabel;
         String ok = gui.okLabel == null ? "" : gui.okLabel;
@@ -1553,6 +1556,7 @@ public final class BattlefieldLive {
 
     Pic picture() {
         tendResolveAll();
+        recoverMulliganPrompt();
         notePregameEdge();
         if (!pregameChoice()) {
             considerStackPass();
@@ -7080,12 +7084,114 @@ public final class BattlefieldLive {
         if (seats == null) return null;
         String want = seatName();
         PlayerView first = null;
+        int count = 0;
         for (PlayerView seat : seats) {
             if (seat == null) continue;
+            count++;
             if (first == null) first = liveSeat(seat);
             if (samePlayerName(seat, want)) return liveSeat(seat);
         }
+        try {
+            var guiPlayer = GamePlayerUtil.getGuiPlayer();
+            String guiName = guiPlayer == null ? "" : guiPlayer.getName();
+            if (guiName != null && !guiName.isBlank()) {
+                for (PlayerView seat : seats) {
+                    if (samePlayerName(seat, guiName)) return liveSeat(seat);
+                }
+            }
+        } catch (RuntimeException ignored) {
+        }
+        if (count > 1) {
+            landTrace("pickWindowSeat AMBIGUOUS want=" + want + " players=" + playerList(seats));
+            return null;
+        }
         return first;
+    }
+
+    /**
+     * Tiny going first is asked, then this seat is asked in the same London
+     * round. If Keep was dropped as "Tiny's prompt", the engine is blocked
+     * here while this window still says waiting on her.
+     */
+    private void recoverMulliganPrompt() {
+        if (gui == null) return;
+        Input input = findGuiMulliganInput();
+        if (input == null) return;
+        PlayerView owner = null;
+        try {
+            if (input instanceof forge.gamemodes.match.input.InputBase base) owner = base.getOwner();
+        } catch (RuntimeException ignored) {
+        }
+        if (owner != null) {
+            PlayerView mine = liveSeat(owner);
+            if (mine != null) {
+                gui.human = mine;
+                try {
+                    gui.seatId = mine.getId();
+                } catch (RuntimeException ignored) {
+                }
+            }
+        }
+        boolean london = input instanceof InputLondonMulligan;
+        String wantOk = london ? "OK" : "Keep";
+        String wantCancel = london ? "Auto" : "Mulligan";
+        boolean already = wantOk.equals(gui.okLabel) && wantCancel.equals(gui.cancelLabel)
+                && (gui.okEnabled || gui.cancelEnabled);
+        if (already) return;
+        gui.okLabel = wantOk;
+        gui.cancelLabel = wantCancel;
+        gui.okEnabled = true;
+        gui.cancelEnabled = true;
+        landTrace("mulligan RECOVER " + wantOk + "/" + wantCancel + " seat=" + seatLine(gui.human)
+                + " " + turnLine());
+    }
+
+    /** Keep / London input sitting on this window's controllers, not Tiny's RemoteClient. */
+    private Input findGuiMulliganInput() {
+        if (gui == null) return null;
+        Input found = mulliganInputOf(humanController());
+        if (found != null) return found;
+        try {
+            for (IGameController controller : gui.getOriginalGameControllers()) {
+                found = mulliganInputOf(controller);
+                if (found != null) return found;
+            }
+        } catch (RuntimeException ignored) {
+        }
+        try {
+            for (PlayerView player : gui.getLocalPlayers()) {
+                found = mulliganInputOf(gui.getGameController(player));
+                if (found != null) return found;
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return null;
+    }
+
+    private static Input mulliganInputOf(IGameController controller) {
+        if (!(controller instanceof PlayerControllerHuman human)) return null;
+        try {
+            if (human.getInputProxy() == null) return null;
+            Input input = human.getInputProxy().getInput();
+            if (input instanceof InputConfirmMulligan || input instanceof InputLondonMulligan) return input;
+        } catch (RuntimeException ignored) {
+        }
+        return null;
+    }
+
+    private static boolean pregameSeatButtons(String label1, String label2) {
+        String ok = label1 == null ? "" : label1.trim();
+        String cancel = label2 == null ? "" : label2.trim();
+        if ("Keep".equals(ok) || "Mulligan".equals(cancel) || "Auto".equals(cancel)) return true;
+        return "Play".equals(ok) && "Draw".equals(cancel);
+    }
+
+    private static boolean mulliganPromptText(String message) {
+        if (message == null || message.isBlank()) return false;
+        String text = message.toLowerCase(Locale.ROOT);
+        return text.contains("keep your hand") || text.contains("do you want to keep")
+                || text.contains("mulligan") || text.contains("going first")
+                || text.contains("you are going");
     }
 
     private static boolean samePlayerName(PlayerView seat, String want) {
@@ -8205,7 +8311,10 @@ public final class BattlefieldLive {
         @Override
         public void showPromptMessage(PlayerView playerView, String message, CardView card) {
             if (retired()) return;
-            if (foreignSeatPrompt(playerView)) return;
+            if (foreignSeatPrompt(playerView) && !mulliganPromptText(message)) return;
+            if (foreignSeatPrompt(playerView)) {
+                landTrace("showPrompt KEEP-PREGAME owner=" + seatLine(playerView) + " [" + message + "]");
+            }
             prompt = message == null ? "" : message;
             publishPlayableFromPrompt(prompt);
             publishLobbyPrompt();
@@ -8219,9 +8328,12 @@ public final class BattlefieldLive {
         public void updateButtons(PlayerView owner, String label1, String label2,
                 boolean enable1, boolean enable2, boolean focus1) {
             if (retired()) return;
-            if (foreignSeatPrompt(owner)) {
+            if (foreignSeatPrompt(owner) && !pregameSeatButtons(label1, label2)) {
                 landTrace("updateButtons DROP owner=" + seatLine(owner) + " " + label1 + "/" + label2);
                 return;
+            }
+            if (foreignSeatPrompt(owner)) {
+                landTrace("updateButtons KEEP-PREGAME owner=" + seatLine(owner) + " " + label1 + "/" + label2);
             }
             if (human == null && owner != null && ownsSeat(owner)) human = owner;
             landTrace("updateButtons keep owner=" + seatLine(owner) + " " + label1 + "/" + label2
