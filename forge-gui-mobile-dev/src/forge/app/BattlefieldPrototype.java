@@ -3059,11 +3059,14 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                 slots = BattlefieldLayout.searchActionColumn(
                         Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
             }
-            if ((!clickPick || revealYes || shock) && (sheet || live.okOn() || tuck || live.choosingTarget()
+            String wait = live.otherHumanWaitLabel();
+            if (wait != null) {
+                shown.add(new SmartButton(slots[0], wait, false));
+            } else if ((!clickPick || revealYes || shock) && (sheet || live.okOn() || tuck || live.choosingTarget()
                     || "Autopay".equals(okLabel) || live.priorityWaiting() || revealYes || shock)) {
                 shown.add(new SmartButton(slots[0], okLabel, live.okOn() || live.priorityWaiting() || revealYes));
             }
-            if (live.cancelOn()) shown.add(new SmartButton(slots[1], live.cancelText(), true));
+            if (wait == null && live.cancelOn()) shown.add(new SmartButton(slots[1], live.cancelText(), true));
             if (live.resolveAllVisible()) {
                 BattlefieldLayout.ActionBox box;
                 if (shown.isEmpty()) box = cluster.actions[0];

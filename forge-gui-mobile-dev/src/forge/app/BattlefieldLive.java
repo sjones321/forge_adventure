@@ -684,6 +684,7 @@ public final class BattlefieldLive {
      * goes through {@link #seatController()} like Resolve / Pass.
      */
     void endTurn() {
+        if (blockOtherHumanWalk("endTurn")) return;
         Input input = humanInput();
         if (input instanceof InputPassPriority) {
             pressCancel();
@@ -1082,7 +1083,9 @@ public final class BattlefieldLive {
         if (blockingNow()) return someoneDeclaredBlock() ? "Confirm blocks" : "Next";
         String raw = okText();
         if ("auto".equalsIgnoreCase(raw)) return "Autopay";
-        if (plainOk(raw)) {
+        if (plainOk(raw) || "Pass".equalsIgnoreCase(raw)) {
+            String wait = otherHumanWaitLabel();
+            if (wait != null) return wait;
             GameView view = gui.getGameView();
             if (view != null && view.isMulligan()) return "Confirm";
             if (realStackPending() || !hisTurn(view)) return "Pass";
@@ -1091,8 +1094,38 @@ public final class BattlefieldLive {
         return raw;
     }
 
+    /**
+     * Her empty-stack window is not his Pass. Show a wait label so he does
+     * not click OK / End Turn out of habit and walk her turn.
+     */
+    String otherHumanWaitLabel() {
+        if (!otherHumanEmptyPriority()) return null;
+        if (choice != null || xAsk != null || choosingTarget()) return null;
+        if (cardSheetOpen() || pickSheetOpen() || modeSheetOpen() || listSheetActive()) return null;
+        if (pregameChoice() || attackingNow() || blockingNow()) return null;
+        return otherHumanName() + " is playing";
+    }
+
+    private String otherHumanName() {
+        GameView view = gui == null ? null : gui.getGameView();
+        try {
+            PlayerView turn = view == null ? null : view.getPlayerTurn();
+            String name = turn == null ? null : turn.getName();
+            if (name != null && !name.isBlank()) return name.trim();
+        } catch (RuntimeException ignored) {
+        }
+        return "Tiny";
+    }
+
     private static boolean plainOk(String label) {
         return label == null || label.isBlank() || "ok".equalsIgnoreCase(label);
+    }
+
+    private static boolean passLikeLabel(String label) {
+        if (plainOk(label) || "Pass".equalsIgnoreCase(label)) return true;
+        if (label == null) return false;
+        String low = label.trim().toLowerCase(Locale.ROOT);
+        return low.startsWith("end turn") || "next".equals(low);
     }
 
     private static boolean abilitySheet(Choice pending) {
@@ -1159,6 +1192,7 @@ public final class BattlefieldLive {
         Choice pending = choice;
         if (pending != null) return pending.okReady();
         if (listSheetActive()) return listHasEnough();
+        if (otherHumanWaitLabel() != null) return false;
         return gui.okEnabled;
     }
 
@@ -1169,6 +1203,7 @@ public final class BattlefieldLive {
         if (pending != null && pending.allowCancel) return true;
         if (pending != null && pending.kind != Choice.Kind.LINES) return pending.min <= 0;
         if (listSheetActive()) return listOptional() || gui.cancelEnabled;
+        if (otherHumanWaitLabel() != null) return false;
         return gui.cancelEnabled;
     }
 
@@ -1245,6 +1280,7 @@ public final class BattlefieldLive {
         }
         if (listSheetActive() && !okOn()) return;
         if (listSheetActive() && !listHasEnough()) return;
+        if (blockOtherHumanWalk("pressOk")) return;
         if (answeringMulligan() || playOrDrawPrompt()) noteKeepOrLeavePregame();
         submitSeatOk();
     }
@@ -1257,6 +1293,7 @@ public final class BattlefieldLive {
             if (playOrDrawSent) return;
             playOrDrawSent = true;
         }
+        if (blockOtherHumanWalk("submitSeatOk")) return;
         if (!(gui.okEnabled || listSheetActive() || priorityWaiting())) return;
         if (landPlayBusy() && !thisSeatHoldsPriority()) return;
         controller.selectButtonOk();
@@ -4465,6 +4502,7 @@ public final class BattlefieldLive {
      */
     boolean priorityWaiting() {
         if (!matchRunning() || pregameChoice()) return false;
+        if (otherHumanWaitLabel() != null) return false;
         SeatPrompt kind = seatPrompt();
         return (kind == SeatPrompt.PASS || kind == SeatPrompt.ATTACK || kind == SeatPrompt.BLOCK)
                 && gui.okEnabled;
@@ -4609,19 +4647,31 @@ public final class BattlefieldLive {
     }
 
     /**
-     * Tiny's Main 1 / Main 2. Host must not empty-pass that window so she can
-     * play a land. Upkeep, draw, combat, and EOT still auto-pass this seat.
+     * Tiny's empty-stack window. Host empty-pass / Pass / skip here walks her
+     * phase. A real NAP with something on the stack is not this.
      */
-    private boolean otherHumanMainPhase() {
+    private boolean otherHumanEmptyPriority() {
+        return otherHumanHasTheTurn() && topStackId() == 0;
+    }
+
+    /**
+     * Stack is up and this seat can answer, or she already passed and it is
+     * a real NAP. Empty-stack priority on her turn is not that.
+     */
+    private boolean mayAnswerOtherHumanPriority() {
         if (!otherHumanHasTheTurn()) return false;
-        GameView view = gui == null ? null : gui.getGameView();
-        if (view == null) return false;
-        try {
-            PhaseType phase = view.getPhase();
-            return phase == PhaseType.MAIN1 || phase == PhaseType.MAIN2;
-        } catch (RuntimeException ignored) {
-            return false;
-        }
+        if (topStackId() == 0) return false;
+        return heCanRespondNow() || livePlayableNow() || thisSeatHoldsPriority();
+    }
+
+    /** Habit Pass / End Turn / auto-OK that would walk her empty-stack turn. */
+    private boolean blockOtherHumanWalk(String via) {
+        if (!otherHumanEmptyPriority()) return false;
+        if (choice != null || xAsk != null || choosingTarget()) return false;
+        if (cardSheetOpen() || pickSheetOpen() || modeSheetOpen() || listSheetActive()) return false;
+        if (pregameChoice() || attackingNow() || blockingNow()) return false;
+        landTrace(via + " BLOCK otherHuman empty-stack " + turnLine());
+        return true;
     }
 
     /**
@@ -4648,7 +4698,7 @@ public final class BattlefieldLive {
      * InputPassPriority on a shared host GUI does not.
      */
     private boolean thisSeatMayAutoYield() {
-        if (otherHumanMainPhase()) return false;
+        if (otherHumanEmptyPriority()) return false;
         if (discardAsk(gui == null ? null : gui.prompt)) return false;
         if (landPlayBusy()) return false;
         if (choice != null && !passChoice()) return false;
@@ -4659,10 +4709,15 @@ public final class BattlefieldLive {
             input = null;
         }
         if (input instanceof InputSelectEntitiesFromList<?> list && discardList(list)) return false;
-        if (thisSeatHoldsPriority()) return true;
         if (input == null) {
             if (!joinerSeat() || gui == null) return false;
-            return gui.isCombatDeclareAttackersInput() || gui.isCombatDeclareBlockersInput();
+            if (ownMainPhase() || mainWithLand() || livePlayableNow()) return false;
+            if (gui.isCombatDeclareAttackersInput() || gui.isCombatDeclareBlockersInput()) return true;
+            return thisSeatHoldsPriority();
+        }
+        if (thisSeatHoldsPriority()) {
+            if (joinerSeat() && (ownMainPhase() || mainWithLand() || livePlayableNow())) return false;
+            return true;
         }
         if (!(input instanceof InputPassPriority || input instanceof InputAttack || input instanceof InputBlock)) {
             return false;
@@ -4672,7 +4727,8 @@ public final class BattlefieldLive {
 
     private void considerStackPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
-        if (otherHumanMainPhase()) return;
+        if (otherHumanEmptyPriority()) return;
+        if (otherHumanHasTheTurn() && (heCanRespondNow() || livePlayableNow())) return;
         if (!thisSeatMayAutoYield()) return;
         if (landPlayBusy()) return;
         boolean click = false;
@@ -4718,8 +4774,6 @@ public final class BattlefieldLive {
      */
     private void considerEmptyPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
-        if (otherHumanMainPhase()) return;
-        if (!thisSeatMayAutoYield()) return;
         if (landPlayBusy()) return;
         InputPassPriority pass = null;
         boolean clickOk = false;
@@ -4735,12 +4789,26 @@ public final class BattlefieldLive {
                 input = null;
             }
             rememberEmptyPassKey(input);
+            String prompt = gui.prompt == null ? "" : gui.prompt;
+            if (otherHumanEmptyPriority()) {
+                if (!emptyPassSent) {
+                    emptyPassSent = true;
+                    landTrace("emptyPass BLOCK otherHuman empty-stack " + turnLine()
+                            + " prompt=[" + prompt + "]");
+                }
+                return;
+            }
+            if (!thisSeatMayAutoYield()) return;
             SeatPrompt kind = seatPrompt(input);
             if (kind == SeatPrompt.OTHER) return;
             if (heCanRespondNow() || livePlayableNow() || localHasAvailableActions()) return;
             if (kind == SeatPrompt.PASS && mainWithLand()) return;
             if (kind == SeatPrompt.PASS && joinerSeat() && ownMainPhase()) return;
-            String prompt = gui.prompt == null ? "" : gui.prompt;
+            if (kind == SeatPrompt.PASS && joinerSeat() && input == null
+                    && (mainWithLand() || livePlayableNow())) {
+                landTrace("emptyPass BLOCK join playable " + turnLine() + " prompt=[" + prompt + "]");
+                return;
+            }
             if (asksSomething(prompt)) return;
             if (emptyPassSent) return;
             if (!gui.okEnabled) return;
@@ -8400,6 +8468,15 @@ public final class BattlefieldLive {
             if (human == null && owner != null && ownsSeat(owner)) human = owner;
             landTrace("updateButtons keep owner=" + seatLine(owner) + " " + label1 + "/" + label2
                     + " on=" + enable1 + "/" + enable2 + " " + turnLine());
+            if (otherHumanHasTheTurn() && enable1 && passLikeLabel(label1)) {
+                if (mayAnswerOtherHumanPriority()) {
+                    landTrace("updateButtons OFFER otherHuman NAP " + label1 + "/" + label2
+                            + " " + turnLine());
+                } else {
+                    landTrace("updateButtons HIDE otherHuman Pass " + label1 + "/" + label2
+                            + " " + turnLine());
+                }
+            }
             okLabel = label1 == null ? "OK" : label1;
             cancelLabel = label2 == null ? "Cancel" : label2;
             okEnabled = enable1;
@@ -8466,17 +8543,21 @@ public final class BattlefieldLive {
             if (retired()) return null;
             if (abilities == null || abilities.isEmpty()) return null;
             landTrace("getAbility " + cardLine(hostCard) + " n=" + abilities.size() + " " + turnLine());
-            if (hostCard != null && landCard(hostCard)) {
-                ZoneType zone = null;
-                try {
-                    zone = hostCard.getZone();
-                } catch (RuntimeException ignored) {
-                }
-                if (zone != ZoneType.Battlefield || !isThisSeatCard(hostCard)) {
-                    return firstLandOrPlayable(abilities, hostCard);
-                }
+            if (hostCard != null && landCard(hostCard) && !isThisSeatCard(hostCard)) {
+                return firstLandOrPlayable(abilities, hostCard);
             }
             if (hostCard != null && !isThisSeatCard(hostCard)) {
+                return firstLandOrPlayable(abilities, hostCard);
+            }
+            if (hostCard != null && landCard(hostCard) && zoneOf(hostCard) != ZoneType.Battlefield) {
+                List<SpellAbilityView> landModes = playableLandModes(abilities);
+                if (landModes.size() > 1) {
+                    landTrace("getAbility PICK-LAND-MODES n=" + landModes.size() + " "
+                            + cardLine(hostCard) + " " + turnLine());
+                    String title = hostCard.getName() == null || hostCard.getName().isBlank()
+                            ? "Choose a spell" : hostCard.getName();
+                    return pickAbility(title, landModes, hostCard, false);
+                }
                 return firstLandOrPlayable(abilities, hostCard);
             }
             SpellAbilityView followUp = confirmedAbility;
@@ -8560,6 +8641,25 @@ public final class BattlefieldLive {
                 return false;
             }
             return false;
+        }
+
+        /** Hand-land Cycle / Channel / Play. Only canPlay lines count. */
+        private static List<SpellAbilityView> playableLandModes(List<SpellAbilityView> abilities) {
+            List<SpellAbilityView> playable = new ArrayList<>();
+            if (abilities == null) return playable;
+            for (SpellAbilityView ability : abilities) {
+                if (ability != null && ability.canPlay()) playable.add(ability);
+            }
+            return playable;
+        }
+
+        private static ZoneType zoneOf(CardView card) {
+            if (card == null) return null;
+            try {
+                return card.getZone();
+            } catch (RuntimeException ignored) {
+                return null;
+            }
         }
 
         /**
