@@ -1283,8 +1283,12 @@ public final class BattlefieldLive {
         }
         if (listSheetActive() && !okOn()) return;
         if (listSheetActive() && !listHasEnough()) return;
+        if (blockForeignMulligan("pressOk")) return;
         if (blockOtherHumanWalk("pressOk")) return;
-        if (answeringMulligan() || playOrDrawPrompt()) noteKeepOrLeavePregame();
+        if (answeringMulligan() || playOrDrawPrompt()) {
+            noteMulliganSend("OK");
+            noteKeepOrLeavePregame();
+        }
         submitSeatOk();
     }
 
@@ -1296,6 +1300,7 @@ public final class BattlefieldLive {
             if (playOrDrawSent) return;
             playOrDrawSent = true;
         }
+        if (blockForeignMulligan("submitSeatOk")) return;
         if (blockOtherHumanWalk("submitSeatOk")) return;
         if (!(gui.okEnabled || listSheetActive() || priorityWaiting())) return;
         if (landPlayBusy() && !thisSeatHoldsPriority()) return;
@@ -1310,10 +1315,14 @@ public final class BattlefieldLive {
         }
         IGameController controller = seatController();
         if (controller == null) return;
+        if (blockForeignMulligan("pressCancel")) return;
         if (gui.cancelEnabled || (listSheetActive() && listOptional())) {
             if ("Mulligan".equals(gui.cancelLabel)) {
                 seenMulligans++;
                 noteMulliganTaken();
+                noteMulliganSend("Mulligan");
+            } else if ("Auto".equals(gui.cancelLabel)) {
+                noteMulliganSend("Auto");
             }
             controller.selectButtonCancel();
         }
@@ -4741,6 +4750,7 @@ public final class BattlefieldLive {
      * InputPassPriority on a shared host GUI does not.
      */
     private boolean thisSeatMayAutoYield() {
+        if (pregameChoice()) return false;
         if (otherHumanProtectMain()) return false;
         if (discardAsk(gui == null ? null : gui.prompt)) return false;
         if (landPlayBusy()) return false;
@@ -4752,8 +4762,10 @@ public final class BattlefieldLive {
             input = null;
         }
         if (input instanceof InputSelectEntitiesFromList<?> list && discardList(list)) return false;
+        if (input instanceof InputConfirmMulligan || input instanceof InputLondonMulligan) return false;
         if (input == null) {
             if (!joinerSeat() || gui == null) return false;
+            if (pregameChoice()) return false;
             if (ownMainPhase() && (mainWithLand() || livePlayableNow())) return false;
             if (gui.isCombatDeclareAttackersInput() || gui.isCombatDeclareBlockersInput()) return true;
             return thisSeatHoldsPriority();
@@ -4815,7 +4827,19 @@ public final class BattlefieldLive {
      * reopen a hidden sheet. Cyan cards, ghosts, a target ask, or Yes/No wait.
      */
     private void considerEmptyPass() {
-        if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
+        if (!matchRunning()) return;
+        if (pregameChoice()) {
+            synchronized (stackPassLock) {
+                if (!"pregame".equals(emptyPassLatch)) {
+                    emptyPassLatch = "pregame";
+                    emptyPassSent = true;
+                    landTrace("emptyPass BLOCK pregame pick=" + seatName()
+                            + " " + turnLine() + " prompt=[" + (gui.prompt == null ? "" : gui.prompt) + "]");
+                }
+            }
+            return;
+        }
+        if (resyncBlocksAutoPass()) return;
         if (landPlayBusy()) return;
         InputPassPriority pass = null;
         boolean clickOk = false;
@@ -7281,28 +7305,18 @@ public final class BattlefieldLive {
     }
 
     /**
-     * Tiny going first is asked, then this seat is asked in the same London
-     * round. If Keep was dropped as "Tiny's prompt", the engine is blocked
-     * here while this window still says waiting on her.
+     * This seat's Keep or London only. Never rebind the window onto Tiny —
+     * that painted her Keep / Auto on Host and left Steve stuck on her
+     * priority after she was done.
      */
     private void recoverMulliganPrompt() {
         if (gui == null) return;
         Input input = findGuiMulliganInput();
         if (input == null) return;
-        PlayerView owner = null;
-        try {
-            if (input instanceof forge.gamemodes.match.input.InputBase base) owner = base.getOwner();
-        } catch (RuntimeException ignored) {
-        }
-        if (owner != null) {
-            PlayerView mine = liveSeat(owner);
-            if (mine != null) {
-                gui.human = mine;
-                try {
-                    gui.seatId = mine.getId();
-                } catch (RuntimeException ignored) {
-                }
-            }
+        if (!thisSeatOwnsMulligan(input)) {
+            landTrace("mulligan RECOVER skip-foreign " + mulliganKind(input)
+                    + " owner=" + mulliganOwnerLine(input) + " pick=" + seatName() + " " + turnLine());
+            return;
         }
         boolean london = input instanceof InputLondonMulligan;
         String wantOk = london ? "OK" : "Keep";
@@ -7312,32 +7326,97 @@ public final class BattlefieldLive {
         if (already) return;
         gui.okLabel = wantOk;
         gui.cancelLabel = wantCancel;
-        gui.okEnabled = true;
+        gui.okEnabled = london ? londonReady(input) : true;
         gui.cancelEnabled = true;
-        landTrace("mulligan RECOVER " + wantOk + "/" + wantCancel + " seat=" + seatLine(gui.human)
-                + " " + turnLine());
+        landTrace("mulligan RECOVER " + wantOk + "/" + wantCancel + " kind=" + mulliganKind(input)
+                + " ditch=" + mulliganDitch(input) + " seat=" + seatLine(gui.human)
+                + " pick=" + seatName() + " " + turnLine());
     }
 
-    /** Keep / London input sitting on this window's controllers, not Tiny's RemoteClient. */
+    /** This window's seat only. Walking every local controller stole Tiny's Keep. */
     private Input findGuiMulliganInput() {
         if (gui == null) return null;
         Input found = mulliganInputOf(humanController());
-        if (found != null) return found;
-        try {
-            for (IGameController controller : gui.getOriginalGameControllers()) {
-                found = mulliganInputOf(controller);
-                if (found != null) return found;
-            }
-        } catch (RuntimeException ignored) {
+        if (thisSeatOwnsMulligan(found)) return found;
+        if (gui.human != null) {
+            found = mulliganInputOf(gui.getGameController(gui.human));
+            if (thisSeatOwnsMulligan(found)) return found;
         }
+        return null;
+    }
+
+    private boolean thisSeatOwnsMulligan(Input input) {
+        if (input == null) return false;
+        PlayerView owner = mulliganOwner(input);
+        if (owner == null) return true;
+        return isThisSeat(owner);
+    }
+
+    private static PlayerView mulliganOwner(Input input) {
         try {
-            for (PlayerView player : gui.getLocalPlayers()) {
-                found = mulliganInputOf(gui.getGameController(player));
-                if (found != null) return found;
-            }
+            if (input instanceof forge.gamemodes.match.input.InputBase base) return base.getOwner();
         } catch (RuntimeException ignored) {
         }
         return null;
+    }
+
+    private static String mulliganOwnerLine(Input input) {
+        return seatLine(mulliganOwner(input));
+    }
+
+    private static String mulliganKind(Input input) {
+        if (input instanceof InputLondonMulligan) return "Bottom";
+        if (input instanceof InputConfirmMulligan) return "Keep";
+        return input == null ? "none" : input.getClass().getSimpleName();
+    }
+
+    private static int mulliganDitch(Input input) {
+        if (input instanceof InputLondonMulligan london) {
+            try {
+                return london.getSelectedCards() == null ? 0 : london.getSelectedCards().size();
+            } catch (RuntimeException ignored) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    private static boolean londonReady(Input input) {
+        if (!(input instanceof InputLondonMulligan london)) return true;
+        try {
+            int n = london.getSelectedCards() == null ? 0 : london.getSelectedCards().size();
+            return n > 0;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    /** Tiny's Keep / London Auto is not this window's OK. */
+    private boolean blockForeignMulligan(String via) {
+        Input input = findGuiMulliganInput();
+        if (input == null) {
+            try {
+                input = humanInput();
+            } catch (RuntimeException ignored) {
+                input = null;
+            }
+        }
+        if (!(input instanceof InputConfirmMulligan || input instanceof InputLondonMulligan)) return false;
+        if (thisSeatOwnsMulligan(input)) return false;
+        landTrace(via + " BLOCK foreign mulligan kind=" + mulliganKind(input)
+                + " owner=" + mulliganOwnerLine(input) + " pick=" + seatName() + " " + turnLine());
+        return true;
+    }
+
+    private void noteMulliganSend(String verb) {
+        Input input = findGuiMulliganInput();
+        int ditch = mulliganDitch(input);
+        if ("Auto".equals(verb) && input instanceof InputLondonMulligan && ditch == 0) {
+            ditch = -1;
+        }
+        landTrace("mulligan SEND " + verb + " kind=" + mulliganKind(input)
+                + " ditch=" + ditch + " seat=" + seatLine(gui == null ? null : gui.human)
+                + " pick=" + seatName() + " pregame=" + pregameChoice() + " " + turnLine());
     }
 
     private static Input mulliganInputOf(IGameController controller) {
@@ -8363,7 +8442,8 @@ public final class BattlefieldLive {
                 human = mine;
                 seatId = mine.getId();
             }
-            landTrace("openView seat=" + seatLine(human) + " players=" + playerList(myPlayers));
+            landTrace("openView seat=" + seatLine(human) + " pick=" + seatName()
+                    + " players=" + playerList(myPlayers));
             assignPlayers();
             prompt = "Keep or mulligan. Drag a card up to play it. OK passes.";
             publishSeatStops();
@@ -8484,9 +8564,11 @@ public final class BattlefieldLive {
         @Override
         public void showPromptMessage(PlayerView playerView, String message, CardView card) {
             if (retired()) return;
-            if (foreignSeatPrompt(playerView) && !mulliganPromptText(message)) return;
             if (foreignSeatPrompt(playerView)) {
-                landTrace("showPrompt KEEP-PREGAME owner=" + seatLine(playerView) + " [" + message + "]");
+                landTrace("showPrompt DROP owner=" + seatLine(playerView)
+                        + (mulliganPromptText(message) ? " other-keep" : "")
+                        + " [" + message + "] pick=" + seatName());
+                return;
             }
             prompt = message == null ? "" : message;
             publishPlayableFromPrompt(prompt);
@@ -8501,12 +8583,11 @@ public final class BattlefieldLive {
         public void updateButtons(PlayerView owner, String label1, String label2,
                 boolean enable1, boolean enable2, boolean focus1) {
             if (retired()) return;
-            if (foreignSeatPrompt(owner) && !pregameSeatButtons(label1, label2)) {
-                landTrace("updateButtons DROP owner=" + seatLine(owner) + " " + label1 + "/" + label2);
-                return;
-            }
             if (foreignSeatPrompt(owner)) {
-                landTrace("updateButtons KEEP-PREGAME owner=" + seatLine(owner) + " " + label1 + "/" + label2);
+                landTrace("updateButtons DROP owner=" + seatLine(owner) + " " + label1 + "/" + label2
+                        + (pregameSeatButtons(label1, label2) ? " other-keep" : "")
+                        + " pick=" + seatName());
+                return;
             }
             if (human == null && owner != null && ownsSeat(owner)) human = owner;
             landTrace("updateButtons keep owner=" + seatLine(owner) + " " + label1 + "/" + label2
