@@ -361,6 +361,15 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
     private boolean draggingSheet;
     private int pressSheetHit = -1;
     private String sheetSig = "";
+    /** Cover-flow focus, in card-index units. Used only while a library browse is open. */
+    private float browseScroll;
+    private float browsePressScroll;
+    /** Filter typed into the library search box. Unique names from this sheet autocomplete. */
+    private String sheetQuery = "";
+    private float[] sheetSearchRect;
+    private final List<float[]> sheetSuggestHits = new ArrayList<>();
+    private final List<String> sheetSuggestNames = new ArrayList<>();
+    private final List<Integer> browseVisible = new ArrayList<>();
     /** Last painted action word. A leftover Next must not click through a lagged search sheet. */
     private String lastActionWord = "";
     private boolean ignoreStaleAction;
@@ -604,6 +613,34 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                         else if (keycode == Input.Keys.PLUS || keycode == Input.Keys.EQUALS || keycode == Input.Keys.NUMPAD_ADD) live.xNudge(1);
                         return true;
                     }
+                    if (libraryBrowseOpen()) {
+                        if (keycode == Input.Keys.BACKSPACE) {
+                            if (!sheetQuery.isEmpty()) {
+                                sheetQuery = sheetQuery.substring(0, sheetQuery.length() - 1);
+                                browseScroll = 0f;
+                            }
+                            return true;
+                        }
+                        if (keycode == Input.Keys.FORWARD_DEL) {
+                            sheetQuery = "";
+                            browseScroll = 0f;
+                            return true;
+                        }
+                        if (keycode == Input.Keys.LEFT) {
+                            browseScroll = Math.max(0f, browseScroll - 1f);
+                            return true;
+                        }
+                        if (keycode == Input.Keys.RIGHT) {
+                            browseScroll = Math.min(BattlefieldLayout.libraryBrowseScrollMax(browseVisible.size()),
+                                    browseScroll + 1f);
+                            return true;
+                        }
+                        if (keycode == Input.Keys.DOWN || keycode == Input.Keys.TAB) {
+                            if (!sheetSuggestNames.isEmpty()) applySheetSuggest(sheetSuggestNames.get(0));
+                            return true;
+                        }
+                        if (keycode == Input.Keys.SPACE) return true;
+                    }
                     if (live.typeChoiceOpen()) {
                         if (keycode == Input.Keys.BACKSPACE) {
                             if (!typeQuery.isEmpty()) {
@@ -667,6 +704,12 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                     if (ctrlDown()) return true;
                     typeJoinChar(character);
                     typedJoinThisFrame = true;
+                    return true;
+                }
+                if (liveReady() && libraryBrowseOpen() && character >= 32 && character != 127) {
+                    if (ctrlDown()) return true;
+                    sheetQuery += character;
+                    browseScroll = 0f;
                     return true;
                 }
                 if (liveReady() && live.typeChoiceOpen() && character >= 32 && character != 127) {
@@ -776,6 +819,14 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                         }
                     }
                     if (live.cardSheetOpen()) {
+                        if (libraryBrowseOpen()) {
+                            if (sheetSearchHit(mx, my)) return true;
+                            int suggest = sheetSuggestAt(mx, my);
+                            if (suggest >= 0) {
+                                applySheetSuggest(sheetSuggestNames.get(suggest));
+                                return true;
+                            }
+                        }
                         if (live.amountOpen()) {
                             if (pressAmount()) return true;
                         }
@@ -942,7 +993,12 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                     if (HandLayout.isDrag(dragDist)) {
                         draggingSheet = true;
                         float w = Gdx.graphics.getWidth(), h = Gdx.graphics.getHeight();
-                        sheetScroll = sheetPressScroll - (mx - sheetPressX);
+                        if (libraryBrowseOpen()) {
+                            float step = Math.max(24f, BattlefieldLayout.libraryBrowseStep(h));
+                            browseScroll = browsePressScroll - (mx - sheetPressX) / step;
+                        } else {
+                            sheetScroll = sheetPressScroll - (mx - sheetPressX);
+                        }
                         syncSheetScroll(w, h);
                     }
                     return true;
@@ -1180,7 +1236,8 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                     return true;
                 }
                 if (liveReady() && live.cardSheetOpen() && sheetCount() > 0) {
-                    sheetScroll += amountY * 56f;
+                    if (libraryBrowseOpen()) browseScroll += amountY * 0.65f;
+                    else sheetScroll += amountY * 56f;
                     syncSheetScroll(sw, sh);
                     return true;
                 }
@@ -2960,6 +3017,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                 || textChoiceAllHit(x, y) || modeLineAt(x, y) >= 0) return true;
         if (live.cardSheetOpen()) {
             float w = Gdx.graphics.getWidth(), h = Gdx.graphics.getHeight();
+            if (libraryBrowseOpen() && (sheetSearchHit(x, y) || sheetSuggestAt(x, y) >= 0)) return true;
             return sheetHit(w, h) >= 0;
         }
         return false;
@@ -4161,7 +4219,18 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
     }
 
     private boolean sheetHandBand() {
-        return liveReady() && live.pickSheetOpen();
+        return liveReady() && live.pickSheetOpen() && !libraryBrowseOpen();
+    }
+
+    /**
+     * Whole-library tutor / fetch / any pick-from-pictures that is not scry,
+     * order, cascade, or divide. The old hand-strip row cannot hold a library.
+     */
+    private boolean libraryBrowseOpen() {
+        if (!liveReady() || !live.pickSheetOpen()) return false;
+        if (live.orderSheet() || live.placingSheet() || live.amountOpen()) return false;
+        BattlefieldLive.Pic pic = live.picture();
+        return pic != null && !pic.mayCast && !pic.sheet.isEmpty();
     }
 
     private int sheetHit(float w, float h) {
@@ -4171,6 +4240,12 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
                 return BattlefieldLayout.cascadeIndex(w, h, sheetCount(), pic.hitIndex, mx, my,
                         sheetScroll, sheetHandBand());
             }
+            if (libraryBrowseOpen()) {
+                refreshBrowseVisible(pic);
+                int vis = BattlefieldLayout.libraryBrowseIndex(w, h, browseVisible.size(), browseScroll, mx, my);
+                if (vis < 0 || vis >= browseVisible.size()) return -1;
+                return browseVisible.get(vis);
+            }
         }
         return BattlefieldLayout.revealedIndex(w, h, sheetCount(), mx, my, sheetScroll, sheetHandBand());
     }
@@ -4179,6 +4254,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         pressSheetHit = hit;
         sheetPressX = mx;
         sheetPressScroll = sheetScroll;
+        browsePressScroll = browseScroll;
         draggingSheet = false;
         pressX = mx;
         pressY = my;
@@ -4191,6 +4267,15 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         if (!sig.equals(sheetSig)) {
             sheetSig = sig;
             sheetScroll = 0f;
+            browseScroll = 0f;
+            sheetQuery = "";
+        }
+        if (libraryBrowseOpen()) {
+            refreshBrowseVisible(live.picture());
+            float max = BattlefieldLayout.libraryBrowseScrollMax(browseVisible.size());
+            if (browseScroll < 0f) browseScroll = 0f;
+            if (browseScroll > max) browseScroll = max;
+            return;
         }
         float max = BattlefieldLayout.revealedScrollMax(w, h, sheetCount(), sheetHandBand());
         if (sheetScroll < 0f) sheetScroll = 0f;
@@ -4208,6 +4293,37 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
             if (tile != null && tile.legal) text.append('L');
         }
         return text.toString();
+    }
+
+    private List<String> sheetNames(BattlefieldLive.Pic pic) {
+        List<String> names = new ArrayList<>();
+        if (pic == null) return names;
+        for (BattlefieldLive.ShownCard tile : pic.sheet) {
+            names.add(tile == null || tile.name == null ? "" : tile.name);
+        }
+        return names;
+    }
+
+    private void refreshBrowseVisible(BattlefieldLive.Pic pic) {
+        browseVisible.clear();
+        browseVisible.addAll(BattlefieldLayout.libraryBrowseVisible(sheetNames(pic), sheetQuery));
+    }
+
+    private boolean sheetSearchHit(float x, float y) {
+        return sheetSearchRect != null && pointerIn(sheetSearchRect, x, y);
+    }
+
+    private int sheetSuggestAt(float x, float y) {
+        for (int i = 0; i < sheetSuggestHits.size(); i++) {
+            if (pointerIn(sheetSuggestHits.get(i), x, y)) return i;
+        }
+        return -1;
+    }
+
+    private void applySheetSuggest(String name) {
+        if (name == null || name.isBlank()) return;
+        sheetQuery = name;
+        browseScroll = 0f;
     }
 
     /**
@@ -8977,7 +9093,14 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         BattlefieldLive.Pic pic = live.picture();
         amountControls.clear();
         placeControls.clear();
+        sheetSearchRect = null;
+        sheetSuggestHits.clear();
+        sheetSuggestNames.clear();
         if (pic == null || pic.sheet.isEmpty()) return;
+        if (libraryBrowseOpen()) {
+            drawLibraryBrowse(w, h, pic);
+            return;
+        }
         int n = pic.sheet.size();
         boolean handBand = sheetHandBand();
         syncSheetScroll(w, h);
@@ -9024,6 +9147,79 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         if (pic.amounting) drawAmountControls(pic, poses);
     }
 
+    /**
+     * Arena-style library look: dim the board, type to filter names from this
+     * sheet, and scroll a fan whose centre card is the whole face.
+     */
+    private void drawLibraryBrowse(float w, float h, BattlefieldLive.Pic pic) {
+        syncSheetScroll(w, h);
+        refreshBrowseVisible(pic);
+        List<String> names = sheetNames(pic);
+        sheetSuggestNames.addAll(BattlefieldLayout.libraryBrowseSuggest(names, sheetQuery,
+                BattlefieldLayout.BROWSE_SUGGEST_MAX));
+        sheetSearchRect = BattlefieldLayout.libraryBrowseSearchRect(w, h);
+        float[][] suggestRects = BattlefieldLayout.libraryBrowseSuggestRects(w, h, sheetSuggestNames.size());
+        for (float[] row : suggestRects) sheetSuggestHits.add(row);
+        int visN = browseVisible.size();
+        HandLayout.Pose[] poses = BattlefieldLayout.libraryBrowsePoses(w, h, visN, browseScroll);
+        int hoverVis = BattlefieldLayout.libraryBrowseIndex(w, h, visN, browseScroll, mx, my);
+        Integer[] drawOrder = new Integer[visN];
+        for (int i = 0; i < visN; i++) drawOrder[i] = i;
+        java.util.Arrays.sort(drawOrder, (a, b) -> Float.compare(poses[a].scale, poses[b].scale));
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0f, 0f, 0f, 0.58f);
+        shapes.rect(0f, 0f, w, h);
+        shapes.setColor(0.14f, 0.15f, 0.17f, 1f);
+        shapes.rect(sheetSearchRect[0], sheetSearchRect[1], sheetSearchRect[2], sheetSearchRect[3]);
+        shapes.end();
+        batch.begin();
+        String placeholder = names.size() <= 6 ? "Search these cards" : "Search your library";
+        String shown = sheetQuery.isEmpty() ? placeholder : sheetQuery;
+        Color queryColor = sheetQuery.isEmpty() ? new Color(1f, 1f, 1f, 0.45f) : Color.WHITE;
+        drawCenteredOn(font, clipToWidth(font, shown, sheetSearchRect[2] - 16f),
+                sheetSearchRect[0] + sheetSearchRect[2] / 2f,
+                sheetSearchRect[1] + sheetSearchRect[3] / 2f, queryColor);
+        String count = visN == names.size()
+                ? visN + (visN == 1 ? " card" : " cards")
+                : visN + " of " + names.size();
+        drawCenteredOn(stripFont, count,
+                sheetSearchRect[0] + sheetSearchRect[2] + 52f,
+                sheetSearchRect[1] + sheetSearchRect[3] / 2f, new Color(1f, 1f, 1f, 0.7f));
+        if (visN == 0) {
+            drawCenteredOn(font, "No cards match", w * 0.5f, h * 0.42f, new Color(1f, 1f, 1f, 0.7f));
+        }
+        batch.end();
+        batch.begin();
+        for (int vis : drawOrder) {
+            int src = browseVisible.get(vis);
+            if (src < 0 || src >= pic.sheet.size()) continue;
+            HandLayout.Pose pose = poses[vis];
+            if (hoverVis == vis) {
+                pose = new HandLayout.Pose(pose.cx, pose.cy, pose.w * 1.06f, pose.h * 1.06f,
+                        pose.rotationDeg, pose.scale * 1.06f);
+            }
+            drawSheetTile(pic.sheet.get(src), pose, pic.sheet.get(src).order);
+        }
+        batch.end();
+        if (!sheetSuggestNames.isEmpty()) {
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            for (int i = 0; i < sheetSuggestHits.size(); i++) {
+                float[] row = sheetSuggestHits.get(i);
+                boolean hot = pointerIn(row, mx, my);
+                shapes.setColor(hot ? 0.28f : 0.10f, hot ? 0.24f : 0.11f, hot ? 0.12f : 0.12f, 0.96f);
+                shapes.rect(row[0], row[1], row[2], row[3]);
+            }
+            shapes.end();
+            batch.begin();
+            for (int i = 0; i < sheetSuggestHits.size() && i < sheetSuggestNames.size(); i++) {
+                float[] row = sheetSuggestHits.get(i);
+                drawCenteredOn(font, clipToWidth(font, sheetSuggestNames.get(i), row[2] - 16f),
+                        row[0] + row[2] / 2f, row[1] + row[3] / 2f, GOLD);
+            }
+            batch.end();
+        }
+    }
+
     /** Minus, the assigned number, and plus along the bottom of each picture. */
     private void drawAmountControls(BattlefieldLive.Pic pic, HandLayout.Pose[] poses) {
         shapes.begin(ShapeRenderer.ShapeType.Filled);
@@ -9057,15 +9253,15 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
         Texture tex = textureFor(tile.name);
         if (tile.dim) batch.setColor(0.45f, 0.45f, 0.45f, 0.55f);
         else batch.setColor(Color.WHITE);
-        if (tex != null) drawTex(tex, pose.cx, pose.cy, pose.w, pose.h, 0f);
+        if (tex != null) drawTex(tex, pose.cx, pose.cy, pose.w, pose.h, pose.rotationDeg);
         else {
             batch.setColor(tile.dim ? 0.2f : 0.34f, tile.dim ? 0.2f : 0.35f, tile.dim ? 0.22f : 0.38f, tile.dim ? 0.55f : 1f);
-            drawTex(pixel(), pose.cx, pose.cy, pose.w, pose.h, 0f);
+            drawTex(pixel(), pose.cx, pose.cy, pose.w, pose.h, pose.rotationDeg);
         }
         batch.setColor(Color.WHITE);
         if (tile.dim) {
             batch.setColor(0f, 0f, 0f, 0.45f);
-            drawTex(pixel(), pose.cx, pose.cy, pose.w, pose.h, 0f);
+            drawTex(pixel(), pose.cx, pose.cy, pose.w, pose.h, pose.rotationDeg);
             batch.setColor(Color.WHITE);
         }
         if (tile.picked || tile.hit) drawCardBorder(pose.cx, pose.cy, pose.w, pose.h, 1f, GOLD);
@@ -9398,6 +9594,7 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
      */
     private void drawSheetPreview(float w, float h) {
         if (cardZoom || draggingSheet || draggingOrder || orderGrip >= 0) return;
+        if (libraryBrowseOpen()) return;
         if (!liveReady() || !live.cardSheetOpen()) return;
         BattlefieldLive.Pic pic = live.picture();
         if (pic == null || pic.sheet.isEmpty()) return;

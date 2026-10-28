@@ -6,7 +6,9 @@ import forge.item.PaperCard;
 import forge.itemmanager.SFilterUtil;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 
@@ -3315,6 +3317,13 @@ public final class BattlefieldLayout {
     public static final float CHOICE_SEARCH_H = 32f;
     public static final float CHOICE_SEARCH_GAP = 8f;
     public static final float CHOICE_ALL_W = 56f;
+    /** Library tutor overlay. Focus card is the grown-hand face so name, art, and text read. */
+    public static final float BROWSE_SEARCH_H = 36f;
+    public static final float BROWSE_SEARCH_W = 420f;
+    public static final float BROWSE_SUGGEST_H = 28f;
+    public static final int BROWSE_SUGGEST_MAX = 8;
+    /** Neighbour step as a fraction of the focus card width. Peek, do not tile. */
+    public static final float BROWSE_STEP_FRAC = 0.42f;
 
     /** Real choice list, sitting just above the hand. Not a bar across the middle of the board. */
     public static HandLayout.Pose choicePanel(float windowW, float windowH, int rows) {
@@ -3657,6 +3666,140 @@ public final class BattlefieldLayout {
             if (Math.abs(px - pose.cx) <= pose.w / 2f && Math.abs(py - pose.cy) <= pose.h / 2f) return i;
         }
         return -1;
+    }
+
+    /**
+     * Cover-flow for a library search. {@code scrollX} is the focused card index
+     * (fractional). The centre card is full-face; neighbours lean and shrink.
+     */
+    public static HandLayout.Pose[] libraryBrowsePoses(float windowW, float windowH, int count, float scrollX) {
+        if (count <= 0) return new HandLayout.Pose[0];
+        float safeW = Math.max(windowW, 1f);
+        float safeH = Math.max(windowH, 1f);
+        float[] box = libraryBrowseCardBox(safeW, safeH);
+        float focusH = box[2];
+        float focusW = focusH * HandLayout.CARD_ASPECT;
+        float step = focusW * BROWSE_STEP_FRAC;
+        float midX = box[0];
+        float midY = box[1];
+        HandLayout.Pose[] poses = new HandLayout.Pose[count];
+        for (int i = 0; i < count; i++) {
+            float d = i - scrollX;
+            float ad = Math.abs(d);
+            float t = 1f / (1f + ad * 0.85f);
+            float scale = 0.56f + 0.44f * t * t;
+            float ch = focusH * scale;
+            float cw = focusW * scale;
+            float rot = Math.max(-16f, Math.min(16f, d * -9f));
+            float x = midX + d * step;
+            float y = midY - (1f - scale) * focusH * 0.06f;
+            poses[i] = new HandLayout.Pose(x, y, cw, ch, rot, scale);
+        }
+        return poses;
+    }
+
+    /**
+     * Centre x, centre y, focus height. Leaves the top search box and the
+     * right Confirm column clear.
+     */
+    public static float[] libraryBrowseCardBox(float windowW, float windowH) {
+        float safeW = Math.max(windowW, 1f);
+        float safeH = Math.max(windowH, 1f);
+        float right = CLUSTER_MARGIN + ACTION_COL_W + 8f;
+        float midX = (safeW - right) * 0.5f;
+        float top = safeH - 16f - BROWSE_SEARCH_H - 12f;
+        float bottom = 20f;
+        float avail = Math.max(80f, top - bottom);
+        float focusH = Math.min(HandLayout.HOVER_RAISED_HEIGHT_FRAC * safeH, avail - 16f);
+        float midY = bottom + avail * 0.5f;
+        return new float[] { midX, midY, focusH };
+    }
+
+    public static float libraryBrowseStep(float windowH) {
+        float focusH = HandLayout.HOVER_RAISED_HEIGHT_FRAC * Math.max(windowH, 1f);
+        return focusH * HandLayout.CARD_ASPECT * BROWSE_STEP_FRAC;
+    }
+
+    public static float libraryBrowseScrollMax(int count) {
+        return Math.max(0f, count - 1);
+    }
+
+    /** Frontmost overlapping card wins so a neighbour peek is still clickable. */
+    public static int libraryBrowseIndex(float windowW, float windowH, int count, float scrollX,
+            float px, float py) {
+        HandLayout.Pose[] poses = libraryBrowsePoses(windowW, windowH, count, scrollX);
+        if (poses.length == 0) return -1;
+        Integer[] order = new Integer[poses.length];
+        for (int i = 0; i < poses.length; i++) order[i] = i;
+        Arrays.sort(order, (a, b) -> Float.compare(Math.abs(a - scrollX), Math.abs(b - scrollX)));
+        for (int i : order) {
+            HandLayout.Pose pose = poses[i];
+            if (Math.abs(px - pose.cx) <= pose.w / 2f && Math.abs(py - pose.cy) <= pose.h / 2f) return i;
+        }
+        return -1;
+    }
+
+    public static float[] libraryBrowseSearchRect(float windowW, float windowH) {
+        float safeW = Math.max(windowW, 1f);
+        float safeH = Math.max(windowH, 1f);
+        float bw = Math.min(BROWSE_SEARCH_W, Math.max(180f, safeW * 0.42f));
+        float x = (safeW - CLUSTER_MARGIN - ACTION_COL_W - 8f) * 0.5f - bw / 2f;
+        if (x < 16f) x = 16f;
+        float y = safeH - 16f - BROWSE_SEARCH_H;
+        return new float[] { x, y, bw, BROWSE_SEARCH_H };
+    }
+
+    public static float[][] libraryBrowseSuggestRects(float windowW, float windowH, int count) {
+        int n = Math.max(0, Math.min(BROWSE_SUGGEST_MAX, count));
+        float[] search = libraryBrowseSearchRect(windowW, windowH);
+        float[][] out = new float[n][];
+        float y = search[1] - 4f;
+        for (int i = 0; i < n; i++) {
+            y -= BROWSE_SUGGEST_H;
+            out[i] = new float[] { search[0], y, search[2], BROWSE_SUGGEST_H };
+            y -= 2f;
+        }
+        return out;
+    }
+
+    /** Sheet indices whose printed names contain the query. Blank query keeps every card. */
+    public static List<Integer> libraryBrowseVisible(List<String> names, String query) {
+        List<Integer> out = new ArrayList<>();
+        if (names == null) return out;
+        String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        for (int i = 0; i < names.size(); i++) {
+            String name = names.get(i);
+            if (name == null) continue;
+            if (q.isEmpty() || name.toLowerCase(Locale.ROOT).contains(q)) out.add(i);
+        }
+        return out;
+    }
+
+    /**
+     * Unique printed names from this sheet that match the typed prefix first,
+     * then a contains match. Deck / library order, not Scryfall.
+     */
+    public static List<String> libraryBrowseSuggest(List<String> names, String query, int limit) {
+        List<String> out = new ArrayList<>();
+        if (names == null || limit <= 0) return out;
+        String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        if (q.isEmpty()) return out;
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        for (String name : names) {
+            if (name == null || name.isBlank()) continue;
+            if (name.toLowerCase(Locale.ROOT).startsWith(q)) seen.add(name);
+        }
+        for (String name : names) {
+            if (name == null || name.isBlank() || seen.contains(name)) continue;
+            if (name.toLowerCase(Locale.ROOT).contains(q)) seen.add(name);
+        }
+        int n = 0;
+        for (String name : seen) {
+            if (n >= limit) break;
+            out.add(name);
+            n++;
+        }
+        return out;
     }
 
     /** Hover line beside a chip. Not a card over the table. */
