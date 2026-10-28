@@ -684,7 +684,10 @@ public final class BattlefieldLive {
      * goes through {@link #seatController()} like Resolve / Pass.
      */
     void endTurn() {
-        if (blockOtherHumanWalk("endTurn")) return;
+        if (otherHumanHasTheTurn() && topStackId() == 0) {
+            landTrace("endTurn BLOCK otherHuman " + phaseShort() + " " + turnLine());
+            return;
+        }
         Input input = humanInput();
         if (input instanceof InputPassPriority) {
             pressCancel();
@@ -1095,11 +1098,11 @@ public final class BattlefieldLive {
     }
 
     /**
-     * Her empty-stack window is not his Pass. Show a wait label so he does
-     * not click OK / End Turn out of habit and walk her turn.
+     * Her Main, empty stack, and he has nothing to say. Hide Pass so a habit
+     * click does not walk her land. Upkeep / draw / combat still auto-pass.
      */
     String otherHumanWaitLabel() {
-        if (!otherHumanEmptyPriority()) return null;
+        if (!otherHumanProtectMain()) return null;
         if (choice != null || xAsk != null || choosingTarget()) return null;
         if (cardSheetOpen() || pickSheetOpen() || modeSheetOpen() || listSheetActive()) return null;
         if (pregameChoice() || attackingNow() || blockingNow()) return null;
@@ -4646,32 +4649,72 @@ public final class BattlefieldLive {
         }
     }
 
+    /** Tiny's Main 1 / Main 2 on this host window. */
+    private boolean otherHumanMainPhase() {
+        if (!otherHumanHasTheTurn()) return false;
+        GameView view = gui == null ? null : gui.getGameView();
+        if (view == null) return false;
+        try {
+            PhaseType phase = view.getPhase();
+            return phase == PhaseType.MAIN1 || phase == PhaseType.MAIN2;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
     /**
-     * Tiny's empty-stack window. Host empty-pass / Pass / skip here walks her
-     * phase. A real NAP with something on the stack is not this.
+     * Host wait on her Main: empty stack and this seat has no instant / flash.
+     * Empty upkeep, draw, and combat still auto-pass. A real stack NAP is not this.
      */
-    private boolean otherHumanEmptyPriority() {
-        return otherHumanHasTheTurn() && topStackId() == 0;
+    private boolean otherHumanProtectMain() {
+        if (!otherHumanMainPhase()) return false;
+        if (topStackId() != 0) return false;
+        return !heCanRespondNow() && !livePlayableNow();
     }
 
     /**
      * Stack is up and this seat can answer, or she already passed and it is
-     * a real NAP. Empty-stack priority on her turn is not that.
+     * a real NAP. Empty-stack Main is not that.
      */
     private boolean mayAnswerOtherHumanPriority() {
         if (!otherHumanHasTheTurn()) return false;
-        if (topStackId() == 0) return false;
+        if (topStackId() == 0) return heCanRespondNow() || livePlayableNow();
         return heCanRespondNow() || livePlayableNow() || thisSeatHoldsPriority();
     }
 
-    /** Habit Pass / End Turn / auto-OK that would walk her empty-stack turn. */
+    /** Habit Pass / OK that would walk her Main land or spell. */
     private boolean blockOtherHumanWalk(String via) {
-        if (!otherHumanEmptyPriority()) return false;
+        if (!otherHumanProtectMain()) return false;
         if (choice != null || xAsk != null || choosingTarget()) return false;
         if (cardSheetOpen() || pickSheetOpen() || modeSheetOpen() || listSheetActive()) return false;
         if (pregameChoice() || attackingNow() || blockingNow()) return false;
-        landTrace(via + " BLOCK otherHuman empty-stack " + turnLine());
+        landTrace(via + " BLOCK otherHuman " + phaseShort() + " " + turnLine());
         return true;
+    }
+
+    private String phaseShort() {
+        try {
+            GameView view = gui == null ? null : gui.getGameView();
+            PhaseType phase = view == null ? null : view.getPhase();
+            if (phase == null) return "?";
+            return switch (phase) {
+                case UPKEEP -> "UP";
+                case DRAW -> "DR";
+                case MAIN1 -> "MAIN1";
+                case COMBAT_BEGIN -> "CB";
+                case COMBAT_DECLARE_ATTACKERS -> "DA";
+                case COMBAT_DECLARE_BLOCKERS -> "DB";
+                case COMBAT_FIRST_STRIKE_DAMAGE -> "FSD";
+                case COMBAT_DAMAGE -> "CD";
+                case COMBAT_END -> "CE";
+                case MAIN2 -> "MAIN2";
+                case END_OF_TURN -> "EOT";
+                case CLEANUP -> "CL";
+                default -> phase.name();
+            };
+        } catch (RuntimeException ignored) {
+            return "?";
+        }
     }
 
     /**
@@ -4698,7 +4741,7 @@ public final class BattlefieldLive {
      * InputPassPriority on a shared host GUI does not.
      */
     private boolean thisSeatMayAutoYield() {
-        if (otherHumanEmptyPriority()) return false;
+        if (otherHumanProtectMain()) return false;
         if (discardAsk(gui == null ? null : gui.prompt)) return false;
         if (landPlayBusy()) return false;
         if (choice != null && !passChoice()) return false;
@@ -4711,12 +4754,12 @@ public final class BattlefieldLive {
         if (input instanceof InputSelectEntitiesFromList<?> list && discardList(list)) return false;
         if (input == null) {
             if (!joinerSeat() || gui == null) return false;
-            if (ownMainPhase() || mainWithLand() || livePlayableNow()) return false;
+            if (ownMainPhase() && (mainWithLand() || livePlayableNow())) return false;
             if (gui.isCombatDeclareAttackersInput() || gui.isCombatDeclareBlockersInput()) return true;
             return thisSeatHoldsPriority();
         }
         if (thisSeatHoldsPriority()) {
-            if (joinerSeat() && (ownMainPhase() || mainWithLand() || livePlayableNow())) return false;
+            if (joinerSeat() && ownMainPhase() && (mainWithLand() || livePlayableNow())) return false;
             return true;
         }
         if (!(input instanceof InputPassPriority || input instanceof InputAttack || input instanceof InputBlock)) {
@@ -4727,7 +4770,6 @@ public final class BattlefieldLive {
 
     private void considerStackPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
-        if (otherHumanEmptyPriority()) return;
         if (otherHumanHasTheTurn() && (heCanRespondNow() || livePlayableNow())) return;
         if (!thisSeatMayAutoYield()) return;
         if (landPlayBusy()) return;
@@ -4790,10 +4832,10 @@ public final class BattlefieldLive {
             }
             rememberEmptyPassKey(input);
             String prompt = gui.prompt == null ? "" : gui.prompt;
-            if (otherHumanEmptyPriority()) {
+            if (otherHumanProtectMain()) {
                 if (!emptyPassSent) {
                     emptyPassSent = true;
-                    landTrace("emptyPass BLOCK otherHuman empty-stack " + turnLine()
+                    landTrace("emptyPass BLOCK otherHuman " + phaseShort() + " " + turnLine()
                             + " prompt=[" + prompt + "]");
                 }
                 return;
@@ -4803,10 +4845,10 @@ public final class BattlefieldLive {
             if (kind == SeatPrompt.OTHER) return;
             if (heCanRespondNow() || livePlayableNow() || localHasAvailableActions()) return;
             if (kind == SeatPrompt.PASS && mainWithLand()) return;
-            if (kind == SeatPrompt.PASS && joinerSeat() && ownMainPhase()) return;
-            if (kind == SeatPrompt.PASS && joinerSeat() && input == null
+            if (kind == SeatPrompt.PASS && joinerSeat() && ownMainPhase()
                     && (mainWithLand() || livePlayableNow())) {
-                landTrace("emptyPass BLOCK join playable " + turnLine() + " prompt=[" + prompt + "]");
+                landTrace("emptyPass BLOCK join playable " + phaseShort() + " " + turnLine()
+                        + " prompt=[" + prompt + "]");
                 return;
             }
             if (asksSomething(prompt)) return;
@@ -4822,7 +4864,8 @@ public final class BattlefieldLive {
                 clickOk = true;
             } else if (kind == SeatPrompt.PASS) {
                 emptyPassSent = true;
-                landTrace("emptyPass SEND " + turnLine() + " prompt=[" + prompt + "]");
+                landTrace("emptyPass SEND " + phaseShort() + " " + turnLine()
+                        + " prompt=[" + prompt + "]");
                 if (input instanceof InputPassPriority current) {
                     pass = current;
                 } else {
@@ -8470,11 +8513,11 @@ public final class BattlefieldLive {
                     + " on=" + enable1 + "/" + enable2 + " " + turnLine());
             if (otherHumanHasTheTurn() && enable1 && passLikeLabel(label1)) {
                 if (mayAnswerOtherHumanPriority()) {
-                    landTrace("updateButtons OFFER otherHuman NAP " + label1 + "/" + label2
-                            + " " + turnLine());
-                } else {
-                    landTrace("updateButtons HIDE otherHuman Pass " + label1 + "/" + label2
-                            + " " + turnLine());
+                    landTrace("updateButtons OFFER otherHuman NAP " + phaseShort() + " "
+                            + label1 + "/" + label2 + " " + turnLine());
+                } else if (otherHumanProtectMain()) {
+                    landTrace("updateButtons HIDE otherHuman Pass " + phaseShort() + " "
+                            + label1 + "/" + label2 + " " + turnLine());
                 }
             }
             okLabel = label1 == null ? "OK" : label1;
