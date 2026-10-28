@@ -890,36 +890,15 @@ public final class BattlefieldLayout {
     }
 
     /**
-     * Modest artifact / enchantment row for this seat. Near that player's
-     * permanents (under the creature bed), not beside the life widget.
+     * Cropped A/E tiles for this seat: to the right of the life widget, not
+     * in the land bed. Emblems stay the small row beside life.
      */
     public static FieldBox aePocket(float windowW, float windowH, Side side) {
-        float safeW = Math.max(windowW, 1f);
-        float safeH = Math.max(windowH, 1f);
-        boolean you = side != Side.OPPONENT;
-        float tileH = boardTileHeight(safeH);
-        float left = creatureBedLeft(safeW);
-        WidgetBox life = edgeLifeBox(safeW, safeH, you ? StripOwner.YOU : StripOwner.ENEMY);
-        float right = you
-                ? life.x - life.w / 2f - 8f
-                : Math.min(life.x - life.w / 2f - 8f, planeswalkerPocketRight(safeW));
-        if (right < left + 48f) right = left + 48f;
-        float bottom;
-        float top;
-        if (you) {
-            bottom = yourBoardOuterY(safeH);
-            top = Math.min(yourCreatureOuter(safeH), bottom + tileH + 8f);
-        } else {
-            float outer = creatureOuterEdge(safeH, Side.OPPONENT);
-            top = outer;
-            bottom = Math.max(halfInner(safeH, side) + 8f, top - tileH - 8f);
-        }
-        if (top < bottom + 28f) {
-            float mid = (top + bottom) * 0.5f;
-            bottom = mid - 14f;
-            top = mid + 14f;
-        }
-        return new FieldBox(left, right, bottom, top);
+        return aePocket(windowW, windowH, side, Float.NaN);
+    }
+
+    public static FieldBox aePocket(float windowW, float windowH, Side side, float occupiedRight) {
+        return lifeRightBand(windowW, windowH, side, occupiedRight);
     }
 
     /**
@@ -984,7 +963,7 @@ public final class BattlefieldLayout {
 
     /**
      * Saga, Class, Case, Room, curse, and any other enchantment that is not an
-     * Aura tucked on a host. Shared A/E row near that player's permanents.
+     * Aura tucked on a host. Shared cropped A/E row to the right of life.
      */
     public static FieldBox enchantmentPocket(float windowW, float windowH, Side side) {
         return enchantmentPocket(windowW, windowH, side, false, Float.NaN);
@@ -992,11 +971,11 @@ public final class BattlefieldLayout {
 
     public static FieldBox enchantmentPocket(float windowW, float windowH, Side side,
                                               boolean shareWithArtifacts, float occupiedRight) {
-        return aePocket(windowW, windowH, side);
+        return aePocket(windowW, windowH, side, occupiedRight);
     }
 
     /**
-     * Loose non-token artifacts. Same A/E row as standalone enchantments.
+     * Loose non-token artifacts. Same cropped A/E row as standalone enchantments.
      */
     public static FieldBox artifactPocket(float windowW, float windowH, Side side) {
         return artifactPocket(windowW, windowH, side, false, Float.NaN);
@@ -1004,7 +983,7 @@ public final class BattlefieldLayout {
 
     public static FieldBox artifactPocket(float windowW, float windowH, Side side,
                                            boolean shareWithEnchantments, float occupiedRight) {
-        return aePocket(windowW, windowH, side);
+        return aePocket(windowW, windowH, side, occupiedRight);
     }
 
     /**

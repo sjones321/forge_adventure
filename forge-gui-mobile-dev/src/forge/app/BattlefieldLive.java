@@ -2533,30 +2533,59 @@ public final class BattlefieldLive {
     }
 
     /**
-     * Any seat's GameView hand ids changed: mulligan, T1 draw, land, bounce, or
-     * cleanup discard. Drop leftover first-seven tiles before the discard picker
-     * can send those stale ids.
+     * Wipe this window's fan only when the seven is replaced (mulligan).
+     * A T1 draw, land, or discard keeps the tiles that are still in hand —
+     * wiping on every id change dropped Arcane Signet from a half-updated
+     * snapshot, then the real card came back on the next GameView.
+     * The other seat drawing must never wipe this fan.
      */
     private void noteHandIdChange() {
         PlayerView you = gui == null ? null : gui.human;
         PlayerView them = gui == null ? null : gui.opponent;
         String yours = handIdKey(you);
         String theirs = handIdKey(them);
-        boolean changed = false;
         if (!lastYourHandKey.isEmpty() && !yours.equals(lastYourHandKey)) {
-            changed = true;
             if (you != null) openingLandSort.remove(you.getId());
             paintedPlayer = Integer.MIN_VALUE;
             paintedKey = "";
             paintedIds = new int[0];
+            if (handIdsReplaced(lastYourHandKey, yours)) {
+                pendingHandWipe = true;
+                landTrace("handWipe REPLACE " + lastYourHandKey + " -> " + yours);
+            } else {
+                landTrace("handKeep " + lastYourHandKey + " -> " + yours);
+            }
         }
         if (!lastTheirHandKey.isEmpty() && !theirs.equals(lastTheirHandKey)) {
-            changed = true;
             if (them != null) openingLandSort.remove(them.getId());
         }
-        if (changed) pendingHandWipe = true;
         lastYourHandKey = yours;
         lastTheirHandKey = theirs;
+    }
+
+    /** True when almost none of the old ids remain — a new seven, not a draw. */
+    private static boolean handIdsReplaced(String before, String after) {
+        Set<Integer> old = parseHandIds(before);
+        Set<Integer> next = parseHandIds(after);
+        if (old.isEmpty() || next.isEmpty()) return false;
+        int shared = 0;
+        for (int id : old) {
+            if (next.contains(id)) shared++;
+        }
+        return shared * 2 < Math.min(old.size(), next.size());
+    }
+
+    private static Set<Integer> parseHandIds(String key) {
+        Set<Integer> ids = new HashSet<>();
+        if (key == null || key.isEmpty() || key.startsWith("n:")) return ids;
+        for (String part : key.split(",")) {
+            if (part == null || part.isBlank()) continue;
+            try {
+                ids.add(Integer.parseInt(part.trim()));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return ids;
     }
 
     private static String handIdKey(PlayerView seat) {
@@ -4566,7 +4595,7 @@ public final class BattlefieldLive {
         return thisSeatHoldsPriority();
     }
 
-    /** Tiny's turn on this host window. Ash does not count. Do not empty-pass her steps. */
+    /** Tiny's turn on this host window. Ash does not count. */
     private boolean otherHumanHasTheTurn() {
         GameView view = gui == null ? null : gui.getGameView();
         if (view == null) return false;
@@ -4574,6 +4603,22 @@ public final class BattlefieldLive {
             PlayerView turn = view.getPlayerTurn();
             if (turn == null || isThisSeat(turn)) return false;
             return !playerIsComputer(turn);
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * Tiny's Main 1 / Main 2. Host must not empty-pass that window so she can
+     * play a land. Upkeep, draw, combat, and EOT still auto-pass this seat.
+     */
+    private boolean otherHumanMainPhase() {
+        if (!otherHumanHasTheTurn()) return false;
+        GameView view = gui == null ? null : gui.getGameView();
+        if (view == null) return false;
+        try {
+            PhaseType phase = view.getPhase();
+            return phase == PhaseType.MAIN1 || phase == PhaseType.MAIN2;
         } catch (RuntimeException ignored) {
             return false;
         }
@@ -4603,7 +4648,7 @@ public final class BattlefieldLive {
      * InputPassPriority on a shared host GUI does not.
      */
     private boolean thisSeatMayAutoYield() {
-        if (otherHumanHasTheTurn()) return false;
+        if (otherHumanMainPhase()) return false;
         if (discardAsk(gui == null ? null : gui.prompt)) return false;
         if (landPlayBusy()) return false;
         if (choice != null && !passChoice()) return false;
@@ -4627,7 +4672,7 @@ public final class BattlefieldLive {
 
     private void considerStackPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
-        if (otherHumanHasTheTurn()) return;
+        if (otherHumanMainPhase()) return;
         if (!thisSeatMayAutoYield()) return;
         if (landPlayBusy()) return;
         boolean click = false;
@@ -4673,9 +4718,7 @@ public final class BattlefieldLive {
      */
     private void considerEmptyPass() {
         if (!matchRunning() || pregameChoice() || resyncBlocksAutoPass()) return;
-        if (otherHumanHasTheTurn()) {
-            return;
-        }
+        if (otherHumanMainPhase()) return;
         if (!thisSeatMayAutoYield()) return;
         if (landPlayBusy()) return;
         InputPassPriority pass = null;

@@ -2398,7 +2398,8 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
             return;
         }
         if (which == BattlefieldLayout.Row.ENCHANTMENT || which == BattlefieldLayout.Row.OTHER) {
-            BattlefieldLayout.FieldBox pocket = BattlefieldLayout.aePocket(w, h, side);
+            BattlefieldLayout.FieldBox pocket = BattlefieldLayout.aePocket(
+                    w, h, side, lifeRightOccupied(w, h, you));
             int n = piles.size();
             for (int g = 0; g < n; g++) {
                 List<Perm> pile = piles.get(g);
@@ -8913,7 +8914,8 @@ public final class BattlefieldPrototype extends ApplicationAdapter {
     private HandLayout.Pose boardRowCenter(float w, float h, Perm perm) {
         if (perm != null && (perm.kind == BattlefieldLayout.Kind.ENCHANTMENT
                 || (perm.kind == BattlefieldLayout.Kind.ARTIFACT && !perm.token))) {
-            BattlefieldLayout.FieldBox pocket = BattlefieldLayout.aePocket(w, h, BattlefieldLayout.Side.YOU);
+            BattlefieldLayout.FieldBox pocket = BattlefieldLayout.aePocket(
+                    w, h, BattlefieldLayout.Side.YOU, lifeRightOccupied(w, h, true));
             float ch = Math.max(8f, Math.min(BattlefieldLayout.boardTileHeight(h), pocket.height() - 4f));
             return new HandLayout.Pose(pocket.cx(), pocket.cy(), ch * HandLayout.CARD_ASPECT, ch, 0f, 1f);
         }
