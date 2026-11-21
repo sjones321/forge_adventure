@@ -118,19 +118,24 @@ We stop renovating Forge Adventure. We build **our own game** on top of Forge's 
 
 ## Stages (each one is playable; build in this order)
 
-1. **Walk a plane.** Port the WG1 generator to Java; generate the home plane at real scale with chunks; render
-   it with the Ninja Adventure tiles; walk around with collision; minimap; save and reload position and seed.
+*Steve's feel-order and layer/dungeon notes: `World-Playable-Path.md`. Hand town templates: `Towns.md`.*
+
+1. **Walk a plane (see scale).** Port the WG1 generator to Java; generate the home plane at real scale with chunks;
+   stamp **Havenbrook** and the **approved plains market town** (other biomes keep procedural footprints until
+   their template is approved); Ninja Adventure tiles; walk with collision; minimap; save and reload.
 2. **Fight.** Enemies roam the plane; touching one starts a duel through the DuelBridge (Forge's match screen);
    win gives a reward screen (gold, cards from the current set), lose sends you back. Starting deck from a sealed
    pool like today.
-3. **Gather and travel.** Trees and rocks gatherable by skill (chunk deltas), inventory, a first crafting station;
-   travel stations and the travel map.
-4. **Towns, seamless.** Havenbrook and other towns built into the plane at real size; shops, inn, townsfolk working
-   in the open world.
-5. **Layers.** Ladders, the underground layer with digging, then the sky layer with platforms.
+3. **Malleable gather and travel.** Trees and rocks yield (chunk deltas), inventory, a first crafting station;
+   travel stations and the travel map. Resource placement: `Resources-Redesign-Draft.md` (surface here).
+4. **Town life.** Doors open to **instanced interiors**; shops, inn, townsfolk in the seamless town. More biome
+   templates as each is approved (`Towns.md`).
+5. **Base building, then layers.** Place structures on the plane (deltas). Then ladders into underground/sky:
+   **high vertical headroom** for big bases/automation; **prebuilt caverns and tunnels** (not only player digouts);
+   digging connects into them. Dungeons are **instanced procgen maps** with a tileset per biome (see the path doc).
 6. **Planes.** Planar gates and the first set plane from a PlaneProfile, tied to seasons.
 7. **Port our systems** as each becomes needed: seasons, life-cycle economy, skills, collecting, fortress,
-   achievements. (Some come earlier when a stage needs them, e.g. skills in stage 3.)
+   achievements. (Some come earlier when a stage needs them, e.g. skills with gather.)
 
 ## Rules for building it
 

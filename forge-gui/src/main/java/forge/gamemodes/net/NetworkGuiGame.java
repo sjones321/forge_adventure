@@ -32,6 +32,24 @@ import java.util.*;
  */
 public abstract class NetworkGuiGame extends AbstractGuiGame implements IHasForgeLog {
 
+    /**
+     * True from a checksum-mismatch {@link #requestFullStateResync} until the
+     * next {@link #setGameView} lands the full state. Battlefield auto-pass
+     * must not fire while this is set.
+     */
+    private volatile boolean clientResyncPending;
+
+    /** Checksum recovery is in flight. Do not auto-pass on a stale playable set. */
+    public boolean isResyncPending() {
+        return clientResyncPending;
+    }
+
+    @Override
+    public void setGameView(final GameView gameView) {
+        super.setGameView(gameView);
+        clientResyncPending = false;
+    }
+
     @Override
     public void applyDelta(DeltaPacket packet) {
         if (packet == null || getGameView() == null) {
@@ -575,6 +593,7 @@ public abstract class NetworkGuiGame extends AbstractGuiGame implements IHasForg
     }
 
     private void requestFullStateResync() {
+        clientResyncPending = true;
         IGameController controller = getGameController();
         if (controller != null) {
             netLog.warn("[DeltaSync] Requesting full state resync from server");

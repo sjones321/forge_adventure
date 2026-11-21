@@ -1,6 +1,7 @@
 package forge.game.card;
 
 import forge.card.CardStateName;
+import forge.card.CardType;
 import forge.card.CardTypeView;
 import forge.card.ColorSet;
 import forge.card.MagicColor;
@@ -95,24 +96,19 @@ public class CardStateProperty {
             final String svar = property.substring(8);
             return cardState.hasSVar(svar);
         } else if (property.equals("ChosenType")) {
-            String chosenType = source.getChosenType();
-            if (chosenType.startsWith("Non")) {
-                return !type.hasStringType(StringUtils.capitalize(chosenType.substring(3)));
-            }
-            return type.hasStringType(chosenType);
+            return matchesChosenType(type, source.getChosenType(), cardState.getCard());
         } else if (property.equals("IsNotChosenType")) {
-            return !type.hasStringType(source.getChosenType());
+            return !matchesChosenType(type, source.getChosenType(), cardState.getCard());
         } else if (property.equals("ChosenType2")) {
-            return type.hasStringType(source.getChosenType2());
+            return matchesChosenType(type, source.getChosenType2(), cardState.getCard());
         } else if (property.equals("NotedType")) {
-            boolean found = false;
+            Card card = cardState.getCard();
             for (String s : source.getNotedTypes()) {
-                if (type.hasStringType(s)) {
-                    found = true;
-                    break;
+                if (matchesChosenType(type, s, card)) {
+                    return true;
                 }
             }
-            return found;
+            return false;
         } else if (property.startsWith("hasAbility")) {
             String valid = property.substring(11);
             for (final SpellAbility sa : cardState.getSpellAbilities()) {
@@ -153,5 +149,44 @@ public class CardStateProperty {
         }
 
         return type.hasStringType(property);
+    }
+
+    /**
+     * Chosen creature type, including changeling / all-creature-types.
+     * Deck filters may skip changelings when listing types; in play they match every type.
+     */
+    static boolean matchesChosenType(CardTypeView type, String chosenType, Card card) {
+        if (chosenType == null || chosenType.isEmpty()) {
+            return false;
+        }
+        if (chosenType.startsWith("Non")) {
+            return !matchesPositiveType(type, StringUtils.capitalize(chosenType.substring(3)), card);
+        }
+        return matchesPositiveType(type, chosenType, card);
+    }
+
+    private static boolean matchesPositiveType(CardTypeView type, String chosenType, Card card) {
+        if (type != null && type.hasStringType(chosenType)) {
+            return true;
+        }
+        CardTypeView live = card == null ? null : card.getType();
+        if (live != null && live != type && live.hasStringType(chosenType)) {
+            return true;
+        }
+        if (!CardType.isACreatureType(chosenType)) {
+            return false;
+        }
+        CardTypeView creatureType = live != null ? live : type;
+        boolean creature = creatureType != null && (creatureType.isCreature() || creatureType.isKindred());
+        if (!creature && card != null) {
+            creature = card.isCreature() || card.isKindred();
+        }
+        if (!creature) {
+            return false;
+        }
+        if (creatureType != null && creatureType.hasAllCreatureTypes()) {
+            return true;
+        }
+        return card != null && card.hasKeyword("Changeling");
     }
 }

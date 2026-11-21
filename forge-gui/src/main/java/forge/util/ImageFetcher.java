@@ -100,7 +100,10 @@ public abstract class ImageFetcher {
     }
 
     public void fetchImage(final String imageKey, final Callback callback) {
-        FThreads.assertExecutedByEdt(true);
+        // The battlefield headless GUI has no EDT. Desktop still checks.
+        if (FThreads.isGuiThread()) {
+            FThreads.assertExecutedByEdt(true);
+        }
 
         if (FModel.getPreferences().getPrefBoolean(ForgePreferences.FPref.UI_DISABLE_CARD_IMAGES))
             return;
